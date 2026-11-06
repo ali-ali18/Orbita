@@ -1,13 +1,14 @@
 export { LetterAvatar, OrbitaAvatar } from "./Avatar.tsx";
+export { BankLogo } from "./BankLogo.tsx";
 export { BottomBar } from "./BottomBar.tsx";
 export { Button } from "./Button.tsx";
-export { Card } from "./Card.tsx";
+export { Card, CardHeader } from "./Card.tsx";
 export { Chip } from "./Chip.tsx";
 export { ConfirmDialog } from "./ConfirmDialog.tsx";
 export { ErrorState } from "./ErrorState.tsx";
 export { familyByWeight, geistFonts } from "./fonts.ts";
-export { Icon, type IconName } from "./Icon.tsx";
 export { IconButton } from "./IconButton.tsx";
+export { Icon, type IconName } from "./icons.tsx";
 export { ListRow } from "./ListRow.tsx";
 export { type BarPart, ProgressBar } from "./ProgressBar.tsx";
 export { Screen } from "./Screen.tsx";

@@ -24,6 +24,9 @@ import { RecentCard } from "./RecentCard.tsx";
 import { InstallmentsSquare, InvoiceSquare } from "./SquareCards.tsx";
 import { currentInvoiceMonth } from "./summary-model.ts";
 
+/** Espaço no fim da rolagem para a barra de baixo flutuante não cobrir o último card (120 no Figma). */
+const SCROLL_BOTTOM_INSET = 120;
+
 /** Ainda não há perfil/nome no servidor; o avatar usa "V" de "Você" e a saudação vai sem nome. */
 const PROFILE_INITIAL = "V";
 
@@ -46,7 +49,7 @@ export function HomeScreen() {
 	const cardsQ = useCards();
 	const accountsQ = useAccounts();
 	const installmentsQ = useInstallments();
-	const recentQ = useRecentTransactions(5);
+	const recentQ = useRecentTransactions(4);
 
 	const cards = toLoadable(cardsQ);
 	const firstCard = cards.phase === "ready" ? cards.data.cards.find((c) => c.archivedAt === null) : undefined;
@@ -65,9 +68,13 @@ export function HomeScreen() {
 	};
 
 	return (
-		<Screen footer={<BottomBar />}>
+		<Screen footer={<BottomBar />} floatingFooter>
 			<ScrollView
-				contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md }}
+				contentContainerStyle={{
+					paddingHorizontal: spacing.lg,
+					paddingBottom: SCROLL_BOTTOM_INSET,
+					gap: spacing.md,
+				}}
 				refreshControl={
 					<RefreshControl
 						refreshing={refreshing}
@@ -85,11 +92,11 @@ export function HomeScreen() {
 					onAvatarLongPress={() => setConfirmingSignOut(true)}
 				/>
 
-				<View style={{ marginTop: spacing.lg, marginBottom: spacing.sm }}>
+				<View style={{ paddingTop: spacing.md, paddingBottom: spacing.sm, gap: spacing.xs }}>
 					<Text variant="greeting" accessibilityRole="header">
 						{greetingFor(hour)}
 					</Text>
-					<Text variant="caption" tone="secondary" style={{ marginTop: spacing.xs }}>
+					<Text variant="caption" tone="secondary">
 						{monthName(month)}
 						{summary.phase === "ready" && summary.data.safeToSpend
 							? ` · faltam ${pluralDays(summary.data.safeToSpend.remainingDays)}`
@@ -111,6 +118,7 @@ export function HomeScreen() {
 				<RecentCard
 					state={toLoadable(recentQ)}
 					accounts={accountsQ.data?.accounts ?? []}
+					categories={categoriesQ.data?.categories ?? []}
 					cards={cardsQ.data?.cards ?? []}
 					today={today}
 					hidden={hidden}

@@ -1,5 +1,6 @@
 import type { Cents, LocalDate } from "@orbita/core";
 import { relativeDate } from "../../lib/format.ts";
+import type { IconName } from "../../ui/index.ts";
 
 export interface TransactionLike {
 	kind: "expense" | "income" | "transfer" | "card_payment" | "refund";
@@ -46,4 +47,34 @@ export function transactionCaption(
 /** Letras do círculo quando não há logo: primeira letra do nome, maiúscula. */
 export function initialOf(name: string): string {
 	return name.trim().charAt(0).toLocaleUpperCase("pt-BR") || "·";
+}
+
+/**
+ * Ícone do lançamento (Figma: "Icone/<nome>" dentro do disco de 44). Despesa segue a categoria pelo
+ * slug; categoria fora da lista cai em "cartao". Entrada é "grafico", Pix/transferência é "pix".
+ */
+export function transactionIcon(kind: TransactionLike["kind"], categorySlug: string | undefined): IconName {
+	switch (kind) {
+		case "income":
+			return "grafico";
+		case "transfer":
+			return "pix";
+		case "card_payment":
+			return "cartao";
+		case "refund":
+			return "desfazer";
+		case "expense":
+			switch (categorySlug) {
+				case "mercado":
+					return "mercado";
+				case "delivery":
+					return "comida";
+				case "transporte":
+					return "transporte";
+				case "assinaturas":
+					return "assinatura";
+				default:
+					return "cartao";
+			}
+	}
 }
