@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { banks, chart, chartSeries, colors, defaultCategoryColor, spacing, text } from "./index.ts";
+import { banks, chart, chartSeries, colors, defaultCategoryColor, layout, spacing, text } from "./index.ts";
 
 const HEX = /^#[0-9A-F]{6}$/;
 
@@ -24,6 +24,11 @@ describe("tokens", () => {
 		const v = Object.values(spacing);
 		expect(v).toEqual([...v].sort((a, b) => a - b));
 		for (const n of v) expect(n % 4).toBe(0);
+	});
+
+	it("as medidas de layout são múltiplos de 4 e o alvo de toque tem pelo menos 44", () => {
+		for (const n of Object.values(layout)) expect(n % 4).toBe(0);
+		expect(layout.touchTarget).toBeGreaterThanOrEqual(44);
 	});
 
 	it("a altura de linha nunca é menor que o tamanho da fonte", () => {
