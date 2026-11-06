@@ -1,5 +1,3 @@
-// Fase 1: só o pareamento de aparelhos. Os modelos financeiros entram com o engine.
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -32,4 +30,207 @@ model PairingCode {
 
   @@index([usedAt, expiresAt])
   @@map("pairing_codes")
+}
+
+// ---------------------------------------------------------------------------
+// Dados financeiros. App de um usuário só (sem userId). Dinheiro em centavos (Int).
+// Regras que o Prisma não expressa (valor > 0, dias 1..31, formatos) são CHECKs na migração.
+// ---------------------------------------------------------------------------
+
+enum AccountKind {
+  checking
+  savings
+  wallet
+  investment
+
+  @@map("account_kind")
+}
+
+enum ClosingRule {
+  closing_day_next
+  closing_day_included
+
+  @@map("closing_rule")
+}
+
+enum TransactionKind {
+  expense
+  income
+  transfer
+  card_payment
+  refund
+
+  @@map("transaction_kind")
+}
+
+enum TransactionStatus {
+  pending
+  confirmed
+
+  @@map("transaction_status")
+}
+
+enum TransactionSource {
+  manual
+  notification
+  pluggy
+  receipt
+  import
+
+  @@map("transaction_source")
+}
+
+enum RecurrenceKind {
+  expense
+  income
+
+  @@map("recurrence_kind")
+}
+
+/// Conta (corrente, poupança, carteira, investimento).
+model Account {
+  id         String      @id @default(cuid())
+  name       String
+  kind       AccountKind
+  /// ISPB do banco, para achar o logo.
+  bankCode   String?     @map("bank_code")
+  archivedAt DateTime?   @map("archived_at")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  transactions  Transaction[] @relation("TransactionAccount")
+  counterpartOf Transaction[] @relation("TransactionCounterpart")
+  recurrences   Recurrence[]
+
+  @@map("accounts")
+}
+
+model Card {
+  id          String      @id @default(cuid())
+  name        String
+  bankCode    String?     @map("bank_code")
+  last4       String?
+  closingDay  Int         @map("closing_day")
+  dueDay      Int         @map("due_day")
+  closingRule ClosingRule @default(closing_day_next) @map("closing_rule")
+  limitCents  Int?        @map("limit_cents")
+  archivedAt  DateTime?   @map("archived_at")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  transactions Transaction[]
+  recurrences  Recurrence[]
+
+  @@map("cards")
+}
+
+model Category {
+  id         String    @id @default(cuid())
+  slug       String    @unique
+  name       String
+  /// Índice em `chart.series` (0..4); nulo = cinza "outros".
+  chartSlot  Int?      @map("chart_slot")
+  isSystem   Boolean   @default(false) @map("is_system")
+  archivedAt DateTime? @map("archived_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  transactions Transaction[]
+  recurrences  Recurrence[]
+
+  @@map("categories")
+}
+
+model Transaction {
+  id                   String            @id @default(cuid())
+  kind                 TransactionKind
+  /// Sempre positivo; o sentido vem de `kind`.
+  amountCents          Int               @map("amount_cents")
+  date                 DateTime          @db.Date
+  description          String
+  categoryId           String?           @map("category_id")
+  accountId            String?           @map("account_id")
+  cardId               String?           @map("card_id")
+  /// Destino de uma transferência.
+  counterpartAccountId String?           @map("counterpart_account_id")
+  refundOfId           String?           @map("refund_of_id")
+  budgetMonth          String            @map("budget_month") @db.Char(7)
+  /// Só compra/estorno no cartão.
+  invoiceMonth         String?           @map("invoice_month") @db.Char(7)
+  installmentGroupId   String?           @map("installment_group_id")
+  installmentNumber    Int?              @map("installment_number")
+  installmentCount     Int?              @map("installment_count")
+  status               TransactionStatus @default(confirmed)
+  source               TransactionSource @default(manual)
+  externalId           String?           @map("external_id")
+  note                 String?
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+  /// Exclusão lógica: some de listas e buscas, mas segura o (source, externalId).
+  deletedAt            DateTime?         @map("deleted_at")
+
+  category           Category?          @relation(fields: [categoryId], references: [id])
+  account            Account?           @relation("TransactionAccount", fields: [accountId], references: [id])
+  card               Card?              @relation(fields: [cardId], references: [id])
+  counterpartAccount Account?           @relation("TransactionCounterpart", fields: [counterpartAccountId], references: [id])
+  refundOf           Transaction?       @relation("Refund", fields: [refundOfId], references: [id])
+  refunds            Transaction[]      @relation("Refund")
+  posting            RecurrencePosting?
+
+  @@unique([source, externalId])
+  @@index([budgetMonth])
+  @@index([cardId, invoiceMonth])
+  @@index([date])
+  @@index([status])
+  @@index([installmentGroupId])
+  @@map("transactions")
+}
+
+model Recurrence {
+  id          String         @id @default(cuid())
+  kind        RecurrenceKind
+  name        String
+  amountCents Int            @map("amount_cents")
+  dayOfMonth  Int            @map("day_of_month")
+  startDate   DateTime       @map("start_date") @db.Date
+  endDate     DateTime?      @map("end_date") @db.Date
+  categoryId  String?        @map("category_id")
+  accountId   String?        @map("account_id")
+  cardId      String?        @map("card_id")
+  archivedAt  DateTime?      @map("archived_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  category Category?           @relation(fields: [categoryId], references: [id])
+  account  Account?            @relation(fields: [accountId], references: [id])
+  card     Card?               @relation(fields: [cardId], references: [id])
+  postings RecurrencePosting[]
+
+  @@map("recurrences")
+}
+
+/// A recorrência já virou lançamento neste mês. Um por (recorrência, mês).
+model RecurrencePosting {
+  id            String   @id @default(cuid())
+  recurrenceId  String   @map("recurrence_id")
+  month         String   @db.Char(7)
+  transactionId String   @unique @map("transaction_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  recurrence  Recurrence  @relation(fields: [recurrenceId], references: [id])
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  @@unique([recurrenceId, month])
+  @@map("recurrence_postings")
+}
+
+model Budget {
+  id         String   @id @default(cuid())
+  /// "total" ou o id de uma categoria.
+  scope      String   @unique
+  limitCents Int      @map("limit_cents")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("budgets")
 }
