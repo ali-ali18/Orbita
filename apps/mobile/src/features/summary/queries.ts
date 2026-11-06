@@ -1,8 +1,7 @@
-import { monthOf } from "@orbita/core";
 import { useQuery } from "@tanstack/react-query";
 import { call } from "../../lib/api.ts";
+import { useClock } from "../../lib/clock.tsx";
 import { useSession } from "../../lib/session.tsx";
-import { todayLocal } from "../../lib/today.ts";
 
 /** Todas as consultas da tela Início. A chave inclui o servidor: trocar de servidor não reaproveita dados. */
 function useScoped() {
@@ -51,7 +50,7 @@ export function useInvoice(cardId: string | undefined, month: string | undefined
 
 export function useInstallments() {
 	const { api, baseUrl } = useScoped();
-	const from = monthOf(todayLocal());
+	const from = useClock().month;
 	return useQuery({
 		queryKey: [baseUrl, "installments", from],
 		queryFn: () => call(() => api.v1.installments.$get({ query: { from } })),

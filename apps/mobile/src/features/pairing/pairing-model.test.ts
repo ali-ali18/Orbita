@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCodeComplete, normalizeServerUrl, sanitizeCode } from "./pairing-model.ts";
+import { isCodeComplete, isPrivateIPv4, normalizeServerUrl, sanitizeCode } from "./pairing-model.ts";
 
 describe("normalizeServerUrl", () => {
 	it("aceita https, tira a barra e o caminho", () => {
@@ -27,6 +27,41 @@ describe("normalizeServerUrl", () => {
 	it("recusa vazio e host sem ponto", () => {
 		expect(normalizeServerUrl("   ")).toMatchObject({ ok: false });
 		expect(normalizeServerUrl("https://servidor")).toMatchObject({ ok: false });
+	});
+});
+
+describe("http em desenvolvimento", () => {
+	const privateHosts = [
+		"http://10.0.2.2:3700",
+		"http://10.1.2.3",
+		"http://172.16.0.5",
+		"http://172.31.255.1",
+		"http://192.168.0.10:3700",
+	];
+	it("aceita IP de rede privada só com dev ligado", () => {
+		for (const url of privateHosts) {
+			expect(normalizeServerUrl(url, { dev: true })).toMatchObject({ ok: true });
+			expect(normalizeServerUrl(url, { dev: false })).toMatchObject({ ok: false });
+			expect(normalizeServerUrl(url)).toMatchObject({ ok: false });
+		}
+	});
+	it("não confunde faixas públicas com privadas", () => {
+		for (const url of [
+			"http://172.15.0.1",
+			"http://172.32.0.1",
+			"http://192.169.0.1",
+			"http://11.0.0.1",
+			"http://10.0.0.256",
+			"http://8.8.8.8",
+		]) {
+			expect(normalizeServerUrl(url, { dev: true })).toMatchObject({ ok: false });
+		}
+		expect(isPrivateIPv4("192.168.1.1")).toBe(true);
+		expect(isPrivateIPv4("example.com")).toBe(false);
+	});
+	it("localhost continua valendo em produção; https vale sempre", () => {
+		expect(normalizeServerUrl("http://localhost:3700", { dev: false })).toMatchObject({ ok: true });
+		expect(normalizeServerUrl("https://192.168.0.10", { dev: false })).toMatchObject({ ok: true });
 	});
 });
 

@@ -6,20 +6,20 @@ export function HomeHeader({
 	initial,
 	hidden,
 	onToggleHidden,
-	onSignOut,
+	onAvatarLongPress,
 }: {
 	initial: string;
 	hidden: boolean;
 	onToggleHidden: () => void;
-	/** Toque longo no avatar: desconectar este aparelho. */
-	onSignOut: () => void;
+	/** Toque longo no avatar: pedir para desconectar este aparelho. */
+	onAvatarLongPress: () => void;
 }) {
 	return (
 		<View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
 			<Pressable
 				accessibilityRole="button"
 				accessibilityLabel="Você. Segure para desconectar este aparelho"
-				onLongPress={onSignOut}
+				onLongPress={onAvatarLongPress}
 				style={{ minWidth: 44, minHeight: 44, justifyContent: "center" }}
 			>
 				<LetterAvatar letter={initial} />

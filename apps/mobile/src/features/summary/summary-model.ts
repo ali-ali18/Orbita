@@ -1,6 +1,6 @@
 import { type Cents, daysBetween, invoiceFor, type LocalDate, type MonthKey } from "@orbita/core";
 import { banks, chart, chartSeries, colors } from "@orbita/tokens";
-import { pluralDays } from "../../lib/format.ts";
+import { percentOf, pluralDays } from "../../lib/format.ts";
 
 /*
  * Funções puras que montam o que a tela Início mostra a partir das respostas da API. Nenhuma
@@ -62,18 +62,6 @@ export function shareSegments(shares: readonly CategoryShare[]): BarSegment[] {
 	return shares.map((s) => ({ key: s.key, color: s.color, weight: s.cents }));
 }
 
-/**
- * Barra do orçamento: cada categoria colorida ocupa a sua parte do limite total e o que sobra
- * é o trilho. Gastou além do limite: a barra enche e cada parte é proporcional ao gasto.
- */
-export function budgetBarSegments(shares: readonly CategoryShare[], limitCents: Cents): BarSegment[] {
-	const spent = shares.reduce((sum, s) => sum + s.cents, 0);
-	const segments = shareSegments(shares);
-	if (limitCents > spent)
-		segments.push({ key: "remaining", color: colors.surface3, weight: limitCents - spent });
-	return segments;
-}
-
 export interface InstallmentGroupLike {
 	remainingCount: number;
 	installments: readonly { invoiceMonth: MonthKey | null; amountCents: Cents }[];
@@ -132,4 +120,62 @@ export function bankColor(bankCode: string | null): string {
 		default:
 			return banks.generic;
 	}
+}
+
+export interface HeroModel {
+	spentCents: Cents;
+	limitCents: Cents;
+	/** O que o servidor diz que dá pra gastar (já desconta as contas a vencer). Pode ser negativo. */
+	availableCents: Cents;
+	/** Contas recorrentes do mês que ainda faltam pagar. */
+	reservedCents: Cents;
+	/** O que sobra do orçamento depois do gasto e das contas a vencer (nunca negativo). */
+	freeCents: Cents;
+	percent: number;
+	/** Passou do orçamento: gasto maior que o limite (e só isso). */
+	overBudget: boolean;
+	/** Dentro do orçamento, mas as contas a vencer passam do que sobra. */
+	reserveExceeds: boolean;
+}
+
+export function heroModel(input: {
+	spentCents: Cents;
+	limitCents: Cents;
+	availableCents: Cents;
+	reservedCents: Cents;
+}): HeroModel {
+	const { spentCents, limitCents, availableCents, reservedCents } = input;
+	const overBudget = spentCents > limitCents;
+	return {
+		spentCents,
+		limitCents,
+		availableCents,
+		reservedCents,
+		freeCents: Math.max(0, limitCents - spentCents - reservedCents),
+		percent: limitCents > 0 ? percentOf(spentCents, limitCents) : spentCents > 0 ? 100 : 0,
+		overBudget,
+		reserveExceeds: !overBudget && availableCents < 0,
+	};
+}
+
+export const RESERVED_KEY = "reserved";
+export const FREE_KEY = "free";
+
+/**
+ * Barra do hero em três partes: gasto por categoria, contas a vencer (listradas) e o livre.
+ * Gastou além do limite: só o gasto, proporcional. Contas a vencer maiores que o que sobra
+ * ocupam só o que sobra (a barra nunca passa de 100%).
+ */
+export function heroBarParts(
+	shares: readonly CategoryShare[],
+	hero: Pick<HeroModel, "spentCents" | "limitCents" | "reservedCents" | "freeCents">,
+): (BarSegment & { striped?: boolean })[] {
+	const parts: (BarSegment & { striped?: boolean })[] = shareSegments(shares);
+	if (hero.spentCents > hero.limitCents) return parts;
+	const room = Math.max(0, hero.limitCents - hero.spentCents);
+	const reserved = Math.min(hero.reservedCents, room);
+	if (reserved > 0)
+		parts.push({ key: RESERVED_KEY, color: colors.surface3, weight: reserved, striped: true });
+	if (hero.freeCents > 0) parts.push({ key: FREE_KEY, color: colors.surface3, weight: hero.freeCents });
+	return parts;
 }

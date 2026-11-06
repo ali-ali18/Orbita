@@ -8,6 +8,8 @@ export interface ButtonProps {
 	variant?: "primary" | "secondary";
 	disabled?: boolean;
 	loading?: boolean;
+	/** Versão baixa (44) para dentro de cards. */
+	compact?: boolean;
 	style?: StyleProp<ViewStyle>;
 }
 
@@ -18,6 +20,7 @@ export function Button({
 	variant = "primary",
 	disabled = false,
 	loading = false,
+	compact = false,
 	style,
 }: ButtonProps) {
 	const primary = variant === "primary";
@@ -31,9 +34,9 @@ export function Button({
 			onPress={onPress}
 			style={({ pressed }) => [
 				{
-					minHeight: 52,
+					minHeight: compact ? 44 : 52,
 					borderRadius: radius.pill,
-					paddingHorizontal: spacing.xxl,
+					paddingHorizontal: compact ? spacing.xl : spacing.xxl,
 					alignItems: "center",
 					justifyContent: "center",
 					backgroundColor: primary ? colors.accent : colors.surface2,

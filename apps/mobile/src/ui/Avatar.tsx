@@ -1,4 +1,4 @@
-import { colors } from "@orbita/tokens";
+import { colors, radius } from "@orbita/tokens";
 import { View } from "react-native";
 import Svg, { Circle, Rect } from "react-native-svg";
 import { Text } from "./Text.tsx";
@@ -29,7 +29,7 @@ export function LetterAvatar({
 			style={{
 				width: size,
 				height: size,
-				borderRadius: size / 2,
+				borderRadius: radius.pill,
 				backgroundColor: color,
 				alignItems: "center",
 				justifyContent: "center",

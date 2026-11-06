@@ -16,7 +16,7 @@ export function Chip({
 		<View
 			style={{
 				paddingHorizontal: spacing.md,
-				paddingVertical: spacing.xs + 2,
+				paddingVertical: spacing.sm,
 				borderRadius: radius.pill,
 				backgroundColor: active ? colors.accent : colors.surface2,
 			}}

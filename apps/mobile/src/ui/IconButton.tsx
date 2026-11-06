@@ -1,4 +1,4 @@
-import { colors } from "@orbita/tokens";
+import { colors, radius } from "@orbita/tokens";
 import { Pressable } from "react-native";
 import { Icon, type IconName } from "./Icon.tsx";
 
@@ -28,7 +28,7 @@ export function IconButton({
 			style={({ pressed }) => ({
 				width: size,
 				height: size,
-				borderRadius: size / 2,
+				borderRadius: radius.pill,
 				alignItems: "center",
 				justifyContent: "center",
 				backgroundColor: filled ? colors.accent : colors.surface,

@@ -1,11 +1,14 @@
-import { chart, chartSeries, colors } from "@orbita/tokens";
+import { chart, chartSeries } from "@orbita/tokens";
 import { describe, expect, it } from "vitest";
 import {
-	budgetBarSegments,
 	categoryShares,
 	currentInvoiceMonth,
+	FREE_KEY,
+	heroBarParts,
+	heroModel,
 	installmentsOverview,
 	invoiceCaption,
+	RESERVED_KEY,
 } from "./summary-model.ts";
 import { amountSignMode, initialOf, signedAmount, transactionCaption } from "./transaction-model.ts";
 
@@ -30,19 +33,6 @@ describe("categoryShares", () => {
 	it("ignora categoria sem gasto e devolve vazio sem dados", () => {
 		expect(categoryShares({ mer: 0 }, categories)).toEqual([]);
 		expect(categoryShares({}, categories)).toEqual([]);
-	});
-});
-
-describe("budgetBarSegments", () => {
-	const shares = categoryShares({ mer: 60000, del: 40000 }, categories);
-	it("completa o limite com o trilho", () => {
-		const bar = budgetBarSegments(shares, 300000);
-		expect(bar.map((s) => s.weight)).toEqual([60000, 40000, 200000]);
-		expect(bar.at(-1)?.color).toBe(colors.surface3);
-	});
-	it("estourou o limite: sem trilho", () => {
-		const bar = budgetBarSegments(shares, 80000);
-		expect(bar.map((s) => s.key)).toEqual(["slot-0", "slot-1"]);
 	});
 });
 
@@ -118,5 +108,92 @@ describe("lançamentos", () => {
 		expect(amountSignMode("income")).toBe("always");
 		expect(initialOf("  inter")).toBe("I");
 		expect(initialOf("")).toBe("·");
+	});
+});
+
+describe("heroModel", () => {
+	it("dentro do orçamento e com sobra", () => {
+		const h = heroModel({
+			spentCents: 209120,
+			limitCents: 300000,
+			availableCents: 80890,
+			reservedCents: 9990,
+		});
+		expect(h).toMatchObject({ overBudget: false, reserveExceeds: false, freeCents: 80890, percent: 70 });
+	});
+	it("contas a vencer passam do que sobra, mas gasto <= limite: reserva, não estouro", () => {
+		const h = heroModel({
+			spentCents: 209120,
+			limitCents: 300000,
+			availableCents: -4110,
+			reservedCents: 95000,
+		});
+		expect(h).toMatchObject({ overBudget: false, reserveExceeds: true, freeCents: 0, percent: 70 });
+	});
+	it("gasto exatamente no limite não é estouro", () => {
+		expect(
+			heroModel({ spentCents: 300000, limitCents: 300000, availableCents: 0, reservedCents: 0 }).overBudget,
+		).toBe(false);
+	});
+	it("gasto maior que o limite é estouro (e não 'reserva')", () => {
+		const h = heroModel({
+			spentCents: 310000,
+			limitCents: 300000,
+			availableCents: -20000,
+			reservedCents: 10000,
+		});
+		expect(h).toMatchObject({ overBudget: true, reserveExceeds: false });
+	});
+	it("limite zero: percentual 100 só se houve gasto", () => {
+		expect(heroModel({ spentCents: 0, limitCents: 0, availableCents: 0, reservedCents: 0 }).percent).toBe(0);
+		expect(heroModel({ spentCents: 5, limitCents: 0, availableCents: -5, reservedCents: 0 }).percent).toBe(
+			100,
+		);
+	});
+});
+
+describe("heroBarParts", () => {
+	const shares = categoryShares({ mer: 60000, del: 40000 }, categories);
+	it("três partes: gasto, contas a vencer listradas e livre", () => {
+		const hero = heroModel({
+			spentCents: 100000,
+			limitCents: 300000,
+			availableCents: 150000,
+			reservedCents: 50000,
+		});
+		const parts = heroBarParts(shares, hero);
+		expect(parts.map((p) => p.key)).toEqual(["slot-0", "slot-1", RESERVED_KEY, FREE_KEY]);
+		expect(parts.map((p) => p.weight)).toEqual([60000, 40000, 50000, 150000]);
+		expect(parts.find((p) => p.key === RESERVED_KEY)?.striped).toBe(true);
+		expect(parts.reduce((s, p) => s + p.weight, 0)).toBe(300000);
+	});
+	it("reserva maior que a sobra: ocupa só a sobra e não há livre", () => {
+		const hero = heroModel({
+			spentCents: 100000,
+			limitCents: 300000,
+			availableCents: -50000,
+			reservedCents: 250000,
+		});
+		const parts = heroBarParts(shares, hero);
+		expect(parts.map((p) => p.key)).toEqual(["slot-0", "slot-1", RESERVED_KEY]);
+		expect(parts.reduce((s, p) => s + p.weight, 0)).toBe(300000);
+	});
+	it("estouro: só o gasto", () => {
+		const hero = heroModel({
+			spentCents: 100000,
+			limitCents: 80000,
+			availableCents: -20000,
+			reservedCents: 5000,
+		});
+		expect(heroBarParts(shares, hero).map((p) => p.key)).toEqual(["slot-0", "slot-1"]);
+	});
+	it("sem contas a vencer: sem parte listrada", () => {
+		const hero = heroModel({
+			spentCents: 100000,
+			limitCents: 300000,
+			availableCents: 200000,
+			reservedCents: 0,
+		});
+		expect(heroBarParts(shares, hero).some((p) => p.key === RESERVED_KEY)).toBe(false);
 	});
 });

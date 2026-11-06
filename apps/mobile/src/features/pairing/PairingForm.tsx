@@ -1,4 +1,3 @@
-import { PAIRING_CODE_LENGTH } from "@orbita/shared";
 import { colors, radius, spacing, text as typography } from "@orbita/tokens";
 import { useMutation } from "@tanstack/react-query";
 import * as Device from "expo-device";
@@ -28,7 +27,7 @@ function Label({ text }: { text: string }) {
 
 export function PairingForm() {
 	const router = useRouter();
-	const { signIn } = useSession();
+	const { signIn, notice, clearNotice } = useSession();
 	const [serverText, setServerText] = useState("");
 	const [code, setCode] = useState("");
 	const [message, setMessage] = useState<string | null>(null);
@@ -43,7 +42,7 @@ export function PairingForm() {
 
 	const claim = useMutation({
 		mutationFn: async () => {
-			const server = normalizeServerUrl(serverText);
+			const server = normalizeServerUrl(serverText, { dev: __DEV__ });
 			if (!server.ok) throw new ApiError(server.message, null, "endereco_invalido");
 			const result = await claimPairing(server.url, code, deviceName());
 			await signIn(server.url, result.token);
@@ -57,6 +56,7 @@ export function PairingForm() {
 	const submit = () => {
 		if (!ready || claim.isPending) return;
 		setMessage(null);
+		clearNotice();
 		claim.mutate();
 	};
 
@@ -111,6 +111,22 @@ export function PairingForm() {
 					<Label text="Código de pareamento" />
 					<CodeInput value={code} onChange={setCode} onSubmit={submit} />
 
+					{notice ? (
+						<View
+							accessibilityRole="alert"
+							style={{
+								marginTop: spacing.xl,
+								padding: spacing.lg,
+								borderRadius: radius.inner,
+								borderWidth: 1,
+								borderColor: colors.border,
+								backgroundColor: colors.surface,
+							}}
+						>
+							<Text variant="body">{notice}</Text>
+						</View>
+					) : null}
+
 					{message ? (
 						<View
 							accessibilityRole="alert"
@@ -141,13 +157,18 @@ export function PairingForm() {
 						}}
 					>
 						<Text variant="caption" tone="secondary">
-							Na sua VPS, rode:
+							Onde pegar o código
 						</Text>
-						<Text variant="caption">docker compose up -d</Text>
-						<Text variant="caption">docker compose exec api parear</Text>
+						<Text variant="caption">
+							O código aparece sozinho nos logs do servidor. No Dokploy: aba Logs do serviço api.
+						</Text>
 						<Text variant="caption" tone="secondary" style={{ marginTop: spacing.xs }}>
-							O código aparece no terminal e vale por 10 minutos. São {PAIRING_CODE_LENGTH} números.
+							Vale por 10 minutos e é renovado automaticamente enquanto nenhum aparelho estiver conectado.
 						</Text>
+						<Text variant="caption" tone="secondary" style={{ marginTop: spacing.sm }}>
+							Numa VPS com terminal, também dá para gerar um na hora:
+						</Text>
+						<Text variant="caption">docker compose exec api parear</Text>
 					</View>
 				</ScrollView>
 			</KeyboardAvoidingView>
