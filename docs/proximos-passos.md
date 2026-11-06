@@ -18,26 +18,15 @@ Onde o projeto está e como continuar, em ordem. Escrito para uma sessão nova (
 | 8. Agentes de IA                                                      | ⏳                     |
 | 9. Metas, assinaturas e demais agentes                                | ⏳                     |
 
-## Fase 3 — Dados no banco (`feat/dados`)
+## Fase 3 — Dados no banco ✅
 
-Só `packages/db`, `packages/shared` e o lockfile. Single-user (sem `userId`).
+Feito no PR #17. Resumo do que a API pode usar (`packages/db`, fábricas `createPrismaStores(db)` / `createMemoryStores()`):
 
-**Modelos Prisma** (migração `dados_financeiros`, colunas em snake_case, ids cuid):
-
-- `Account`: name, kind (`checking|savings|wallet|investment`), bankCode? (ISPB, para o logo), archivedAt, timestamps.
-- `Card`: name, bankCode?, last4? (4 dígitos), closingDay e dueDay (1..31), closingRule (`closing_day_next|closing_day_included`, padrão next), limitCents?, archivedAt.
-- `Category`: slug único, name, chartSlot? (0..4 = índice de `chart.series`; null = cinza), isSystem, archivedAt. Padrões idempotentes: mercado(0), delivery(1), transporte(2), assinaturas(3), lazer(4), moradia, saude, transferencias (sistema), outros (sistema).
-- `Transaction`: kind (`expense|income|transfer|card_payment|refund`), amountCents > 0, date (`@db.Date`), description, categoryId?, accountId?, cardId?, counterpartAccountId? (destino da transferência), refundOfId?, budgetMonth (`YYYY-MM`), invoiceMonth? (só cartão), installmentGroupId?/Number?/Count?, status (`pending|confirmed`), source (`manual|notification|pluggy|receipt|import`), externalId? com único (source, externalId), note?, timestamps, deletedAt (soft delete).
-- `Recurrence`: kind (`expense|income`), name, amountCents, dayOfMonth, startDate, endDate?, categoryId?, accountId?, cardId?, archivedAt.
-- `RecurrencePosting`: recurrenceId + month únicos, transactionId único. É isso que o engine usa para não contar recorrência duas vezes.
-- `Budget`: scope único (`"total"` ou id da categoria), limitCents ≥ 0.
-- CHECKs no SQL da migração para o que o Prisma não expressa (valor > 0, dias 1..31, last4, formato de mês).
-
-**Stores** (interface + Prisma + memória + **um** teste de contrato por domínio, como `AuthStore`): `AccountStore`, `CardStore`, `CategoryStore`, `TransactionStore` (criar, grupo de parcelas atômico, `upsertByExternal` idempotente, atualizar, soft delete de item e de grupo, listar por `budgetMonth`, por fatura, pendentes, recentes com cursor), `RecurrenceStore` (+ `recordPosting` único por mês), `BudgetStore`. Fábricas `createPrismaStores(db)` e `createMemoryStores()`.
-
-Invariantes validadas nas duas implementações, com o mesmo erro: despesa/receita/estorno com exatamente uma origem (conta **ou** cartão); cartão exige `invoiceMonth`; transferência exige contas diferentes; pagamento de fatura exige conta e cartão; estorno aponta para despesa existente. Datas voltam idênticas (`2024-02-29`, `2026-12-31`), sem deslocamento de fuso.
-
-Se a sessão anterior deixou o branch incompleto: rode `pnpm typecheck` e os testes, termine o que faltar seguindo esta lista.
+- Stores: `accounts`, `cards` (`getConfig` → formato do `invoiceFor`), `categories` (`ensureDefaults`), `transactions`, `recurrences`, `budgets`, `auth`.
+- `transactions`: `create`, `createInstallmentGroup` (única forma de criar parcelas), `upsertByExternal` (idempotente; não ressuscita apagado), `update` (trava a linha; recalcula `budgetMonth` se a data mudar e ele era o padrão; **quem muda a data de compra no cartão manda o `invoiceMonth` novo**, calculado com o engine), `softDelete` (apaga também os estornos e libera o registro da recorrência), `softDeleteGroup`, `get`, `getMany` (compras originais de estornos de outros meses), `listByBudgetMonth`, `listByInvoice`, `listPending({limit})`, `listRecent` (cursor), `listInstallmentGroups`.
+- `recurrences.recordPosting` exige lançamento vivo, do mesmo tipo e do mesmo mês.
+- Regras: conta, cartão ou categoria arquivados não recebem lançamento novo; recorrência tem conta **ou** cartão; erros são `DataError` (`invalid`, `not_found`, `duplicate`, `bad_reference`) com mensagem em pt-BR — a API deve traduzir para 400/404/409.
+- Testes do banco rodam no fuso de São Paulo; concorrência testada no Postgres.
 
 ## Fase 4 — API das finanças
 
