@@ -42,6 +42,10 @@ Feito no PR #18. O app consome (todas exigem `Authorization: Bearer <token do ap
 
 ## Fase 5 — App mobile (Expo, Android primeiro)
 
+**Etapa 1 pronta (PR #19):** `apps/mobile` com Expo SDK 58 (pnpm sem hoisting), telas **Conectar** e **Início**, sair revogando no servidor, estados de carregando/erro por card, reserva das contas a vencer na barra do orçamento. Prévias em `docs/previews/app/` (geradas com a API real + Playwright no navegador, 390×844). Ainda não testado em Android de verdade.
+
+**Próximas etapas do app:** Novo lançamento (à vista e parcelado) → Atividades → Cartão (Faturas, Parcelas, Limites) → Assinaturas → Configurações → build do APK no GitHub Actions. Sempre gerar prévias e mandar link.
+
 - `apps/mobile` com Expo Router, TanStack Query e cliente tipado do Hono (`hono/client` com o `AppType` da API).
 - Camadas: `ui/` (primitivos só com tokens de `@orbita/tokens`), `features/` (por assunto), `app/` (telas). Ver `docs/styleguide.md`.
 - Ordem das telas (Figma: https://www.figma.com/design/QLtix4jvalHCosZrhuKFtW): pareamento (endereço + código; token no `expo-secure-store`; biometria) → Início → Atividades → Novo lançamento → Cartão (Faturas, Parcelas, Limites) → Assinaturas → Configurações.
