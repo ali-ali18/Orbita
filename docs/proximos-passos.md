@@ -6,17 +6,17 @@ Onde o projeto está e como continuar, em ordem. Escrito para uma sessão nova (
 
 ## Status
 
-| Fase                                                                  | Situação               |
-| --------------------------------------------------------------------- | ---------------------- |
-| 1. Fundação (monorepo, pareamento, segurança, Docker, CI/CD)          | ✅ PR #1               |
-| 2. Engine financeiro (`packages/core`)                                | ✅ PR #16              |
-| 3. Dados no banco (modelos + stores)                                  | ✅ PR #17              |
-| 4. API das finanças                                                   | 🚧 `feat/api-financas` |
-| 5. App mobile (Expo)                                                  | ⏳                     |
-| 6. Ingestão (notificação, comprovante, extrato, conciliação, Revisão) | ⏳                     |
-| 7. Meu Pluggy                                                         | ⏳                     |
-| 8. Agentes de IA                                                      | ⏳                     |
-| 9. Metas, assinaturas e demais agentes                                | ⏳                     |
+| Fase                                                                  | Situação      |
+| --------------------------------------------------------------------- | ------------- |
+| 1. Fundação (monorepo, pareamento, segurança, Docker, CI/CD)          | ✅ PR #1      |
+| 2. Engine financeiro (`packages/core`)                                | ✅ PR #16     |
+| 3. Dados no banco (modelos + stores)                                  | ✅ PR #17     |
+| 4. API das finanças                                                   | ✅ PR #18     |
+| 5. App mobile (Expo)                                                  | 🚧 `feat/app` |
+| 6. Ingestão (notificação, comprovante, extrato, conciliação, Revisão) | ⏳            |
+| 7. Meu Pluggy                                                         | ⏳            |
+| 8. Agentes de IA                                                      | ⏳            |
+| 9. Metas, assinaturas e demais agentes                                | ⏳            |
 
 ## Fase 3 — Dados no banco ✅
 
@@ -28,18 +28,17 @@ Feito no PR #17. Resumo do que a API pode usar (`packages/db`, fábricas `create
 - Regras: conta, cartão ou categoria arquivados não recebem lançamento novo; recorrência tem conta **ou** cartão; erros são `DataError` (`invalid`, `not_found`, `duplicate`, `bad_reference`) com mensagem em pt-BR — a API deve traduzir para 400/404/409.
 - Testes do banco rodam no fuso de São Paulo; concorrência testada no Postgres.
 
-## Fase 4 — API das finanças
+## Fase 4 — API das finanças ✅
 
-Um módulo por assunto em `apps/api/src/modules/` (todas as rotas exigem aparelho pareado; corpo validado com os schemas de `packages/shared`):
+Feito no PR #18. O app consome (todas exigem `Authorization: Bearer <token do aparelho>`; erros no formato `{ error: { code, message } }`, mensagem pronta em pt-BR):
 
-- `accounts`, `cards`, `categories`, `budgets`, `recurrences`: CRUD.
-- `transactions`: criar (à vista ou parcelado: usar `installmentSchedule` do engine para gerar o grupo com `invoiceMonth` e `budgetMonth` de cada parcela), editar, apagar (parcelado apaga o grupo), listar recentes e por mês, confirmar pendente.
-- `summary`: para a tela Início, sempre calculado pelo engine:
-  - `GET /v1/summary/month?month=YYYY-MM` → `summarizeMonth`, orçamento por categoria (`budgetStatus`), `safeToSpend` (com recorrências pendentes via `pendingInMonth` + postings) e `projectMonth`.
-  - `GET /v1/cards/:id/invoices/:month` → fatura (datas, status, composição: compras, assinaturas, parcelas, estornos) e lançamentos.
-  - `GET /v1/installments?from=YYYY-MM` → grupos ativos com pago/falta (`remainingInstallments`).
-- `recurrences/:id/post` → cria o lançamento do mês e registra o posting.
-- Testes: rotas com stores em memória; um teste de "dá pra gastar" ponta a ponta com aluguel já lançado (não pode contar duas vezes).
+- Cadastros: `/v1/accounts`, `/v1/cards`, `/v1/categories`, `/v1/recurrences` (GET lista, GET `/:id`, POST, PATCH `/:id`, DELETE `/:id` arquiva); `/v1/budgets` (GET, PUT `{scope, limitCents}`, DELETE `/:scope`).
+- Lançamentos: POST `/v1/transactions` (fatura calculada no servidor), POST `/v1/transactions/installments` (`{cardId, totalCents, count 2..72, date, description, categoryId?}`), PATCH/DELETE `/:id` (`?scope=group` apaga o parcelamento; parcela não muda cartão/data/valor), POST `/:id/confirm`, GET `/v1/transactions?cursor&limit`, `/month/:month`, `/pending?limit` (`{transactions, hasMore}`), `/:id`.
+- Tela Início: GET `/v1/summary/:month` → gasto por categoria, orçamentos, `safeToSpend` e `projection` (só mês atual; senão `null`), recorrências pendentes, crédito de estorno.
+- Cartão: GET `/v1/cards/:id/invoices/:month` (datas, situação, composição via `invoiceComposition` do engine, lançamentos); GET `/v1/installments?from=YYYY-MM` (pago/falta).
+- Recorrência: POST `/v1/recurrences/:id/post` `{month, date?, amountCents?}` (atômico; 409 se já lançada).
+- Tipos: o cliente usa `AppType` de `apps/api/src/app.ts` com `hono/client`, e os schemas de `packages/shared` (`finance-api.ts`).
+- Regras visíveis ao usuário: datas de 1900 a 2199; receita só em conta (cashback = estorno); status e mês de orçamento nunca vêm do cliente.
 
 ## Fase 5 — App mobile (Expo, Android primeiro)
 
