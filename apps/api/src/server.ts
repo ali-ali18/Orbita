@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { createDb, createPrismaAuthStore } from "@orbita/db";
+import { createDb, createPrismaStores } from "@orbita/db";
 import { deriveKey } from "@orbita/security";
 import { createApp } from "./app.ts";
 import { loadEnv } from "./env.ts";
@@ -8,14 +8,16 @@ import { createPairingGuard } from "./modules/pairing/guard.ts";
 
 const env = loadEnv();
 const db = createDb(env.DATABASE_URL);
+const stores = createPrismaStores(db);
+await stores.categories.ensureDefaults();
 const deps = {
-	store: createPrismaAuthStore(db),
+	store: stores.auth,
 	pairingKey: deriveKey(env.APP_SECRET, "pairing-code"),
 	now: () => new Date(),
 };
 // Uma instância só, compartilhada pela rota de claim e pelo laço automático.
 const guard = createPairingGuard(() => deps.now().getTime());
-const app = createApp({ ...deps, guard, trustedProxyHops: env.TRUSTED_PROXY_HOPS });
+const app = createApp({ ...deps, stores, guard, trustedProxyHops: env.TRUSTED_PROXY_HOPS });
 
 const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
 	console.log(`API ouvindo na porta ${info.port}`);

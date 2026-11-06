@@ -118,10 +118,15 @@ export type CategoryDto = z.infer<typeof categoryDto>;
 
 // ----------------------------------------------------------- lançamentos
 
-const descriptionSchema = z.string().trim().min(1, "Informe a descrição do lançamento.").max(DESCRIPTION_MAX);
+export const descriptionSchema = z
+	.string()
+	.trim()
+	.min(1, "Informe a descrição do lançamento.")
+	.max(DESCRIPTION_MAX);
 const noteSchema = z.string().max(NOTE_MAX, `A observação passa de ${NOTE_MAX} letras.`);
 
-const transactionFields = {
+/** Campos de um lançamento; `finance-api.ts` monta os corpos da API (sem `invoiceMonth`) a partir daqui. */
+export const transactionFields = {
 	kind: z.enum(TRANSACTION_KINDS, "Tipo de lançamento inválido."),
 	amountCents: positiveCentsSchema,
 	date: localDateSchema,
