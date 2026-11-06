@@ -41,6 +41,8 @@ Abra os **Logs** do serviço `api`. Enquanto não houver aparelho pareado, apare
 ====================================================
 ```
 
+O app Android vem de um APK baixado do GitHub: veja [`app-android.md`](app-android.md).
+
 No app, digite o endereço (`https://seu-dominio`) e o código. Depois do primeiro aparelho, o código automático para. Para parear outro aparelho, gere o convite pelo app já pareado (_Configurações → Servidor e chaves_).
 
 ### 4. Atualizar sozinho

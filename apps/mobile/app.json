@@ -9,7 +9,18 @@
 		"backgroundColor": "#000000",
 		"android": {
 			"package": "dev.orbita.app",
-			"predictiveBackGestureEnabled": false
+			"predictiveBackGestureEnabled": false,
+			"adaptiveIcon": {
+				"foregroundImage": "./assets/adaptive-icon.png",
+				"backgroundColor": "#000000"
+			},
+			"permissions": ["INTERNET"],
+			"blockedPermissions": [
+				"android.permission.SYSTEM_ALERT_WINDOW",
+				"android.permission.READ_EXTERNAL_STORAGE",
+				"android.permission.WRITE_EXTERNAL_STORAGE",
+				"android.permission.VIBRATE"
+			]
 		},
 		"web": {
 			"bundler": "metro",
@@ -19,7 +30,16 @@
 			"expo-router",
 			"expo-secure-store",
 			"expo-font",
-			["expo-splash-screen", { "backgroundColor": "#000000" }]
-		]
+			[
+				"expo-splash-screen",
+				{
+					"backgroundColor": "#000000",
+					"image": "./assets/splash-icon.png",
+					"imageWidth": 200
+				}
+			],
+			"./plugins/with-release-signing.js"
+		],
+		"icon": "./assets/icon.png"
 	}
 }
