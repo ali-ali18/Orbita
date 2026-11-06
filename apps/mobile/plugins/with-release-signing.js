@@ -1,11 +1,10 @@
 // Config plugin: assinatura do APK de release no projeto gerado pelo `expo prebuild`.
 //
-// O template do Expo assina o release com o `debug.keystore` dele (o mesmo em todo build, então
-// as atualizações instalam por cima). Aqui o `signingConfig` de release passa a ler uma chave
-// própria do ambiente, se existir, e cai no keystore do template se não existir:
+// O template do Expo assina o release com o `debug.keystore` dele, que é PÚBLICO. Aqui o release
+// passa a assinar só com o que o workflow fornece por variável de ambiente:
 //   ORBITA_KEYSTORE_FILE, ORBITA_KEYSTORE_PASSWORD, ORBITA_KEY_ALIAS, ORBITA_KEY_PASSWORD
-// Os valores chegam por variável de ambiente (o workflow decodifica o keystore em disco temporário);
-// nada de segredo é escrito no build.gradle.
+// Sem elas, o build de release FALHA (não há fallback para o keystore de debug). O build de debug
+// não é afetado. Nenhum segredo é escrito no build.gradle: ele só lê o ambiente.
 const { withAppBuildGradle } = require("expo/config-plugins");
 
 const RELEASE_SIGNING = `
@@ -15,13 +14,24 @@ const RELEASE_SIGNING = `
                 storePassword System.getenv('ORBITA_KEYSTORE_PASSWORD')
                 keyAlias System.getenv('ORBITA_KEY_ALIAS')
                 keyPassword System.getenv('ORBITA_KEY_PASSWORD')
-            } else {
-                storeFile file('debug.keystore')
-                storePassword 'android'
-                keyAlias 'androiddebugkey'
-                keyPassword 'android'
             }
         }`;
+
+// Falha cedo e com mensagem clara se alguém pedir um release sem chave.
+const REQUIRE_KEYSTORE = `
+
+// Órbita: release exige chave de assinatura fornecida pelo ambiente (sem fallback para debug).
+gradle.taskGraph.whenReady { graph ->
+    def pedeRelease = graph.allTasks.any { it.project == project && it.name.toLowerCase().contains('release') }
+    if (pedeRelease) {
+        ['ORBITA_KEYSTORE_FILE', 'ORBITA_KEYSTORE_PASSWORD', 'ORBITA_KEY_ALIAS', 'ORBITA_KEY_PASSWORD'].each {
+            if (!System.getenv(it)) {
+                throw new GradleException("Build de release sem chave de assinatura: defina \${it} (veja docs/app-android.md).")
+            }
+        }
+    }
+}
+`;
 
 function withReleaseSigning(config) {
 	return withAppBuildGradle(config, (cfg) => {
@@ -40,7 +50,7 @@ function withReleaseSigning(config) {
 				"with-release-signing: o build.gradle do template mudou; ajuste plugins/with-release-signing.js.",
 			);
 		}
-		cfg.modResults.contents = comRelease;
+		cfg.modResults.contents = comRelease + REQUIRE_KEYSTORE;
 		return cfg;
 	});
 }

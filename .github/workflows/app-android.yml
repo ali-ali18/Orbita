@@ -2,10 +2,12 @@ name: App Android
 
 # Constrói o APK do app (Expo, sem EAS).
 # - Pull request que mexe no app: só compila (prova que builda) e guarda o APK como artefato.
-#   Sem release e sem segredos.
-# - main (CI verde) ou disparo manual na main: constrói, assina e publica um GitHub Release marcado
-#   como "latest". O link estável https://github.com/ali-ali18/Orbita/releases/latest/download/orbita.apk
-#   serve sempre o APK mais novo. Veja docs/app-android.md.
+#   Assinado com uma chave DESCARTÁVEL criada no próprio job: esse APK nunca instala por cima do
+#   app do dono. Sem release e sem segredos.
+# - main (CI verde) ou disparo manual na main: constrói, assina com a chave privada (segredos
+#   ANDROID_*) e publica um GitHub Release marcado como "latest". O link estável
+#   https://github.com/ali-ali18/Orbita/releases/latest/download/orbita.apk serve sempre o APK mais
+#   novo. Veja docs/app-android.md.
 
 on:
   pull_request:
@@ -25,10 +27,11 @@ on:
 permissions:
   contents: read
 
-# Um build por vez por ref: a ordem dos runs define o versionCode. PR velho é cancelado;
-# na main nunca cancelamos um build em andamento.
+# Um build por commit e por tipo de evento. O SHA entra na chave para que um run de fork (ou de PR)
+# nunca cancele a publicação de um commit da main. PR: a chave é o número do PR, e um push novo
+# cancela o build velho do mesmo PR.
 concurrency:
-  group: app-android-${{ github.ref }}
+  group: app-android-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -36,7 +39,8 @@ env:
   # (a) CI concluído com sucesso (conclusion), disparado por push (event) e não por pull_request,
   #     no branch main (head_branch) do PRÓPRIO repositório (head_repository). `branches: [main]`
   #     sozinho também casa um PR de fork cujo branch se chama "main".
-  # (b) disparo manual, mas só a partir da main (ref).
+  # (b) disparo manual, mas só a partir da main (ref); aí o CI do commit é conferido no passo
+  #     "Conferir CI do commit".
   PUBLICAR: >-
     ${{ (github.event_name == 'workflow_run'
     && github.event.workflow_run.conclusion == 'success'
@@ -62,6 +66,8 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+      # Só para conferir o CI do commit no disparo manual.
+      actions: read
     outputs:
       version: ${{ steps.versao.outputs.version }}
       short: ${{ steps.versao.outputs.short }}
@@ -71,27 +77,45 @@ jobs:
       ORBITA_ARCHS: arm64-v8a
       # Soma ao run_number para o versionCode nunca regredir se este workflow for renomeado/recriado.
       ORBITA_VERSION_CODE_OFFSET: "1000"
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # O commit exato que o CI aprovou, não o que estiver na ponta da main agora.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+
+      # No disparo manual ninguém garantiu que o CI passou: exige uma execução "CI" bem-sucedida
+      # (push na main) para este mesmo commit antes de assinar e publicar.
+      - name: Conferir CI do commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ok="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push&branch=main&status=success" --jq '.total_count')"
+          if [ "${ok:-0}" -lt 1 ]; then
+            echo "::error::O CI não passou para o commit $SHA na main. Espere o CI ficar verde (ou rode-o) antes de publicar o app."
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: pnpm
       # RN 0.88 / Expo SDK 58 / Gradle 9.4: JDK 17 (mínimo do AGP e do Gradle).
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-      # Versões que o React Native 0.88 pede (react-native/gradle/libs.versions.toml):
-      # compileSdk 37, build-tools 37.0.0, NDK 27.1.12297006. O setup-android também aceita as licenças.
-      - uses: android-actions/setup-android@v3
+      # Instala só o básico (cmdline-tools, platform-tools) e aceita as licenças. O compileSdk, as
+      # build-tools, o NDK e o cmake que o React Native 0.88 pede são baixados pelo próprio Android
+      # Gradle Plugin com as versões exatas do projeto gerado; fixar ids aqui quebra quando o
+      # sdkmanager não conhece o nome (ex.: "platforms;android-37").
+      - uses: android-actions/setup-android@v4
         with:
-          packages: "platform-tools platforms;android-37 build-tools;37.0.0 ndk;27.1.12297006 cmake;3.22.1"
-      - uses: gradle/actions/setup-gradle@v4
+          packages: "platform-tools"
+      - uses: gradle/actions/setup-gradle@v5
       - run: pnpm install --frozen-lockfile
 
       - name: Definir versão
@@ -111,13 +135,30 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Versão $base+$short (versionCode $code)"
 
+      # PR: chave descartável, nova a cada build. O APK de PR não instala por cima do app do dono.
+      - name: Criar chave descartável (PR)
+        if: env.PUBLICAR != 'true'
+        run: |
+          pass="$(openssl rand -hex 16)"
+          echo "::add-mask::$pass"
+          keytool -genkeypair -storetype PKCS12 -keystore "$RUNNER_TEMP/orbita-pr.keystore" \
+            -alias orbita-pr -keyalg RSA -keysize 2048 -validity 2 \
+            -dname "CN=Orbita PR descartavel" -storepass "$pass" -keypass "$pass"
+          {
+            echo "ORBITA_KEYSTORE_FILE=$RUNNER_TEMP/orbita-pr.keystore"
+            echo "ORBITA_THROWAWAY_PASSWORD=$pass"
+          } >> "$GITHUB_ENV"
+
+      # main: a chave privada é obrigatória. Sem ela o job falha, a menos que o dono ligue de propósito
+      # a variável do repositório ALLOW_DEBUG_SIGNING=true (chave de debug PÚBLICA: inseguro).
       - name: Preparar chave de assinatura
         if: env.PUBLICAR == 'true'
         env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_BASE64: ${{ env.PUBLICAR == 'true' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ env.PUBLICAR == 'true' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          ANDROID_KEY_ALIAS: ${{ env.PUBLICAR == 'true' && secrets.ANDROID_KEY_ALIAS || '' }}
+          ANDROID_KEY_PASSWORD: ${{ env.PUBLICAR == 'true' && secrets.ANDROID_KEY_PASSWORD || '' }}
+          ALLOW_DEBUG_SIGNING: ${{ vars.ALLOW_DEBUG_SIGNING }}
         run: |
           if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] \
             && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
@@ -126,8 +167,12 @@ jobs:
             # Só o caminho vai para o ambiente dos próximos passos; as senhas entram direto no passo do Gradle.
             echo "ORBITA_KEYSTORE_FILE=$RUNNER_TEMP/orbita-release.keystore" >> "$GITHUB_ENV"
             echo "Assinando com a chave própria (segredos ANDROID_*)."
+          elif [ "$ALLOW_DEBUG_SIGNING" = "true" ]; then
+            echo "ORBITA_DEBUG_SIGNING=true" >> "$GITHUB_ENV"
+            echo "::warning::INSEGURO: assinando com o keystore de debug PÚBLICO do template do Expo (variável ALLOW_DEBUG_SIGNING=true). Qualquer pessoa consegue assinar um APK que o Android aceita como atualização do app. Configure os quatro segredos ANDROID_* (veja docs/app-android.md)."
           else
-            echo "::warning::Segredos ANDROID_KEYSTORE_BASE64/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD ausentes: assinando com o keystore de debug do template do Expo. Funciona e atualiza por cima, mas qualquer um pode assinar um APK com a mesma chave. Veja docs/app-android.md para trocar por uma chave privada."
+            echo "::error::Faltam segredos de assinatura (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD). Não publico um APK sem chave privada. Siga docs/app-android.md para criar a chave e cadastrar os segredos."
+            exit 1
           fi
 
       - name: Gerar projeto Android (expo prebuild)
@@ -136,13 +181,23 @@ jobs:
       - name: Compilar APK de release
         working-directory: apps/mobile/android
         env:
-          ORBITA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ORBITA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ORBITA_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Segredos só existem aqui quando é publicação; em PR resolvem para ''.
+          SEGREDO_KEYSTORE_PASSWORD: ${{ env.PUBLICAR == 'true' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          SEGREDO_KEY_ALIAS: ${{ env.PUBLICAR == 'true' && secrets.ANDROID_KEY_ALIAS || '' }}
+          SEGREDO_KEY_PASSWORD: ${{ env.PUBLICAR == 'true' && secrets.ANDROID_KEY_PASSWORD || '' }}
         run: |
-          # PR não recebe chave própria: sem ORBITA_KEYSTORE_FILE o plugin usa o keystore do template.
           if [ "$PUBLICAR" != "true" ]; then
-            unset ORBITA_KEYSTORE_PASSWORD ORBITA_KEY_ALIAS ORBITA_KEY_PASSWORD
+            export ORBITA_KEYSTORE_PASSWORD="$ORBITA_THROWAWAY_PASSWORD"
+            export ORBITA_KEY_ALIAS="orbita-pr"
+            export ORBITA_KEY_PASSWORD="$ORBITA_THROWAWAY_PASSWORD"
+          elif [ "${ORBITA_DEBUG_SIGNING:-}" = "true" ]; then
+            # Opt-in explícito (ALLOW_DEBUG_SIGNING): keystore de debug do template.
+            export ORBITA_KEYSTORE_FILE="$PWD/app/debug.keystore"
+            export ORBITA_KEYSTORE_PASSWORD="android" ORBITA_KEY_ALIAS="androiddebugkey" ORBITA_KEY_PASSWORD="android"
+          else
+            export ORBITA_KEYSTORE_PASSWORD="$SEGREDO_KEYSTORE_PASSWORD"
+            export ORBITA_KEY_ALIAS="$SEGREDO_KEY_ALIAS"
+            export ORBITA_KEY_PASSWORD="$SEGREDO_KEY_PASSWORD"
           fi
           ./gradlew assembleRelease --no-daemon --stacktrace \
             -PreactNativeArchitectures="$ORBITA_ARCHS" \
@@ -155,11 +210,13 @@ jobs:
           test -f "$src"
           mkdir -p dist
           cp "$src" dist/orbita.apk
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs dist/orbita.apk \
+          # As build-tools são baixadas pelo Gradle; usa a mais nova instalada.
+          bt="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          "$bt/apksigner" verify --print-certs dist/orbita.apk \
             | grep -E "certificate (DN|SHA-256)" | sed 's/^/  /'
           ls -l dist/orbita.apk
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: orbita-apk
           path: dist/orbita.apk
@@ -182,11 +239,11 @@ jobs:
       # Só este job escreve: cria a tag e o GitHub Release.
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: orbita-apk
           path: dist
-      - name: Criar release (latest)
+      - name: Criar release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.apk.outputs.version }}
@@ -195,6 +252,23 @@ jobs:
         run: |
           tag="app-v${VERSION}-${GITHUB_RUN_NUMBER}"
           title="Órbita para Android · ${VERSION} (#${GITHUB_RUN_NUMBER})"
+
+          # Reexecução: a tag já existe, não há o que publicar.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::O release $tag já existe; nada a fazer."
+            exit 0
+          fi
+
+          # Só vira "latest" se este commit ainda for a ponta da main. Um run antigo reexecutado não
+          # pode trocar o APK do link fixo por uma versão velha.
+          tip="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [ "$tip" = "$SHA" ]; then
+            latest="--latest"
+          else
+            latest="--latest=false"
+            echo "::notice::O commit $SHA não é mais a ponta da main ($tip): publico o release sem marcá-lo como latest."
+          fi
+
           {
             echo "APK da Órbita para Android, versão ${VERSION}, compilação #${GITHUB_RUN_NUMBER}, commit \`${SHORT}\`."
             echo
@@ -204,11 +278,11 @@ jobs:
             echo "2. Baixe e abra o arquivo. Se o Android pedir, permita **instalar apps desconhecidos** para o navegador."
             echo "3. Toque em **Instalar**. Se já tiver a Órbita, ela é atualizada por cima e seus dados ficam."
             echo
-            echo "Mais detalhes em [docs/app-android.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/app-android.md)."
+            echo "Se o Android recusar a atualização por \"assinatura diferente\", **não desinstale**: veja [docs/app-android.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/app-android.md)."
           } > "$RUNNER_TEMP/notas.md"
           gh release create "$tag" dist/orbita.apk \
             --repo "$GITHUB_REPOSITORY" \
             --target "$SHA" \
             --title "$title" \
             --notes-file "$RUNNER_TEMP/notas.md" \
-            --latest
+            "$latest"
