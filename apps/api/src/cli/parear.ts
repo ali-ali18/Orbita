@@ -1,13 +1,14 @@
 import { createDb, createPrismaAuthStore } from "@orbita/db";
+import { deriveKey } from "@orbita/security";
 import { loadEnv } from "../env.ts";
-import { createPairingCode } from "../pairing/pairing.ts";
+import { createPairingCode } from "../modules/pairing/service.ts";
 
 const env = loadEnv();
 const db = createDb(env.DATABASE_URL);
 try {
 	const { code, expiresAt } = await createPairingCode({
 		store: createPrismaAuthStore(db),
-		secret: env.APP_SECRET,
+		pairingKey: deriveKey(env.APP_SECRET, "pairing-code"),
 		now: () => new Date(),
 	});
 	const hora = expiresAt.toLocaleTimeString("pt-BR", {

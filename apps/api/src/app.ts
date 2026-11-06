@@ -1,60 +1,34 @@
-import { zValidator } from "@hono/zod-validator";
-import type { DeviceRecord } from "@orbita/db";
-import { type PairingClaimResponse, pairingClaimBody } from "@orbita/shared";
 import { Hono } from "hono";
-import { createMiddleware } from "hono/factory";
-import { apiError, toDeviceDto } from "./http.ts";
-import { authenticateDevice, claimPairingCode, type PairingDeps } from "./pairing/pairing.ts";
+import { bodyLimit } from "hono/body-limit";
+import { secureHeaders } from "hono/secure-headers";
+import { apiError, errorHandler, notFoundHandler } from "./http/errors.ts";
+import * as devices from "./modules/devices/routes.ts";
+import * as pairing from "./modules/pairing/routes.ts";
 
-type AppEnv = { Variables: { device: DeviceRecord } };
+export type AppDeps = pairing.PairingRoutesDeps;
 
-export function createApp(deps: PairingDeps) {
-	const requireDevice = createMiddleware<AppEnv>(async (c, next) => {
-		const header = c.req.header("authorization") ?? "";
-		const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-		const device = token ? await authenticateDevice(deps, token) : null;
-		if (!device)
-			return c.json(apiError("nao_autorizado", "Este aparelho não está conectado. Pareie de novo."), 401);
-		c.set("device", device);
-		await next();
-	});
+const MAX_BODY_BYTES = 16 * 1024;
 
-	const app = new Hono<AppEnv>()
-		.get("/health", (c) => c.json({ ok: true }))
-		.post(
-			"/v1/pairing/claim",
-			zValidator("json", pairingClaimBody, (result, c) => {
-				if (!result.success) {
-					return c.json(
-						apiError("dados_invalidos", result.error.issues[0]?.message ?? "Dados inválidos."),
-						400,
-					);
-				}
-			}),
-			async (c) => {
-				const result = await claimPairingCode(deps, c.req.valid("json"));
-				if (!result.ok) {
-					return c.json(
-						apiError("codigo_invalido", "Código inválido ou expirado. Gere outro no servidor com `parear`."),
-						401,
-					);
-				}
-				const body: PairingClaimResponse = { token: result.token, device: toDeviceDto(result.device) };
-				return c.json(body, 201);
-			},
-		)
-		.get("/v1/me", requireDevice, (c) => c.json({ device: toDeviceDto(c.get("device")) }))
-		.delete("/v1/devices/current", requireDevice, async (c) => {
-			await deps.store.revokeDevice({ deviceId: c.get("device").id, now: deps.now() });
-			return c.body(null, 204);
-		});
+export function createApp(deps: AppDeps) {
+	const app = new Hono();
 
-	app.notFound((c) => c.json(apiError("nao_encontrado", "Rota não encontrada."), 404));
-	app.onError((err, c) => {
-		console.error(err);
-		return c.json(apiError("erro_interno", "Algo deu errado no servidor."), 500);
-	});
-	return app;
+	// Sem CORS de propósito: o cliente é um app nativo, não um navegador. Habilitar
+	// CORS só abriria a API para páginas web de terceiros.
+	app.use(secureHeaders());
+	app.use(
+		bodyLimit({
+			maxSize: MAX_BODY_BYTES,
+			onError: (c) => c.json(apiError("corpo_grande", "O pedido é grande demais."), 413),
+		}),
+	);
+
+	app.get("/health", (c) => c.json({ ok: true }));
+	// Módulo novo = pasta em `modules/` + uma linha aqui.
+	const routed = app.route("/", pairing.routes(deps)).route("/", devices.routes(deps));
+
+	app.notFound(notFoundHandler);
+	app.onError(errorHandler);
+	return routed;
 }
 
 export type AppType = ReturnType<typeof createApp>;

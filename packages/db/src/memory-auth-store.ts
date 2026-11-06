@@ -19,15 +19,15 @@ export function createMemoryAuthStore(): AuthStore & {
 			codes.push(code);
 			return { ...code };
 		},
-		async findActivePairingCode(now) {
-			const active = codes.filter((c) => isActive(c, now)).at(-1);
+		async findActivePairingCode(now, maxAttempts) {
+			const active = codes.filter((c) => isActive(c, now) && c.attempts < maxAttempts).at(-1);
 			return active ? { ...active } : null;
 		},
-		async registerFailedAttempt({ codeId, maxAttempts, now }) {
+		async reserveAttempt({ codeId, maxAttempts, now }) {
 			const code = codes.find((c) => c.id === codeId);
-			if (!code) return;
+			if (!code || !isActive(code, now) || code.attempts >= maxAttempts) return false;
 			code.attempts += 1;
-			if (code.attempts >= maxAttempts) code.expiresAt = now;
+			return true;
 		},
 		async consumePairingCode({ codeId, now, deviceName, tokenHash }) {
 			const code = codes.find((c) => c.id === codeId);
@@ -55,6 +55,9 @@ export function createMemoryAuthStore(): AuthStore & {
 		async revokeDevice({ deviceId, now }) {
 			const d = devices.find((x) => x.id === deviceId);
 			if (d && d.revokedAt === null) d.revokedAt = now;
+		},
+		async countActiveDevices() {
+			return devices.filter((d) => d.revokedAt === null).length;
 		},
 		async deleteStalePairingCodes(before) {
 			let n = 0;

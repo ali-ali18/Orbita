@@ -12,6 +12,13 @@ export const pairingClaimBody = z.object({
 });
 export type PairingClaimBody = z.infer<typeof pairingClaimBody>;
 
+/** Resposta de `POST /v1/pairing/codes`: um aparelho já pareado convida outro. */
+export const pairingCodeResponse = z.object({
+	code: z.string(),
+	expiresAt: z.string(),
+});
+export type PairingCodeResponse = z.infer<typeof pairingCodeResponse>;
+
 export const deviceSchema = z.object({
 	id: z.string(),
 	name: z.string(),

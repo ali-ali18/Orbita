@@ -8,13 +8,14 @@ const TOKEN_PREFIX = "orb_";
 
 export type PairingDeps = {
 	store: AuthStore;
-	secret: string;
+	/** Chave derivada de `APP_SECRET` com `deriveKey(..., "pairing-code")`. */
+	pairingKey: Buffer;
 	now: () => Date;
 };
 
-/** HMAC com o segredo do servidor: o banco nunca guarda o código em texto. */
-export function hashPairingCode(secret: string, code: string): string {
-	return createHmac("sha256", secret).update(code).digest("hex");
+/** HMAC com a chave do servidor: o banco nunca guarda o código em texto. */
+export function hashPairingCode(key: Buffer, code: string): string {
+	return createHmac("sha256", key).update(code).digest("hex");
 }
 
 /** O token tem 256 bits de entropia, então um SHA-256 simples basta. */
@@ -38,32 +39,51 @@ function sameHash(a: string, b: string): boolean {
 	return x.length === y.length && timingSafeEqual(x, y);
 }
 
-/** Gera um código novo (e invalida o anterior). Roda no servidor, pelo comando `parear`. */
+/** Gera um código novo (e invalida o anterior). Roda no servidor (comando `parear`, pareamento automático) e por aparelho já pareado. */
 export async function createPairingCode(deps: PairingDeps): Promise<{ code: string; expiresAt: Date }> {
 	const now = deps.now();
 	const code = generatePairingCode();
 	const expiresAt = new Date(now.getTime() + PAIRING_CODE_TTL_MS);
-	await deps.store.replaceActivePairingCode({ codeHash: hashPairingCode(deps.secret, code), expiresAt, now });
+	await deps.store.replaceActivePairingCode({
+		codeHash: hashPairingCode(deps.pairingKey, code),
+		expiresAt,
+		now,
+	});
 	return { code, expiresAt };
 }
 
-export type ClaimResult = { ok: true; token: string; device: DeviceRecord } | { ok: false };
+export type ClaimResult =
+	| { ok: true; token: string; device: DeviceRecord }
+	| { ok: false; reason: ClaimFailure };
+
+/**
+ * Por que o claim falhou. Só "mismatch" é um palpite de verdade (uma tentativa foi
+ * reservada e houve comparação); os demais não indicam adivinhação.
+ */
+export type ClaimFailure = "no_code" | "no_attempts" | "mismatch" | "race";
 
 /**
  * Troca o código digitado no app por um token do aparelho. Só existe um código
- * ativo; cada erro conta uma tentativa e, na quinta, o código morre.
+ * ativo. Todo palpite reserva uma tentativa (atomicamente) antes de ser comparado;
+ * sem tentativa disponível, nem compara. Na quinta, o código morre.
  */
 export async function claimPairingCode(
 	deps: PairingDeps,
 	input: { code: string; deviceName: string },
 ): Promise<ClaimResult> {
 	const now = deps.now();
-	const active = await deps.store.findActivePairingCode(now);
-	if (!active) return { ok: false };
+	const active = await deps.store.findActivePairingCode(now, PAIRING_MAX_ATTEMPTS);
+	if (!active) return { ok: false, reason: "no_code" };
 
-	if (!sameHash(hashPairingCode(deps.secret, input.code), active.codeHash)) {
-		await deps.store.registerFailedAttempt({ codeId: active.id, maxAttempts: PAIRING_MAX_ATTEMPTS, now });
-		return { ok: false };
+	const reserved = await deps.store.reserveAttempt({
+		codeId: active.id,
+		maxAttempts: PAIRING_MAX_ATTEMPTS,
+		now,
+	});
+	if (!reserved) return { ok: false, reason: "no_attempts" };
+
+	if (!sameHash(hashPairingCode(deps.pairingKey, input.code), active.codeHash)) {
+		return { ok: false, reason: "mismatch" };
 	}
 
 	const token = generateDeviceToken();
@@ -73,7 +93,7 @@ export async function claimPairingCode(
 		deviceName: input.deviceName,
 		tokenHash: hashDeviceToken(token),
 	});
-	return device ? { ok: true, token, device } : { ok: false };
+	return device ? { ok: true, token, device } : { ok: false, reason: "race" };
 }
 
 const TOUCH_INTERVAL_MS = 5 * 60_000;

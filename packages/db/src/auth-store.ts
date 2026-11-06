@@ -26,9 +26,15 @@ export interface AuthStore {
 		expiresAt: Date;
 		now: Date;
 	}): Promise<PairingCodeRecord>;
-	findActivePairingCode(now: Date): Promise<PairingCodeRecord | null>;
-	/** Conta uma tentativa errada; ao chegar em `maxAttempts`, o código morre. */
-	registerFailedAttempt(input: { codeId: string; maxAttempts: number; now: Date }): Promise<void>;
+	/** Código ainda utilizável: não usado, não expirado e com tentativas sobrando (`attempts < maxAttempts`). */
+	findActivePairingCode(now: Date, maxAttempts: number): Promise<PairingCodeRecord | null>;
+	/**
+	 * Reserva uma tentativa de forma atômica, ANTES de comparar o palpite: só incrementa
+	 * `attempts` se o código segue vivo e abaixo do limite. `false` = sem tentativa
+	 * disponível, e o palpite não pode nem ser comparado. Assim, palpites concorrentes
+	 * nunca passam de `maxAttempts` no total.
+	 */
+	reserveAttempt(input: { codeId: string; maxAttempts: number; now: Date }): Promise<boolean>;
 	/**
 	 * Gasta o código e cria o aparelho numa operação só. Devolve `null` se o
 	 * código já foi usado, expirou ou foi trocado (corrida entre dois pedidos).
@@ -42,6 +48,8 @@ export interface AuthStore {
 	findDeviceByTokenHash(tokenHash: string): Promise<DeviceRecord | null>;
 	touchDevice(input: { deviceId: string; now: Date }): Promise<void>;
 	revokeDevice(input: { deviceId: string; now: Date }): Promise<void>;
+	/** Aparelhos ainda conectados (não revogados). Zero significa servidor sem dono. */
+	countActiveDevices(): Promise<number>;
 	/** Apaga códigos usados ou expirados antes de `before`. Devolve quantos apagou. */
 	deleteStalePairingCodes(before: Date): Promise<number>;
 }

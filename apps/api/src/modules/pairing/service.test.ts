@@ -1,4 +1,5 @@
 import { createMemoryAuthStore } from "@orbita/db";
+import { deriveKey } from "@orbita/security";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	authenticateDevice,
@@ -8,15 +9,15 @@ import {
 	hashDeviceToken,
 	PAIRING_MAX_ATTEMPTS,
 	type PairingDeps,
-} from "./pairing.ts";
+} from "./service.ts";
 
-const secret = "s".repeat(48);
+const pairingKey = deriveKey("s".repeat(48), "pairing-code");
 const t0 = new Date("2026-11-06T12:00:00Z");
 
 function setup() {
 	const store = createMemoryAuthStore();
 	let now = t0;
-	const deps: PairingDeps = { store, secret, now: () => now };
+	const deps: PairingDeps = { store, pairingKey, now: () => now };
 	return { store, deps, advance: (ms: number) => (now = new Date(now.getTime() + ms)) };
 }
 
@@ -75,8 +76,24 @@ describe("pareamento", () => {
 		expect((await claimPairingCode(ctx.deps, { code, deviceName: "A" })).ok).toBe(false);
 	});
 
+	it("palpites concorrentes nunca passam do limite de tentativas", async () => {
+		const { code } = await createPairingCode(ctx.deps);
+		const wrong = other(code);
+		const results = await Promise.all(
+			Array.from({ length: 20 }, () => claimPairingCode(ctx.deps, { code: wrong, deviceName: "X" })),
+		);
+		expect(results.every((r) => !r.ok)).toBe(true);
+		const reasons = results.map((r) => (r.ok ? null : r.reason));
+		expect(reasons.filter((r) => r === "mismatch")).toHaveLength(PAIRING_MAX_ATTEMPTS);
+		expect(reasons.filter((r) => r !== "mismatch").every((r) => r === "no_attempts" || r === "no_code")).toBe(
+			true,
+		);
+		expect(ctx.store.codes[0]?.attempts).toBe(PAIRING_MAX_ATTEMPTS);
+	});
+
 	it("sem código ativo, recusa sem contar tentativa", async () => {
-		expect((await claimPairingCode(ctx.deps, { code: "123456", deviceName: "A" })).ok).toBe(false);
+		const res = await claimPairingCode(ctx.deps, { code: "123456", deviceName: "A" });
+		expect(res).toEqual({ ok: false, reason: "no_code" });
 		expect(ctx.store.codes).toHaveLength(0);
 	});
 });

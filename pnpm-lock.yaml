@@ -32,6 +32,9 @@ importers:
       '@orbita/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@orbita/security':
+        specifier: workspace:*
+        version: link:../../packages/security
       '@orbita/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -76,11 +79,15 @@ importers:
         specifier: 7.10.1
         version: 7.10.1(@types/node@26.6.6)(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(typescript@7.0.2)
 
+  packages/security: {}
+
   packages/shared:
     dependencies:
       zod:
         specifier: 4.6.7
         version: 4.6.7
+
+  packages/tokens: {}
 
 packages:
 

@@ -13,21 +13,20 @@ export function createPrismaAuthStore(db: Db): AuthStore {
 			});
 		},
 
-		findActivePairingCode(now) {
+		findActivePairingCode(now, maxAttempts) {
 			return db.pairingCode.findFirst({
-				where: { usedAt: null, expiresAt: { gt: now } },
+				where: { usedAt: null, expiresAt: { gt: now }, attempts: { lt: maxAttempts } },
 				orderBy: { createdAt: "desc" },
 			});
 		},
 
-		async registerFailedAttempt({ codeId, maxAttempts, now }) {
-			const code = await db.pairingCode.update({
-				where: { id: codeId },
+		async reserveAttempt({ codeId, maxAttempts, now }) {
+			// Um UPDATE só, com as condições no WHERE: o Postgres serializa as corridas na linha.
+			const res = await db.pairingCode.updateMany({
+				where: { id: codeId, usedAt: null, expiresAt: { gt: now }, attempts: { lt: maxAttempts } },
 				data: { attempts: { increment: 1 } },
 			});
-			if (code.attempts >= maxAttempts) {
-				await db.pairingCode.update({ where: { id: codeId }, data: { expiresAt: now } });
-			}
+			return res.count === 1;
 		},
 
 		async consumePairingCode({ codeId, now, deviceName, tokenHash }) {
@@ -51,6 +50,10 @@ export function createPrismaAuthStore(db: Db): AuthStore {
 
 		async revokeDevice({ deviceId, now }) {
 			await db.device.updateMany({ where: { id: deviceId, revokedAt: null }, data: { revokedAt: now } });
+		},
+
+		countActiveDevices() {
+			return db.device.count({ where: { revokedAt: null } });
 		},
 
 		async deleteStalePairingCodes(before) {
