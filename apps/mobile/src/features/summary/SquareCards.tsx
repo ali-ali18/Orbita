@@ -4,16 +4,20 @@ import { View } from "react-native";
 import type { CardsView, InstallmentsView, InvoiceView } from "../../lib/api.ts";
 import { money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
-import { Card, ErrorState, Icon, LetterAvatar, Skeleton, Text } from "../../ui/index.ts";
+import { BankLogo, Card, ErrorState, Icon, type IconName, Skeleton, Text } from "../../ui/index.ts";
 import { bankColor, installmentsOverview, invoiceCaption } from "./summary-model.ts";
 import { initialOf } from "./transaction-model.ts";
 
-const SQUARE_MIN_HEIGHT = 190;
+/** Altura dos cards quadrados no Figma (173 de largura por 221 de altura). */
+const SQUARE_MIN_HEIGHT = 221;
 
 function Frame({ top, children }: { top: ReactNode; children: ReactNode }) {
 	return (
 		<Card style={{ flex: 1, minHeight: SQUARE_MIN_HEIGHT, justifyContent: "space-between" }}>
-			<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>{top}</View>
+			<View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+				<View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm }}>{top}</View>
+				<Icon name="seta-direita" size={18} color={colors.textTertiary} />
+			</View>
 			<View>{children}</View>
 		</Card>
 	);
@@ -45,7 +49,7 @@ function Placeholder({ label }: { label: string }) {
 	);
 }
 
-function IconCircle({ name }: { name: "layers" | "card" }) {
+function IconCircle({ name }: { name: IconName }) {
 	return (
 		<View
 			style={{
@@ -86,7 +90,7 @@ export function InvoiceSquare({
 	}
 	if (cards.phase === "error") {
 		return (
-			<Frame top={<IconCircle name="card" />}>
+			<Frame top={<IconCircle name="cartao" />}>
 				<ErrorState message={cards.message} onRetry={cards.retry} />
 			</Frame>
 		);
@@ -94,7 +98,7 @@ export function InvoiceSquare({
 	const card = cards.data.cards.find((c) => c.archivedAt === null);
 	if (!card) {
 		return (
-			<Frame top={<IconCircle name="card" />}>
+			<Frame top={<IconCircle name="cartao" />}>
 				<Facts
 					label="Fatura atual"
 					value="Sem cartão"
@@ -105,7 +109,7 @@ export function InvoiceSquare({
 	}
 	const top = (
 		<>
-			<LetterAvatar letter={initialOf(card.name)} size={32} color={bankColor(card.bankCode)} />
+			<BankLogo initial={initialOf(card.name)} size={32} color={bankColor(card.bankCode)} />
 			<Text variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>
 				{card.last4 ? `•••• ${card.last4}` : card.name}
 			</Text>
@@ -145,7 +149,7 @@ export function InstallmentsSquare({
 	month: string;
 	hidden: boolean;
 }) {
-	const top = <IconCircle name="layers" />;
+	const top = <IconCircle name="parcelas" />;
 	if (installments.phase === "loading") {
 		return (
 			<Frame top={top}>
