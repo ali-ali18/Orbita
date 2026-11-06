@@ -26,6 +26,10 @@ A regra principal: **a IA nunca faz conta**. Saldo, fatura, parcelas e orçament
 
 Detalhes em [`docs/plano.md`](docs/plano.md). Design em [`docs/design.md`](docs/design.md).
 
+## Contribuições
+
+Projeto pessoal: não aceito contribuições, issues ou pull requests. Fique à vontade para fazer um fork.
+
 ## Licença
 
 [MIT](LICENSE)
