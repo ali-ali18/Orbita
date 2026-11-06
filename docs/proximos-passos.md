@@ -10,8 +10,8 @@ Onde o projeto está e como continuar, em ordem. Escrito para uma sessão nova (
 | --------------------------------------------------------------------- | ---------------------- |
 | 1. Fundação (monorepo, pareamento, segurança, Docker, CI/CD)          | ✅ PR #1               |
 | 2. Engine financeiro (`packages/core`)                                | ✅ PR #16              |
-| 3. Dados no banco (modelos + stores)                                  | 🚧 branch `feat/dados` |
-| 4. API das finanças                                                   | ⏳                     |
+| 3. Dados no banco (modelos + stores)                                  | ✅ PR #17              |
+| 4. API das finanças                                                   | 🚧 `feat/api-financas` |
 | 5. App mobile (Expo)                                                  | ⏳                     |
 | 6. Ingestão (notificação, comprovante, extrato, conciliação, Revisão) | ⏳                     |
 | 7. Meu Pluggy                                                         | ⏳                     |
