@@ -40,7 +40,7 @@ export function CodeInput({
 								height: 56,
 								borderRadius: radius.inner,
 								backgroundColor: colors.surface,
-								borderWidth: 1,
+								borderWidth: active ? 1.5 : 1,
 								borderColor: active ? colors.accent : colors.border,
 								alignItems: "center",
 								justifyContent: "center",

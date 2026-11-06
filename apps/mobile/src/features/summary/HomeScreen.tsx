@@ -7,7 +7,7 @@ import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { useSession } from "../../lib/session.tsx";
-import { BottomBar, ConfirmDialog, Screen, Text } from "../../ui/index.ts";
+import { BottomBar, ConfirmDialog, Screen, Text, useBottomBarHeight } from "../../ui/index.ts";
 import { CategoriesCard } from "./CategoriesCard.tsx";
 import { HeroCard } from "./HeroCard.tsx";
 import { HomeHeader } from "./HomeHeader.tsx";
@@ -37,6 +37,7 @@ export function HomeScreen() {
 	const queryClient = useQueryClient();
 	const [refreshing, setRefreshing] = useState(false);
 	const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+	const bottomBarHeight = useBottomBarHeight();
 
 	// Uma única fonte de "hoje" e "mês": todas as consultas usam os mesmos.
 	const { today, month, hour } = useClock();
@@ -46,7 +47,7 @@ export function HomeScreen() {
 	const cardsQ = useCards();
 	const accountsQ = useAccounts();
 	const installmentsQ = useInstallments();
-	const recentQ = useRecentTransactions(5);
+	const recentQ = useRecentTransactions(4);
 
 	const cards = toLoadable(cardsQ);
 	const firstCard = cards.phase === "ready" ? cards.data.cards.find((c) => c.archivedAt === null) : undefined;
@@ -65,9 +66,13 @@ export function HomeScreen() {
 	};
 
 	return (
-		<Screen footer={<BottomBar />}>
+		<Screen footer={<BottomBar />} floatingFooter>
 			<ScrollView
-				contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md }}
+				contentContainerStyle={{
+					paddingHorizontal: spacing.lg,
+					paddingBottom: bottomBarHeight + spacing.lg,
+					gap: spacing.md,
+				}}
 				refreshControl={
 					<RefreshControl
 						refreshing={refreshing}
@@ -85,11 +90,11 @@ export function HomeScreen() {
 					onAvatarLongPress={() => setConfirmingSignOut(true)}
 				/>
 
-				<View style={{ marginTop: spacing.lg, marginBottom: spacing.sm }}>
+				<View style={{ paddingTop: spacing.md, paddingBottom: spacing.sm, gap: spacing.xs }}>
 					<Text variant="greeting" accessibilityRole="header">
 						{greetingFor(hour)}
 					</Text>
-					<Text variant="caption" tone="secondary" style={{ marginTop: spacing.xs }}>
+					<Text variant="caption" tone="secondary">
 						{monthName(month)}
 						{summary.phase === "ready" && summary.data.safeToSpend
 							? ` · faltam ${pluralDays(summary.data.safeToSpend.remainingDays)}`
@@ -111,6 +116,7 @@ export function HomeScreen() {
 				<RecentCard
 					state={toLoadable(recentQ)}
 					accounts={accountsQ.data?.accounts ?? []}
+					categories={categoriesQ.data?.categories ?? []}
 					cards={cardsQ.data?.cards ?? []}
 					today={today}
 					hidden={hidden}

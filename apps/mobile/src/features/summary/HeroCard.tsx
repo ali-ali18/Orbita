@@ -103,10 +103,10 @@ export function HeroCard({
 					O que falta pagar este mês passa do que sobra.
 				</Text>
 			) : null}
-			<View style={{ marginTop: spacing.lg }}>
+			<View style={{ marginTop: spacing.xl }}>
 				<ProgressBar parts={bar} />
 			</View>
-			<View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: spacing.sm }}>
+			<View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: spacing.xs }}>
 				<Text variant="caption" tone="secondary">
 					Gasto {money(spent, hidden, { sign: "never" })}
 				</Text>

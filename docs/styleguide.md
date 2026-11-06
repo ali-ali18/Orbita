@@ -100,6 +100,16 @@ Regra de aninhamento: elemento dentro de card usa raio **menor** que o card (`in
 | `xxl`  | 24    | Entre seções                             |
 | `xxxl` | 32    | Respiro antes de ação principal          |
 
+## Layout
+
+`import { layout } from "@orbita/tokens"`: medidas fixas do Figma que não são passos da escala.
+
+| Token           | Valor | Uso                                                      |
+| --------------- | ----- | -------------------------------------------------------- |
+| `statusBar`     | 56    | Reserva mínima no topo de toda tela (barra de status)    |
+| `homeIndicator` | 28    | Folga mínima embaixo (barra de gestos do sistema)        |
+| `touchTarget`   | 44    | Alvo de toque mínimo; botão menor completa com `hitSlop` |
+
 ## Movimento
 
 `import { motion } from "@orbita/tokens"`: `fast` 150 ms (toque, chip), `normal` 250 ms (gaveta, troca de aba), `slow` 400 ms (abertura com a Órbita). Curva `standard`. Respeite "reduzir movimento" do sistema: troque deslocamento por fade.

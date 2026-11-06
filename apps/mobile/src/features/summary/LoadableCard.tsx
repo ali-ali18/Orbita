@@ -2,26 +2,31 @@ import { spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 import type { Loadable } from "../../lib/loadable.ts";
-import { Card, ErrorState, Skeleton, Text } from "../../ui/index.ts";
+import { Card, CardHeader, ErrorState, Skeleton } from "../../ui/index.ts";
 
 /** Card com título que mostra esqueleto enquanto carrega, erro com "Tentar de novo" ou o conteúdo. */
 export function LoadableCard<T>({
 	title,
 	state,
 	skeletonLines = 3,
+	chevron = false,
+	action,
+	gap = spacing.md,
 	children,
 }: {
 	title: string;
 	state: Loadable<T>;
 	skeletonLines?: number;
+	chevron?: boolean;
+	action?: string | undefined;
+	/** Espaço entre o título e o conteúdo carregado (esqueleto e erro usam sempre `md`). */
+	gap?: number;
 	children: (data: T) => ReactNode;
 }) {
 	return (
 		<Card>
-			<Text variant="cardTitle" tone="secondary">
-				{title}
-			</Text>
-			<View style={{ marginTop: spacing.md }}>
+			<CardHeader title={title} chevron={chevron} action={action} />
+			<View style={{ marginTop: state.phase === "loading" || state.phase === "error" ? spacing.md : gap }}>
 				{state.phase === "loading" ? (
 					<View accessibilityLabel="Carregando" style={{ gap: spacing.md }}>
 						{Array.from({ length: skeletonLines }, (_, i) => (

@@ -1,6 +1,9 @@
-import { colors, radius, spacing } from "@orbita/tokens";
+import { colors, radius } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
 import { Icon, LetterAvatar } from "../../ui/index.ts";
+
+/** O topo tem 100 de altura no Figma ("topo"), com os botões de 44 centralizados. */
+const HEADER_HEIGHT = 100;
 
 export function HomeHeader({
 	initial,
@@ -15,7 +18,14 @@ export function HomeHeader({
 	onAvatarLongPress: () => void;
 }) {
 	return (
-		<View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+		<View
+			style={{
+				height: HEADER_HEIGHT,
+				flexDirection: "row",
+				alignItems: "center",
+				justifyContent: "space-between",
+			}}
+		>
 			<Pressable
 				accessibilityRole="button"
 				accessibilityLabel="Você. Segure para desconectar este aparelho"
@@ -36,11 +46,10 @@ export function HomeHeader({
 					backgroundColor: colors.surface,
 					alignItems: "center",
 					justifyContent: "center",
-					marginRight: spacing.xs,
 					opacity: pressed ? 0.8 : 1,
 				})}
 			>
-				<Icon name={hidden ? "eye-off" : "eye"} />
+				<Icon name={hidden ? "olho-cortado" : "olho"} />
 			</Pressable>
 		</View>
 	);
