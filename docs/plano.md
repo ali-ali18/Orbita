@@ -17,18 +17,18 @@ Fora do escopo: mover dinheiro (Pix, pagamentos). O app só lê.
 
 ### Peças
 
-| Peça | Tecnologia | Papel |
-|---|---|---|
-| `apps/mobile` | Expo (React Native), Expo Router, TanStack Query | Telas, chat, push. Android primeiro. |
-| `apps/api` | Hono | Recebe, valida e chama os pacotes. Chat por SSE. |
-| `apps/worker` | BullMQ | Sincroniza o Meu Pluggy, gera relatórios, avalia alertas e recorrências. |
-| `packages/core` | TypeScript puro | **Engine financeiro**: fatura, parcelas, saldo, orçamento, projeção. Sem I/O. |
-| `packages/db` | Prisma + Postgres | Acesso a dados. |
-| `packages/ingest` | TypeScript | Parsers por fonte: notificação, Meu Pluggy, comprovante, CSV/OFX/PDF. |
-| `packages/agents` | SDK da Anthropic (Tool Runner) | Ferramentas, prompts e loop dos agentes. |
-| `packages/shared` | Zod | Schemas compartilhados entre app e API. |
+| Peça              | Tecnologia                                       | Papel                                                                         |
+| ----------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `apps/mobile`     | Expo (React Native), Expo Router, TanStack Query | Telas, chat, push. Android primeiro.                                          |
+| `apps/api`        | Hono                                             | Recebe, valida e chama os pacotes. Chat por SSE.                              |
+| `apps/worker`     | BullMQ                                           | Sincroniza o Meu Pluggy, gera relatórios, avalia alertas e recorrências.      |
+| `packages/core`   | TypeScript puro                                  | **Engine financeiro**: fatura, parcelas, saldo, orçamento, projeção. Sem I/O. |
+| `packages/db`     | Prisma + Postgres                                | Acesso a dados.                                                               |
+| `packages/ingest` | TypeScript                                       | Parsers por fonte: notificação, Meu Pluggy, comprovante, CSV/OFX/PDF.         |
+| `packages/agents` | SDK da Anthropic (Tool Runner)                   | Ferramentas, prompts e loop dos agentes.                                      |
+| `packages/shared` | Zod                                              | Schemas compartilhados entre app e API.                                       |
 
-Infra: `docker compose` numa VPS com Postgres, Redis, API, worker e Caddy (HTTPS). Backup diário do banco para fora da VPS.
+Infra: `docker compose` com Postgres, Redis, migração, API e worker, pensado para o **Dokploy** (o Traefik do painel faz o HTTPS); numa VPS sem painel, um arquivo extra acrescenta o Caddy. A imagem é construída e publicada pelo GitHub Actions. Backup diário do banco para fora do servidor. Detalhes em [servidor](servidor.md) e [segurança](seguranca.md).
 
 ### Por que Hono e SSE (e não WebSocket)
 
@@ -57,7 +57,7 @@ O mesmo gasto pode chegar três vezes (notificação na hora, Meu Pluggy no dia 
 2. **Normalizador**: vira candidato (valor, data, estabelecimento, conta/cartão).
 3. **Conciliador**: procura lançamento existente com mesmo valor, mesma conta, data próxima e nome parecido. Achou → junta. Não achou → cria.
 4. **Status amadurece**: notificação cria como `pendente`; o Meu Pluggy confirma (`confirmado`) e é a fonte da verdade.
-5. **Dúvida → Revisão**: o que o conciliador ou o parser não tiver certeza vai para a tela *Para revisar*.
+5. **Dúvida → Revisão**: o que o conciliador ou o parser não tiver certeza vai para a tela _Para revisar_.
 
 Fontes:
 
@@ -70,19 +70,19 @@ Fontes:
 ## Agentes (`packages/agents`)
 
 - Loop com o **Tool Runner** do SDK oficial da Anthropic; ferramentas definidas com Zod.
-- Modelo barato por padrão (Haiku); custo do mês visível em *Configurações → Servidor e chaves*, com limite mensal.
+- Modelo barato por padrão (Haiku); custo do mês visível em _Configurações → Servidor e chaves_, com limite mensal.
 - **Ferramentas de leitura**: lançamentos, resumo do mês, fatura, orçamento, projeção.
 - **Ferramentas de escrita**: lançar, recategorizar, criar orçamento/meta/alerta. Toda escrita gera um card no chat com **Desfazer**.
 - Os avisos são decididos pelo **worker** (determinístico); o agente só escreve o texto em cima dos números prontos.
 
-| Agente | Papel |
-|---|---|
-| Órbita | Principal. Coordena os outros, lança pelo chat, lê comprovantes, responde. |
-| Vigia | Avisa quando um gasto foge do orçamento ou do padrão. |
-| Fechamento | Resumo do mês e da semana, comparação com o período anterior. |
-| Metas | Acompanha metas, avisa atraso, guarda a sobra do mês. |
-| Caça-assinatura | Acha cobranças que se repetem, renovações e aumentos de preço. |
-| Cofrinho | Sugere quanto guardar e onde o dinheiro parado renderia mais (só sugere). |
+| Agente          | Papel                                                                      |
+| --------------- | -------------------------------------------------------------------------- |
+| Órbita          | Principal. Coordena os outros, lança pelo chat, lê comprovantes, responde. |
+| Vigia           | Avisa quando um gasto foge do orçamento ou do padrão.                      |
+| Fechamento      | Resumo do mês e da semana, comparação com o período anterior.              |
+| Metas           | Acompanha metas, avisa atraso, guarda a sobra do mês.                      |
+| Caça-assinatura | Acha cobranças que se repetem, renovações e aumentos de preço.             |
+| Cofrinho        | Sugere quanto guardar e onde o dinheiro parado renderia mais (só sugere).  |
 
 ## Segurança e privacidade
 

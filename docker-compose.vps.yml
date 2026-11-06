@@ -1,0 +1,28 @@
+# Complemento para VPS pura, sem painel: adiciona o Caddy, que publica as portas
+# 80/443 e tira o certificado HTTPS sozinho para o DOMAIN do .env.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d
+#
+# No Dokploy NÃO use este arquivo: o Traefik do painel já faz esse papel.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: "${DOMAIN:?Defina DOMAIN no .env (ex.: financas.seudominio.dev)}"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
+volumes:
+  caddy-data:
+  caddy-config:

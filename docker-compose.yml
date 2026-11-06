@@ -1,0 +1,113 @@
+# Órbita: API, worker, Postgres e Redis, prontos para o Dokploy.
+#
+# Dokploy: crie um serviço "Compose" apontando para este repositório, preencha
+# as variáveis (veja .env.example) e, na aba "Domains", aponte o domínio para o
+# serviço `api`, porta 3000. O Traefik do Dokploy cuida do HTTPS. Nenhuma porta
+# é publicada aqui de propósito.
+#
+# O código de pareamento do celular aparece nos logs do serviço `api`
+# (aba "Logs" do Dokploy). Sem painel: `docker compose exec api parear`.
+#
+# A imagem vem pronta do GHCR (construída pelo CI); o servidor nunca compila.
+# Sem painel e sem Dokploy (VPS pura com HTTPS automático), junte também o
+# docker-compose.vps.yml.
+
+x-app: &app
+  image: ghcr.io/ali-ali18/orbita:${ORBITA_VERSION:-latest}
+  # A tag `latest` anda; sem isto o Docker reaproveitaria a imagem velha em cache.
+  pull_policy: always
+  read_only: true
+  tmpfs: ["/tmp"]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: ["ALL"]
+  user: "node"
+  environment: &app-env
+    DATABASE_URL: "postgresql://orbita:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD (gere com openssl rand -hex 32)}@postgres:5432/orbita"
+    REDIS_URL: "redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD (gere com openssl rand -hex 32)}@redis:6379"
+    APP_SECRET: "${APP_SECRET:?Defina APP_SECRET (gere com openssl rand -base64 48)}"
+    PORT: "3000"
+    PAIRING_AUTO: "${PAIRING_AUTO:-true}"
+    # Proxies confiáveis na frente: 1 = Traefik do Dokploy, 2 = Cloudflare + Traefik, 0 = exposto direto.
+    TRUSTED_PROXY_HOPS: "${TRUSTED_PROXY_HOPS:-1}"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      POSTGRES_USER: orbita
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD (gere com openssl rand -hex 32)}"
+      POSTGRES_DB: orbita
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbita"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--requirepass",
+        "${REDIS_PASSWORD:?Defina REDIS_PASSWORD (gere com openssl rand -hex 32)}",
+      ]
+    environment:
+      # O redis-cli (healthcheck) lê a senha daqui. A senha continua visível para quem
+      # tem acesso ao Docker (`docker inspect`, `ps` do host): ela protege a rede
+      # interna, não esconde nada de quem administra o servidor.
+      REDISCLI_AUTH: "${REDIS_PASSWORD}"
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      retries: 10
+
+  migrate:
+    <<: *app
+    restart: "no"
+    working_dir: /app/packages/db
+    command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    restart: unless-stopped
+    expose: ["3000"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      retries: 5
+
+  worker:
+    <<: *app
+    restart: unless-stopped
+    working_dir: /app/apps/worker
+    command: ["node", "--import", "tsx", "src/index.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres:
+  redis:

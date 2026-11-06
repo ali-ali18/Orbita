@@ -17,3 +17,6 @@ ios/
 *.apk
 *.aab
 *.keystore
+
+# Prisma Client gerado no install
+packages/db/src/generated/

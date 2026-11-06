@@ -1,0 +1,18 @@
+{
+	"name": "@orbita/worker",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
+		"start": "tsx src/index.ts",
+		"typecheck": "tsc -p tsconfig.json",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@orbita/db": "workspace:*",
+		"bullmq": "6.7.1",
+		"ioredis": "5.11.1",
+		"tsx": "4.23.15",
+		"zod": "4.6.7"
+	}
+}

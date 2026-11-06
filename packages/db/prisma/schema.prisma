@@ -1,0 +1,35 @@
+// Fase 1: só o pareamento de aparelhos. Os modelos financeiros entram com o engine.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Aparelho pareado com este servidor. O token fica só como hash.
+model Device {
+  id         String    @id @default(cuid())
+  name       String
+  tokenHash  String    @unique @map("token_hash")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastSeenAt DateTime? @map("last_seen_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  @@map("devices")
+}
+
+/// Código de pareamento de 6 dígitos. Só um fica ativo por vez.
+model PairingCode {
+  id        String    @id @default(cuid())
+  codeHash  String    @map("code_hash")
+  expiresAt DateTime  @map("expires_at")
+  attempts  Int       @default(0)
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([usedAt, expiresAt])
+  @@map("pairing_codes")
+}
