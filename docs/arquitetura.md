@@ -22,7 +22,7 @@ packages/
 ```
 apps/*  ──►  packages/core, db, security, shared
 mobile  ──►  packages/shared, tokens
-db      ──►  shared
+db      ──►  core, shared
 core    ──►  shared            (sem banco, sem rede, sem relógio)
 tokens, shared, security: não importam nada do projeto
 ```

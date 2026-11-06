@@ -1,0 +1,118 @@
+import { describe, expect, it } from "vitest";
+import {
+	accountCreateBody,
+	budgetSetBody,
+	cardCreateBody,
+	cardUpdateBody,
+	categoryCreateBody,
+	isLocalDate,
+	isMonthKey,
+	recentTransactionsQuery,
+	recurrenceCreateBody,
+	transactionCreateBody,
+	transactionInvariantError,
+	transactionUpdateBody,
+} from "./index.ts";
+
+const expense = {
+	kind: "expense",
+	amountCents: 1990,
+	date: "2026-11-05",
+	description: "Padaria",
+	accountId: "a1",
+};
+const message = (r: { success: boolean; error?: { issues: Array<{ message: string }> } }) =>
+	r.error?.issues[0]?.message;
+
+describe("datas e meses", () => {
+	it.each(["2026-02-28", "2024-02-29", "2026-12-31"])("%s é data", (d) => expect(isLocalDate(d)).toBe(true));
+	it.each(["2026-02-30", "2025-02-29", "2026-13-01", "26-01-01", "2026-1-1", ""])("%s não é data", (d) =>
+		expect(isLocalDate(d)).toBe(false),
+	);
+	it("meses", () => {
+		expect(isMonthKey("2026-12")).toBe(true);
+		expect(isMonthKey("2026-00")).toBe(false);
+		expect(isMonthKey("2026-13")).toBe(false);
+	});
+});
+
+describe("lançamento", () => {
+	it("aceita despesa em conta e compra no cartão", () => {
+		expect(transactionCreateBody.safeParse(expense).success).toBe(true);
+		const card = { ...expense, accountId: undefined, cardId: "c1", invoiceMonth: "2026-11" };
+		expect(transactionCreateBody.safeParse(card).success).toBe(true);
+	});
+
+	it("traz as mesmas mensagens das regras do banco", () => {
+		const bad = transactionCreateBody.safeParse({ ...expense, accountId: undefined });
+		expect(message(bad)).toBe("Informe a conta ou o cartão (apenas um dos dois).");
+		expect(transactionInvariantError({ ...expense, kind: "expense", accountId: null })).toBe(message(bad));
+	});
+
+	it("valor em reais com vírgula, negativo ou fracionário é recusado", () => {
+		for (const amountCents of [0, -1, 10.5, "19,90", 2_147_483_648]) {
+			expect(transactionCreateBody.safeParse({ ...expense, amountCents }).success).toBe(false);
+		}
+	});
+
+	it("campo desconhecido é erro (a origem não vem do cliente)", () => {
+		expect(transactionCreateBody.safeParse({ ...expense, source: "pluggy" }).success).toBe(false);
+	});
+
+	it("update parcial deixa limpar com null e não aceita zero", () => {
+		expect(transactionUpdateBody.safeParse({ categoryId: null, note: null }).success).toBe(true);
+		expect(transactionUpdateBody.safeParse({ amountCents: 0 }).success).toBe(false);
+		expect(transactionUpdateBody.safeParse({}).success).toBe(true);
+	});
+
+	it("paginação: limite padrão e teto", () => {
+		expect(recentTransactionsQuery.parse({}).limit).toBe(50);
+		expect(recentTransactionsQuery.safeParse({ limit: "500" }).success).toBe(false);
+		expect(
+			recentTransactionsQuery.parse({ limit: "20", beforeDate: "2026-11-05", beforeId: "x" }).limit,
+		).toBe(20);
+	});
+});
+
+describe("cadastros", () => {
+	it("conta", () => {
+		expect(accountCreateBody.parse({ name: " Itaú ", kind: "checking", bankCode: "60701190" }).name).toBe(
+			"Itaú",
+		);
+		expect(message(accountCreateBody.safeParse({ name: "X", kind: "crypto" }))).toBe(
+			"Tipo de conta inválido.",
+		);
+		expect(accountCreateBody.safeParse({ name: "X", kind: "wallet", bankCode: "123" }).success).toBe(false);
+	});
+
+	it("cartão: padrão da regra só na criação, nunca no PATCH", () => {
+		const body = { name: "Nubank", closingDay: 10, dueDay: 17 };
+		expect(cardCreateBody.parse(body).closingRule).toBe("closing-day-next");
+		expect(cardUpdateBody.parse({ dueDay: 20 })).toEqual({ dueDay: 20 });
+		expect(cardCreateBody.safeParse({ ...body, closingDay: 32 }).success).toBe(false);
+		expect(cardCreateBody.safeParse({ ...body, last4: "12a4" }).success).toBe(false);
+	});
+
+	it("categoria, recorrência e orçamento", () => {
+		expect(categoryCreateBody.safeParse({ slug: "pets", name: "Pets", chartSlot: 4 }).success).toBe(true);
+		expect(categoryCreateBody.safeParse({ slug: "Pets", name: "Pets" }).success).toBe(false);
+		expect(categoryCreateBody.safeParse({ slug: "pets", name: "Pets", chartSlot: 5 }).success).toBe(false);
+		const rent = {
+			kind: "expense",
+			name: "Aluguel",
+			amountCents: 250000,
+			dayOfMonth: 5,
+			startDate: "2026-01-05",
+		};
+		expect(recurrenceCreateBody.safeParse({ ...rent, accountId: "a1" }).success).toBe(true);
+		expect(message(recurrenceCreateBody.safeParse(rent))).toBe(
+			"Informe a conta ou o cartão (apenas um dos dois).",
+		);
+		expect(recurrenceCreateBody.safeParse({ ...rent, accountId: "a1", cardId: "c1" }).success).toBe(false);
+		expect(message(recurrenceCreateBody.safeParse({ ...rent, accountId: "a1", endDate: "2025-01-01" }))).toBe(
+			"O fim não pode ser antes do início.",
+		);
+		expect(budgetSetBody.safeParse({ scope: "total", limitCents: 0 }).success).toBe(true);
+		expect(budgetSetBody.safeParse({ scope: "total", limitCents: -1 }).success).toBe(false);
+	});
+});
