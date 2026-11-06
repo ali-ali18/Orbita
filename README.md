@@ -24,7 +24,16 @@ Postgres (Prisma)  ◄──  Worker (BullMQ): Meu Pluggy, relatórios, alertas,
 
 A regra principal: **a IA nunca faz conta**. Saldo, fatura, parcelas e orçamento vêm de código determinístico e testado; os agentes interpretam o pedido e chamam as ferramentas.
 
-Detalhes em [`docs/plano.md`](docs/plano.md). Design em [`docs/design.md`](docs/design.md).
+## Documentação
+
+| Documento                          | O que tem                                                |
+| ---------------------------------- | -------------------------------------------------------- |
+| [Plano](docs/plano.md)             | O produto, as peças e a ordem de construção              |
+| [Arquitetura](docs/arquitetura.md) | Módulos, quem importa quem, como acrescentar uma feature |
+| [Segurança](docs/seguranca.md)     | O que está exposto, criptografia, pareamento, limites    |
+| [Servidor](docs/servidor.md)       | Subir no Dokploy (ou numa VPS) e parear o celular        |
+| [Styleguide](docs/styleguide.md)   | Tokens de cor, tipografia, raios, espaços e componentes  |
+| [Design](docs/design.md)           | Figma, fluxos do protótipo, avatares e logos             |
 
 ## Contribuições
 

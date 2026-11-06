@@ -28,7 +28,7 @@ Fora do escopo: mover dinheiro (Pix, pagamentos). O app só lê.
 | `packages/agents` | SDK da Anthropic (Tool Runner)                   | Ferramentas, prompts e loop dos agentes.                                      |
 | `packages/shared` | Zod                                              | Schemas compartilhados entre app e API.                                       |
 
-Infra: `docker compose` numa VPS com Postgres, Redis, API, worker e Caddy (HTTPS). Backup diário do banco para fora da VPS.
+Infra: `docker compose` com Postgres, Redis, migração, API e worker, pensado para o **Dokploy** (o Traefik do painel faz o HTTPS); numa VPS sem painel, um arquivo extra acrescenta o Caddy. A imagem é construída e publicada pelo GitHub Actions. Backup diário do banco para fora do servidor. Detalhes em [servidor](servidor.md) e [segurança](seguranca.md).
 
 ### Por que Hono e SSE (e não WebSocket)
 
