@@ -264,4 +264,72 @@ describe.each(contractSuites())("RecurrenceStore (%s)", (_name, make) => {
 			).rejects.toMatchObject({ code: "bad_reference", message: "O cartão informado está arquivado." });
 		});
 	});
+
+	describe("postWithTransaction", () => {
+		const input = (recurrenceId: string, extra: Record<string, unknown> = {}) => ({
+			recurrenceId,
+			month: "2026-11",
+			transaction: {
+				kind: "expense" as const,
+				amountCents: 250_000,
+				date: "2026-11-05",
+				description: "Aluguel",
+				accountId: b.checking.id,
+				...extra,
+			},
+		});
+
+		it("cria o lançamento e o posting juntos", async () => {
+			const r = await stores.recurrences.create(rent());
+			const done = await stores.recurrences.postWithTransaction(input(r.id));
+			expect(done.posting).toEqual({
+				recurrenceId: r.id,
+				month: "2026-11",
+				transactionId: done.transaction.id,
+			});
+			expect(await stores.transactions.get(done.transaction.id)).toEqual(done.transaction);
+			expect(await stores.recurrences.listPostings("2026-11")).toEqual([done.posting]);
+		});
+
+		it("segunda vez no mês é duplicate e não deixa lançamento órfão", async () => {
+			const r = await stores.recurrences.create(rent());
+			await stores.recurrences.postWithTransaction(input(r.id));
+			await expect(stores.recurrences.postWithTransaction(input(r.id))).rejects.toMatchObject({
+				code: "duplicate",
+			});
+			expect(await stores.transactions.listByBudgetMonth("2026-11")).toHaveLength(1);
+		});
+
+		it("valida tipo, mês e referências sem gravar nada", async () => {
+			const r = await stores.recurrences.create(rent());
+			await expect(
+				stores.recurrences.postWithTransaction(input(r.id, { kind: "income" })),
+			).rejects.toMatchObject({ code: "invalid" });
+			await expect(
+				stores.recurrences.postWithTransaction(input(r.id, { date: "2026-12-05" })),
+			).rejects.toMatchObject({ code: "invalid" });
+			await expect(stores.recurrences.postWithTransaction(input("nao-existe"))).rejects.toMatchObject({
+				code: "bad_reference",
+			});
+			await stores.accounts.archive(b.checking.id);
+			await expect(stores.recurrences.postWithTransaction(input(r.id))).rejects.toMatchObject({
+				code: "bad_reference",
+			});
+			expect(await stores.transactions.listByBudgetMonth("2026-11")).toHaveLength(0);
+			expect(await stores.recurrences.listPostings("2026-11")).toHaveLength(0);
+		});
+
+		it("dois pedidos ao mesmo tempo: exatamente um lançamento", async () => {
+			const r = await stores.recurrences.create(rent());
+			const results = await Promise.allSettled(
+				Array.from({ length: 6 }, () => stores.recurrences.postWithTransaction(input(r.id))),
+			);
+			expect(results.filter((x) => x.status === "fulfilled")).toHaveLength(1);
+			for (const x of results) {
+				if (x.status === "rejected") expect(x.reason).toMatchObject({ code: "duplicate" });
+			}
+			expect(await stores.transactions.listByBudgetMonth("2026-11")).toHaveLength(1);
+			expect(await stores.recurrences.listPostings("2026-11")).toHaveLength(1);
+		});
+	});
 });

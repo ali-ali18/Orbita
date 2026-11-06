@@ -24,6 +24,15 @@ export function errorHandler(err: Error, c: Context) {
 		const { status, code } = DATA_ERROR_HTTP[err.code];
 		return c.json(apiError(code, err.message), status);
 	}
+	// Rede de segurança: o engine lança RangeError/TypeError para entrada fora do alcance. A validação das
+	// bordas deve pegar antes; se escapar, é pedido ruim (400), sem repassar o texto interno.
+	if (err instanceof RangeError || err instanceof TypeError) {
+		console.error(err);
+		return c.json(
+			apiError("dados_invalidos", "Algum dado informado está fora do que o sistema aceita."),
+			400,
+		);
+	}
 	// O Hono lança 400 para JSON malformado; qualquer outro status HTTP é nosso e já é genérico.
 	if (err instanceof HTTPException && err.status === 400) {
 		return c.json(apiError("dados_invalidos", "O corpo do pedido não é um JSON válido."), 400);

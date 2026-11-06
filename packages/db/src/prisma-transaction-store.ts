@@ -73,19 +73,25 @@ async function deleteCascade(tx: DbClient, rootIds: string[], at: Date): Promise
 const ORDER_BY_DATE = [{ date: "asc" }, { createdAt: "asc" }, { id: "asc" }] as const;
 const ORDER_RECENT = [{ date: "desc" }, { id: "desc" }] as const;
 
-export function createPrismaTransactionStore(db: Db, now: Clock): TransactionStore {
-	async function insert(client: DbClient, data: TransactionData): Promise<TransactionRecord> {
-		await checkRefundTarget(client, data);
-		await checkReferences(client, refsOf(data));
-		const at = now();
-		try {
-			return toRecord(
-				await client.transaction.create({ data: { ...toCreateColumns(data), createdAt: at, updatedAt: at } }),
-			);
-		} catch (e) {
-			throw translate(e, duplicateExternal);
-		}
+/** Valida e grava um lançamento no client dado (o normal ou o de uma `$transaction`). */
+export async function insertTransaction(
+	client: DbClient,
+	data: TransactionData,
+	at: Date,
+): Promise<TransactionRecord> {
+	await checkRefundTarget(client, data);
+	await checkReferences(client, refsOf(data));
+	try {
+		return toRecord(
+			await client.transaction.create({ data: { ...toCreateColumns(data), createdAt: at, updatedAt: at } }),
+		);
+	} catch (e) {
+		throw translate(e, duplicateExternal);
 	}
+}
+
+export function createPrismaTransactionStore(db: Db, now: Clock): TransactionStore {
+	const insert = (client: DbClient, data: TransactionData) => insertTransaction(client, data, now());
 	const many = async (rows: Promise<Row[]>) => (await rows).map(toRecord);
 
 	return {

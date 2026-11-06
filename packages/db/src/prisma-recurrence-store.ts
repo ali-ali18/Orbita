@@ -11,8 +11,10 @@ import {
 } from "./messages.ts";
 import { isUniqueViolation, translate } from "./prisma-errors.ts";
 import { checkReferences } from "./prisma-references.ts";
+import { insertTransaction } from "./prisma-transaction-store.ts";
 import type { RecurrenceData, RecurrenceRecord, RecurrenceStore } from "./recurrence-store.ts";
 import { applyPatch, cleanMonth, normalizeRecurrence } from "./rules.ts";
+import { normalizeTransaction } from "./transaction-data.ts";
 
 type Row = Omit<RecurrenceRecord, "startDate" | "endDate"> & { startDate: Date; endDate: Date | null };
 
@@ -134,6 +136,30 @@ export function createPrismaRecurrenceStore(db: Db, now: Clock): RecurrenceStore
 				throw translate(e, badReference);
 			}
 			return { recurrenceId, month, transactionId };
+		},
+		async postWithTransaction(input) {
+			cleanMonth(input.month);
+			const { recurrenceId, month } = input;
+			const data = normalizeTransaction(input.transaction);
+			try {
+				return await db.$transaction(async (tx) => {
+					const recurrence = await tx.recurrence.findUnique({
+						where: { id: recurrenceId },
+						select: { kind: true },
+					});
+					if (!recurrence) throw badReference();
+					if (data.kind !== recurrence.kind) throw invalid(POSTING_KIND_MESSAGE);
+					if (data.budgetMonth !== month) throw invalid(POSTING_MONTH_MESSAGE);
+					// A unicidade (recorrência, mês) no banco decide a corrida: o perdedor desfaz o
+					// lançamento junto, porque tudo está numa transação só.
+					const transaction = await insertTransaction(tx, data, now());
+					await tx.recurrencePosting.create({ data: { recurrenceId, month, transactionId: transaction.id } });
+					return { transaction, posting: { recurrenceId, month, transactionId: transaction.id } };
+				});
+			} catch (e) {
+				if (isUniqueViolation(e)) throw new DataError("duplicate", POSTING_EXISTS_MESSAGE);
+				throw translate(e, () => new DataError("duplicate", POSTING_EXISTS_MESSAGE));
+			}
 		},
 	};
 }

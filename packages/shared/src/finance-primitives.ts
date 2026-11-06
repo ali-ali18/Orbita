@@ -24,22 +24,34 @@ export type TransactionSource = (typeof TRANSACTION_SOURCES)[number];
 export const RECURRENCE_KINDS = ["expense", "income"] as const;
 export type RecurrenceKindValue = (typeof RECURRENCE_KINDS)[number];
 
-/** Sem mexer em timezone: confere só o calendário ("2026-02-30" não existe). */
+/** Anos aceitos em datas e meses: dentro disso o engine nunca recebe entrada fora do seu alcance. */
+export const MIN_YEAR = 1900;
+export const MAX_YEAR = 2199;
+const yearInRange = (y: number) => y >= MIN_YEAR && y <= MAX_YEAR;
+
+/** Sem mexer em timezone: confere só o calendário ("2026-02-30" não existe) e o ano (1900 a 2199). */
 export function isLocalDate(value: unknown): value is string {
 	if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
 	const [y, m, d] = value.split("-").map(Number) as [number, number, number];
+	if (!yearInRange(y)) return false;
 	const probe = new Date(Date.UTC(y, m - 1, d));
 	return probe.getUTCFullYear() === y && probe.getUTCMonth() === m - 1 && probe.getUTCDate() === d;
 }
 
 export function isMonthKey(value: unknown): value is string {
-	return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+	return (
+		typeof value === "string" &&
+		/^\d{4}-(0[1-9]|1[0-2])$/.test(value) &&
+		yearInRange(Number(value.slice(0, 4)))
+	);
 }
 
 export const isCents = (value: unknown): value is number => Number.isSafeInteger(value);
 
-export const localDateSchema = z.string().refine(isLocalDate, "Data inválida (use AAAA-MM-DD).");
-export const monthKeySchema = z.string().refine(isMonthKey, "Mês inválido (use AAAA-MM).");
+export const localDateSchema = z
+	.string()
+	.refine(isLocalDate, "Data inválida (use AAAA-MM-DD, de 1900 a 2199).");
+export const monthKeySchema = z.string().refine(isMonthKey, "Mês inválido (use AAAA-MM, de 1900 a 2199).");
 /** Centavos inteiros, positivos. A API nunca recebe reais com vírgula. */
 export const positiveCentsSchema = z
 	.number("O valor deve ser um número.")

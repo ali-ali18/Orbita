@@ -3,6 +3,7 @@ export * from "./classification.ts";
 export * from "./dates.ts";
 export * from "./installments.ts";
 export * from "./invoice.ts";
+export * from "./invoice-composition.ts";
 export * from "./money.ts";
 export * from "./recurrence.ts";
 export * from "./types.ts";

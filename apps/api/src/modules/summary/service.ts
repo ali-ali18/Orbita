@@ -2,6 +2,7 @@ import {
 	budgetStatus,
 	type Cents,
 	invoiceByMonth,
+	invoiceComposition,
 	invoiceStatus,
 	type LocalDate,
 	type MonthKey,
@@ -22,7 +23,7 @@ import {
 	toCardConfig,
 	toMonthlyRecurrence,
 } from "@orbita/db";
-import type { InvoiceComposition, MonthSummaryResponse } from "@orbita/shared";
+import type { MonthSummaryResponse } from "@orbita/shared";
 import { orNotFound } from "../../http/errors.ts";
 
 const sum = (values: Iterable<Cents>) => {
@@ -143,34 +144,6 @@ export async function monthSummary(
 	};
 }
 
-/**
- * Composição da fatura. Pagamento de fatura não tem `invoiceMonth` (não entra em
- * `listByInvoice`); receita no cartão não existe na prática e fica fora da conta.
- */
-export function invoiceComposition(
-	txs: readonly TransactionRecord[],
-	recurringIds: ReadonlySet<string>,
-): InvoiceComposition {
-	let purchasesCents = 0;
-	let installmentsCents = 0;
-	let recurringCents = 0;
-	let refundsCents = 0;
-	for (const t of txs) {
-		if (t.kind === "refund") refundsCents += t.amountCents;
-		else if (t.kind !== "expense") continue;
-		else if (t.installmentGroupId !== null) installmentsCents += t.amountCents;
-		else if (recurringIds.has(t.id)) recurringCents += t.amountCents;
-		else purchasesCents += t.amountCents;
-	}
-	return {
-		purchasesCents,
-		installmentsCents,
-		recurringCents,
-		refundsCents,
-		totalCents: purchasesCents + installmentsCents + recurringCents - refundsCents,
-	};
-}
-
 export async function cardInvoice(stores: Stores, cardId: string, month: MonthKey, today: LocalDate) {
 	const card = orNotFound(await stores.cards.get(cardId), "Cartão", "o");
 	const invoice = invoiceByMonth(month, toCardConfig(card));
@@ -183,7 +156,9 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 	return {
 		card,
 		invoice: { ...invoice, status: invoiceStatus(invoice, today) },
-		composition: invoiceComposition(txs, new Set(postings.map((p) => p.transactionId))),
+		composition: invoiceComposition(txs, {
+			recurringTransactionIds: new Set(postings.map((p) => p.transactionId)),
+		}),
 		transactions: txs,
 	};
 }

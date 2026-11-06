@@ -3,6 +3,7 @@ import {
 	ACCOUNT_KINDS,
 	type AccountKind,
 	CLOSING_RULES,
+	INCOME_ON_CARD_MESSAGE,
 	isCents,
 	isLocalDate,
 	isMonthKey,
@@ -108,6 +109,7 @@ export function normalizeRecurrence(data: RecurrenceData): RecurrenceData {
 	if (hasValue(data.accountId) === hasValue(data.cardId)) {
 		throw invalid("Informe a conta ou o cartão (apenas um dos dois).");
 	}
+	if (data.kind === "income" && hasValue(data.cardId)) throw invalid(INCOME_ON_CARD_MESSAGE);
 	return {
 		kind: data.kind,
 		name: cleanText(data.name, "o nome da recorrência"),

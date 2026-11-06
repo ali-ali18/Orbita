@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { badReference, DataError, invalid, notFound } from "./errors.ts";
 import { assertRefs, byCreated, type MemoryState } from "./memory-state.ts";
+import { createMemoryTransactionStore } from "./memory-transaction-store.ts";
 import {
 	POSTING_DELETED_MESSAGE,
 	POSTING_EXISTS_MESSAGE,
@@ -10,8 +11,10 @@ import {
 } from "./messages.ts";
 import type { RecurrenceStore } from "./recurrence-store.ts";
 import { applyPatch, cleanMonth, normalizeRecurrence } from "./rules.ts";
+import { normalizeTransaction } from "./transaction-data.ts";
 
 export function createMemoryRecurrenceStore(state: MemoryState): RecurrenceStore {
+	const transactions = createMemoryTransactionStore(state);
 	const need = (id: string) => {
 		const found = state.recurrences.get(id);
 		if (!found) throw notFound("Recorrência");
@@ -88,6 +91,26 @@ export function createMemoryRecurrenceStore(state: MemoryState): RecurrenceStore
 			};
 			state.postings.push(record);
 			return { ...record };
+		},
+		async postWithTransaction(input) {
+			cleanMonth(input.month);
+			const { recurrenceId, month } = input;
+			const data = normalizeTransaction(input.transaction);
+			const recurrence = state.recurrences.get(recurrenceId);
+			if (!recurrence) throw badReference();
+			if (data.kind !== recurrence.kind) throw invalid(POSTING_KIND_MESSAGE);
+			if (data.budgetMonth !== month) throw invalid(POSTING_MONTH_MESSAGE);
+			const taken = () => state.postings.some((p) => p.recurrenceId === recurrenceId && p.month === month);
+			if (taken()) throw new DataError("duplicate", POSTING_EXISTS_MESSAGE);
+			const transaction = await transactions.create(input.transaction);
+			// `create` cede a vez: outro pedido pode ter lançado o mês enquanto isso. Desfaz por inteiro.
+			if (taken()) {
+				state.transactions.delete(transaction.id);
+				throw new DataError("duplicate", POSTING_EXISTS_MESSAGE);
+			}
+			const posting = { recurrenceId, month, transactionId: transaction.id };
+			state.postings.push(posting);
+			return { transaction, posting: { ...posting } };
 		},
 	};
 }

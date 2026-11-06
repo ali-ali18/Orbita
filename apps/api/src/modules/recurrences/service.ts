@@ -11,10 +11,8 @@ import { orNotFound } from "../../http/errors.ts";
 import { invoiceMonthFor } from "../transactions/service.ts";
 
 /**
- * Cria o lançamento do mês para a recorrência e registra o posting. Não existe transação
- * de banco entre os dois passos (são stores separados), então: confere antes (resposta
- * amigável) e, se o posting falhar mesmo assim (pedido concorrente), apaga o lançamento
- * recém-criado para não deixar um gasto duplicado sem ligação.
+ * Cria o lançamento do mês da recorrência e registra o posting numa operação atômica do store
+ * (ou entram os dois ou nenhum; dois pedidos ao mesmo tempo dão um 409).
  */
 export async function postRecurrence(
 	stores: Stores,
@@ -25,35 +23,26 @@ export async function postRecurrence(
 	if (recurrence.archivedAt) throw new DataError("invalid", "A recorrência está arquivada.");
 
 	const { month } = body;
-	const postings = await stores.recurrences.listPostings(month);
-	if (postings.some((p) => p.recurrenceId === id)) {
-		throw new DataError("duplicate", "Esta recorrência já foi lançada neste mês.");
-	}
-
-	const date = body.date ?? occurrencesInMonth(toMonthlyRecurrence(recurrence), month)[0];
-	if (!date) throw new DataError("invalid", "A recorrência não cai neste mês (veja o início e o fim dela).");
+	// Mesmo com `date` explícita, a recorrência precisa cair neste mês (início e fim valem).
+	const [occurrence] = occurrencesInMonth(toMonthlyRecurrence(recurrence), month);
+	if (!occurrence)
+		throw new DataError("invalid", "A recorrência não cai neste mês (veja o início e o fim dela).");
+	const date = body.date ?? occurrence;
 	if (monthOf(date) !== month)
 		throw new DataError("invalid", "A data precisa estar dentro do mês informado.");
 
-	const transaction = await stores.transactions.create({
-		kind: recurrence.kind,
-		amountCents: body.amountCents ?? recurrence.amountCents,
-		date,
-		description: recurrence.name,
-		categoryId: recurrence.categoryId,
-		accountId: recurrence.accountId,
-		cardId: recurrence.cardId,
-		invoiceMonth: recurrence.cardId ? await invoiceMonthFor(stores, recurrence.cardId, date) : null,
+	return stores.recurrences.postWithTransaction({
+		recurrenceId: id,
+		month,
+		transaction: {
+			kind: recurrence.kind,
+			amountCents: body.amountCents ?? recurrence.amountCents,
+			date,
+			description: recurrence.name,
+			categoryId: recurrence.categoryId,
+			accountId: recurrence.accountId,
+			cardId: recurrence.cardId,
+			invoiceMonth: recurrence.cardId ? await invoiceMonthFor(stores, recurrence.cardId, date) : null,
+		},
 	});
-	try {
-		const posting = await stores.recurrences.recordPosting({
-			recurrenceId: id,
-			month,
-			transactionId: transaction.id,
-		});
-		return { transaction, posting };
-	} catch (e) {
-		await stores.transactions.softDelete(transaction.id).catch(() => false);
-		throw e;
-	}
 }

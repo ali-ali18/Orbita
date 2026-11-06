@@ -1,4 +1,4 @@
-import { createMemoryStores } from "@orbita/db";
+import { createMemoryStores, type Stores } from "@orbita/db";
 import { deriveKey } from "@orbita/security";
 import { createApp } from "./app.ts";
 import { createPairingGuard } from "./modules/pairing/guard.ts";
@@ -11,9 +11,12 @@ export type Json = any;
 export const NOW = "2026-11-15T15:00:00Z";
 
 /** App completo com stores em memória, relógio fixo e um aparelho já pareado. */
-export async function setupFinance(nowIso = NOW) {
+export async function setupFinance(
+	nowIso = NOW,
+	makeStores: (now: () => Date) => Stores = (now) => createMemoryStores({ now }),
+) {
 	const now = () => new Date(nowIso);
-	const stores = createMemoryStores({ now });
+	const stores = makeStores(now);
 	await stores.categories.ensureDefaults();
 	const deps: PairingDeps = {
 		store: stores.auth,

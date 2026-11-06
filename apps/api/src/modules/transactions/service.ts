@@ -72,7 +72,21 @@ export async function updateTransaction(
 	const current = orNotFound(await stores.transactions.get(id), "Lançamento", "o");
 	const patch: TransactionPatch = defined(body);
 
-	// Parcela mantém a fatura do calendário do parcelamento; o resto acompanha a data/cartão.
+	// O calendário de um parcelamento (fatura e mês de cada parcela) nasce junto com o grupo: mexer em
+	// uma parcela só deixaria o grupo incoerente. Descrição, categoria e observação continuam livres.
+	if (current.installmentGroupId !== null) {
+		const changes = (["cardId", "date", "kind", "amountCents"] as const).some(
+			(key) => patch[key] !== undefined && patch[key] !== current[key],
+		);
+		if (changes) {
+			throw new DataError(
+				"invalid",
+				"Para mudar a data, o cartão ou o valor de um parcelamento, apague e lance de novo.",
+			);
+		}
+	}
+
+	// Compra avulsa: a fatura acompanha a data/cartão (parcela nunca chega aqui com mudança).
 	if (current.installmentGroupId === null) {
 		const kind = patch.kind ?? current.kind;
 		const date = patch.date ?? current.date;

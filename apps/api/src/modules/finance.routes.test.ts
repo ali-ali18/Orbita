@@ -172,24 +172,48 @@ describe("recorrências", () => {
 
 describe("lançamentos", () => {
 	it("à vista na conta: cria, lê, edita, confirma e apaga", async () => {
-		const { api, basics } = await setupFinance();
+		const { api, basics, stores } = await setupFinance();
 		const { account, category } = await basics();
-		const created = await api.post("/v1/transactions", {
+		const manual = await api.post("/v1/transactions", {
 			kind: "expense",
 			amountCents: 4590,
 			date: "2026-11-14",
 			description: "Mercado",
 			accountId: account.id,
 			categoryId: category("mercado"),
-			status: "pending",
 		});
-		expect(created.status).toBe(201);
-		expect(created.body.transaction).toMatchObject({
+		expect(manual.status).toBe(201);
+		// Lançamento manual nasce confirmado; o cliente não escolhe a situação nem o mês do orçamento.
+		expect(manual.body.transaction).toMatchObject({
 			budgetMonth: "2026-11",
 			invoiceMonth: null,
+			status: "confirmed",
+		});
+		const body = {
+			kind: "expense",
+			amountCents: 1,
+			date: "2026-11-14",
+			description: "x",
+			accountId: account.id,
+		};
+		expect((await api.post("/v1/transactions", { ...body, status: "pending" })).status).toBe(400);
+		expect((await api.post("/v1/transactions", { ...body, budgetMonth: "2026-01" })).status).toBe(400);
+		expect(
+			(await api.patch(`/v1/transactions/${manual.body.transaction.id}`, { status: "pending" })).status,
+		).toBe(400);
+		expect(
+			(await api.patch(`/v1/transactions/${manual.body.transaction.id}`, { budgetMonth: "2026-01" })).status,
+		).toBe(400);
+
+		// Pendente só chega pela ingestão (store); `/confirm` é o único jeito de confirmar.
+		const { id } = await stores.transactions.create({
+			kind: "expense",
+			amountCents: 4590,
+			date: "2026-11-14",
+			description: "Notificação",
+			accountId: account.id,
 			status: "pending",
 		});
-		const { id } = created.body.transaction;
 
 		expect((await api.get(`/v1/transactions/${id}`)).status).toBe(200);
 		const edited = await api.patch(`/v1/transactions/${id}`, { amountCents: 5000, note: "feira" });
@@ -366,10 +390,10 @@ describe("lançamentos", () => {
 	});
 
 	it("lista recentes com cursor, por mês e pendentes", async () => {
-		const { api, basics } = await setupFinance();
+		const { api, basics, stores } = await setupFinance();
 		const { account } = await basics();
-		const make = (date: string, status = "confirmed") =>
-			api.post("/v1/transactions", {
+		const make = (date: string, status: "confirmed" | "pending" = "confirmed") =>
+			stores.transactions.create({
 				kind: "expense",
 				amountCents: 100,
 				date,
@@ -398,6 +422,15 @@ describe("lançamentos", () => {
 		expect((await api.get("/v1/transactions/month/2026-11")).body.transactions).toHaveLength(3);
 		const pending = await api.get("/v1/transactions/pending");
 		expect(pending.body.transactions.map((t: { date: string }) => t.date)).toEqual(["2026-11-12"]);
+		expect(pending.body.hasMore).toBe(false);
+
+		await make("2026-11-13", "pending");
+		await make("2026-11-11", "pending");
+		const page = await api.get("/v1/transactions/pending?limit=2");
+		expect(page.body.transactions.map((t: { date: string }) => t.date)).toEqual(["2026-11-13", "2026-11-12"]);
+		expect(page.body.hasMore).toBe(true);
+		expect((await api.get("/v1/transactions/pending?limit=3")).body.hasMore).toBe(false);
+		expect((await api.get("/v1/transactions/pending?limit=201")).status).toBe(400);
 	});
 });
 
@@ -480,5 +513,168 @@ describe("lançar recorrência", () => {
 		expect((await api.post("/v1/recurrences/nao-existe/post", { month: "2026-08" })).status).toBe(404);
 		await api.delete(`/v1/recurrences/${rec.id}`);
 		expect((await api.post(path, { month: "2026-08" })).status).toBe(400);
+	});
+});
+
+describe("revisão da fase 4", () => {
+	const installmentBody = (cardId: string) => ({
+		cardId,
+		totalCents: 30000,
+		count: 3,
+		date: "2026-11-15",
+		description: "Notebook",
+	});
+
+	it("parcela: não muda data, cartão, valor nem tipo; descrição e categoria sim", async () => {
+		const { api, basics } = await setupFinance();
+		const { card, category } = await basics();
+		const other = (await api.post("/v1/cards", { name: "Outro", closingDay: 1, dueDay: 10 })).body.card;
+		const first = (await api.post("/v1/transactions/installments", installmentBody(card.id))).body
+			.transactions[0];
+		const path = `/v1/transactions/${first.id}`;
+		const message = "Para mudar a data, o cartão ou o valor de um parcelamento, apague e lance de novo.";
+		for (const patch of [
+			{ date: "2026-11-01" },
+			{ cardId: other.id },
+			{ amountCents: 1 },
+			{ kind: "income" },
+		]) {
+			const res = await api.patch(path, patch);
+			expect(res.status, JSON.stringify(patch)).toBe(400);
+			expect(res.body.error.message).toBe(message);
+		}
+		const ok = await api.patch(path, {
+			description: "Notebook novo",
+			categoryId: category("lazer"),
+			note: "x",
+			date: first.date,
+		});
+		expect(ok.status).toBe(200);
+		expect(ok.body.transaction).toMatchObject({
+			description: "Notebook novo",
+			invoiceMonth: first.invoiceMonth,
+		});
+	});
+
+	it("datas e meses fora de 1900..2199 dão 400, sem estourar o engine", async () => {
+		const { api, basics } = await setupFinance();
+		const { account, card } = await basics();
+		const rec = (
+			await api.post("/v1/recurrences", {
+				kind: "expense",
+				name: "R",
+				amountCents: 100,
+				dayOfMonth: 5,
+				startDate: "2026-01-01",
+				accountId: account.id,
+			})
+		).body.recurrence;
+		for (const path of [
+			"/v1/summary/0000-01",
+			"/v1/summary/2200-01",
+			`/v1/cards/${card.id}/invoices/0000-01`,
+			"/v1/transactions/month/0000-01",
+			"/v1/installments?from=9999-01",
+		]) {
+			expect((await api.get(path)).status, path).toBe(400);
+		}
+		expect((await api.post(`/v1/recurrences/${rec.id}/post`, { month: "0000-01" })).status).toBe(400);
+		const tx = { kind: "expense", amountCents: 100, date: "9999-12-15", description: "x", cardId: card.id };
+		expect((await api.post("/v1/transactions", tx)).status).toBe(400);
+		expect((await api.post("/v1/transactions", { ...tx, date: "1899-12-31" })).status).toBe(400);
+		expect(
+			(await api.post("/v1/transactions/installments", { ...installmentBody(card.id), date: "9999-12-15" }))
+				.status,
+		).toBe(400);
+		expect((await api.post("/v1/transactions", { ...tx, date: "2199-06-15" })).status).toBe(201);
+	});
+
+	it("erro do engine que escapa vira 400 genérico", async () => {
+		const { app, stores, token } = await setupFinance();
+		// Um cartão com dia inválido só existe se o store for burlado: simula o engine lançando RangeError.
+		const card = await stores.cards.create({ name: "C", closingDay: 10, dueDay: 20 });
+		stores.cards.getConfig = async () => ({ closingDay: 99, dueDay: 20 });
+		const res = await app.request("/v1/transactions", {
+			method: "POST",
+			headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+			body: JSON.stringify({
+				kind: "expense",
+				amountCents: 100,
+				date: "2026-11-15",
+				description: "x",
+				cardId: card.id,
+			}),
+		});
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error: { code: string; message: string } };
+		expect(body.error.code).toBe("dados_invalidos");
+		expect(body.error.message).not.toMatch(/fechamento|99/);
+	});
+
+	it("receita não vai no cartão (lançamento e recorrência)", async () => {
+		const { api, basics } = await setupFinance();
+		const { card } = await basics();
+		const income = await api.post("/v1/transactions", {
+			kind: "income",
+			amountCents: 100,
+			date: "2026-11-15",
+			description: "Cashback",
+			cardId: card.id,
+		});
+		expect(income.status).toBe(400);
+		expect(income.body.error.message).toContain("estorno");
+		const rec = await api.post("/v1/recurrences", {
+			kind: "income",
+			name: "X",
+			amountCents: 100,
+			dayOfMonth: 5,
+			startDate: "2026-01-01",
+			cardId: card.id,
+		});
+		expect(rec.status).toBe(400);
+	});
+
+	it("lançar recorrência com data explícita exige ocorrência no mês", async () => {
+		const { api, basics } = await setupFinance();
+		const { account } = await basics();
+		const rec = (
+			await api.post("/v1/recurrences", {
+				kind: "expense",
+				name: "Curso",
+				amountCents: 100,
+				dayOfMonth: 5,
+				startDate: "2026-06-01",
+				endDate: "2026-09-30",
+				accountId: account.id,
+			})
+		).body.recurrence;
+		// Novembro está depois do fim, mesmo com a data dentro do mês.
+		const res = await api.post(`/v1/recurrences/${rec.id}/post`, { month: "2026-11", date: "2026-11-05" });
+		expect(res.status).toBe(400);
+		expect((await api.get("/v1/transactions/month/2026-11")).body.transactions).toHaveLength(0);
+		expect(
+			(await api.post(`/v1/recurrences/${rec.id}/post`, { month: "2026-08", date: "2026-08-20" })).status,
+		).toBe(201);
+	});
+
+	it("dois lançamentos simultâneos da mesma recorrência: um 201, o resto 409, um só lançamento", async () => {
+		const { api, basics } = await setupFinance();
+		const { account } = await basics();
+		const rec = (
+			await api.post("/v1/recurrences", {
+				kind: "expense",
+				name: "Aluguel",
+				amountCents: 100,
+				dayOfMonth: 5,
+				startDate: "2026-01-01",
+				accountId: account.id,
+			})
+		).body.recurrence;
+		const results = await Promise.all(
+			Array.from({ length: 5 }, () => api.post(`/v1/recurrences/${rec.id}/post`, { month: "2026-11" })),
+		);
+		expect(results.filter((r) => r.status === 201)).toHaveLength(1);
+		expect(results.filter((r) => r.status === 409)).toHaveLength(4);
+		expect((await api.get("/v1/transactions/month/2026-11")).body.transactions).toHaveLength(1);
 	});
 });

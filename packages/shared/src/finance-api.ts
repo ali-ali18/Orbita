@@ -25,7 +25,14 @@ export const budgetScopeParam = z.object({ scope: idSchema });
 // ----------------------------------------------------------- lançamentos
 
 /** Lançamento manual. A fatura (compra/estorno no cartão) é calculada pelo servidor. */
-const { invoiceMonth: _invoiceMonth, ...apiTransactionFields } = transactionFields;
+// O cliente não manda fatura, mês do orçamento nem situação: o servidor deriva (fatura, mês) ou fixa (lançamento
+// manual nasce confirmado; só `/confirm` mexe nisso).
+const {
+	invoiceMonth: _invoiceMonth,
+	budgetMonth: _budgetMonth,
+	status: _status,
+	...apiTransactionFields
+} = transactionFields;
 export const transactionApiCreateBody = z
 	.object(apiTransactionFields)
 	.strict()
@@ -38,8 +45,7 @@ export type TransactionApiCreateBody = z.infer<typeof transactionApiCreateBody>;
 
 /** Campo ausente fica como está; `null` limpa. Mudou a data de compra no cartão? O servidor refaz a fatura. */
 export const transactionApiUpdateBody = transactionUpdateBody
-	.omit({ invoiceMonth: true })
-	.extend({ budgetMonth: monthKeySchema.optional() })
+	.omit({ invoiceMonth: true, budgetMonth: true, status: true })
 	.strict();
 export type TransactionApiUpdateBody = z.infer<typeof transactionApiUpdateBody>;
 
@@ -73,6 +79,15 @@ export const transactionListQuery = z.object({
 		.default(50),
 });
 export type TransactionListQuery = z.infer<typeof transactionListQuery>;
+
+export const pendingListQuery = z.object({
+	limit: z.coerce
+		.number("O limite deve ser um número.")
+		.int("O limite deve ser inteiro.")
+		.min(1, "O limite mínimo é 1.")
+		.max(200, "O limite máximo é 200.")
+		.default(100),
+});
 
 export const transactionDeleteQuery = z.object({
 	scope: z.enum(["item", "group"], "Use scope=item ou scope=group.").default("item"),

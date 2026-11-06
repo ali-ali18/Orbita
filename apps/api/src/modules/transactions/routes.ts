@@ -2,6 +2,7 @@ import {
 	idParam,
 	installmentCreateBody,
 	monthParam,
+	pendingListQuery,
 	transactionApiCreateBody,
 	transactionApiUpdateBody,
 	transactionDeleteQuery,
@@ -32,9 +33,15 @@ export function routes({ stores, requireDevice }: ModuleDeps) {
 			const page = await listRecentPage(stores, c.req.valid("query"));
 			return c.json({ transactions: page.transactions.map(toTransactionDto), nextCursor: page.nextCursor });
 		})
-		.get("/v1/transactions/pending", async (c) =>
-			c.json({ transactions: (await transactions.listPending()).map(toTransactionDto) }),
-		)
+		.get("/v1/transactions/pending", validate("query", pendingListQuery), async (c) => {
+			const { limit } = c.req.valid("query");
+			// Pede um a mais só para saber se há outra página.
+			const rows = await transactions.listPending({ limit: limit + 1 });
+			return c.json({
+				transactions: rows.slice(0, limit).map(toTransactionDto),
+				hasMore: rows.length > limit,
+			});
+		})
 		.get("/v1/transactions/month/:month", validate("param", monthParam), async (c) => {
 			const { month } = c.req.valid("param");
 			const rows = await transactions.listByBudgetMonth(month);
