@@ -22,6 +22,9 @@ export interface TransactionShape {
 export const DESCRIPTION_MAX = 200;
 export const NOTE_MAX = 1000;
 
+export const INCOME_ON_CARD_MESSAGE =
+	"Receita entra em uma conta, não no cartão. Para cashback ou devolução, lance um estorno.";
+
 const has = (v: unknown) => v !== undefined && v !== null;
 
 /**
@@ -50,6 +53,7 @@ export function transactionInvariantError(t: TransactionShape): string | null {
 		case "expense":
 		case "income":
 		case "refund":
+			if (t.kind === "income" && hasCard) return INCOME_ON_CARD_MESSAGE;
 			if (hasAccount === hasCard) return "Informe a conta ou o cartão (apenas um dos dois).";
 			if (hasCounterpart) return "A conta de destino só vale para transferência.";
 			break;

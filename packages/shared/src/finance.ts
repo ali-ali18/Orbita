@@ -15,7 +15,12 @@ import {
 	TRANSACTION_STATUSES,
 	timestampSchema,
 } from "./finance-primitives.ts";
-import { DESCRIPTION_MAX, NOTE_MAX, transactionInvariantError } from "./transaction-rules.ts";
+import {
+	DESCRIPTION_MAX,
+	INCOME_ON_CARD_MESSAGE,
+	NOTE_MAX,
+	transactionInvariantError,
+} from "./transaction-rules.ts";
 
 const ispbSchema = z.string().regex(/^\d{8}$/, "O código do banco (ISPB) tem 8 números.");
 const last4Schema = z.string().regex(/^\d{4}$/, "Informe os 4 últimos dígitos do cartão.");
@@ -118,10 +123,15 @@ export type CategoryDto = z.infer<typeof categoryDto>;
 
 // ----------------------------------------------------------- lançamentos
 
-const descriptionSchema = z.string().trim().min(1, "Informe a descrição do lançamento.").max(DESCRIPTION_MAX);
+export const descriptionSchema = z
+	.string()
+	.trim()
+	.min(1, "Informe a descrição do lançamento.")
+	.max(DESCRIPTION_MAX);
 const noteSchema = z.string().max(NOTE_MAX, `A observação passa de ${NOTE_MAX} letras.`);
 
-const transactionFields = {
+/** Campos de um lançamento; `finance-api.ts` monta os corpos da API (sem `invoiceMonth`) a partir daqui. */
+export const transactionFields = {
 	kind: z.enum(TRANSACTION_KINDS, "Tipo de lançamento inválido."),
 	amountCents: positiveCentsSchema,
 	date: localDateSchema,
@@ -228,6 +238,7 @@ export const recurrenceCreateBody = z
 	.superRefine((r, ctx) => {
 		if (Boolean(r.accountId) === Boolean(r.cardId))
 			ctx.addIssue({ code: "custom", message: "Informe a conta ou o cartão (apenas um dos dois)." });
+		if (r.kind === "income" && r.cardId) ctx.addIssue({ code: "custom", message: INCOME_ON_CARD_MESSAGE });
 		if (r.endDate && r.endDate < r.startDate)
 			ctx.addIssue({ code: "custom", message: "O fim não pode ser antes do início." });
 	});

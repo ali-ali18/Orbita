@@ -1,5 +1,6 @@
 import type { LocalDate, MonthKey, MonthlyRecurrence } from "@orbita/core";
 import type { RecurrenceKindValue } from "@orbita/shared";
+import type { TransactionInput, TransactionRecord } from "./transaction-store.ts";
 
 /** Os campos que o usuário escolhe. */
 export interface RecurrenceData {
@@ -67,4 +68,15 @@ export interface RecurrenceStore {
 	 * só serve a um mês: a segunda chamada é `duplicate`.
 	 */
 	recordPosting(input: RecurrencePostingRecord): Promise<RecurrencePostingRecord>;
+	/**
+	 * Cria o lançamento do mês E registra o posting numa operação só: ou entram os dois ou
+	 * nenhum. Mesmas validações de `recordPosting` (tipo igual ao da recorrência, mês do
+	 * orçamento igual a `month`); `duplicate` se a recorrência já foi lançada no mês, mesmo
+	 * com dois pedidos ao mesmo tempo (exatamente um vence e o outro não deixa lançamento).
+	 */
+	postWithTransaction(input: {
+		recurrenceId: string;
+		month: MonthKey;
+		transaction: TransactionInput;
+	}): Promise<{ transaction: TransactionRecord; posting: RecurrencePostingRecord }>;
 }

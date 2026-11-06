@@ -116,3 +116,26 @@ describe("cadastros", () => {
 		expect(budgetSetBody.safeParse({ scope: "total", limitCents: -1 }).success).toBe(false);
 	});
 });
+
+describe("limites de ano e receita no cartão", () => {
+	it("datas e meses só de 1900 a 2199", () => {
+		expect(isLocalDate("1900-01-01")).toBe(true);
+		expect(isLocalDate("2199-12-31")).toBe(true);
+		expect(isLocalDate("1899-12-31")).toBe(false);
+		expect(isLocalDate("2200-01-01")).toBe(false);
+		expect(isLocalDate("0000-01-01")).toBe(false);
+		expect(isLocalDate("9999-12-15")).toBe(false);
+		expect(isMonthKey("1900-01")).toBe(true);
+		expect(isMonthKey("2199-12")).toBe(true);
+		expect(isMonthKey("0000-01")).toBe(false);
+		expect(isMonthKey("2200-01")).toBe(false);
+	});
+
+	it("receita não usa cartão", () => {
+		const income = { kind: "income" as const, amountCents: 100, date: "2026-11-01", description: "Cashback" };
+		expect(transactionInvariantError({ ...income, cardId: "c1", invoiceMonth: "2026-12" })).toContain(
+			"estorno",
+		);
+		expect(transactionInvariantError({ ...income, accountId: "a1" })).toBeNull();
+	});
+});

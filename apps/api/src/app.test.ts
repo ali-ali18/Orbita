@@ -1,4 +1,4 @@
-import { createMemoryAuthStore } from "@orbita/db";
+import { createMemoryStores } from "@orbita/db";
 import { deriveKey } from "@orbita/security";
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
@@ -6,13 +6,14 @@ import { createPairingGuard, PAIRING_FAILED_CLAIMS_LIMIT } from "./modules/pairi
 import { createPairingCode, hashPairingCode, type PairingDeps } from "./modules/pairing/service.ts";
 
 function setup() {
+	const stores = createMemoryStores();
 	const deps: PairingDeps = {
-		store: createMemoryAuthStore(),
+		store: stores.auth,
 		pairingKey: deriveKey("s".repeat(48), "pairing-code"),
 		now: () => new Date(),
 	};
 	const guard = createPairingGuard(() => deps.now().getTime());
-	return { deps, guard, app: createApp({ ...deps, guard, trustedProxyHops: 1 }) };
+	return { deps, guard, app: createApp({ ...deps, stores, guard, trustedProxyHops: 1 }) };
 }
 
 const json = (body: unknown) => ({
