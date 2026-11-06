@@ -1,10 +1,7 @@
-import { colors, spacing } from "@orbita/tokens";
+import { colors, layout } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-/** Zona da barra de status que o Figma reserva no topo de toda tela (56). */
-const TOP_SAFE = spacing.xxxl + spacing.xxl;
 
 /**
  * Fundo preto da tela, respeitando as áreas seguras. `footer` fica fixo embaixo (fora da rolagem);
@@ -25,7 +22,7 @@ export function Screen({
 	return (
 		<View
 			style={[
-				{ flex: 1, backgroundColor: colors.background, paddingTop: Math.max(insets.top, TOP_SAFE) },
+				{ flex: 1, backgroundColor: colors.background, paddingTop: Math.max(insets.top, layout.statusBar) },
 				style,
 			]}
 		>
@@ -35,7 +32,7 @@ export function Screen({
 					{footer}
 				</View>
 			) : footer ? (
-				<View style={{ paddingBottom: Math.max(insets.bottom, spacing.xxl + spacing.xs) }}>{footer}</View>
+				<View style={{ paddingBottom: Math.max(insets.bottom, layout.homeIndicator) }}>{footer}</View>
 			) : (
 				<View style={{ height: insets.bottom }} />
 			)}

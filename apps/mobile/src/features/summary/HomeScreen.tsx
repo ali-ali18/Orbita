@@ -7,7 +7,7 @@ import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { useSession } from "../../lib/session.tsx";
-import { BottomBar, ConfirmDialog, Screen, Text } from "../../ui/index.ts";
+import { BottomBar, ConfirmDialog, Screen, Text, useBottomBarHeight } from "../../ui/index.ts";
 import { CategoriesCard } from "./CategoriesCard.tsx";
 import { HeroCard } from "./HeroCard.tsx";
 import { HomeHeader } from "./HomeHeader.tsx";
@@ -24,9 +24,6 @@ import { RecentCard } from "./RecentCard.tsx";
 import { InstallmentsSquare, InvoiceSquare } from "./SquareCards.tsx";
 import { currentInvoiceMonth } from "./summary-model.ts";
 
-/** Espaço no fim da rolagem para a barra de baixo flutuante não cobrir o último card (120 no Figma). */
-const SCROLL_BOTTOM_INSET = 120;
-
 /** Ainda não há perfil/nome no servidor; o avatar usa "V" de "Você" e a saudação vai sem nome. */
 const PROFILE_INITIAL = "V";
 
@@ -40,6 +37,7 @@ export function HomeScreen() {
 	const queryClient = useQueryClient();
 	const [refreshing, setRefreshing] = useState(false);
 	const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+	const bottomBarHeight = useBottomBarHeight();
 
 	// Uma única fonte de "hoje" e "mês": todas as consultas usam os mesmos.
 	const { today, month, hour } = useClock();
@@ -72,7 +70,7 @@ export function HomeScreen() {
 			<ScrollView
 				contentContainerStyle={{
 					paddingHorizontal: spacing.lg,
-					paddingBottom: SCROLL_BOTTOM_INSET,
+					paddingBottom: bottomBarHeight + spacing.lg,
 					gap: spacing.md,
 				}}
 				refreshControl={

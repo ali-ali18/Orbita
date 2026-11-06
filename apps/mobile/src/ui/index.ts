@@ -1,6 +1,6 @@
 export { LetterAvatar, OrbitaAvatar } from "./Avatar.tsx";
 export { BankLogo } from "./BankLogo.tsx";
-export { BottomBar } from "./BottomBar.tsx";
+export { BottomBar, useBottomBarHeight } from "./BottomBar.tsx";
 export { Button } from "./Button.tsx";
 export { Card, CardHeader } from "./Card.tsx";
 export { Chip } from "./Chip.tsx";

@@ -1,4 +1,4 @@
-import { colors, radius, spacing } from "@orbita/tokens";
+import { colors, layout, radius, spacing } from "@orbita/tokens";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
@@ -10,6 +10,12 @@ import { Text } from "./Text.tsx";
 /** Mesma altura útil da barra no Figma ("Barra/Inferior"): 52 de botão e 2 de folga em cada lado. */
 const ROW_HEIGHT = 56;
 const BUTTON = 52;
+
+/** Altura total da barra flutuante, para a tela reservar esse espaço no fim da rolagem. */
+export function useBottomBarHeight(): number {
+	const insets = useSafeAreaInsets();
+	return spacing.md + ROW_HEIGHT + Math.max(insets.bottom, layout.homeIndicator);
+}
 
 /** Degradê do Figma: transparente em cima, preto a 92% em 45% e preto cheio embaixo. */
 function Backdrop() {
@@ -43,10 +49,11 @@ export function BottomBar({ onHome }: { onHome?: () => void }) {
 	const insets = useSafeAreaInsets();
 	return (
 		<View
+			pointerEvents="box-none"
 			style={{
 				paddingTop: spacing.md,
 				paddingHorizontal: spacing.lg,
-				paddingBottom: Math.max(insets.bottom, spacing.xxl + spacing.xs),
+				paddingBottom: Math.max(insets.bottom, layout.homeIndicator),
 			}}
 		>
 			<Backdrop />

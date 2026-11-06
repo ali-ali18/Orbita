@@ -1,8 +1,11 @@
-import { colors, radius } from "@orbita/tokens";
+import { colors, layout, radius } from "@orbita/tokens";
 import { Pressable } from "react-native";
 import { Icon, type IconName } from "./icons.tsx";
 
-/** Botão redondo só com ícone: o rótulo para leitor de tela é obrigatório; área de toque ≥ 44. */
+/**
+ * Botão redondo só com ícone: o rótulo para leitor de tela é obrigatório. Abaixo de 44 o desenho
+ * fica do tamanho pedido, mas o `hitSlop` completa a área de toque até 44.
+ */
 export function IconButton({
 	icon,
 	label,
@@ -26,8 +29,10 @@ export function IconButton({
 	background?: string;
 	disabled?: boolean;
 }) {
+	const slop = Math.max(0, (layout.touchTarget - size) / 2);
 	return (
 		<Pressable
+			hitSlop={slop}
 			accessibilityRole="button"
 			accessibilityLabel={label}
 			accessibilityState={{ disabled }}
