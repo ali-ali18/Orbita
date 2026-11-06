@@ -63,17 +63,48 @@ describe("parseBRL", () => {
 		["0,05", 5],
 		["  12,00 ", 1200],
 		["1.234", 123400],
+		["46.900", 4690000],
+		[",50", 50],
+		["R$ ,50", 50],
+		["-0", 0],
+		["0", 0],
+		["0,50", 50],
+		["-0,00", 0],
+		["- 46", -4600],
+		["R$ - 46", -4600],
+		["- R$ 46", -4600],
+		["R$-46", -4600],
+		["\u2212 R$ 1.234,56", -123456],
+		["+ 5", 500],
 	])("%s → %i", (text, cents) => {
 		expect(parseBRL(text)).toBe(cents);
 	});
-	it.each(["46.90", "4,6,0", "", "   ", "abc", "1,234", "46,901", "1.23,45", "--4", "-R$ -4", "12,"])(
-		"rejeita %j",
-		(text) => {
-			expect(() => parseBRL(text)).toThrow(RangeError);
-		},
-	);
+	it.each([
+		"46.90",
+		"4,6,0",
+		"",
+		"   ",
+		"abc",
+		"1,234",
+		"46,901",
+		"1.23,45",
+		"--4",
+		"-R$ -4",
+		"12,",
+		"0.500",
+		"01.234",
+		",",
+		"R$",
+		"- - 4",
+		"R$ 4 5",
+	])("rejeita %j", (text) => {
+		expect(() => parseBRL(text)).toThrow(RangeError);
+	});
 	it("rejeita além do inteiro seguro", () => {
 		expect(() => parseBRL("99.999.999.999.999.999,00")).toThrow(RangeError);
+	});
+	it("nunca devolve -0", () => {
+		for (const t of ["-0", "-0,00", "\u2212R$ 0", "R$ -0,0"]) expect(Object.is(parseBRL(t), 0)).toBe(true);
 	});
 	it("é inverso de formatBRL", () => {
 		for (const c of [0, 1, 99, 100, 123456, -987654321, 100000000]) {

@@ -38,22 +38,28 @@ export function formatBRL(cents: Cents, options: { sign?: SignMode } = {}): stri
 	return mode === "always" ? `+${body}` : body;
 }
 
-const BRL_PATTERN = /^([-−+])?\s*(?:R\$\s*)?([-−+])?(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?$/;
+// [sinal] [R$] [sinal], com espaços opcionais entre as peças. A parte inteira com ponto
+// exige grupos de 3 e a parte inteira sem zero à esquerda, exceto o "0" sozinho
+// ("0.500", "01.234", "0001" e "00,50" são typos).
+// Aceita ",50" (sem parte inteira), mas não "12," (vírgula solta).
+const BRL_PATTERN =
+	/^(?:([-−+])\s*)?(?:R\$\s*)?(?:([-−+])\s*)?(?:([1-9]\d{0,2}(?:\.\d{3})+|0|[1-9]\d*)(?:,(\d{1,2}))?|,(\d{1,2}))$/;
 
 /**
  * Lê dinheiro digitado em pt-BR e devolve centavos. O ponto só vale como separador de
  * milhar (grupos de 3). "46.90" é rejeitado: em pt-BR seria 4.690 reais, em en-US 46,90,
- * e adivinhar errado mexe em dinheiro.
+ * e adivinhar errado mexe em dinheiro. "46.900" é válido em pt-BR (46.900,00).
  */
 export function parseBRL(text: string): Cents {
 	if (typeof text !== "string") throw new TypeError("texto de valor inválido");
 	const match = BRL_PATTERN.exec(text.trim());
 	if (!match) throw new RangeError(`valor inválido: "${text}"`);
-	const [, signA, signB, intPart, decPart] = match;
+	const [, signA, signB, intPart, decPart, onlyDec] = match;
 	if (signA && signB) throw new RangeError(`valor inválido: "${text}"`);
 	const sign = signA ?? signB;
-	const reais = Number((intPart ?? "").replace(/\./g, ""));
-	const cents = reais * 100 + Number((decPart ?? "").padEnd(2, "0"));
+	const reais = Number((intPart ?? "").replace(/\./g, "") || "0");
+	const cents = reais * 100 + Number((decPart ?? onlyDec ?? "").padEnd(2, "0"));
 	if (!Number.isSafeInteger(cents)) throw new RangeError("valor grande demais");
-	return sign === "-" || sign === "−" ? -cents : cents;
+	// `cents === 0` evita devolver -0 ("-0", "-0,00").
+	return cents !== 0 && (sign === "-" || sign === "−") ? -cents : cents;
 }

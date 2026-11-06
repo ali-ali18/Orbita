@@ -1,4 +1,4 @@
-import { addMonths } from "./dates.ts";
+import { addMonths, monthOf } from "./dates.ts";
 import { type CardConfig, invoiceFor } from "./invoice.ts";
 import { assertCents } from "./money.ts";
 import type { Cents, LocalDate, MonthKey } from "./types.ts";
@@ -9,7 +9,14 @@ export interface Installment {
 	number: number;
 	count: number;
 	amountCents: Cents;
+	/** Fatura em que a parcela vence (o que o banco cobra). */
 	invoiceMonth: MonthKey;
+	/**
+	 * Mês do orçamento em que a parcela pesa: mês da compra + (número − 1). Uma compra em
+	 * 12x vira 12 lançamentos, um por parcela, cada um com o seu `budgetMonth`; assim 1.200
+	 * em 12x só soma 100 ao primeiro mês, e não 1.200.
+	 */
+	budgetMonth: MonthKey;
 }
 
 /**
@@ -22,6 +29,8 @@ export function splitInstallments(totalCents: Cents, count: number): Cents[] {
 	if (!Number.isInteger(count) || count < 1 || count > MAX_INSTALLMENTS) {
 		throw new RangeError(`o número de parcelas deve ser de 1 a ${MAX_INSTALLMENTS}`);
 	}
+	// Parcela de zero centavo não existe: o total precisa render ao menos 1 centavo por parcela.
+	if (totalCents < count) throw new RangeError("o total é menor que o número de parcelas");
 	const base = Math.floor(totalCents / count);
 	const remainder = totalCents - base * count;
 	return Array.from({ length: count }, (_, i) => (i === 0 ? base + remainder : base));
@@ -36,11 +45,13 @@ export function installmentSchedule(input: {
 }): Installment[] {
 	const amounts = splitInstallments(input.totalCents, input.count);
 	const first = invoiceFor(input.purchaseDate, input.card).month;
+	const firstBudget = monthOf(input.purchaseDate);
 	return amounts.map((amountCents, i) => ({
 		number: i + 1,
 		count: input.count,
 		amountCents,
 		invoiceMonth: addMonths(first, i),
+		budgetMonth: addMonths(firstBudget, i),
 	}));
 }
 

@@ -10,7 +10,16 @@ export interface MonthlyRule {
 }
 
 export interface MonthlyRecurrence extends MonthlyRule {
+	id: string;
+	/** Despesa (aluguel) ou receita (salário). Só despesa é reservada no orçamento. */
+	kind: "expense" | "income";
 	amountCents: Cents;
+}
+
+/** Lançamento real que já cumpriu a recorrência `recurrenceId` no mês `month`. */
+export interface PostedRecurrence {
+	recurrenceId: string;
+	month: MonthKey;
 }
 
 function assertRule(rule: MonthlyRule): void {
@@ -22,6 +31,16 @@ function assertRule(rule: MonthlyRule): void {
 		parseLocalDate(rule.endDate);
 		if (rule.endDate < rule.startDate) throw new RangeError("a data final é anterior à inicial");
 	}
+}
+
+function assertRecurrence(rule: MonthlyRecurrence): void {
+	assertRule(rule);
+	// Sem valor padrão: um `kind` desconhecido virando receita (ou despesa) erraria dinheiro em silêncio.
+	if (rule.kind !== "expense" && rule.kind !== "income") {
+		throw new TypeError(`tipo de recorrência inválido: ${String(rule.kind)}`);
+	}
+	assertCents(rule.amountCents, "amountCents");
+	if (rule.amountCents <= 0) throw new RangeError(`recorrência ${rule.id}: o valor deve ser positivo`);
 }
 
 /** Datas do mês em que a regra cai (0 ou 1), respeitando início e fim (inclusive). */
@@ -48,24 +67,32 @@ export function nextOccurrence(rule: MonthlyRule, from: LocalDate): LocalDate | 
 	return undefined;
 }
 
+export interface PendingRecurring {
+	expenseCents: Cents;
+	incomeCents: Cents;
+}
+
 /**
- * Soma das recorrências do mês que ainda vão cair. Ocorrência com a data de HOJE ou
- * depois é pendente: o débito do dia costuma entrar só à noite, e contar como pendente
- * é o lado seguro para "quanto posso gastar" (reserva o dinheiro). Quando o lançamento
- * real aparecer, quem chama deve parar de contar a recorrência para não duplicar.
+ * O que ainda se espera das recorrências no mês, separado por direção. Uma ocorrência é
+ * pendente se NÃO foi lançada naquele mês, seja a data futura ou passada: o aluguel que já
+ * foi debitado (mesmo adiantado) não pode ser reservado de novo, e a conta vencida e ainda
+ * não paga continua esperada. Decidir pela data duplicaria ou perderia valores.
  */
 export function pendingInMonth(
 	rules: readonly MonthlyRecurrence[],
 	month: MonthKey,
-	today: LocalDate,
-): Cents {
-	parseLocalDate(today);
-	const amounts: Cents[] = [];
+	posted: readonly PostedRecurrence[],
+): PendingRecurring {
+	parseMonthKey(month);
+	const done = new Set(posted.filter((p) => p.month === month).map((p) => p.recurrenceId));
+	const expenses: Cents[] = [];
+	const incomes: Cents[] = [];
 	for (const rule of rules) {
-		assertCents(rule.amountCents, "amountCents");
-		for (const date of occurrencesInMonth(rule, month)) {
-			if (date >= today) amounts.push(rule.amountCents);
+		assertRecurrence(rule);
+		if (done.has(rule.id)) continue;
+		for (const _ of occurrencesInMonth(rule, month)) {
+			(rule.kind === "expense" ? expenses : incomes).push(rule.amountCents);
 		}
 	}
-	return sumCents(amounts);
+	return { expenseCents: sumCents(expenses), incomeCents: sumCents(incomes) };
 }

@@ -1,4 +1,4 @@
-import { monthOf } from "./dates.ts";
+import { monthOf, parseMonthKey } from "./dates.ts";
 import { assertCents } from "./money.ts";
 import type { Cents, LocalDate, MonthKey, TransactionKind } from "./types.ts";
 
@@ -8,6 +8,11 @@ export interface Transaction {
 	/** Sempre positivo; o sentido vem de `kind`. */
 	amountCents: Cents;
 	date: LocalDate;
+	/**
+	 * Mês do orçamento, quando difere do mês da data (parcelas: ver `installmentSchedule`).
+	 * Sem ele, vale o mês de `date`.
+	 */
+	budgetMonth?: MonthKey;
 	categoryId?: string;
 	/** Id da despesa original, quando `kind` é "refund". */
 	refundOf?: string;
@@ -39,42 +44,57 @@ export function incomeDelta(tx: Transaction): Cents {
 }
 
 export interface MonthSummary {
+	/** Soma de `byCategory`; nunca negativo. */
 	spentCents: Cents;
 	incomeCents: Cents;
+	/** Estorno que passou do gasto da categoria no mês e por isso não abateu nada. */
+	refundCreditCents: Cents;
 	byCategory: Record<string, Cents>;
 }
 
 /**
- * Resumo de um mês. O estorno abate a categoria da compra original (achada na mesma
- * lista, mesmo que seja de outro mês: estornar em março uma compra de fevereiro reduz o
- * gasto de março). Sem original na lista, usa a categoria do próprio estorno, ou "outros".
- * `spentCents` é o líquido real; categorias nunca ficam abaixo de zero (um estorno maior
- * que o gasto do mês na categoria não vira "crédito" na tela).
+ * Resumo de um mês de orçamento (`budgetMonth ?? monthOf(date)`). O estorno abate a
+ * categoria da compra original (achada na mesma lista, mesmo de outro mês), senão a do
+ * próprio estorno, senão "outros", até no máximo zero. O que passar disso vai para
+ * `refundCreditCents`: dinheiro que voltou sem ter gasto a abater neste mês. Assim o
+ * total sempre fecha com a soma das categorias e nunca fica negativo.
+ * O estorno fica no mês em que acontece (quando o dinheiro volta ou aparece na fatura),
+ * não no mês da compra: os meses já fechados não mudam retroativamente.
  */
 export function summarizeMonth(transactions: readonly Transaction[], month: MonthKey): MonthSummary {
 	const byId = new Map<string, Transaction>();
 	for (const tx of transactions) byId.set(tx.id, tx);
 
-	let spentCents = 0;
 	let incomeCents = 0;
+	let refundCreditCents = 0;
 	const byCategory: Record<string, Cents> = {};
+	const refunds: Transaction[] = [];
 
 	for (const tx of transactions) {
-		if (monthOf(tx.date) !== month) continue;
+		// Valida antes de filtrar: `budgetMonth` torto não pode sumir com o lançamento em silêncio.
+		if (tx.budgetMonth !== undefined) parseMonthKey(tx.budgetMonth);
+		if ((tx.budgetMonth ?? monthOf(tx.date)) !== month) continue;
 		const spending = spendingDelta(tx);
 		incomeCents += incomeDelta(tx);
-		if (spending === 0) continue;
-		spentCents += spending;
+		if (tx.kind === "refund") refunds.push(tx);
+		else if (spending > 0) {
+			const category = tx.categoryId ?? UNCATEGORIZED;
+			byCategory[category] = (byCategory[category] ?? 0) + spending;
+		}
+	}
+	// Estornos depois de todas as despesas, para a ordem da lista não mudar o resultado.
+	for (const tx of refunds) {
 		const original = tx.refundOf === undefined ? undefined : byId.get(tx.refundOf);
-		const category =
-			(tx.kind === "refund" ? (original?.categoryId ?? tx.categoryId) : tx.categoryId) ?? UNCATEGORIZED;
-		byCategory[category] = (byCategory[category] ?? 0) + spending;
+		const category = original?.categoryId ?? tx.categoryId ?? UNCATEGORIZED;
+		const current = byCategory[category];
+		const applied = Math.min(tx.amountCents, current ?? 0);
+		if (current !== undefined) byCategory[category] = current - applied;
+		refundCreditCents += tx.amountCents - applied;
 	}
-	for (const key of Object.keys(byCategory)) {
-		if ((byCategory[key] ?? 0) < 0) byCategory[key] = 0;
-	}
-	if (!Number.isSafeInteger(spentCents) || !Number.isSafeInteger(incomeCents)) {
+	let spentCents = 0;
+	for (const value of Object.values(byCategory)) spentCents += value;
+	if (![spentCents, incomeCents, refundCreditCents].every(Number.isSafeInteger)) {
 		throw new RangeError("soma do mês excede o inteiro seguro");
 	}
-	return { spentCents, incomeCents, byCategory };
+	return { spentCents, incomeCents, refundCreditCents, byCategory };
 }

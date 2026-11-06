@@ -39,7 +39,7 @@ describe("budgetStatus", () => {
 });
 
 describe("safeToSpend", () => {
-	const base = { budgetCents: 300000, spentCents: 0, pendingRecurringCents: 0 };
+	const base = { budgetCents: 300000, spentCents: 0, pendingRecurringExpenseCents: 0 };
 	it("primeiro dia: divide pelo mês inteiro", () => {
 		expect(safeToSpend({ ...base, today: "2026-05-01", month: "2026-05" })).toEqual({
 			availableCents: 300000,
@@ -52,7 +52,7 @@ describe("safeToSpend", () => {
 			safeToSpend({
 				...base,
 				spentCents: 100000,
-				pendingRecurringCents: 50000,
+				pendingRecurringExpenseCents: 50000,
 				today: "2026-05-31",
 				month: "2026-05",
 			}),
@@ -68,7 +68,7 @@ describe("safeToSpend", () => {
 			safeToSpend({
 				...base,
 				spentCents: 290000,
-				pendingRecurringCents: 20000,
+				pendingRecurringExpenseCents: 20000,
 				today: "2026-05-10",
 				month: "2026-05",
 			}),
@@ -82,7 +82,7 @@ describe("safeToSpend", () => {
 			safeToSpend({
 				budgetCents: 100,
 				spentCents: 0,
-				pendingRecurringCents: 0,
+				pendingRecurringExpenseCents: 0,
 				today: "2026-05-01",
 				month: "2026-05",
 			}).perDayCents,
@@ -94,78 +94,76 @@ describe("safeToSpend", () => {
 });
 
 describe("projectMonth", () => {
-	it("primeiro dia: extrapola o gasto variável de um dia", () => {
-		expect(
-			projectMonth({
-				spentCents: 1000,
-				pendingRecurringCents: 5000,
-				variableSpentCents: 1000,
-				today: "2026-05-01",
-				month: "2026-05",
-			}),
-		).toBe(1000 + 5000 + 1000 * 30);
+	const zero = { spentCents: 0, pendingRecurringExpenseCents: 0, variableSpentCents: 0 };
+	it("dia 1 com 1.000 gastos não projeta 31.000 e avisa baixa confiança", () => {
+		const r = projectMonth({
+			spentCents: 100000,
+			pendingRecurringExpenseCents: 0,
+			variableSpentCents: 100000,
+			today: "2026-05-01",
+			month: "2026-05",
+		});
+		expect(r.lowConfidence).toBe(true);
+		expect(r.projectedCents).toBe(100000 + Math.round((100000 * 30) / 7));
+		expect(r.projectedCents).toBeLessThan(3100000);
 	});
-	it("último dia: sem dias restantes, projeção = gasto + pendente", () => {
+	it("a partir do 7º dia usa o ritmo real e confia", () => {
+		const day6 = projectMonth({ ...zero, variableSpentCents: 6000, today: "2026-05-06", month: "2026-05" });
+		const day7 = projectMonth({ ...zero, variableSpentCents: 7000, today: "2026-05-07", month: "2026-05" });
+		expect(day6.lowConfidence).toBe(true);
+		expect(day6.projectedCents).toBe(Math.round((6000 * 25) / 7));
+		expect(day7).toEqual({ projectedCents: (7000 * 24) / 7, lowConfidence: false });
+	});
+	it("último dia: sem dias restantes, projeção = gasto + despesas pendentes", () => {
 		expect(
 			projectMonth({
 				spentCents: 90000,
-				pendingRecurringCents: 0,
+				pendingRecurringExpenseCents: 500,
 				variableSpentCents: 40000,
 				today: "2026-05-31",
 				month: "2026-05",
 			}),
-		).toBe(90000);
+		).toEqual({ projectedCents: 90500, lowConfidence: false });
 	});
 	it("fevereiro: multiplica antes de dividir e arredonda uma vez", () => {
 		// 10000 em 10 dias, 18 restantes → 18000
-		expect(
-			projectMonth({
-				spentCents: 10000,
-				pendingRecurringCents: 0,
-				variableSpentCents: 10000,
-				today: "2026-02-10",
-				month: "2026-02",
-			}),
-		).toBe(10000 + 18000);
-		// 100 * 18 / 10 = 180 exato; 101 * 18 / 10 = 181,8 → 182
-		expect(
-			projectMonth({
-				spentCents: 101,
-				pendingRecurringCents: 0,
-				variableSpentCents: 101,
-				today: "2026-02-10",
-				month: "2026-02",
-			}),
-		).toBe(101 + 182);
+		const a = projectMonth({
+			...zero,
+			spentCents: 10000,
+			variableSpentCents: 10000,
+			today: "2026-02-10",
+			month: "2026-02",
+		});
+		expect(a.projectedCents).toBe(10000 + 18000);
+		// 101 * 18 / 10 = 181,8 → 182
+		const b = projectMonth({
+			...zero,
+			spentCents: 101,
+			variableSpentCents: 101,
+			today: "2026-02-10",
+			month: "2026-02",
+		});
+		expect(b.projectedCents).toBe(101 + 182);
 	});
 	it("sem gasto variável, só soma o que há", () => {
-		expect(
-			projectMonth({
-				spentCents: 0,
-				pendingRecurringCents: 0,
-				variableSpentCents: 0,
-				today: "2026-05-15",
-				month: "2026-05",
-			}),
-		).toBe(0);
+		expect(projectMonth({ ...zero, today: "2026-05-15", month: "2026-05" }).projectedCents).toBe(0);
 	});
 	it("estourado: projeção acima do orçamento é devolvida como está", () => {
 		expect(
 			projectMonth({
 				spentCents: 200000,
-				pendingRecurringCents: 100000,
+				pendingRecurringExpenseCents: 100000,
 				variableSpentCents: 200000,
 				today: "2026-05-10",
 				month: "2026-05",
-			}),
+			}).projectedCents,
 		).toBe(200000 + 100000 + Math.round((200000 * 21) / 10));
 	});
 	it("valida mês e overflow", () => {
-		const args = { spentCents: 0, pendingRecurringCents: 0, variableSpentCents: 0 };
-		expect(() => projectMonth({ ...args, today: "2026-06-01", month: "2026-05" })).toThrow(RangeError);
+		expect(() => projectMonth({ ...zero, today: "2026-06-01", month: "2026-05" })).toThrow(RangeError);
 		expect(() =>
 			projectMonth({
-				...args,
+				...zero,
 				variableSpentCents: Number.MAX_SAFE_INTEGER,
 				today: "2026-05-01",
 				month: "2026-05",
