@@ -4,6 +4,7 @@ import type { CardRecord } from "./card-store.ts";
 import type { CategoryRecord } from "./category-store.ts";
 import { badReference } from "./errors.ts";
 import type { RecurrencePostingRecord, RecurrenceRecord } from "./recurrence-store.ts";
+import { archivedAccount, archivedCard, archivedCategory, type Refs } from "./references.ts";
 import type { TransactionRecord } from "./transaction-store.ts";
 
 export type Clock = () => Date;
@@ -35,14 +36,27 @@ export function createMemoryState(now: Clock = () => new Date()): MemoryState {
 	};
 }
 
-/** O equivalente das chaves estrangeiras do banco. */
-export function assertRefs(
-	state: MemoryState,
-	refs: { accountIds?: (string | null)[]; cardId?: string | null; categoryId?: string | null },
-): void {
-	for (const id of refs.accountIds ?? []) if (id && !state.accounts.has(id)) throw badReference();
-	if (refs.cardId && !state.cards.has(refs.cardId)) throw badReference();
-	if (refs.categoryId && !state.categories.has(refs.categoryId)) throw badReference();
+/**
+ * O equivalente das chaves estrangeiras do banco, mais a regra de arquivados: apontar para
+ * conta, cartão ou categoria arquivada só vale se a referência não mudou (`previous`).
+ */
+export function assertRefs(state: MemoryState, refs: Refs, previous: Refs = {}): void {
+	(refs.accountIds ?? []).forEach((id, i) => {
+		if (!id) return;
+		const account = state.accounts.get(id);
+		if (!account) throw badReference();
+		if (account.archivedAt !== null && previous.accountIds?.[i] !== id) throw archivedAccount();
+	});
+	if (refs.cardId) {
+		const card = state.cards.get(refs.cardId);
+		if (!card) throw badReference();
+		if (card.archivedAt !== null && previous.cardId !== refs.cardId) throw archivedCard();
+	}
+	if (refs.categoryId) {
+		const category = state.categories.get(refs.categoryId);
+		if (!category) throw badReference();
+		if (category.archivedAt !== null && previous.categoryId !== refs.categoryId) throw archivedCategory();
+	}
 }
 
 export const byCreated = <T extends { createdAt: Date; id?: string }>(a: T, b: T) =>

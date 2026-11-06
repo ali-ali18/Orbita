@@ -46,9 +46,6 @@ export interface TransactionInput {
 	/** Padrão: o mês de `date`. Parcelas informam o seu (ver `installmentSchedule`). */
 	budgetMonth?: MonthKey | null;
 	invoiceMonth?: MonthKey | null;
-	installmentGroupId?: string | null;
-	installmentNumber?: number | null;
-	installmentCount?: number | null;
 	/** Padrão: "confirmed". */
 	status?: TransactionStatus;
 	/** Padrão: "manual". */
@@ -57,13 +54,24 @@ export interface TransactionInput {
 	note?: string | null;
 }
 
-/** Item de um parcelamento: o grupo é criado pelo store; número e total são obrigatórios. */
-export type InstallmentInput = Omit<TransactionInput, "installmentGroupId"> & {
+/**
+ * Item de um parcelamento. Parcela só nasce por `createInstallmentGroup`: o grupo é gerado
+ * pelo store e número e total são obrigatórios.
+ */
+export type InstallmentInput = TransactionInput & {
 	installmentNumber: number;
 	installmentCount: number;
 };
 
-/** Campos editáveis. Origem, id externo e parcelamento são a identidade do lançamento e não mudam. */
+/**
+ * Campos editáveis. Origem, id externo e parcelamento são a identidade do lançamento e não
+ * mudam (passar um deles é `invalid`).
+ *
+ * Ao trocar `date` de um lançamento fora de parcelamento cujo `budgetMonth` era o padrão (o
+ * mês da data antiga), o store recalcula `budgetMonth` pela data nova, a menos que o patch
+ * informe um. O `invoiceMonth` NÃO é recalculado: quem sabe a fatura é o engine (`invoiceFor`),
+ * então quem troca a data de uma compra no cartão deve mandar o `invoiceMonth` novo junto.
+ */
 export type TransactionPatch = Partial<
 	Omit<
 		TransactionData,
@@ -121,18 +129,31 @@ export interface TransactionStore {
 		externalId: string,
 		input: UpsertByExternalInput,
 	): Promise<UpsertResult>;
-	/** Valida o lançamento inteiro depois do patch. `not_found` se não existe ou foi apagado. */
+	/**
+	 * Valida o lançamento inteiro depois do patch e grava só o que mudou. `not_found` se não existe ou
+	 * foi apagado. Mudar o tipo de uma despesa que tem estornos vivos é `invalid`; apontar para conta,
+	 * cartão ou categoria arquivada (se a referência mudou) é `bad_reference`.
+	 */
 	update(id: string, patch: TransactionPatch): Promise<TransactionRecord>;
-	/** `true` se apagou agora, `false` se não existia ou já estava apagado. */
+	/**
+	 * `true` se apagou agora, `false` se não existia ou já estava apagado. Na mesma operação
+	 * apaga os estornos vivos da despesa e solta as recorrências ligadas a qualquer um deles.
+	 */
 	softDelete(id: string): Promise<boolean>;
-	/** Apaga todas as parcelas do grupo. Devolve quantas. */
+	/** Apaga todas as parcelas do grupo (com a mesma cascata de `softDelete`). Devolve quantas parcelas. */
 	softDeleteGroup(groupId: string): Promise<number>;
 	get(id: string): Promise<TransactionRecord | null>;
 	/** Por data, depois por criação. */
 	listByBudgetMonth(month: MonthKey): Promise<TransactionRecord[]>;
 	listByInvoice(cardId: string, invoiceMonth: MonthKey): Promise<TransactionRecord[]>;
-	/** Os que esperam revisão, do mais recente para o mais antigo. */
-	listPending(): Promise<TransactionRecord[]>;
+	/** Os que esperam revisão, do mais recente para o mais antigo. `limit` padrão 200, máximo 500. */
+	listPending(options?: { limit?: number }): Promise<TransactionRecord[]>;
+	/**
+	 * Vários lançamentos pelo id, só os que existem e não foram apagados (a ordem é a das listas
+	 * de mês). Serve para buscar o original de estornos de outros meses (`summarizeMonth`).
+	 * Aceita de 0 a 500 ids; ids repetidos contam uma vez.
+	 */
+	getMany(ids: readonly string[]): Promise<TransactionRecord[]>;
 	/** Do mais recente para o mais antigo (data, id). `before` é o último item da página anterior. */
 	listRecent(options: { limit: number; before?: TransactionCursor }): Promise<TransactionRecord[]>;
 	/**

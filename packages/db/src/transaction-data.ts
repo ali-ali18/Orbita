@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { monthOf } from "@orbita/core";
 import type { TransactionSource } from "@orbita/shared";
-import { MAX_INSTALLMENT_COUNT, TRANSACTION_SOURCES, transactionInvariantError } from "@orbita/shared";
+import {
+	isLocalDate,
+	MAX_INSTALLMENT_COUNT,
+	TRANSACTION_SOURCES,
+	transactionInvariantError,
+} from "@orbita/shared";
 import { DataError, invalid } from "./errors.ts";
 import { applyPatch, cleanLocalDate } from "./rules.ts";
 import type {
@@ -30,8 +35,25 @@ function cleanExternal(source: TransactionSource, externalId: string | null | un
 	return id;
 }
 
-/** Completa os padrões e confere as invariantes. Lança `DataError("invalid")`. */
+/** Uso interno: entrada com os campos de parcela, que só `createInstallmentGroup` preenche. */
+export type TransactionDraft = TransactionInput & {
+	installmentGroupId?: string | null;
+	installmentNumber?: number | null;
+	installmentCount?: number | null;
+};
+
+/** Lançamento avulso: campos de parcela que vierem (JS sem tipos) são descartados. */
 export function normalizeTransaction(input: TransactionInput): TransactionData {
+	return normalizeDraft({
+		...input,
+		installmentGroupId: null,
+		installmentNumber: null,
+		installmentCount: null,
+	});
+}
+
+/** Completa os padrões e confere as invariantes. Lança `DataError("invalid")`. */
+function normalizeDraft(input: TransactionDraft): TransactionData {
 	const message = transactionInvariantError(input);
 	if (message) throw invalid(message);
 	const source = input.source ?? "manual";
@@ -60,8 +82,52 @@ export function normalizeTransaction(input: TransactionInput): TransactionData {
 	};
 }
 
+const PATCHABLE = new Set([
+	"kind",
+	"amountCents",
+	"date",
+	"description",
+	"categoryId",
+	"accountId",
+	"cardId",
+	"counterpartAccountId",
+	"refundOfId",
+	"budgetMonth",
+	"invoiceMonth",
+	"status",
+	"note",
+]);
+
+/**
+ * Aplica o patch e revalida o lançamento inteiro. Trocar a data de um lançamento que não é
+ * parcela e cujo mês do orçamento era o padrão leva o mês do orçamento junto.
+ */
 export function mergeTransaction(current: TransactionData, patch: TransactionPatch): TransactionData {
-	return normalizeTransaction(applyPatch(current, patch));
+	for (const [key, value] of Object.entries(patch)) {
+		if (value !== undefined && !PATCHABLE.has(key))
+			throw invalid(`O campo ${key} do lançamento não pode ser alterado.`);
+	}
+	let effective: TransactionPatch = patch;
+	if (
+		patch.date !== undefined &&
+		isLocalDate(patch.date) &&
+		patch.date !== current.date &&
+		patch.budgetMonth === undefined &&
+		current.installmentGroupId === null &&
+		current.budgetMonth === monthOf(current.date)
+	) {
+		effective = { ...patch, budgetMonth: monthOf(patch.date) };
+	}
+	return normalizeDraft(applyPatch<TransactionData>(current, effective));
+}
+
+/** Só as colunas que mudaram entre o lançamento atual e o resultado do patch. */
+export function changedColumns(current: TransactionData, next: TransactionData): Partial<TransactionData> {
+	const diff: Record<string, unknown> = {};
+	for (const key of Object.keys(next) as Array<keyof TransactionData>) {
+		if (next[key] !== current[key]) diff[key] = next[key];
+	}
+	return diff as Partial<TransactionData>;
 }
 
 /** Valida o grupo todo antes de gravar qualquer parcela e gera o id do grupo. */
@@ -71,7 +137,7 @@ export function normalizeInstallmentGroup(inputs: readonly InstallmentInput[]): 
 		throw invalid(`O parcelamento passa de ${MAX_INSTALLMENT_COUNT} parcelas.`);
 	}
 	const groupId = randomUUID();
-	const rows = inputs.map((input) => normalizeTransaction({ ...input, installmentGroupId: groupId }));
+	const rows = inputs.map((input) => normalizeDraft({ ...input, installmentGroupId: groupId }));
 	const count = rows[0]?.installmentCount;
 	const numbers = new Set<number>();
 	for (const row of rows) {
@@ -93,10 +159,25 @@ export function dataOf(record: TransactionRecord): TransactionData {
 
 export const refundTargetError = () => new DataError("bad_reference", REFUND_TARGET_MESSAGE);
 
-export function checkRecentOptions(options: { limit: number; before?: TransactionCursor | undefined }): void {
-	if (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 500) {
+export function cleanLimit(limit: number): number {
+	if (!Number.isInteger(limit) || limit < 1 || limit > 500)
 		throw invalid("O limite deve ser um inteiro de 1 a 500.");
+	return limit;
+}
+
+export const DEFAULT_PENDING_LIMIT = 200;
+
+/** Ids únicos de `getMany`; de 0 a 500 textos não vazios. */
+export function cleanIds(ids: readonly string[]): string[] {
+	if (!Array.isArray(ids) || ids.length > 500) throw invalid("Informe de 0 a 500 ids de lançamentos.");
+	if (ids.some((id) => typeof id !== "string" || id.length === 0 || id.length > 64)) {
+		throw invalid("Há um id de lançamento inválido.");
 	}
+	return [...new Set(ids)];
+}
+
+export function checkRecentOptions(options: { limit: number; before?: TransactionCursor | undefined }): void {
+	cleanLimit(options.limit);
 	if (options.before) {
 		cleanLocalDate(options.before.date, "A data do cursor");
 		if (!options.before.id) throw invalid("O cursor precisa do id.");

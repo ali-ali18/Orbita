@@ -73,4 +73,41 @@ describe.skipIf(!url)("CHECKs do Postgres", () => {
 			`INSERT INTO budgets (id, scope, limit_cents, updated_at) VALUES ('b1', 'total', -1, now())`,
 		);
 	});
+
+	it("recorrência tem conta OU cartão, nunca os dois nem nenhum", async () => {
+		const c = client();
+		await cleanDatabase(c);
+		await c.$executeRawUnsafe(account);
+		await c.$executeRawUnsafe(
+			`INSERT INTO cards (id, name, closing_day, due_day, updated_at) VALUES ('c1', 'C', 10, 17, now())`,
+		);
+		const rec = (cols: string, vals: string) =>
+			`INSERT INTO recurrences (id, kind, name, amount_cents, day_of_month, start_date, updated_at${cols}) VALUES ('r1', 'expense', 'R', 10, 5, '2026-01-01', now()${vals})`;
+		await expect(c.$executeRawUnsafe(rec("", ""))).rejects.toThrow(/check constraint/i);
+		await expect(c.$executeRawUnsafe(rec(", account_id, card_id", ", 'a1', 'c1'"))).rejects.toThrow(
+			/check constraint/i,
+		);
+		await expect(c.$executeRawUnsafe(rec(", account_id", ", 'a1'"))).resolves.toBe(1);
+	});
+
+	it("parcela única por grupo e número", async () => {
+		const c = client();
+		await cleanDatabase(c);
+		await c.$executeRawUnsafe(account);
+		const row = (id: string, number: number) =>
+			`INSERT INTO transactions (id, kind, amount_cents, date, description, budget_month, account_id, installment_group_id, installment_number, installment_count, updated_at) VALUES ('${id}', 'expense', 100, '2026-11-05', 'x', '2026-11', 'a1', 'g', ${number}, 3, now())`;
+		await expect(c.$executeRawUnsafe(row("t1", 1))).resolves.toBe(1);
+		await expect(c.$executeRawUnsafe(row("t2", 1))).rejects.toThrow(/unique|duplicate/i);
+		await expect(c.$executeRawUnsafe(row("t3", 2))).resolves.toBe(1);
+	});
+
+	it("não dá para apagar conta ou cartão que lançamentos usam (RESTRICT, sem SET NULL)", async () => {
+		const c = client();
+		await cleanDatabase(c);
+		await c.$executeRawUnsafe(account);
+		await c.$executeRawUnsafe(tx(", account_id", ", 'a1'"));
+		await expect(c.$executeRawUnsafe(`DELETE FROM accounts WHERE id = 'a1'`)).rejects.toThrow(
+			/foreign key|violates/i,
+		);
+	});
 });

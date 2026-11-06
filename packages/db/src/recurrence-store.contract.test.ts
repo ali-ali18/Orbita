@@ -21,11 +21,11 @@ describe.each(contractSuites())("RecurrenceStore (%s)", (_name, make) => {
 		accountId: b.checking.id,
 		...extra,
 	});
-	const payment = (description = "Aluguel") =>
+	const payment = (description = "Aluguel", date = "2026-11-05") =>
 		stores.transactions.create({
 			kind: "expense",
 			amountCents: 250_000,
-			date: "2026-11-05",
+			date,
 			description,
 			accountId: b.checking.id,
 		});
@@ -79,6 +79,7 @@ describe.each(contractSuites())("RecurrenceStore (%s)", (_name, make) => {
 		[{ startDate: "2026-02-30" }, "A data de início é inválida (use AAAA-MM-DD)."],
 		[{ endDate: "2025-12-31" }, "O fim da recorrência não pode ser antes do início."],
 		[{ cardId: "qualquer" }, "Informe a conta ou o cartão (apenas um dos dois)."],
+		[{ accountId: null }, "Informe a conta ou o cartão (apenas um dos dois)."],
 		[{ name: " " }, "Informe o nome da recorrência."],
 	] as Array<[Partial<RecurrenceInput>, string]>)("rejeita %j", async (extra, message) => {
 		await expect(stores.recurrences.create(rent(extra))).rejects.toMatchObject({ code: "invalid", message });
@@ -120,6 +121,7 @@ describe.each(contractSuites())("RecurrenceStore (%s)", (_name, make) => {
 		it("outro mês e outra recorrência passam; um lançamento só serve a um mês", async () => {
 			const rent1 = await stores.recurrences.create(rent());
 			const rent2 = await stores.recurrences.create(rent({ name: "Condomínio" }));
+			const rent3 = await stores.recurrences.create(rent({ name: "Internet" }));
 			const t = await payment();
 			await stores.recurrences.recordPosting({
 				recurrenceId: rent1.id,
@@ -129,7 +131,7 @@ describe.each(contractSuites())("RecurrenceStore (%s)", (_name, make) => {
 			await stores.recurrences.recordPosting({
 				recurrenceId: rent1.id,
 				month: "2026-12",
-				transactionId: (await payment()).id,
+				transactionId: (await payment("Aluguel", "2026-12-05")).id,
 			});
 			await stores.recurrences.recordPosting({
 				recurrenceId: rent2.id,
@@ -137,7 +139,7 @@ describe.each(contractSuites())("RecurrenceStore (%s)", (_name, make) => {
 				transactionId: (await payment()).id,
 			});
 			await expect(
-				stores.recurrences.recordPosting({ recurrenceId: rent2.id, month: "2026-12", transactionId: t.id }),
+				stores.recurrences.recordPosting({ recurrenceId: rent3.id, month: "2026-11", transactionId: t.id }),
 			).rejects.toMatchObject({
 				code: "duplicate",
 				message: "Este lançamento já está ligado a uma recorrência.",
@@ -172,6 +174,94 @@ describe.each(contractSuites())("RecurrenceStore (%s)", (_name, make) => {
 			const pending = pendingInMonth(rules, "2026-11", await stores.recurrences.listPostings("2026-11"));
 			expect(pending).toEqual({ expenseCents: 0, incomeCents: 800_000 });
 			expect(income.id).toBeTruthy();
+		});
+	});
+
+	describe("integridade das ligações", () => {
+		const post = (recurrenceId: string, month: string, transactionId: string) =>
+			stores.recurrences.recordPosting({ recurrenceId, month, transactionId });
+
+		it("apagar o lançamento solta a recorrência para o mês poder ser lançado de novo", async () => {
+			const r = await stores.recurrences.create(rent());
+			const t = await payment();
+			await post(r.id, "2026-11", t.id);
+			await stores.transactions.softDelete(t.id);
+			expect(await stores.recurrences.listPostings("2026-11")).toEqual([]);
+			const again = await payment("Aluguel de novo");
+			await post(r.id, "2026-11", again.id);
+			expect(await stores.recurrences.listPostings("2026-11")).toHaveLength(1);
+		});
+
+		it("apagar o grupo de parcelas solta as ligações das parcelas", async () => {
+			const r = await stores.recurrences.create(rent({ name: "Plano 2x" }));
+			const rows = await stores.transactions.createInstallmentGroup(
+				["2026-11", "2026-12"].map((m, i) => ({
+					kind: "expense" as const,
+					amountCents: 100,
+					date: `${m}-05`,
+					description: "Plano",
+					accountId: b.checking.id,
+					installmentNumber: i + 1,
+					installmentCount: 2,
+				})),
+			);
+			await post(r.id, "2026-12", rows[1]?.id ?? "");
+			await stores.transactions.softDeleteGroup(rows[0]?.installmentGroupId ?? "");
+			expect(await stores.recurrences.listPostings("2026-12")).toEqual([]);
+		});
+
+		it("recusa lançamento apagado, tipo diferente e mês de orçamento diferente", async () => {
+			const r = await stores.recurrences.create(rent());
+			const gone = await payment();
+			await stores.transactions.softDelete(gone.id);
+			await expect(post(r.id, "2026-11", gone.id)).rejects.toMatchObject({
+				code: "invalid",
+				message: "Não dá para ligar uma recorrência a um lançamento apagado.",
+			});
+			const income = await stores.transactions.create({
+				kind: "income",
+				amountCents: 100,
+				date: "2026-11-05",
+				description: "Entrada",
+				accountId: b.checking.id,
+			});
+			await expect(post(r.id, "2026-11", income.id)).rejects.toMatchObject({
+				code: "invalid",
+				message: "O tipo do lançamento (gasto ou receita) não combina com o da recorrência.",
+			});
+			const december = await payment("Dezembro", "2026-12-05");
+			await expect(post(r.id, "2026-11", december.id)).rejects.toMatchObject({
+				code: "invalid",
+				message: "O mês do orçamento do lançamento não é o mês que a recorrência está cumprindo.",
+			});
+			expect(await stores.recurrences.listPostings("2026-11")).toEqual([]);
+		});
+
+		it("conta, cartão ou categoria arquivada não entra em recorrência nova; a que já usa continua", async () => {
+			const old = await stores.accounts.create({ name: "Velha", kind: "savings" });
+			const category = await stores.categories.create({ slug: "velha", name: "Velha" });
+			const r = await stores.recurrences.create(rent({ accountId: old.id, categoryId: category.id }));
+			await stores.accounts.archive(old.id);
+			await stores.categories.archive(category.id);
+			await expect(stores.recurrences.create(rent({ accountId: old.id }))).rejects.toMatchObject({
+				code: "bad_reference",
+				message: "A conta informada está arquivada.",
+			});
+			await expect(stores.recurrences.create(rent({ categoryId: category.id }))).rejects.toMatchObject({
+				code: "bad_reference",
+				message: "A categoria informada está arquivada.",
+			});
+			// Editar outra coisa não conta como "mudar a referência".
+			expect((await stores.recurrences.update(r.id, { amountCents: 5000 })).amountCents).toBe(5000);
+			// Trocar para uma arquivada, sim.
+			const other = await stores.recurrences.create(rent());
+			await expect(stores.recurrences.update(other.id, { accountId: old.id })).rejects.toMatchObject({
+				code: "bad_reference",
+			});
+			await stores.cards.archive(b.card.id);
+			await expect(
+				stores.recurrences.update(other.id, { accountId: null, cardId: b.card.id }),
+			).rejects.toMatchObject({ code: "bad_reference", message: "O cartão informado está arquivado." });
 		});
 	});
 });

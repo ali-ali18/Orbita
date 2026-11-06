@@ -1,12 +1,18 @@
 import type { Db, DbClient } from "./client.ts";
-import { notFound } from "./errors.ts";
+import { invalid, notFound } from "./errors.ts";
 import { fromDbDate, toDbDate } from "./local-date.ts";
 import type { Clock } from "./memory-state.ts";
 import { byGroup, byInstallment } from "./memory-transaction-store.ts";
+import { HAS_REFUNDS_MESSAGE } from "./messages.ts";
 import { translate } from "./prisma-errors.ts";
+import { checkReferences } from "./prisma-references.ts";
 import { cleanMonth } from "./rules.ts";
 import {
+	changedColumns,
 	checkRecentOptions,
+	cleanIds,
+	cleanLimit,
+	DEFAULT_PENDING_LIMIT,
 	dataOf,
 	duplicateExternal,
 	mergeTransaction,
@@ -27,7 +33,12 @@ function toRecord({ deletedAt: _deleted, date, ...rest }: Row): TransactionRecor
 	return { ...rest, date: fromDbDate(date) };
 }
 
-const toColumns = (data: TransactionData) => ({ ...data, date: toDbDate(data.date) });
+const toCreateColumns = (data: TransactionData) => ({ ...data, date: toDbDate(data.date) });
+
+const toColumns = (data: Partial<TransactionData>) => {
+	const { date, ...rest } = data;
+	return date === undefined ? rest : { ...rest, date: toDbDate(date) };
+};
 
 /** O estorno precisa apontar para uma despesa que existe e não foi apagada. */
 async function checkRefundTarget(client: DbClient, data: TransactionData): Promise<void> {
@@ -39,16 +50,37 @@ async function checkRefundTarget(client: DbClient, data: TransactionData): Promi
 	if (!target) throw refundTargetError();
 }
 
+const refsOf = (d: TransactionData) => ({
+	accountIds: [d.accountId, d.counterpartAccountId],
+	cardId: d.cardId,
+	categoryId: d.categoryId,
+});
+
+/** Apaga os lançamentos, os estornos vivos deles e as ligações com recorrências (numa transação só). */
+async function deleteCascade(tx: DbClient, rootIds: string[], at: Date): Promise<void> {
+	const refunds = await tx.transaction.findMany({
+		where: { refundOfId: { in: rootIds }, deletedAt: null },
+		select: { id: true },
+	});
+	const all = [...new Set([...rootIds, ...refunds.map((r) => r.id)])];
+	await tx.recurrencePosting.deleteMany({ where: { transactionId: { in: all } } });
+	await tx.transaction.updateMany({
+		where: { id: { in: all }, deletedAt: null },
+		data: { deletedAt: at, updatedAt: at },
+	});
+}
+
 const ORDER_BY_DATE = [{ date: "asc" }, { createdAt: "asc" }, { id: "asc" }] as const;
 const ORDER_RECENT = [{ date: "desc" }, { id: "desc" }] as const;
 
 export function createPrismaTransactionStore(db: Db, now: Clock): TransactionStore {
 	async function insert(client: DbClient, data: TransactionData): Promise<TransactionRecord> {
 		await checkRefundTarget(client, data);
+		await checkReferences(client, refsOf(data));
 		const at = now();
 		try {
 			return toRecord(
-				await client.transaction.create({ data: { ...toColumns(data), createdAt: at, updatedAt: at } }),
+				await client.transaction.create({ data: { ...toCreateColumns(data), createdAt: at, updatedAt: at } }),
 			);
 		} catch (e) {
 			throw translate(e, duplicateExternal);
@@ -96,35 +128,53 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 		},
 
 		async update(id, patch) {
-			const current = await db.transaction.findFirst({ where: { id, deletedAt: null } });
-			if (!current) throw notFound("Lançamento", "o");
-			const data = mergeTransaction(dataOf(toRecord(current)), patch);
-			await checkRefundTarget(db, data);
-			try {
+			return db.$transaction(async (tx) => {
+				// Trava a linha: duas edições ao mesmo tempo se enfileiram e a segunda lê o resultado da primeira.
+				const locked = await tx.$queryRaw<Array<{ id: string }>>`
+					SELECT id FROM transactions WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`;
+				if (locked.length === 0) throw notFound("Lançamento", "o");
+				const row = await tx.transaction.findFirst({ where: { id, deletedAt: null } });
+				if (!row) throw notFound("Lançamento", "o");
+				const current = toRecord(row);
+				const before = dataOf(current);
+				const data = mergeTransaction(before, patch);
+				if (before.kind === "expense" && data.kind !== "expense") {
+					const refunds = await tx.transaction.count({ where: { refundOfId: id, deletedAt: null } });
+					if (refunds > 0) throw invalid(HAS_REFUNDS_MESSAGE);
+				}
+				await checkRefundTarget(tx, data);
+				await checkReferences(tx, refsOf(data), refsOf(before));
+				const changed = changedColumns(before, data);
+				if (Object.keys(changed).length === 0) return current;
 				return toRecord(
-					await db.transaction.update({ where: { id }, data: { ...toColumns(data), updatedAt: now() } }),
+					await tx.transaction.update({ where: { id }, data: { ...toColumns(changed), updatedAt: now() } }),
 				);
-			} catch (e) {
-				throw translate(e, duplicateExternal);
-			}
+			});
 		},
 
 		async softDelete(id) {
-			const at = now();
-			const res = await db.transaction.updateMany({
-				where: { id, deletedAt: null },
-				data: { deletedAt: at, updatedAt: at },
+			return db.$transaction(async (tx) => {
+				const live = await tx.transaction.findFirst({ where: { id, deletedAt: null }, select: { id: true } });
+				if (!live) return false;
+				await deleteCascade(tx, [id], now());
+				return true;
 			});
-			return res.count > 0;
 		},
 
 		async softDeleteGroup(groupId) {
-			const at = now();
-			const res = await db.transaction.updateMany({
-				where: { installmentGroupId: groupId, deletedAt: null },
-				data: { deletedAt: at, updatedAt: at },
+			return db.$transaction(async (tx) => {
+				const rows = await tx.transaction.findMany({
+					where: { installmentGroupId: groupId, deletedAt: null },
+					select: { id: true },
+				});
+				if (rows.length > 0)
+					await deleteCascade(
+						tx,
+						rows.map((r) => r.id),
+						now(),
+					);
+				return rows.length;
 			});
-			return res.count;
 		},
 
 		async get(id) {
@@ -152,11 +202,24 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			);
 		},
 
-		async listPending() {
+		async listPending(options = {}) {
+			const take = cleanLimit(options.limit ?? DEFAULT_PENDING_LIMIT);
 			return await many(
 				db.transaction.findMany({
 					where: { status: "pending", deletedAt: null },
 					orderBy: [...ORDER_RECENT],
+					take,
+				}),
+			);
+		},
+
+		async getMany(ids) {
+			const wanted = cleanIds(ids);
+			if (wanted.length === 0) return [];
+			return await many(
+				db.transaction.findMany({
+					where: { id: { in: wanted }, deletedAt: null },
+					orderBy: [...ORDER_BY_DATE],
 				}),
 			);
 		},

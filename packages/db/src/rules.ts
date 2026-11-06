@@ -105,7 +105,7 @@ export function normalizeRecurrence(data: RecurrenceData): RecurrenceData {
 	const endDate = hasValue(data.endDate) ? cleanLocalDate(data.endDate, "A data de fim") : null;
 	if (endDate !== null && endDate < startDate)
 		throw invalid("O fim da recorrência não pode ser antes do início.");
-	if (hasValue(data.accountId) && hasValue(data.cardId)) {
+	if (hasValue(data.accountId) === hasValue(data.cardId)) {
 		throw invalid("Informe a conta ou o cartão (apenas um dos dois).");
 	}
 	return {

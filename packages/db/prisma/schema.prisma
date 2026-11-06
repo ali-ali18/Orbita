@@ -170,14 +170,15 @@ model Transaction {
   deletedAt            DateTime?         @map("deleted_at")
 
   category           Category?          @relation(fields: [categoryId], references: [id])
-  account            Account?           @relation("TransactionAccount", fields: [accountId], references: [id])
-  card               Card?              @relation(fields: [cardId], references: [id])
-  counterpartAccount Account?           @relation("TransactionCounterpart", fields: [counterpartAccountId], references: [id])
+  account            Account?           @relation("TransactionAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  card               Card?              @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  counterpartAccount Account?           @relation("TransactionCounterpart", fields: [counterpartAccountId], references: [id], onDelete: Restrict)
   refundOf           Transaction?       @relation("Refund", fields: [refundOfId], references: [id])
   refunds            Transaction[]      @relation("Refund")
   posting            RecurrencePosting?
 
   @@unique([source, externalId])
+  @@unique([installmentGroupId, installmentNumber])
   @@index([budgetMonth])
   @@index([cardId, invoiceMonth])
   @@index([date])
@@ -202,8 +203,8 @@ model Recurrence {
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
   category Category?           @relation(fields: [categoryId], references: [id])
-  account  Account?            @relation(fields: [accountId], references: [id])
-  card     Card?               @relation(fields: [cardId], references: [id])
+  account  Account?            @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  card     Card?               @relation(fields: [cardId], references: [id], onDelete: Restrict)
   postings RecurrencePosting[]
 
   @@map("recurrences")

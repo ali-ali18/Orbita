@@ -190,16 +190,6 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 				() => expense({ refundOfId: "x" }),
 				"Só estorno aponta para uma despesa original.",
 			],
-			[
-				"parcela sem total",
-				() => expense({ installmentGroupId: "g", installmentNumber: 1 }),
-				"Parcelamento precisa de grupo, número e total da parcela.",
-			],
-			[
-				"parcela maior que o total",
-				() => expense({ installmentGroupId: "g", installmentNumber: 4, installmentCount: 3 }),
-				"O número da parcela deve ir de 1 até o total.",
-			],
 		];
 		it.each(cases)("%s", async (_label, input, message) => {
 			await expect(tx.create(input())).rejects.toMatchObject({ name: "DataError", code: "invalid", message });
@@ -420,10 +410,9 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect(await tx.listRecent({ limit: 10 })).toHaveLength(1);
 		});
 
-		it("concorrência: várias chamadas iguais criam uma só", async () => {
-			const results = await Promise.all(
-				Array.from({ length: 6 }, () => tx.upsertByExternal("pluggy", "corrida", incoming())),
-			);
+		it("repetir a chamada várias vezes cria uma só (a corrida de verdade está em concurrency.test.ts)", async () => {
+			const results = [];
+			for (let i = 0; i < 4; i++) results.push(await tx.upsertByExternal("pluggy", "repetida", incoming()));
 			expect(results.filter((r) => r.created)).toHaveLength(1);
 			expect(new Set(results.map((r) => r.transaction?.id)).size).toBe(1);
 			expect(await tx.listRecent({ limit: 10 })).toHaveLength(1);
@@ -556,7 +545,11 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect(new Set(seen).size).toBe(created.length);
 			const all = await tx.listRecent({ limit: 100 });
 			expect(seen).toEqual(all.map((r) => r.id));
-			expect(all.map((r) => r.date)).toEqual([...dates].sort().reverse());
+			// Ordem esperada montada à parte: data e id, do maior para o menor.
+			const expected = [...created]
+				.sort((x, y) => (x.date === y.date ? (x.id < y.id ? 1 : -1) : x.date < y.date ? 1 : -1))
+				.map((r) => r.id);
+			expect(seen).toEqual(expected);
 		});
 
 		it("listRecent valida o limite e o cursor", async () => {
@@ -592,6 +585,224 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 				ended[0]?.installmentGroupId,
 			);
 			expect((await tx.listInstallmentGroups("2027-02")).length).toBe(0);
+		});
+	});
+
+	describe("integridade", () => {
+		const refund = (originalId: string, extra: Partial<TransactionInput> = {}) =>
+			tx.create({
+				...expense({ amountCents: 500, description: "Estorno" }),
+				kind: "refund",
+				refundOfId: originalId,
+				...extra,
+			});
+
+		it("parcela só nasce por createInstallmentGroup: campos de parcela soltos são descartados ou recusados", async () => {
+			const loose = await tx.create({
+				...expense(),
+				installmentGroupId: "g",
+				installmentNumber: 1,
+				installmentCount: 3,
+			} as TransactionInput);
+			expect(loose).toMatchObject({
+				installmentGroupId: null,
+				installmentNumber: null,
+				installmentCount: null,
+			});
+			await expect(tx.update(loose.id, { installmentNumber: 2 } as never)).rejects.toMatchObject({
+				code: "invalid",
+				message: "O campo installmentNumber do lançamento não pode ser alterado.",
+			});
+			await expect(tx.update(loose.id, { source: "pluggy" } as never)).rejects.toMatchObject({
+				code: "invalid",
+			});
+			expect(await tx.get(loose.id)).toEqual(loose);
+		});
+
+		it("número de parcela maior que o total derruba o grupo", async () => {
+			await expect(
+				tx.createInstallmentGroup([{ ...cardPurchase(), installmentNumber: 4, installmentCount: 3 }]),
+			).rejects.toMatchObject({ code: "invalid", message: "O número da parcela deve ir de 1 até o total." });
+			expect(await tx.listRecent({ limit: 10 })).toEqual([]);
+		});
+
+		it("listInstallmentGroups ordena por id do grupo e as parcelas por número", async () => {
+			const made = [];
+			for (const n of [3, 2, 4]) {
+				made.push(
+					await tx.createInstallmentGroup(
+						Array.from({ length: n }, (_, i) => ({
+							...cardPurchase({ date: `2026-11-0${n}` }),
+							installmentNumber: i + 1,
+							installmentCount: n,
+						})),
+					),
+				);
+			}
+			const groups = await tx.listInstallmentGroups("2026-01");
+			const expected = made.map((g) => g[0]?.installmentGroupId ?? "").sort((x, y) => (x < y ? -1 : 1));
+			expect(groups.map((g) => g.groupId)).toEqual(expected);
+			for (const g of groups) {
+				expect(g.installments.map((i) => i.installmentNumber)).toEqual(
+					Array.from({ length: g.installments.length }, (_, i) => i + 1),
+				);
+			}
+		});
+
+		describe("mês do orçamento acompanha a data", () => {
+			it("recalcula quando era o padrão", async () => {
+				const t = await tx.create(expense({ date: "2026-11-05" }));
+				const moved = await tx.update(t.id, { date: "2026-12-02" });
+				expect(moved).toMatchObject({ date: "2026-12-02", budgetMonth: "2026-12" });
+				expect((await tx.listByBudgetMonth("2026-11")).length).toBe(0);
+			});
+
+			it("não mexe quando o mês foi escolhido ou o patch informa um", async () => {
+				const chosen = await tx.create(expense({ date: "2026-11-05", budgetMonth: "2026-10" }));
+				expect((await tx.update(chosen.id, { date: "2026-12-02" })).budgetMonth).toBe("2026-10");
+				const plain = await tx.create(expense({ date: "2026-11-05" }));
+				expect((await tx.update(plain.id, { date: "2026-12-02", budgetMonth: "2027-01" })).budgetMonth).toBe(
+					"2027-01",
+				);
+				const same = await tx.create(expense({ date: "2026-11-05" }));
+				expect((await tx.update(same.id, { date: "2026-11-28" })).budgetMonth).toBe("2026-11");
+			});
+
+			it("parcela mantém o mês do orçamento da própria parcela", async () => {
+				const [first] = await tx.createInstallmentGroup([
+					{
+						...cardPurchase({ date: "2026-11-05", budgetMonth: "2026-11" }),
+						installmentNumber: 1,
+						installmentCount: 1,
+					},
+				]);
+				const moved = await tx.update(first?.id ?? "", { date: "2026-12-05" });
+				expect(moved.budgetMonth).toBe("2026-11");
+			});
+		});
+
+		describe("estornos acompanham o gasto", () => {
+			it("apagar o gasto apaga os estornos vivos (e só eles)", async () => {
+				const spent = await tx.create(cardPurchase({ amountCents: 9000 }));
+				const r1 = await refund(spent.id, { accountId: null, cardId: b.card.id, invoiceMonth: "2026-11" });
+				const r2 = await refund(spent.id);
+				const other = await tx.create(expense());
+				expect(await tx.softDelete(spent.id)).toBe(true);
+				expect(await tx.get(r1.id)).toBeNull();
+				expect(await tx.get(r2.id)).toBeNull();
+				expect((await tx.listRecent({ limit: 10 })).map((t) => t.id)).toEqual([other.id]);
+			});
+
+			it("apagar só o estorno não mexe no gasto", async () => {
+				const spent = await tx.create(expense());
+				const r = await refund(spent.id);
+				await tx.softDelete(r.id);
+				expect(await tx.get(spent.id)).not.toBeNull();
+			});
+
+			it("apagar um grupo apaga os estornos das parcelas", async () => {
+				const rows = await tx.createInstallmentGroup(
+					[1, 2].map((n) => ({ ...cardPurchase(), installmentNumber: n, installmentCount: 2 })),
+				);
+				const r = await refund(rows[0]?.id ?? "", {
+					accountId: null,
+					cardId: b.card.id,
+					invoiceMonth: "2026-11",
+				});
+				await tx.softDeleteGroup(rows[0]?.installmentGroupId ?? "");
+				expect(await tx.get(r.id)).toBeNull();
+			});
+
+			it("não deixa mudar o tipo de um gasto que tem estornos; depois de apagá-los, deixa", async () => {
+				const spent = await tx.create(expense());
+				const r = await refund(spent.id);
+				await expect(tx.update(spent.id, { kind: "income" })).rejects.toMatchObject({
+					code: "invalid",
+					message: "Este gasto tem estornos: apague os estornos antes de mudar o tipo do lançamento.",
+				});
+				expect((await tx.get(spent.id))?.kind).toBe("expense");
+				await tx.softDelete(r.id);
+				expect((await tx.update(spent.id, { kind: "income" })).kind).toBe("income");
+			});
+		});
+
+		describe("conta, cartão e categoria arquivados", () => {
+			it("lançamento novo não aponta para arquivado", async () => {
+				await stores.accounts.archive(b.savings.id);
+				await stores.cards.archive(b.card.id);
+				await stores.categories.archive(b.food.id);
+				await expect(tx.create(expense({ accountId: b.savings.id }))).rejects.toMatchObject({
+					code: "bad_reference",
+					message: "A conta informada está arquivada.",
+				});
+				await expect(tx.create(cardPurchase())).rejects.toMatchObject({
+					code: "bad_reference",
+					message: "O cartão informado está arquivado.",
+				});
+				await expect(tx.create(expense({ categoryId: b.food.id }))).rejects.toMatchObject({
+					code: "bad_reference",
+					message: "A categoria informada está arquivada.",
+				});
+				await expect(
+					tx.create({
+						kind: "transfer",
+						amountCents: 100,
+						date: "2026-11-01",
+						description: "x",
+						accountId: b.checking.id,
+						counterpartAccountId: b.savings.id,
+					}),
+				).rejects.toMatchObject({ code: "bad_reference", message: "A conta informada está arquivada." });
+				await expect(
+					tx.createInstallmentGroup([{ ...cardPurchase(), installmentNumber: 1, installmentCount: 1 }]),
+				).rejects.toMatchObject({ code: "bad_reference" });
+				expect(await tx.listRecent({ limit: 10 })).toEqual([]);
+			});
+
+			it("lançamento que já usa o arquivado segue editável; trocar para arquivado não", async () => {
+				const t = await tx.create(expense({ categoryId: b.food.id }));
+				const other = await stores.categories.create({ slug: "outra", name: "Outra" });
+				const other2 = await tx.create(expense({ categoryId: other.id }));
+				await stores.categories.archive(b.food.id);
+				await stores.categories.archive(other.id);
+				expect((await tx.update(t.id, { description: "Mercado" })).categoryId).toBe(b.food.id);
+				expect((await tx.update(t.id, { categoryId: b.food.id, note: "n" })).note).toBe("n");
+				await expect(tx.update(other2.id, { categoryId: b.food.id })).rejects.toMatchObject({
+					code: "bad_reference",
+					message: "A categoria informada está arquivada.",
+				});
+			});
+		});
+
+		describe("getMany", () => {
+			it("devolve só os vivos, sem repetir, de qualquer mês", async () => {
+				const a = await tx.create(expense({ date: "2026-03-01" }));
+				const c = await tx.create(expense({ date: "2026-11-01" }));
+				const gone = await tx.create(expense({ date: "2026-06-01" }));
+				await tx.softDelete(gone.id);
+				const rows = await tx.getMany([c.id, a.id, a.id, gone.id, "nada"]);
+				expect(rows.map((r) => r.id)).toEqual([a.id, c.id]);
+				expect(await tx.getMany([])).toEqual([]);
+			});
+
+			it("valida a lista", async () => {
+				await expect(tx.getMany(Array.from({ length: 501 }, (_, i) => `id${i}`))).rejects.toMatchObject({
+					code: "invalid",
+					message: "Informe de 0 a 500 ids de lançamentos.",
+				});
+				await expect(tx.getMany([""])).rejects.toMatchObject({ code: "invalid" });
+				expect(await tx.getMany(Array.from({ length: 500 }, (_, i) => `id${i}`))).toEqual([]);
+			});
+		});
+
+		describe("listPending com limite", () => {
+			it("padrão 200, limite explícito e validação", async () => {
+				for (let d = 1; d <= 5; d++) await tx.create(expense({ status: "pending", date: `2026-11-0${d}` }));
+				expect(await tx.listPending()).toHaveLength(5);
+				expect((await tx.listPending({ limit: 2 })).map((t) => t.date)).toEqual(["2026-11-05", "2026-11-04"]);
+				await expect(tx.listPending({ limit: 0 })).rejects.toMatchObject({ code: "invalid" });
+				await expect(tx.listPending({ limit: 501 })).rejects.toMatchObject({ code: "invalid" });
+			});
 		});
 	});
 });

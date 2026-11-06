@@ -226,7 +226,7 @@ export const recurrenceCreateBody = z
 	.object(recurrenceFields)
 	.strict()
 	.superRefine((r, ctx) => {
-		if (r.accountId && r.cardId)
+		if (Boolean(r.accountId) === Boolean(r.cardId))
 			ctx.addIssue({ code: "custom", message: "Informe a conta ou o cartão (apenas um dos dois)." });
 		if (r.endDate && r.endDate < r.startDate)
 			ctx.addIssue({ code: "custom", message: "O fim não pode ser antes do início." });

@@ -105,7 +105,11 @@ describe("cadastros", () => {
 			startDate: "2026-01-05",
 		};
 		expect(recurrenceCreateBody.safeParse({ ...rent, accountId: "a1" }).success).toBe(true);
-		expect(message(recurrenceCreateBody.safeParse({ ...rent, endDate: "2025-01-01" }))).toBe(
+		expect(message(recurrenceCreateBody.safeParse(rent))).toBe(
+			"Informe a conta ou o cartão (apenas um dos dois).",
+		);
+		expect(recurrenceCreateBody.safeParse({ ...rent, accountId: "a1", cardId: "c1" }).success).toBe(false);
+		expect(message(recurrenceCreateBody.safeParse({ ...rent, accountId: "a1", endDate: "2025-01-01" }))).toBe(
 			"O fim não pode ser antes do início.",
 		);
 		expect(budgetSetBody.safeParse({ scope: "total", limitCents: 0 }).success).toBe(true);

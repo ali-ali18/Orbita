@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { badReference, DataError, notFound } from "./errors.ts";
+import { badReference, DataError, invalid, notFound } from "./errors.ts";
 import { assertRefs, byCreated, type MemoryState } from "./memory-state.ts";
-import { POSTING_EXISTS_MESSAGE, TRANSACTION_POSTED_MESSAGE } from "./messages.ts";
+import {
+	POSTING_DELETED_MESSAGE,
+	POSTING_EXISTS_MESSAGE,
+	POSTING_KIND_MESSAGE,
+	POSTING_MONTH_MESSAGE,
+	TRANSACTION_POSTED_MESSAGE,
+} from "./messages.ts";
 import type { RecurrenceStore } from "./recurrence-store.ts";
 import { applyPatch, cleanMonth, normalizeRecurrence } from "./rules.ts";
 
@@ -30,7 +36,11 @@ export function createMemoryRecurrenceStore(state: MemoryState): RecurrenceStore
 			const current = need(id);
 			const { id: _id, archivedAt: _a, createdAt: _c, updatedAt: _u, ...data } = current;
 			const next = normalizeRecurrence(applyPatch(data, patch));
-			assertRefs(state, { accountIds: [next.accountId], cardId: next.cardId, categoryId: next.categoryId });
+			assertRefs(
+				state,
+				{ accountIds: [next.accountId], cardId: next.cardId, categoryId: next.categoryId },
+				{ accountIds: [data.accountId], cardId: data.cardId, categoryId: data.categoryId },
+			);
 			const record = { ...current, ...next, updatedAt: state.now() };
 			state.recurrences.set(id, record);
 			return { ...record };
@@ -59,9 +69,12 @@ export function createMemoryRecurrenceStore(state: MemoryState): RecurrenceStore
 		},
 		async recordPosting(input) {
 			cleanMonth(input.month);
-			if (!state.recurrences.has(input.recurrenceId) || !state.transactions.has(input.transactionId)) {
-				throw badReference();
-			}
+			const recurrence = state.recurrences.get(input.recurrenceId);
+			const transaction = state.transactions.get(input.transactionId);
+			if (!recurrence || !transaction) throw badReference();
+			if (transaction.deletedAt !== null) throw invalid(POSTING_DELETED_MESSAGE);
+			if (transaction.kind !== recurrence.kind) throw invalid(POSTING_KIND_MESSAGE);
+			if (transaction.budgetMonth !== input.month) throw invalid(POSTING_MONTH_MESSAGE);
 			if (state.postings.some((p) => p.recurrenceId === input.recurrenceId && p.month === input.month)) {
 				throw new DataError("duplicate", POSTING_EXISTS_MESSAGE);
 			}

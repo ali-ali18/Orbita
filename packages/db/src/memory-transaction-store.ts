@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { notFound } from "./errors.ts";
+import { invalid, notFound } from "./errors.ts";
 import { assertRefs, type MemoryState, type StoredTransaction } from "./memory-state.ts";
+import { HAS_REFUNDS_MESSAGE } from "./messages.ts";
 import { cleanMonth } from "./rules.ts";
 import {
 	byDateAsc,
 	byRecent,
+	changedColumns,
 	checkRecentOptions,
+	cleanIds,
+	cleanLimit,
+	DEFAULT_PENDING_LIMIT,
 	dataOf,
 	duplicateExternal,
 	mergeTransaction,
@@ -31,16 +36,36 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 				);
 
 	/** Mesmas checagens que o banco faz sozinho (FK) e que o store faz antes de gravar (estorno). */
-	function checkReferences(data: TransactionData): void {
+	function checkReferences(data: TransactionData, previous?: TransactionData): void {
 		if (data.refundOfId !== null) {
 			const target = state.transactions.get(data.refundOfId);
 			if (!target || target.deletedAt !== null || target.kind !== "expense") throw refundTargetError();
 		}
-		assertRefs(state, {
-			accountIds: [data.accountId, data.counterpartAccountId],
-			cardId: data.cardId,
-			categoryId: data.categoryId,
-		});
+		assertRefs(
+			state,
+			{
+				accountIds: [data.accountId, data.counterpartAccountId],
+				cardId: data.cardId,
+				categoryId: data.categoryId,
+			},
+			previous && {
+				accountIds: [previous.accountId, previous.counterpartAccountId],
+				cardId: previous.cardId,
+				categoryId: previous.categoryId,
+			},
+		);
+	}
+
+	/** Apaga os lançamentos, os estornos vivos deles e as ligações com recorrências. */
+	function deleteCascade(rootIds: string[]): void {
+		const all = new Set(rootIds);
+		for (const t of live()) if (t.refundOfId !== null && all.has(t.refundOfId)) all.add(t.id);
+		state.postings = state.postings.filter((p) => !all.has(p.transactionId));
+		const now = state.now();
+		for (const id of all) {
+			const t = state.transactions.get(id);
+			if (t && t.deletedAt === null) state.transactions.set(id, { ...t, deletedAt: now, updatedAt: now });
+		}
 	}
 
 	function insert(data: TransactionData): StoredTransaction {
@@ -86,8 +111,13 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 		async update(id, patch) {
 			const current = state.transactions.get(id);
 			if (!current || current.deletedAt !== null) throw notFound("Lançamento", "o");
-			const data = mergeTransaction(dataOf(current), patch);
-			checkReferences(data);
+			const before = dataOf(current);
+			const data = mergeTransaction(before, patch);
+			if (before.kind === "expense" && data.kind !== "expense" && live().some((t) => t.refundOfId === id)) {
+				throw invalid(HAS_REFUNDS_MESSAGE);
+			}
+			checkReferences(data, before);
+			if (Object.keys(changedColumns(before, data)).length === 0) return view(current);
 			const next: StoredTransaction = { ...current, ...data, updatedAt: state.now() };
 			state.transactions.set(id, next);
 			return view(next);
@@ -96,20 +126,16 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 		async softDelete(id) {
 			const current = state.transactions.get(id);
 			if (!current || current.deletedAt !== null) return false;
-			const now = state.now();
-			state.transactions.set(id, { ...current, deletedAt: now, updatedAt: now });
+			deleteCascade([id]);
 			return true;
 		},
 
 		async softDeleteGroup(groupId) {
-			const now = state.now();
-			let count = 0;
-			for (const t of live()) {
-				if (t.installmentGroupId !== groupId) continue;
-				state.transactions.set(t.id, { ...t, deletedAt: now, updatedAt: now });
-				count++;
-			}
-			return count;
+			const ids = live()
+				.filter((t) => t.installmentGroupId === groupId)
+				.map((t) => t.id);
+			if (ids.length > 0) deleteCascade(ids);
+			return ids.length;
 		},
 
 		async get(id) {
@@ -133,11 +159,21 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 				.sort(byDateAsc);
 		},
 
-		async listPending() {
+		async listPending(options = {}) {
+			const limit = cleanLimit(options.limit ?? DEFAULT_PENDING_LIMIT);
 			return live()
 				.filter((t) => t.status === "pending")
 				.map(view)
-				.sort(byRecent);
+				.sort(byRecent)
+				.slice(0, limit);
+		},
+
+		async getMany(ids) {
+			const wanted = new Set(cleanIds(ids));
+			return live()
+				.filter((t) => wanted.has(t.id))
+				.map(view)
+				.sort(byDateAsc);
 		},
 
 		async listRecent(options) {
@@ -174,7 +210,6 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 export const byInstallment = (a: TransactionRecord, b: TransactionRecord) =>
 	(a.installmentNumber ?? 0) - (b.installmentNumber ?? 0) || a.id.localeCompare(b.id);
 
-/** Grupos pela data da primeira parcela, depois pelo id do grupo. */
+/** Grupos pelo id do grupo (igual nas duas implementações), parcelas por número. */
 export const byGroup = (a: InstallmentGroupRecord, b: InstallmentGroupRecord) =>
-	(a.installments[0]?.date ?? "").localeCompare(b.installments[0]?.date ?? "") ||
-	a.groupId.localeCompare(b.groupId);
+	a.groupId < b.groupId ? -1 : a.groupId > b.groupId ? 1 : 0;
