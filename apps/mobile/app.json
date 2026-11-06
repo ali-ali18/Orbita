@@ -1,0 +1,25 @@
+{
+	"expo": {
+		"name": "Órbita",
+		"slug": "orbita",
+		"version": "0.1.0",
+		"scheme": "orbita",
+		"orientation": "portrait",
+		"userInterfaceStyle": "dark",
+		"backgroundColor": "#000000",
+		"android": {
+			"package": "dev.orbita.app",
+			"predictiveBackGestureEnabled": false
+		},
+		"web": {
+			"bundler": "metro",
+			"output": "single"
+		},
+		"plugins": [
+			"expo-router",
+			"expo-secure-store",
+			"expo-font",
+			["expo-splash-screen", { "backgroundColor": "#000000" }]
+		]
+	}
+}

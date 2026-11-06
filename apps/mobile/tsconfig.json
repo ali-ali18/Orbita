@@ -1,0 +1,14 @@
+{
+	"extends": "expo/tsconfig.base",
+	"compilerOptions": {
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true,
+		"verbatimModuleSyntax": true,
+		"isolatedModules": true,
+		// O cliente importa o tipo `AppType` direto de `apps/api/src` (só tipos); o código da API usa imports com `.ts`.
+		"allowImportingTsExtensions": true,
+		"types": ["node"]
+	},
+	"include": ["src", "expo-env.d.ts"]
+}

@@ -1,0 +1,57 @@
+import { colors, radius, spacing } from "@orbita/tokens";
+import { ActivityIndicator, Pressable, type StyleProp, type ViewStyle } from "react-native";
+import { Text } from "./Text.tsx";
+
+export interface ButtonProps {
+	label: string;
+	onPress: () => void;
+	variant?: "primary" | "secondary";
+	disabled?: boolean;
+	loading?: boolean;
+	/** Versão baixa (44) para dentro de cards. */
+	compact?: boolean;
+	style?: StyleProp<ViewStyle>;
+}
+
+/** Botão em pílula, 52 de altura (alvo de toque ≥ 44). */
+export function Button({
+	label,
+	onPress,
+	variant = "primary",
+	disabled = false,
+	loading = false,
+	compact = false,
+	style,
+}: ButtonProps) {
+	const primary = variant === "primary";
+	const inactive = disabled || loading;
+	return (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={label}
+			accessibilityState={{ disabled: inactive, busy: loading }}
+			disabled={inactive}
+			onPress={onPress}
+			style={({ pressed }) => [
+				{
+					minHeight: compact ? 44 : 52,
+					borderRadius: radius.pill,
+					paddingHorizontal: compact ? spacing.xl : spacing.xxl,
+					alignItems: "center",
+					justifyContent: "center",
+					backgroundColor: primary ? colors.accent : colors.surface2,
+					opacity: inactive && !loading ? 0.4 : pressed ? 0.8 : 1,
+				},
+				style,
+			]}
+		>
+			{loading ? (
+				<ActivityIndicator color={primary ? colors.onAccent : colors.text} />
+			) : (
+				<Text variant="bodyStrong" tone={primary ? "onAccent" : "primary"}>
+					{label}
+				</Text>
+			)}
+		</Pressable>
+	);
+}
