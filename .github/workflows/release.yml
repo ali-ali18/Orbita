@@ -1,0 +1,84 @@
+name: Release
+
+# Publica a imagem no GHCR só depois que o CI passou na main, e avisa o Dokploy.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  imagem:
+    name: Construir e publicar imagem
+    # Só publica em dois casos:
+    # (a) CI concluído com sucesso (conclusion), disparado por push (event) e não por
+    #     pull_request, no branch main (head_branch) do PRÓPRIO repositório
+    #     (head_repository). `branches: [main]` sozinho também casa um PR de fork cujo
+    #     branch se chama "main", e o job faria checkout e publicaria o código do atacante.
+    # (b) disparo manual, mas só a partir da main (ref), para ninguém publicar outro branch.
+    if: >-
+      (github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.head_repository.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DOKPLOY_WEBHOOK_URL: ${{ secrets.DOKPLOY_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # O commit exato que o CI aprovou, não o que estiver na ponta da main agora.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - id: sha
+        run: echo "short=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=sha-${{ steps.sha.outputs.short }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Avisar o Dokploy
+        if: env.DOKPLOY_WEBHOOK_URL != ''
+        # Imagem já publicada: falha do aviso não derruba a release. Não imprime a URL.
+        continue-on-error: true
+        run: |
+          if ! curl -fsS -o /dev/null --max-time 30 -X POST \
+            -H "Content-Type: application/json" \
+            --data '{"ref":"refs/heads/main"}' \
+            "$DOKPLOY_WEBHOOK_URL" 2>/dev/null; then
+            echo "::warning::Não consegui avisar o Dokploy. A imagem foi publicada; faça o redeploy pelo painel."
+            exit 1
+          fi
