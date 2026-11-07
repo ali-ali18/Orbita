@@ -11,6 +11,7 @@ export function LoadableCard<T>({
 	skeletonLines = 3,
 	chevron = false,
 	action,
+	onAction,
 	gap = spacing.md,
 	children,
 }: {
@@ -19,13 +20,15 @@ export function LoadableCard<T>({
 	skeletonLines?: number;
 	chevron?: boolean;
 	action?: string | undefined;
+	/** Toque em `action` (sem isso o texto é só um indicativo). */
+	onAction?: (() => void) | undefined;
 	/** Espaço entre o título e o conteúdo carregado (esqueleto e erro usam sempre `md`). */
 	gap?: number;
 	children: (data: T) => ReactNode;
 }) {
 	return (
 		<Card>
-			<CardHeader title={title} chevron={chevron} action={action} />
+			<CardHeader title={title} chevron={chevron} action={action} onAction={onAction} />
 			<View style={{ marginTop: state.phase === "loading" || state.phase === "error" ? spacing.md : gap }}>
 				{state.phase === "loading" ? (
 					<View accessibilityLabel="Carregando" style={{ gap: spacing.md }}>

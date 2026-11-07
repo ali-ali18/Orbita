@@ -54,7 +54,9 @@ Feito no PR #18. O app consome (todas exigem `Authorization: Bearer <token do ap
 
 **Ordem combinada com o dono (para ele testar com dados reais):** Configurações → **Servidor e chaves** (`44:817`: Client ID/Secret do Pluggy, IDs das conexões, chave da Anthropic; cifrados com `@orbita/security`, a API nunca devolve o valor, só "configurado") → **sincronização do Meu Pluggy** (fase 7) → demais telas.
 
-**Depois:** Atividades (`24:142`) → Cartão (Faturas `33:501`, Parcelas `28:306`, Limites `36:636`) → Assinaturas (`28:450`) → Configurações (`41:605`). Sempre gerar prévias e mandar link.
+**Atividades (`24:142`, PR seguinte):** rota `atividades`, aberta pelo "Ver tudo" do card "Últimos lançamentos" e pelo "+"/olho do topo. Lista por dia (Hoje, Ontem, "Terça-feira, 3 de nov") com total do dia, rolagem infinita sobre `GET /v1/transactions?cursor&limit` (30 por página), selo "Pendente", valores escondidos. A API só pagina, então **Tudo/Saídas/Entradas/Cartão e a busca valem sobre o que já foi carregado** (a lista avisa e oferece "Carregar mais"). Ainda não há: gaveta "Filtros" (`51:918`), aviso "N lançamentos para revisar" e detalhe do lançamento (a linha não abre nada). Prévias `26`–`31` em `docs/previews/app/`.
+
+**Depois:** Cartão (Faturas `33:501`, Parcelas `28:306`, Limites `36:636`) → Assinaturas (`28:450`) → Configurações (`41:605`). Sempre gerar prévias e mandar link.
 
 - `apps/mobile` com Expo Router, TanStack Query e cliente tipado do Hono (`hono/client` com o `AppType` da API).
 - Camadas: `ui/` (primitivos só com tokens de `@orbita/tokens`), `features/` (por assunto), `app/` (telas). Ver `docs/styleguide.md`.

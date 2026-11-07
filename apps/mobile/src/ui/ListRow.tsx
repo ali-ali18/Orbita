@@ -1,4 +1,4 @@
-import { spacing } from "@orbita/tokens";
+import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 import { Text } from "./Text.tsx";
@@ -10,12 +10,15 @@ export function ListRow({
 	caption,
 	value,
 	valueCaption,
+	badge,
 }: {
 	leading?: ReactNode;
 	title: string;
 	caption?: string;
 	value?: string;
 	valueCaption?: string;
+	/** Selo pequeno embaixo do valor (ex.: "Pendente"). */
+	badge?: string;
 }) {
 	return (
 		<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 64 }}>
@@ -33,6 +36,21 @@ export function ListRow({
 			{value ? (
 				<View style={{ alignItems: "flex-end" }}>
 					<Text variant="bodyStrong">{value}</Text>
+					{badge ? (
+						<View
+							style={{
+								marginTop: spacing.xs,
+								paddingHorizontal: spacing.sm,
+								paddingVertical: 1,
+								borderRadius: radius.pill,
+								backgroundColor: colors.surface3,
+							}}
+						>
+							<Text variant="micro" tone="secondary">
+								{badge}
+							</Text>
+						</View>
+					) : null}
 					{valueCaption ? (
 						<Text variant="caption" tone="secondary">
 							{valueCaption}
