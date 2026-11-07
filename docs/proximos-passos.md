@@ -80,3 +80,4 @@ SDK da Anthropic (Tool Runner), modelo barato por padrão, limite mensal de gast
 - Dependabot npm falhou na primeira execução (provavelmente pnpm 10 / workspace): investigar.
 - Vencimento em fim de semana/feriado não é empurrado para dia útil (documentado no engine).
 - Limite de requisições em memória (uma instância da API).
+- Criar lançamento não tem chave de idempotência: se a resposta se perder na rede e o usuário tocar de novo, grava duas vezes. Acrescentar `Idempotency-Key` no POST (o app gera um id por formulário).

@@ -16,9 +16,11 @@ export function useCreateTransaction() {
 				await call(() => api.v1.transactions.$post({ json: request.body }));
 			}
 		},
-		onSuccess: () =>
-			queryClient.invalidateQueries({
+		// Sem `return`: a tela fecha na hora; o Início recarrega em segundo plano.
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
 				predicate: (q) => baseUrl !== null && isAffectedByNewTransaction(q.queryKey, baseUrl),
-			}),
+			});
+		},
 	});
 }

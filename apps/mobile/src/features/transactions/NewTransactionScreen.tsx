@@ -1,7 +1,7 @@
 import { colors, spacing, text as typography } from "@orbita/tokens";
 import { useRouter } from "expo-router";
-import { useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native";
+import { useRef, useState } from "react";
+import { KeyboardAvoidingView, ScrollView, TextInput, View } from "react-native";
 import { ApiError } from "../../lib/api.ts";
 import { useClock } from "../../lib/clock.tsx";
 import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.ts";
@@ -48,6 +48,8 @@ export function NewTransactionScreen() {
 	const [sheet, setSheet] = useState<OpenSheet>(null);
 	const [message, setMessage] = useState<string | null>(null);
 	const create = useCreateTransaction();
+	// `isPending` só muda no próximo render; a trava em ref barra o segundo toque no mesmo instante.
+	const submitting = useRef(false);
 
 	const accountsQ = useAccounts();
 	const cardsQ = useCards();
@@ -72,48 +74,53 @@ export function NewTransactionScreen() {
 	};
 
 	const submit = () => {
-		if (create.isPending) return;
+		if (submitting.current) return;
 		const built = buildRequest({ ...form, installments }, source);
 		if (!built.ok) {
 			setMessage(built.message);
 			return;
 		}
 		setMessage(null);
+		submitting.current = true;
 		create.mutate(built.request, {
 			onSuccess: close,
 			onError: (error) => setMessage(error instanceof ApiError ? error.message : errorMessage(error)),
+			onSettled: () => {
+				submitting.current = false;
+			},
 		});
 	};
 
+	// O teclado sobe junto com a tela inteira, inclusive o rodapé com o botão (fora da rolagem).
 	return (
-		<Screen
-			footer={
-				<View
-					style={{
-						paddingHorizontal: spacing.lg,
-						paddingTop: spacing.sm,
-						gap: spacing.md,
-						backgroundColor: colors.background,
-					}}
-				>
-					{message ? (
-						<View accessibilityRole="alert">
-							<Text variant="caption" tone="secondary">
-								{message}
-							</Text>
-						</View>
-					) : null}
-					<Button
-						label="Adicionar lançamento"
-						onPress={submit}
-						loading={create.isPending}
-						disabled={sources.phase !== "ready"}
-						style={{ minHeight: 54 }}
-					/>
-				</View>
-			}
-		>
-			<KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+		<KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.background }} behavior="padding">
+			<Screen
+				footer={
+					<View
+						style={{
+							paddingHorizontal: spacing.lg,
+							paddingTop: spacing.sm,
+							gap: spacing.md,
+							backgroundColor: colors.background,
+						}}
+					>
+						{message ? (
+							<View accessibilityRole="alert" accessibilityLiveRegion="polite">
+								<Text variant="caption" tone="secondary">
+									{message}
+								</Text>
+							</View>
+						) : null}
+						<Button
+							label="Adicionar lançamento"
+							onPress={submit}
+							loading={create.isPending}
+							disabled={sources.phase !== "ready"}
+							style={{ minHeight: 54 }}
+						/>
+					</View>
+				}
+			>
 				<ScrollView
 					keyboardShouldPersistTaps="handled"
 					contentContainerStyle={{
@@ -229,38 +236,38 @@ export function NewTransactionScreen() {
 						)}
 					</View>
 				</ScrollView>
-			</KeyboardAvoidingView>
 
-			<SourceSheet
-				visible={sheet === "source"}
-				options={options}
-				selectedKey={source?.key}
-				onClose={() => setSheet(null)}
-				onSelect={(key) => {
-					update(withSource(form, key));
-					setSheet(null);
-				}}
-			/>
-			<InstallmentsSheet
-				visible={sheet === "installments"}
-				totalCents={form.amountCents}
-				selected={installments}
-				onClose={() => setSheet(null)}
-				onSelect={(count) => {
-					update({ ...form, installments: count });
-					setSheet(null);
-				}}
-			/>
-			<DateSheet
-				visible={sheet === "date"}
-				today={today}
-				selected={form.date}
-				onClose={() => setSheet(null)}
-				onSelect={(date) => {
-					update({ ...form, date });
-					setSheet(null);
-				}}
-			/>
-		</Screen>
+				<SourceSheet
+					visible={sheet === "source"}
+					options={options}
+					selectedKey={source?.key}
+					onClose={() => setSheet(null)}
+					onSelect={(key) => {
+						update(withSource(form, key));
+						setSheet(null);
+					}}
+				/>
+				<InstallmentsSheet
+					visible={sheet === "installments"}
+					totalCents={form.amountCents}
+					selected={installments}
+					onClose={() => setSheet(null)}
+					onSelect={(count) => {
+						update({ ...form, installments: count });
+						setSheet(null);
+					}}
+				/>
+				<DateSheet
+					visible={sheet === "date"}
+					today={today}
+					selected={form.date}
+					onClose={() => setSheet(null)}
+					onSelect={(date) => {
+						update({ ...form, date });
+						setSheet(null);
+					}}
+				/>
+			</Screen>
+		</KeyboardAvoidingView>
 	);
 }

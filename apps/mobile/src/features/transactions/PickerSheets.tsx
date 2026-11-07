@@ -33,7 +33,7 @@ function OptionRow({
 		<Pressable
 			accessibilityRole="radio"
 			accessibilityLabel={caption ? `${label}, ${caption}` : label}
-			accessibilityState={{ selected }}
+			accessibilityState={{ checked: selected }}
 			onPress={onPress}
 			style={({ pressed }) => ({
 				minHeight: 56,
@@ -164,7 +164,7 @@ export function DateSheet({
 					}}
 				/>
 				{showError ? (
-					<Text variant="caption" tone="secondary" accessibilityRole="alert">
+					<Text variant="caption" tone="secondary" accessibilityRole="alert" accessibilityLiveRegion="polite">
 						Essa data não existe. Use dia/mês/ano, por exemplo 05/11/2026.
 					</Text>
 				) : null}

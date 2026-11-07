@@ -1,6 +1,6 @@
 import { colors, layout, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
-import { Modal, Pressable, ScrollView, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { IconButton } from "./IconButton.tsx";
 import { Text } from "./Text.tsx";
@@ -23,7 +23,8 @@ export function Sheet({
 	const insets = useSafeAreaInsets();
 	return (
 		<Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-			<View style={{ flex: 1, justifyContent: "flex-end" }}>
+			{/* A gaveta sobe com o teclado (campo de data digitada, por exemplo). */}
+			<KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: "flex-end" }}>
 				<Pressable
 					accessibilityLabel="Fechar"
 					onPress={onClose}
@@ -59,7 +60,7 @@ export function Sheet({
 						{children}
 					</ScrollView>
 				</View>
-			</View>
+			</KeyboardAvoidingView>
 		</Modal>
 	);
 }
