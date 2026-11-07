@@ -858,4 +858,219 @@ describe("syncPluggy", () => {
 			});
 		});
 	});
+
+	describe("categoria do banco, regras e diagnóstico", () => {
+		const withTxs = (list: object[]) =>
+			setup({
+				accounts: [bankAccount],
+				transactions: { [BANK_ACCOUNT_ID]: list as never },
+				bills: {},
+			});
+		const pixTree = [
+			{ id: "20000000", description: "Transfers" },
+			{ id: "20010000", description: "Transfer - PIX", parentId: "20000000", parentDescription: "Transfers" },
+		];
+		const pix = (id: string, description: string, extra: object = {}) =>
+			tx(id, { description, category: "Transfer - PIX", categoryId: "20010000", ...extra });
+
+		it("grava a categoria do banco e o nome do estabelecimento; sem árvore usa só o texto do lançamento", async () => {
+			const t2 = withTxs([
+				pix("p-1", "Pix enviado - Rei Dos Lanches 12/11", { merchant: { name: "Rei dos Lanches" } }),
+				tx("p-2", { description: "Sem categoria", category: null, categoryId: null }),
+			]);
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			const rows = await everything(t2.stores);
+			const byExt = Object.fromEntries(rows.map((r) => [r.externalId, r]));
+			expect(byExt["p-1"]).toMatchObject({
+				sourceCategory: "Transfer - PIX",
+				merchantName: "Rei dos Lanches",
+			});
+			expect(byExt["p-2"]).toMatchObject({ sourceCategory: null, merchantName: null });
+
+			const t3 = setup({
+				accounts: [bankAccount],
+				transactions: { [BANK_ACCOUNT_ID]: [pix("p-1", "Pix enviado - X")] },
+				categories: pixTree,
+				bills: {},
+			});
+			await t3.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t3.run();
+			expect((await everything(t3.stores))[0]?.sourceCategory).toBe("Transfers › Transfer - PIX");
+		});
+
+		it("conta o que caiu em Outros por categoria do banco, sem descrição nem valor", async () => {
+			const t2 = withTxs([
+				pix("o-1", "Pix enviado - Fulano Secreto", { amount: 123.45 }),
+				pix("o-2", "Pix enviado - Beltrana Secreta", { amount: 77.7 }),
+				tx("o-3", { description: "Loja", category: "Shopping", categoryId: null }),
+				tx("o-4", { description: "Café", category: "Eating out", categoryId: null }), // categorizado: não entra
+			]);
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			const result = await t2.run();
+			const notes = result.connections[0]?.notes ?? [];
+			expect(notes).toContain("Outros: Transfer - PIX ×2, Shopping ×1");
+			const text = JSON.stringify(notes);
+			expect(text).not.toContain("Secret");
+			expect(text).not.toContain("123");
+		});
+
+		it("regra do dono vence a tabela do Pluggy; sem regra, o resto segue", async () => {
+			const t2 = withTxs([
+				pix("r-1", "Pix enviado - Rei Dos Lanches 12/11"),
+				pix("r-2", "Pix enviado - Outro Lugar"),
+			]);
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.stores.categories.ensureDefaults();
+			const delivery = await t2.stores.categories.getBySlug("delivery");
+			const outros = await t2.stores.categories.getBySlug("outros");
+			await t2.stores.categoryRules.upsert("rei dos lanches", delivery?.id ?? "");
+			const result = await t2.run();
+			const byExt = Object.fromEntries((await everything(t2.stores)).map((r) => [r.externalId, r]));
+			expect(byExt["r-1"]?.categoryId).toBe(delivery?.id);
+			expect(byExt["r-2"]?.categoryId).toBe(outros?.id);
+			// O que a regra resolveu não é "Outros" no diagnóstico.
+			expect(result.connections[0]?.notes).toContain("Outros: Transfer - PIX ×1");
+		});
+
+		it("MCC do cartão decide a categoria", async () => {
+			const t2 = setup({
+				transactions: {
+					[BANK_ACCOUNT_ID]: [],
+					[CARD_ACCOUNT_ID]: [
+						tx("m-1", {
+							description: "Estabelecimento qualquer",
+							category: null,
+							categoryId: null,
+							creditCardMetadata: { payeeMCC: 5411 },
+						}),
+					],
+				},
+			});
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			const mercado = await t2.stores.categories.getBySlug("mercado");
+			expect((await everything(t2.stores))[0]?.categoryId).toBe(mercado?.id);
+		});
+	});
+
+	describe("compras parceladas do cartão", () => {
+		const parcel = (n: number, day: string, extra: object = {}) =>
+			tx(`parc-${n}`, {
+				description: n === 3 ? "Geladeira Brastemp 3/6" : "Geladeira Brastemp",
+				amount: 250,
+				date: `${day}T00:00:00.000Z`,
+				category: null,
+				categoryId: null,
+				creditCardMetadata: {
+					installmentNumber: n,
+					totalInstallments: 6,
+					purchaseDate: "2026-09-05T00:00:00.000Z",
+				},
+				...extra,
+			});
+		const setupCard = (list: object[]) =>
+			setup({ accounts: [cardAccount], transactions: { [CARD_ACCOUNT_ID]: list as never }, bills: {} });
+		const groups = (stores: Stores) => stores.transactions.listInstallmentGroups("2026-01");
+
+		it("a primeira parcela vista cria o grupo e as seguintes entram nele, sem duplicar a compra inteira", async () => {
+			const list = [parcel(2, "2026-10-05")];
+			const t2 = setupCard(list);
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			let [group] = await groups(t2.stores);
+			expect(group?.installments.map((i) => i.installmentNumber)).toEqual([2]);
+			expect(group?.installments[0]).toMatchObject({
+				installmentCount: 6,
+				amountCents: 25_000,
+				date: "2026-09-05",
+				budgetMonth: "2026-10",
+				source: "pluggy",
+			});
+			const groupId = group?.groupId;
+
+			list.push(parcel(3, "2026-11-05"));
+			await t2.run();
+			[group] = await groups(t2.stores);
+			expect(group?.groupId).toBe(groupId);
+			expect(group?.installments.map((i) => i.installmentNumber)).toEqual([2, 3]);
+			// Gasto do mês = só a parcela do mês, nunca a compra inteira.
+			const november = await t2.stores.transactions.listByBudgetMonth("2026-11");
+			expect(november.map((t) => t.amountCents)).toEqual([25_000]);
+		});
+
+		it("re-sync é idempotente (nada novo, nada duplicado)", async () => {
+			const t2 = setupCard([parcel(2, "2026-10-05"), parcel(3, "2026-11-05")]);
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			const first = await t2.run();
+			expect(first.connections[0]?.created).toBe(2);
+			const again = await t2.run();
+			expect(again.connections[0]).toMatchObject({ created: 0, existing: 2, failed: 0 });
+			expect(await groups(t2.stores)).toHaveLength(1);
+			expect((await groups(t2.stores))[0]?.installments).toHaveLength(2);
+		});
+
+		it("reimport recria o mesmo grupo (id determinístico)", async () => {
+			const t2 = setupCard([parcel(2, "2026-10-05"), parcel(3, "2026-11-05")]);
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			const before = (await groups(t2.stores))[0]?.groupId;
+			await t2.stores.pluggyConnections.resetSyncWindow();
+			expect(await t2.stores.transactions.hardDeleteBySource("pluggy")).toBe(2);
+			expect(await groups(t2.stores)).toEqual([]);
+			await t2.run();
+			const after = await groups(t2.stores);
+			expect(after).toHaveLength(1);
+			expect(after[0]?.groupId).toBe(before);
+			expect(after[0]?.installments.map((i) => i.installmentNumber)).toEqual([2, 3]);
+		});
+
+		it("duas compras idênticas no mesmo dia não perdem gasto: a segunda vira avulsa e a conexão avisa", async () => {
+			const twin = tx("twin", {
+				description: "Geladeira Brastemp",
+				amount: 250,
+				date: "2026-10-05T00:00:00.000Z",
+				category: null,
+				categoryId: null,
+				creditCardMetadata: {
+					installmentNumber: 2,
+					totalInstallments: 6,
+					purchaseDate: "2026-09-05T00:00:00.000Z",
+				},
+			});
+			const t2 = setupCard([parcel(2, "2026-10-05"), twin]);
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			const result = await t2.run();
+			expect(result.connections[0]).toMatchObject({ created: 2, failed: 0 });
+			expect(result.connections[0]?.notes.join(" ")).toContain("viraram parcelas avulsas");
+			const rows = await everything(t2.stores);
+			expect(rows).toHaveLength(2);
+			expect(rows.filter((r) => r.installmentGroupId !== null)).toHaveLength(1);
+			expect(rows.find((r) => r.installmentGroupId === null)?.note).toBe("Parcela 2/6");
+		});
+	});
+
+	describe("nome do cartão", () => {
+		it("cartão que veio como 'G' ganha o nome do banco, no sync seguinte também para o que já existia", async () => {
+			const weak = { ...cardAccount, name: "G", marketingName: null };
+			const t2 = setup({
+				item: { connector: { id: 1, name: "MeuPluggy", isSandbox: false } },
+				accounts: [{ ...bankAccount, name: "Conta Corrente Inter" }, weak],
+				transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: [] },
+			});
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			expect((await t2.stores.cards.list())[0]?.name).toBe("Inter");
+
+			// Cartão antigo, criado com a inicial: o sync troca o nome fraco.
+			const [old] = await t2.stores.cards.list();
+			await t2.stores.cards.update(old?.id ?? "", { name: "G" });
+			await t2.run();
+			expect((await t2.stores.cards.list())[0]?.name).toBe("Inter");
+			// Nome que o dono escolheu (bom) fica.
+			await t2.stores.cards.update(old?.id ?? "", { name: "Cartão da casa" });
+			await t2.run();
+			expect((await t2.stores.cards.list())[0]?.name).toBe("Cartão da casa");
+		});
+	});
 });

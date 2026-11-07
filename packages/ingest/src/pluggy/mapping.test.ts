@@ -67,7 +67,7 @@ describe("mapPluggyAccount", () => {
 		expect(mapped).toMatchObject({
 			kind: "card",
 			input: {
-				name: "Nubank Mastercard Gold",
+				name: "Nubank",
 				last4: "4321",
 				closingDay: 10,
 				dueDay: 17,
@@ -552,5 +552,218 @@ describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () =>
 		expect(
 			kindOf({ category: "Transfers", categoryId: "05090000", amount: -5 }, { ...ctx, categoryIndex: tree }),
 		).toBe("skip:own_transfer");
+	});
+});
+
+describe("mapPluggyTransaction: prioridade da categoria", () => {
+	const ids = new Map([
+		["mercado", "cat-mercado"],
+		["delivery", "cat-delivery"],
+		["transporte", "cat-transporte"],
+		["saude", "cat-saude"],
+		["outros", "cat-outros"],
+	]);
+	const index = buildCategoryIndex([
+		{ id: "10000000", description: "Healthcare" },
+		{ id: "10020000", description: "Pharmacy", parentId: "10000000", parentDescription: "Healthcare" },
+		{ id: "20000000", description: "Transfers" },
+		{ id: "20010000", description: "Transfer - PIX", parentId: "20000000", parentDescription: "Transfers" },
+	]);
+	const ctx: TransactionContext = { ...cardCtx, categoryIds: ids, categoryIndex: index };
+	const pick = (extra: Record<string, unknown>, c: TransactionContext = ctx) => {
+		const mapped = mapPluggyTransaction(parse({ amount: 30, ...extra }), c);
+		if (mapped.action !== "upsert") throw new Error(`esperava upsert, veio ${mapped.action}`);
+		return mapped;
+	};
+
+	it("regra do dono vence MCC, CNAE e categoria do Pluggy", () => {
+		const c = { ...ctx, categoryRules: [{ pattern: "rei dos lanches", categoryId: "cat-do-dono" }] };
+		const m = pick(
+			{
+				description: "Rei dos Lanches",
+				category: "Pharmacy",
+				categoryId: "10020000",
+				creditCardMetadata: { payeeMCC: 5411 },
+				merchant: { cnae: "4771701" },
+			},
+			c,
+		);
+		expect(m.input.categoryId).toBe("cat-do-dono");
+		expect(m.categorySource).toBe("rule");
+	});
+
+	it("regra casa pelo nome do estabelecimento do banco, mesmo com descrição diferente", () => {
+		const c = { ...ctx, categoryRules: [{ pattern: "padaria central", categoryId: "cat-do-dono" }] };
+		const m = pick({ description: "COMPRA 99887", merchant: { name: "Padaria Central" } }, c);
+		expect(m.input.categoryId).toBe("cat-do-dono");
+		expect(m.input.merchantName).toBe("Padaria Central");
+	});
+
+	it("MCC vence CNAE, que vence a categoria do Pluggy", () => {
+		const base = { category: "Pharmacy", categoryId: "10020000" };
+		const mcc = pick({ ...base, creditCardMetadata: { payeeMCC: 5812 }, merchant: { cnae: "4771701" } });
+		expect([mcc.input.categoryId, mcc.categorySource]).toEqual(["cat-delivery", "mcc"]);
+		const cnae = pick({ ...base, creditCardMetadata: { payeeMCC: 9999 }, merchant: { cnae: "4731800" } });
+		expect([cnae.input.categoryId, cnae.categorySource]).toEqual(["cat-transporte", "cnae"]);
+		const pluggy = pick(base);
+		expect([pluggy.input.categoryId, pluggy.categorySource]).toEqual(["cat-saude", "pluggy"]);
+	});
+
+	it("MCC como texto também vale", () => {
+		const m = pick({ creditCardMetadata: { payeeMCC: "5411" } });
+		expect(m.input.categoryId).toBe("cat-mercado");
+	});
+
+	it("sem nenhuma pista cai em Outros e diz que não houve pista; guarda a categoria do banco legível", () => {
+		const m = pick({ category: "Transfer - PIX", categoryId: "20010000", description: "Pix enviado - Rei" });
+		expect([m.input.categoryId, m.categorySource]).toEqual(["cat-outros", "none"]);
+		expect(m.input.sourceCategory).toBe("Transfers › Transfer - PIX");
+	});
+
+	it("sem árvore usa só o nome da categoria do lançamento; sem categoria, sourceCategory é null", () => {
+		const noTree = { ...ctx };
+		delete (noTree as { categoryIndex?: unknown }).categoryIndex;
+		expect(pick({ category: "Shopping", categoryId: null }, noTree).input.sourceCategory).toBe("Shopping");
+		expect(pick({ category: null, categoryId: null }, noTree).input.sourceCategory).toBeNull();
+	});
+
+	it("regra decide mesmo sem as categorias do Órbita carregadas; sem regra a categoria fica vazia", () => {
+		const noIds = { ...ctx };
+		delete (noIds as { categoryIds?: unknown }).categoryIds;
+		expect(pick({}, noIds).input.categoryId).toBeNull();
+		const withRule = { ...noIds, categoryRules: [{ pattern: "padaria", categoryId: "cat-x" }] };
+		expect(pick({ description: "Padaria" }, withRule).input.categoryId).toBe("cat-x");
+	});
+
+	it("despesa na conta também usa regra e MCC do merchant (CNAE)", () => {
+		const c: TransactionContext = { ...bankCtx, categoryIds: ids, categoryRules: [] };
+		const m = pick({ description: "Pix enviado - Farmácia", merchant: { cnae: "4771-7/01" } }, c);
+		expect(m.input.categoryId).toBe("cat-saude");
+	});
+});
+
+describe("mapPluggyTransaction: parcelas do cartão", () => {
+	const parcel = (n: number, extra: Record<string, unknown> = {}) =>
+		parse({
+			description: "Geladeira Brastemp",
+			amount: 250,
+			date: `2026-${String(9 + n).padStart(2, "0")}-20T00:00:00.000Z`,
+			creditCardMetadata: {
+				installmentNumber: n,
+				totalInstallments: 6,
+				purchaseDate: "2026-10-20T00:00:00.000Z",
+				billId: null,
+			},
+			...extra,
+		});
+	const mapped = (t: ReturnType<typeof parcel>, c = cardCtx) => {
+		const m = mapPluggyTransaction(t, c);
+		if (m.action !== "upsert") throw new Error("esperava upsert");
+		return m;
+	};
+
+	it("todas as parcelas da mesma compra levam o mesmo grupo; o número e o total vêm do Pluggy", () => {
+		const a = mapped(parcel(1));
+		const b = mapped(parcel(2));
+		expect(a.installment).toMatchObject({ number: 1, count: 6 });
+		expect(b.installment).toMatchObject({ number: 2, count: 6 });
+		expect(a.installment?.groupId).toBe(b.installment?.groupId);
+		expect(a.installment?.groupId).toMatch(/^pluggy-[0-9a-f]{40}$/);
+	});
+
+	it("data da compra e mês do orçamento seguem a convenção das parcelas manuais (n-ésima pesa no n-ésimo mês)", () => {
+		const p3 = mapped(parcel(3));
+		expect(p3.input.date).toBe("2026-10-20");
+		expect(p3.input.budgetMonth).toBe("2026-12");
+		expect(mapped(parcel(1)).input.budgetMonth).toBe("2026-10");
+	});
+
+	it("o número no fim da descrição não muda o grupo ('3/6', 'Parcela 3/6', 'PARC 03/06')", () => {
+		const ids = new Set(
+			["Geladeira Brastemp 3/6", "Geladeira Brastemp - Parcela 3/6", "GELADEIRA BRASTEMP PARC 03/06"].map(
+				(description) => mapped(parcel(3, { description })).installment?.groupId,
+			),
+		);
+		expect(ids.size).toBe(1);
+	});
+
+	it("compras diferentes (data, total, cartão ou loja) têm grupos diferentes", () => {
+		const base = mapped(parcel(1)).installment?.groupId;
+		const other = (t: ReturnType<typeof parcel>, c = cardCtx) => mapped(t, c).installment?.groupId;
+		expect(other(parcel(1, { description: "Fogão" }))).not.toBe(base);
+		expect(
+			other(
+				parcel(1, {
+					creditCardMetadata: {
+						installmentNumber: 1,
+						totalInstallments: 6,
+						purchaseDate: "2026-10-21T00:00:00.000Z",
+					},
+				}),
+			),
+		).not.toBe(base);
+		expect(
+			other(
+				parcel(1, {
+					creditCardMetadata: {
+						installmentNumber: 1,
+						totalInstallments: 10,
+						purchaseDate: "2026-10-20T00:00:00.000Z",
+					},
+				}),
+			),
+		).not.toBe(base);
+		expect(
+			other(parcel(1), { ...cardCtx, card: { id: "card-2", config: cardCtx.card?.config as never } }),
+		).not.toBe(base);
+	});
+
+	it("sem data da compra, parcela única (1x), número fora do total ou total grande demais: lançamento avulso com a nota", () => {
+		const noDate = mapped(parcel(2, { creditCardMetadata: { installmentNumber: 2, totalInstallments: 6 } }));
+		expect(noDate.installment).toBeUndefined();
+		expect(noDate.input.note).toBe("Parcela 2/6");
+		const meta = (installmentNumber: number, totalInstallments: number) => ({
+			installmentNumber,
+			totalInstallments,
+			purchaseDate: "2026-10-20T00:00:00.000Z",
+		});
+		expect(mapped(parcel(1, { creditCardMetadata: meta(1, 1) })).installment).toBeUndefined();
+		expect(mapped(parcel(1, { creditCardMetadata: meta(7, 6) })).installment).toBeUndefined();
+		expect(mapped(parcel(1, { creditCardMetadata: meta(1, 100) })).installment).toBeUndefined();
+	});
+
+	it("compra à vista no cartão não vira parcelamento", () => {
+		const m = mapped(parse({ amount: 30, creditCardMetadata: { purchaseDate: "2026-10-20T00:00:00.000Z" } }));
+		expect(m.installment).toBeUndefined();
+	});
+
+	it("a fatura segue o billId do Pluggy (a parcela cai na fatura que o banco diz)", () => {
+		const t = parcel(2, {
+			creditCardMetadata: {
+				installmentNumber: 2,
+				totalInstallments: 6,
+				purchaseDate: "2026-10-20T00:00:00.000Z",
+				billId: "bill-dez",
+			},
+		});
+		expect(mapped(t, { ...cardCtx, billMonths: new Map([["bill-dez", "2026-12"]]) }).input.invoiceMonth).toBe(
+			"2026-12",
+		);
+	});
+});
+
+describe("mapPluggyAccount: nome do cartão", () => {
+	it("nome fraco ('G') ganha o banco detectado; nome bom é mantido", () => {
+		const weak = mapPluggyAccount(card({ name: "G", marketingName: null }), "MeuPluggy", [], "Nubank");
+		expect(weak).toMatchObject({ kind: "card", input: { name: "Nubank", last4: "4321" } });
+		const good = mapPluggyAccount(
+			card({ name: "Ultravioleta", marketingName: null }),
+			"MeuPluggy",
+			[],
+			"Nubank",
+		);
+		expect(good).toMatchObject({ kind: "card", input: { name: "Nubank Ultravioleta" } });
+		const noBank = mapPluggyAccount(card({ name: "G", marketingName: null }), "MeuPluggy", [], null);
+		expect(noBank).toMatchObject({ kind: "card", input: { name: "G" } });
 	});
 });

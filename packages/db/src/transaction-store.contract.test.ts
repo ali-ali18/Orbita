@@ -397,6 +397,93 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			...extra,
 		});
 
+		it("guarda a categoria do banco e o nome do estabelecimento, saneados e limitados", async () => {
+			const created = await tx.upsertByExternal(
+				"pluggy",
+				"cat-1",
+				incoming({ sourceCategory: "  Transfer \u0000- PIX  ", merchantName: "x".repeat(300) }),
+			);
+			expect(created.transaction?.sourceCategory).toBe("Transfer - PIX");
+			expect(created.transaction?.merchantName).toHaveLength(120);
+			expect(created.transaction?.categoryEditedByOwner).toBe(false);
+			const plain = await tx.upsertByExternal("pluggy", "cat-2", incoming({ sourceCategory: "   " }));
+			expect(plain.transaction?.sourceCategory).toBeNull();
+			expect(plain.transaction?.merchantName).toBeNull();
+			// Informativos: o PATCH não altera.
+			await expect(
+				tx.update(created.transaction?.id ?? "", { sourceCategory: "Outra" } as never),
+			).rejects.toMatchObject({ code: "invalid" });
+		});
+
+		it("categoryEditedByOwner só liga pelo update e listCategoryNotEditedByOwner ignora esses", async () => {
+			const a = await tx.upsertByExternal("pluggy", "ed-1", incoming());
+			const b2 = await tx.upsertByExternal("pluggy", "ed-2", incoming());
+			await tx.update(a.transaction?.id ?? "", { categoryEditedByOwner: true, categoryId: b.food.id });
+			const open = await tx.listCategoryNotEditedByOwner();
+			expect(open.map((t) => t.id)).toEqual([b2.transaction?.id]);
+			expect((await tx.get(a.transaction?.id ?? ""))?.categoryEditedByOwner).toBe(true);
+		});
+
+		describe("upsertInstallmentByExternal", () => {
+			const parcel = (number: number) =>
+				tx.upsertInstallmentByExternal(
+					"pluggy",
+					`p-${number}`,
+					incoming({
+						accountId: null,
+						cardId: b.card.id,
+						invoiceMonth: `2026-${String(10 + number).padStart(2, "0")}`,
+					}),
+					{ groupId: "pluggy-g1", number, count: 10 },
+				);
+
+			it("o grupo cresce parcela a parcela e aparece em listInstallmentGroups", async () => {
+				const first = await parcel(1);
+				expect(first.created).toBe(true);
+				expect(first.transaction).toMatchObject({
+					installmentGroupId: "pluggy-g1",
+					installmentNumber: 1,
+					installmentCount: 10,
+				});
+				await parcel(2);
+				const groups = await tx.listInstallmentGroups("2026-01");
+				expect(groups).toHaveLength(1);
+				expect(groups[0]?.installments.map((t) => t.installmentNumber)).toEqual([1, 2]);
+			});
+
+			it("repetir é idempotente e o apagado não volta", async () => {
+				const first = await parcel(1);
+				const again = await parcel(1);
+				expect(again.created).toBe(false);
+				expect(again.transaction).toEqual(first.transaction);
+				await tx.softDelete(first.transaction?.id ?? "");
+				expect(await parcel(1)).toEqual({ created: false, transaction: null });
+			});
+
+			it("outra compra no mesmo grupo e número é duplicate", async () => {
+				await parcel(1);
+				await expect(
+					tx.upsertInstallmentByExternal(
+						"pluggy",
+						"outra",
+						incoming({ accountId: null, cardId: b.card.id, invoiceMonth: "2026-11" }),
+						{ groupId: "pluggy-g1", number: 1, count: 10 },
+					),
+				).rejects.toMatchObject({ code: "duplicate" });
+			});
+
+			it("valida número e total", async () => {
+				await expect(
+					tx.upsertInstallmentByExternal(
+						"pluggy",
+						"ruim",
+						incoming({ accountId: null, cardId: b.card.id, invoiceMonth: "2026-11" }),
+						{ groupId: "g", number: 11, count: 10 },
+					),
+				).rejects.toMatchObject({ code: "invalid" });
+			});
+		});
+
 		it("a mesma origem + id devolve o lançamento existente", async () => {
 			const first = await tx.upsertByExternal("pluggy", "abc-1", incoming());
 			expect(first.created).toBe(true);

@@ -8,6 +8,7 @@ export {
 	type CardStore,
 	toCardConfig,
 } from "./card-store.ts";
+export type { CategoryRuleRecord, CategoryRuleStore } from "./category-rule-store.ts";
 export {
 	type CategoryInput,
 	type CategoryPatch,
@@ -42,6 +43,7 @@ export type { SecretStore, StoredSecret } from "./secret-store.ts";
 export { createSecretVault, type SecretVault, type SecretVaultDeps } from "./secret-vault.ts";
 export { createMemoryStores, createPrismaStores, type Stores, type StoresOptions } from "./stores.ts";
 export {
+	type ExternalInstallment,
 	type InstallmentGroupRecord,
 	type InstallmentInput,
 	type TransactionCursor,

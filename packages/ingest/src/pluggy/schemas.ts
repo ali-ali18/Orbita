@@ -84,8 +84,27 @@ export const transactionSchema = z.object({
 			installmentNumber: z.number().int().nullish(),
 			totalInstallments: z.number().int().nullish(),
 			billId: z.string().max(100).nullish(),
+			/** Valor total da compra parcelada (o SDK descreve como "valor da parcela": ambíguo; não decide nada). */
+			totalAmount: money.nullish().catch(null),
+			/** MCC do estabelecimento (número no SDK; pode chegar como texto). */
+			payeeMCC: z
+				.union([z.number(), z.string().max(10)])
+				.nullish()
+				.catch(null),
+			/** Data original da compra (a mesma para todas as parcelas). */
+			purchaseDate: z.string().max(40).nullish().catch(null),
 		})
 		.nullish(),
+	/** Dados do estabelecimento (SDK 0.94.2: `TransactionMerchantData`). Só o que ajuda a categorizar. */
+	merchant: z
+		.object({
+			name: z.string().max(300).nullish().catch(null),
+			businessName: z.string().max(300).nullish().catch(null),
+			cnae: z.string().max(40).nullish().catch(null),
+			category: z.string().max(200).nullish().catch(null),
+		})
+		.nullish()
+		.catch(null),
 });
 export type PluggyTransaction = z.infer<typeof transactionSchema>;
 

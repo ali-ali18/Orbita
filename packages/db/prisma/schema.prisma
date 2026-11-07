@@ -147,37 +147,57 @@ model Category {
 
   transactions Transaction[]
   recurrences  Recurrence[]
+  rules        CategoryRule[]
 
   @@map("categories")
 }
 
+/// Regra aprendida com a correção do dono: descrição que contém `pattern` (já normalizado) vai para `categoryId`.
+model CategoryRule {
+  id         String   @id @default(cuid())
+  pattern    String   @unique
+  categoryId String   @map("category_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([categoryId])
+  @@map("category_rules")
+}
+
 model Transaction {
-  id                   String            @id @default(cuid())
-  kind                 TransactionKind
+  id                    String            @id @default(cuid())
+  kind                  TransactionKind
   /// Sempre positivo; o sentido vem de `kind`.
-  amountCents          Int               @map("amount_cents")
-  date                 DateTime          @db.Date
-  description          String
-  categoryId           String?           @map("category_id")
-  accountId            String?           @map("account_id")
-  cardId               String?           @map("card_id")
+  amountCents           Int               @map("amount_cents")
+  date                  DateTime          @db.Date
+  description           String
+  categoryId            String?           @map("category_id")
+  accountId             String?           @map("account_id")
+  cardId                String?           @map("card_id")
   /// Destino de uma transferência.
-  counterpartAccountId String?           @map("counterpart_account_id")
-  refundOfId           String?           @map("refund_of_id")
-  budgetMonth          String            @map("budget_month") @db.Char(7)
+  counterpartAccountId  String?           @map("counterpart_account_id")
+  refundOfId            String?           @map("refund_of_id")
+  budgetMonth           String            @map("budget_month") @db.Char(7)
   /// Só compra/estorno no cartão.
-  invoiceMonth         String?           @map("invoice_month") @db.Char(7)
-  installmentGroupId   String?           @map("installment_group_id")
-  installmentNumber    Int?              @map("installment_number")
-  installmentCount     Int?              @map("installment_count")
-  status               TransactionStatus @default(confirmed)
-  source               TransactionSource @default(manual)
-  externalId           String?           @map("external_id")
-  note                 String?
-  createdAt            DateTime          @default(now()) @map("created_at")
-  updatedAt            DateTime          @updatedAt @map("updated_at")
+  invoiceMonth          String?           @map("invoice_month") @db.Char(7)
+  installmentGroupId    String?           @map("installment_group_id")
+  installmentNumber     Int?              @map("installment_number")
+  installmentCount      Int?              @map("installment_count")
+  status                TransactionStatus @default(confirmed)
+  source                TransactionSource @default(manual)
+  externalId            String?           @map("external_id")
+  note                  String?
+  /// Categoria que o banco mandou (cadeia legível, ex.: "Transfer - PIX"). Só importados; nunca decide nada sozinha.
+  sourceCategory        String?           @map("source_category")
+  /// Nome do estabelecimento que o banco informou (quando informou).
+  merchantName          String?           @map("merchant_name")
+  /// O dono trocou a categoria à mão: regras novas não reclassificam este lançamento.
+  categoryEditedByOwner Boolean           @default(false) @map("category_edited_by_owner")
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
   /// Exclusão lógica: some de listas e buscas, mas segura o (source, externalId).
-  deletedAt            DateTime?         @map("deleted_at")
+  deletedAt             DateTime?         @map("deleted_at")
 
   category           Category?          @relation(fields: [categoryId], references: [id])
   account            Account?           @relation("TransactionAccount", fields: [accountId], references: [id], onDelete: Restrict)

@@ -71,6 +71,10 @@ export async function updateTransaction(
 ): Promise<TransactionRecord> {
 	const current = orNotFound(await stores.transactions.get(id), "Lançamento", "o");
 	const patch: TransactionPatch = defined(body);
+	// Trocar a categoria à mão protege o lançamento de reclassificação por regra.
+	if (patch.categoryId !== undefined && patch.categoryId !== current.categoryId) {
+		patch.categoryEditedByOwner = true;
+	}
 
 	// O calendário de um parcelamento (fatura e mês de cada parcela) nasce junto com o grupo: mexer em
 	// uma parcela só deixaria o grupo incoerente. Descrição, categoria e observação continuam livres.

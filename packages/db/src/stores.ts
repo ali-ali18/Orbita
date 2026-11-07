@@ -2,12 +2,14 @@ import type { AccountStore } from "./account-store.ts";
 import type { AuthStore } from "./auth-store.ts";
 import type { BudgetStore } from "./budget-store.ts";
 import type { CardStore } from "./card-store.ts";
+import type { CategoryRuleStore } from "./category-rule-store.ts";
 import type { CategoryStore } from "./category-store.ts";
 import type { Db } from "./client.ts";
 import { createMemoryAccountStore } from "./memory-account-store.ts";
 import { createMemoryAuthStore } from "./memory-auth-store.ts";
 import { createMemoryBudgetStore } from "./memory-budget-store.ts";
 import { createMemoryCardStore } from "./memory-card-store.ts";
+import { createMemoryCategoryRuleStore } from "./memory-category-rule-store.ts";
 import { createMemoryCategoryStore } from "./memory-category-store.ts";
 import { createMemoryPluggyConnectSessionStore } from "./memory-pluggy-connect-session-store.ts";
 import { createMemoryPluggyConnectionStore } from "./memory-pluggy-connection-store.ts";
@@ -21,6 +23,7 @@ import { createPrismaAccountStore } from "./prisma-account-store.ts";
 import { createPrismaAuthStore } from "./prisma-auth-store.ts";
 import { createPrismaBudgetStore } from "./prisma-budget-store.ts";
 import { createPrismaCardStore } from "./prisma-card-store.ts";
+import { createPrismaCategoryRuleStore } from "./prisma-category-rule-store.ts";
 import { createPrismaCategoryStore } from "./prisma-category-store.ts";
 import { createPrismaPluggyConnectSessionStore } from "./prisma-pluggy-connect-session-store.ts";
 import { createPrismaPluggyConnectionStore } from "./prisma-pluggy-connection-store.ts";
@@ -36,6 +39,7 @@ export interface Stores {
 	accounts: AccountStore;
 	cards: CardStore;
 	categories: CategoryStore;
+	categoryRules: CategoryRuleStore;
 	transactions: TransactionStore;
 	recurrences: RecurrenceStore;
 	budgets: BudgetStore;
@@ -57,6 +61,7 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		accounts: createPrismaAccountStore(db, now),
 		cards: createPrismaCardStore(db, now),
 		categories: createPrismaCategoryStore(db, now),
+		categoryRules: createPrismaCategoryRuleStore(db, now),
 		transactions: createPrismaTransactionStore(db, now),
 		recurrences: createPrismaRecurrenceStore(db, now),
 		budgets: createPrismaBudgetStore(db, now),
@@ -74,6 +79,7 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		accounts: createMemoryAccountStore(state),
 		cards: createMemoryCardStore(state),
 		categories: createMemoryCategoryStore(state),
+		categoryRules: createMemoryCategoryRuleStore(state),
 		transactions: createMemoryTransactionStore(state),
 		recurrences: createMemoryRecurrenceStore(state),
 		budgets: createMemoryBudgetStore(state),

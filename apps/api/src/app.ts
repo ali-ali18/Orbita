@@ -8,6 +8,7 @@ import * as accounts from "./modules/accounts/routes.ts";
 import * as budgets from "./modules/budgets/routes.ts";
 import * as cards from "./modules/cards/routes.ts";
 import * as categories from "./modules/categories/routes.ts";
+import * as categoryRules from "./modules/category-rules/routes.ts";
 import * as devices from "./modules/devices/routes.ts";
 import * as pairing from "./modules/pairing/routes.ts";
 import * as pluggyConnect from "./modules/pluggy/connect/routes.ts";
@@ -63,6 +64,7 @@ export function createApp(deps: AppDeps) {
 		.route("/", accounts.routes(finance))
 		.route("/", cards.routes(finance))
 		.route("/", categories.routes(finance))
+		.route("/", categoryRules.routes(finance))
 		.route("/", budgets.routes(finance))
 		.route("/", recurrences.routes(finance))
 		.route("/", transactions.routes(finance))

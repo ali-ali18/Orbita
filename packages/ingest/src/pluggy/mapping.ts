@@ -1,17 +1,37 @@
+import { createHash } from "node:crypto";
 import {
 	addDays,
+	addMonths,
 	type CardConfig,
 	daysBetween,
 	decimalToCents,
 	invoiceFor,
 	isValidLocalDate,
 	type LocalDate,
+	monthOf,
 	toLocalDate,
 } from "@orbita/core";
 import type { AccountInput, CardInput, UpsertByExternalInput } from "@orbita/db";
-import { DESCRIPTION_MAX, isCents, MAX_CENTS } from "@orbita/shared";
-import { cleanBankName, isMeuPluggyConnector } from "./bank-name.ts";
-import { type CategoryIndex, categoryChain, classifyFamily, plain, spendingSlugFor } from "./classify.ts";
+import {
+	cleanMerchantName,
+	cleanSourceCategory,
+	DESCRIPTION_MAX,
+	isCents,
+	MAX_CENTS,
+	MAX_INSTALLMENT_COUNT,
+	normalizeMerchantName,
+	pickCategoryRule,
+} from "@orbita/shared";
+import { cardDisplayName, cleanBankName, isMeuPluggyConnector } from "./bank-name.ts";
+import {
+	type CategoryIndex,
+	categoryChain,
+	classifyFamily,
+	matchSpendingSlug,
+	plain,
+	readableCategory,
+} from "./classify.ts";
+import { categoryForCnae, categoryForMcc } from "./mcc.ts";
 import type { PluggyAccount, PluggyBill, PluggyTransaction } from "./schemas.ts";
 
 /*
@@ -138,6 +158,8 @@ export function mapPluggyAccount(
 	account: PluggyAccount,
 	connectorName?: string | null,
 	bills: readonly PluggyBill[] = [],
+	/** Banco da conexão (ver `detectBankName`); dá nome ao cartão quando o Pluggy só manda "G" ou "Mastercard Gold". */
+	bankName: string | null = null,
 ): MappedAccount {
 	if (account.currencyCode && account.currencyCode !== "BRL") {
 		return { kind: "ignored", reason: `moeda ${account.currencyCode} não é suportada` };
@@ -158,11 +180,16 @@ export function mapPluggyAccount(
 	if (account.type === "CREDIT") {
 		const dates = resolveCardDates(account, bills);
 		const digits = (account.number ?? "").replace(/\D/g, "");
+		const own = cleanBankName(account.marketingName?.trim() || account.name.trim()) || "Cartão";
+		const bank = bankName ?? (isMeuPluggyConnector(connectorName) ? null : (connectorName?.trim() ?? null));
 		return {
 			kind: "card",
 			externalId: account.id,
 			input: {
-				name,
+				name:
+					cardDisplayName(own, bank || null)
+						.slice(0, NAME_MAX)
+						.trim() || name,
 				last4: digits.length >= 4 ? digits.slice(-4) : null,
 				closingDay: dates.closingDay,
 				dueDay: dates.dueDay,
@@ -189,14 +216,26 @@ export type SkipReason =
 	| "bills_unavailable" // as faturas não carregaram: não dá para saber se o débito/crédito é pagamento de fatura
 	| "refund_without_original"; // estorno no cartão sem a compra original gravada (o sync tenta de novo)
 
+/** O que decidiu a categoria de uma despesa, na ordem de prioridade. */
+export type CategorySource = "rule" | "mcc" | "cnae" | "pluggy" | "none";
+
 export type MappedTransaction =
 	| { action: "skip"; reason: SkipReason }
-	| { action: "upsert"; externalId: string; input: UpsertByExternalInput }
+	| {
+			action: "upsert";
+			externalId: string;
+			input: UpsertByExternalInput;
+			/** De onde veio a categoria (só despesa); `none` = caiu em "Outros" sem pista. */
+			categorySource?: CategorySource;
+			/** Parcela de compra parcelada no cartão: entra num grupo que cresce a cada fatura. */
+			installment?: { groupId: string; number: number; count: number };
+	  }
 	/** Estorno no cartão: o sync procura a compra original antes de gravar. */
 	| {
 			action: "refund";
 			externalId: string;
 			input: Omit<UpsertByExternalInput, "refundOfId">;
+			categorySource?: CategorySource;
 			original: { amountCents: number; description: string; date: LocalDate };
 	  };
 
@@ -281,6 +320,8 @@ export interface TransactionContext {
 	categoryIndex?: CategoryIndex;
 	/** Categorias do Órbita por slug → id. Sem ela, o lançamento fica sem categoria. */
 	categoryIds?: ReadonlyMap<string, string>;
+	/** Regras do dono (padrão → categoria): vencem MCC, CNAE e a categoria do Pluggy. */
+	categoryRules?: readonly { pattern: string; categoryId: string }[];
 }
 
 const digits = (value: string | null | undefined) => (value ?? "").replace(/\D/g, "");
@@ -315,11 +356,49 @@ const CARD_SIDE_PAYMENT_DESCRIPTIONS = [
 
 const includesAny = (text: string, needles: readonly string[]) => needles.some((n) => text.includes(n));
 
-/** Categoria de consumo do Órbita para o lançamento (`outros` se nada bate; `null` sem as categorias carregadas). */
-function categoryIdOf(chain: readonly string[], ctx: TransactionContext): string | null {
-	if (!ctx.categoryIds) return null;
-	const slug = spendingSlugFor(chain);
-	return ctx.categoryIds.get(slug) ?? ctx.categoryIds.get("outros") ?? null;
+interface CategoryChoice {
+	categoryId: string | null;
+	source: CategorySource;
+}
+
+/**
+ * Categoria de consumo, em ordem: regra do dono → MCC do estabelecimento → CNAE → categoria do Pluggy → Outros.
+ * Sem as categorias do Órbita carregadas (`categoryIds`), só uma regra do dono ainda decide.
+ */
+function chooseCategory(
+	tx: PluggyTransaction,
+	chain: readonly string[],
+	description: string,
+	merchantName: string | null,
+	ctx: TransactionContext,
+): CategoryChoice {
+	const rule = pickCategoryRule(ctx.categoryRules ?? [], merchantName, description);
+	if (rule) return { categoryId: rule.categoryId, source: "rule" };
+	const ids = ctx.categoryIds;
+	if (!ids) return { categoryId: null, source: "none" };
+	const bySlug = (slug: string | null) => (slug === null ? null : (ids.get(slug) ?? null));
+	const mcc = bySlug(categoryForMcc(tx.creditCardMetadata?.payeeMCC));
+	if (mcc) return { categoryId: mcc, source: "mcc" };
+	const cnae = bySlug(categoryForCnae(tx.merchant?.cnae));
+	if (cnae) return { categoryId: cnae, source: "cnae" };
+	const pluggy = bySlug(matchSpendingSlug(chain));
+	if (pluggy) return { categoryId: pluggy, source: "pluggy" };
+	return { categoryId: ids.get("outros") ?? null, source: "none" };
+}
+
+/** Id do grupo de um parcelamento do Pluggy: o mesmo para todas as parcelas da mesma compra, em qualquer sincronização. */
+export function pluggyInstallmentGroupId(input: {
+	cardId: string;
+	purchaseDate: LocalDate;
+	count: number;
+	description: string;
+}): string {
+	const name =
+		normalizeMerchantName(input.description.replace(/\bparc(ela)?\b/gi, " ")) || plain(input.description);
+	const hash = createHash("sha256")
+		.update(JSON.stringify([input.cardId, input.purchaseDate, input.count, name]))
+		.digest("hex");
+	return `pluggy-${hash.slice(0, 40)}`;
 }
 
 function describe(tx: PluggyTransaction): string {
@@ -361,7 +440,17 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 		allowDescriptionFallback: ctx.accountType === "BANK",
 	});
 	const isCardPayment = family === "card_payment";
-	const base = { amountCents: amount, date, description, categoryId: null, status: "confirmed" as const };
+	const merchantName = cleanMerchantName(tx.merchant?.name?.trim() || tx.merchant?.businessName?.trim());
+	const base = {
+		amountCents: amount,
+		date,
+		description,
+		categoryId: null,
+		status: "confirmed" as const,
+		sourceCategory: cleanSourceCategory(readableCategory(tx, ctx.categoryIndex)),
+		merchantName,
+	};
+	const choose = () => chooseCategory(tx, chain, description, merchantName, ctx);
 
 	if (ctx.accountType === "BANK") {
 		if (ctx.accountId === null) return { action: "skip", reason: "invalid" };
@@ -405,10 +494,12 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 				input: { ...base, kind: "income", accountId: ctx.accountId },
 			};
 		}
+		const choice = choose();
 		return {
 			action: "upsert",
 			externalId: tx.id,
-			input: { ...base, kind: "expense", accountId: ctx.accountId, categoryId: categoryIdOf(chain, ctx) },
+			input: { ...base, kind: "expense", accountId: ctx.accountId, categoryId: choice.categoryId },
+			categorySource: choice.source,
 		};
 	}
 
@@ -427,17 +518,51 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 	const note = installment;
 
 	if (tx.type === "DEBIT") {
+		const choice = choose();
+		const purchaseDate = meta?.purchaseDate ? pluggyDateToLocal(meta.purchaseDate) : null;
+		const number = meta?.installmentNumber ?? null;
+		const count = meta?.totalInstallments ?? null;
+		const grouped =
+			purchaseDate !== null &&
+			number !== null &&
+			count !== null &&
+			count > 1 &&
+			count <= MAX_INSTALLMENT_COUNT &&
+			number >= 1 &&
+			number <= count;
+		// Sem a data da compra não há como reconhecer a mesma compra nas outras faturas: fica avulsa, com a nota.
+		const groupInput =
+			grouped && purchaseDate !== null && number !== null && count !== null
+				? {
+						// Como nas parcelas lançadas à mão: todas levam a data da compra e a n-ésima pesa no n-ésimo mês.
+						date: purchaseDate,
+						budgetMonth: addMonths(monthOf(purchaseDate), number - 1),
+						installment: {
+							groupId: pluggyInstallmentGroupId({
+								cardId: ctx.card.id,
+								purchaseDate,
+								count,
+								description,
+							}),
+							number,
+							count,
+						},
+					}
+				: null;
 		return {
 			action: "upsert",
 			externalId: tx.id,
 			input: {
 				...base,
+				...(groupInput ? { date: groupInput.date, budgetMonth: groupInput.budgetMonth } : {}),
 				kind: "expense",
 				cardId: ctx.card.id,
 				invoiceMonth,
 				note,
-				categoryId: categoryIdOf(chain, ctx),
+				categoryId: choice.categoryId,
 			},
+			categorySource: choice.source,
+			...(groupInput ? { installment: groupInput.installment } : {}),
 		};
 	}
 	if (ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
@@ -449,6 +574,7 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 	) {
 		return { action: "skip", reason: "card_payment" };
 	}
+	const refundChoice = choose();
 	return {
 		action: "refund",
 		externalId: tx.id,
@@ -458,8 +584,9 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 			cardId: ctx.card.id,
 			invoiceMonth,
 			note,
-			categoryId: categoryIdOf(chain, ctx),
+			categoryId: refundChoice.categoryId,
 		},
+		categorySource: refundChoice.source,
 		original: { amountCents: amount, description, date },
 	};
 }

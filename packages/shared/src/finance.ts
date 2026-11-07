@@ -194,6 +194,13 @@ export const transactionDto = z.object({
 	source: z.enum(TRANSACTION_SOURCES),
 	externalId: z.string().nullable(),
 	note: z.string().nullable(),
+	/** (A API sempre envia os três campos abaixo; `optional` só para não quebrar quem monta DTO à mão.)
+	 * Categoria que o banco mandou (ex.: "Transfer - PIX", "Pai › Filha"); só de lançamentos importados. */
+	sourceCategory: z.string().nullable().optional(),
+	/** Nome do estabelecimento que o banco informou, quando informou. */
+	merchantName: z.string().nullable().optional(),
+	/** O dono trocou a categoria à mão: regras novas não a reclassificam. */
+	categoryEditedByOwner: z.boolean().optional(),
 	createdAt: timestampSchema,
 	updatedAt: timestampSchema,
 });

@@ -170,6 +170,8 @@ export async function activeInstallments(stores: Stores, from: MonthKey) {
 
 function installmentGroupView(group: InstallmentGroupRecord, from: MonthKey) {
 	const first = group.installments[0];
+	const last = group.installments.at(-1);
+	const count = first?.installmentCount ?? group.installments.length;
 	const progress = remainingInstallments(
 		group.installments.map((t) => ({
 			number: t.installmentNumber ?? 0,
@@ -180,13 +182,21 @@ function installmentGroupView(group: InstallmentGroupRecord, from: MonthKey) {
 		})),
 		from,
 	);
+	// Grupo que cresce (parcelas importadas do banco, uma por fatura): as parcelas depois da última vista ainda não
+	// existem. Contam como "faltam", pelo valor da última parcela vista (estimativa; a real chega com a fatura).
+	// Parcelas ANTES da primeira vista não entram: o Órbita não sabe o que foram.
+	const unseen = Math.max(0, count - (last?.installmentNumber ?? count));
+	const estimateCents = last ? unseen * last.amountCents : 0;
 	return {
 		groupId: group.groupId,
 		description: first?.description ?? "",
 		cardId: first?.cardId ?? null,
-		count: first?.installmentCount ?? group.installments.length,
-		totalCents: progress.paidCents + progress.remainingCents,
-		...progress,
+		count,
+		totalCents: progress.paidCents + progress.remainingCents + estimateCents,
+		paidCents: progress.paidCents,
+		remainingCents: progress.remainingCents + estimateCents,
+		paidCount: progress.paidCount,
+		remainingCount: progress.remainingCount + unseen,
 		installments: group.installments,
 	};
 }

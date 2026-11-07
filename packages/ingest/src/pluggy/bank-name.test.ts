@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { cleanBankName, hasMeuPluggyPrefix, isMeuPluggyConnector } from "./bank-name.ts";
+import {
+	cardDisplayName,
+	cleanBankName,
+	detectBankName,
+	findKnownBank,
+	hasMeuPluggyPrefix,
+	isMeuPluggyConnector,
+	isWeakCardName,
+} from "./bank-name.ts";
 
 describe("cleanBankName", () => {
 	it("tira o prefixo MeuPluggy (qualquer caixa, com ou sem espaço)", () => {
@@ -53,5 +61,49 @@ describe("prefixo e conector", () => {
 		expect(isMeuPluggyConnector("MeuPluggy")).toBe(true);
 		expect(isMeuPluggyConnector("Nubank")).toBe(false);
 		expect(isMeuPluggyConnector(null)).toBe(false);
+	});
+});
+
+describe("banco e nome de cartão", () => {
+	it("findKnownBank acha o banco dentro de um nome maior", () => {
+		expect(findKnownBank("Conta Corrente Inter")).toBe("Inter");
+		expect(findKnownBank("MeuPluggy Nubank Mastercard Gold")).toBe("Nubank");
+		expect(findKnownBank("Banco Santander (Brasil) S.A.")).toBe("Santander");
+		expect(findKnownBank("Mastercard Black")).toBeNull();
+		expect(findKnownBank("Interessante")).toBeNull();
+		expect(findKnownBank(null)).toBeNull();
+	});
+
+	it("isWeakCardName: letra solta ou só bandeira/nível", () => {
+		for (const weak of ["G", "gb", "", "Mastercard Gold", "Cartão de Crédito", "VISA Platinum", "Black"]) {
+			expect(isWeakCardName(weak)).toBe(true);
+		}
+		for (const ok of ["Nubank", "Cartão Ultravioleta Nubank", "Azul Itaú"]) {
+			expect(isWeakCardName(ok)).toBe(false);
+		}
+	});
+
+	it("detectBankName: conector de verdade, depois nomes das contas, depois o rótulo", () => {
+		expect(detectBankName({ connectorName: "Nubank", accountNames: [] })).toBe("Nubank");
+		expect(detectBankName({ connectorName: "MeuPluggy", accountNames: ["G", "Conta Corrente Inter"] })).toBe(
+			"Inter",
+		);
+		expect(
+			detectBankName({ connectorName: "MeuPluggy", accountNames: ["G"], connectionLabel: "Banco Xyz +1" }),
+		).toBe("Banco Xyz");
+		expect(
+			detectBankName({ connectorName: "MeuPluggy", accountNames: ["G"], connectionLabel: "Conta Corrente" }),
+		).toBeNull();
+		expect(
+			detectBankName({ connectorName: "MeuPluggy", accountNames: [], connectionLabel: "MeuPluggy" }),
+		).toBeNull();
+	});
+
+	it("cardDisplayName: nome fraco vira o banco; nome bom ganha o banco só se não o cita", () => {
+		expect(cardDisplayName("G", "Nubank")).toBe("Nubank");
+		expect(cardDisplayName("Mastercard Gold", "Inter")).toBe("Inter");
+		expect(cardDisplayName("Ultravioleta", "Nubank")).toBe("Nubank Ultravioleta");
+		expect(cardDisplayName("Nubank Ultravioleta", "Nubank")).toBe("Nubank Ultravioleta");
+		expect(cardDisplayName("G", null)).toBe("G");
 	});
 });
