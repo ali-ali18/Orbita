@@ -1,6 +1,6 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import type { CardsView, InstallmentsView, InvoiceView } from "../../lib/api.ts";
 import { money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
@@ -11,15 +11,33 @@ import { initialOf } from "./transaction-model.ts";
 /** Altura dos cards quadrados no Figma (173 de largura por 221 de altura). */
 const SQUARE_MIN_HEIGHT = 221;
 
-function Frame({ top, children }: { top: ReactNode; children: ReactNode }) {
+function Frame({
+	top,
+	children,
+	onPress,
+	label,
+}: {
+	top: ReactNode;
+	children: ReactNode;
+	onPress?: (() => void) | undefined;
+	label: string;
+}) {
 	return (
-		<Card style={{ flex: 1, minHeight: SQUARE_MIN_HEIGHT, justifyContent: "space-between" }}>
-			<View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-				<View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm }}>{top}</View>
-				<Icon name="seta-direita" size={18} color={colors.textTertiary} />
-			</View>
-			<View>{children}</View>
-		</Card>
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={label}
+			disabled={!onPress}
+			onPress={onPress}
+			style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.8 : 1 })}
+		>
+			<Card style={{ flex: 1, minHeight: SQUARE_MIN_HEIGHT, justifyContent: "space-between" }}>
+				<View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+					<View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm }}>{top}</View>
+					<Icon name="seta-direita" size={18} color={colors.textTertiary} />
+				</View>
+				<View>{children}</View>
+			</Card>
+		</Pressable>
 	);
 }
 
@@ -75,7 +93,9 @@ export function InvoiceSquare({
 	invoice,
 	today,
 	hidden,
+	onPress,
 }: {
+	onPress?: () => void;
 	cards: Loadable<CardsView>;
 	invoice: Loadable<InvoiceView> | null;
 	today: string;
@@ -83,14 +103,14 @@ export function InvoiceSquare({
 }) {
 	if (cards.phase === "loading") {
 		return (
-			<Frame top={<Skeleton width={96} height={32} />}>
+			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={<Skeleton width={96} height={32} />}>
 				<Placeholder label="Fatura atual" />
 			</Frame>
 		);
 	}
 	if (cards.phase === "error") {
 		return (
-			<Frame top={<IconCircle name="cartao" />}>
+			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={<IconCircle name="cartao" />}>
 				<ErrorState message={cards.message} onRetry={cards.retry} />
 			</Frame>
 		);
@@ -98,7 +118,7 @@ export function InvoiceSquare({
 	const card = cards.data.cards.find((c) => c.archivedAt === null);
 	if (!card) {
 		return (
-			<Frame top={<IconCircle name="cartao" />}>
+			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={<IconCircle name="cartao" />}>
 				<Facts
 					label="Fatura atual"
 					value="Sem cartão"
@@ -117,20 +137,20 @@ export function InvoiceSquare({
 	);
 	if (!invoice || invoice.phase === "loading") {
 		return (
-			<Frame top={top}>
+			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={top}>
 				<Placeholder label="Fatura atual" />
 			</Frame>
 		);
 	}
 	if (invoice.phase === "error") {
 		return (
-			<Frame top={top}>
+			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={top}>
 				<ErrorState message={invoice.message} onRetry={invoice.retry} />
 			</Frame>
 		);
 	}
 	return (
-		<Frame top={top}>
+		<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={top}>
 			<Facts
 				label="Fatura atual"
 				value={money(invoice.data.composition.totalCents, hidden)}
@@ -144,7 +164,9 @@ export function InstallmentsSquare({
 	installments,
 	month,
 	hidden,
+	onPress,
 }: {
+	onPress?: () => void;
 	installments: Loadable<InstallmentsView>;
 	month: string;
 	hidden: boolean;
@@ -152,21 +174,21 @@ export function InstallmentsSquare({
 	const top = <IconCircle name="parcelas" />;
 	if (installments.phase === "loading") {
 		return (
-			<Frame top={top}>
+			<Frame label="Parcelamentos, abrir o cartão" onPress={onPress} top={top}>
 				<Placeholder label="Parcelamentos" />
 			</Frame>
 		);
 	}
 	if (installments.phase === "error") {
 		return (
-			<Frame top={top}>
+			<Frame label="Parcelamentos, abrir o cartão" onPress={onPress} top={top}>
 				<ErrorState message={installments.message} onRetry={installments.retry} />
 			</Frame>
 		);
 	}
 	const { activeCount, monthlyCents } = installmentsOverview(installments.data.groups, month);
 	return (
-		<Frame top={top}>
+		<Frame label="Parcelamentos, abrir o cartão" onPress={onPress} top={top}>
 			<Facts
 				label="Parcelamentos"
 				value={activeCount === 0 ? "Nenhum" : `${activeCount} ${activeCount === 1 ? "ativo" : "ativos"}`}

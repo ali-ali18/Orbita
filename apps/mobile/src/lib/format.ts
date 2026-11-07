@@ -83,3 +83,14 @@ export function greetingFor(hour: number): string {
 export function pluralDays(n: number): string {
 	return n === 1 ? "1 dia" : `${n} dias`;
 }
+
+/** "7 de nov" para "2026-11-07" (sem "Hoje"/"Ontem": é para datas de fatura). */
+export function dayMonth(date: LocalDate): string {
+	const month = MONTHS_SHORT[Number(date.slice(5, 7)) - 1] ?? "";
+	return `${Number(date.slice(8, 10))} de ${month}`;
+}
+
+/** "agosto de 2027" para "2027-08". */
+export function monthYear(month: string): string {
+	return `${monthName(month).toLocaleLowerCase("pt-BR")} de ${month.slice(0, 4)}`;
+}

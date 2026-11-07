@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+	dayMonth,
 	formatWholeReais,
 	greetingFor,
 	HIDDEN_VALUE,
 	maskValue,
 	money,
 	monthName,
+	monthYear,
 	percentOf,
 	pluralDays,
 	relativeDate,
@@ -57,5 +59,15 @@ describe("datas", () => {
 		expect(greetingFor(21)).toBe("Boa noite");
 		expect(pluralDays(1)).toBe("1 dia");
 		expect(pluralDays(3)).toBe("3 dias");
+	});
+});
+
+describe("datas de fatura", () => {
+	it("dayMonth tira o zero do dia e abrevia o mês", () => {
+		expect(dayMonth("2026-11-07")).toBe("7 de nov");
+		expect(dayMonth("2026-10-31")).toBe("31 de out");
+	});
+	it("monthYear escreve o mês por extenso em minúsculas", () => {
+		expect(monthYear("2027-08")).toBe("agosto de 2027");
 	});
 });

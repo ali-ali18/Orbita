@@ -27,6 +27,7 @@ function Routes() {
 					options={{ presentation: "modal", animation: "slide_from_bottom" }}
 				/>
 				<Stack.Screen name="atividades" />
+				<Stack.Screen name="cartao" />
 				<Stack.Screen name="configuracoes/index" />
 				<Stack.Screen name="configuracoes/servidor" />
 				<Stack.Screen name="configuracoes/bancos" />
