@@ -197,6 +197,12 @@ const bodies = {
 			<Path d="m16 17 5-5-5-5M21 12H9" />
 		</>
 	),
+	info: (
+		<>
+			<Circle cx="12" cy="12" r="10" />
+			<Path d="M12 16v-4M12 8h.01" />
+		</>
+	),
 	/** Do detalhe do lançamento (Figma 50:785): mesmo traço do conjunto, no viewBox 24. */
 	reticencias: (
 		<>
