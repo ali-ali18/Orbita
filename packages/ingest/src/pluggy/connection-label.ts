@@ -1,5 +1,5 @@
 import { PLUGGY_LABEL_MAX } from "@orbita/shared";
-import { cleanBankName } from "./bank-name.ts";
+import { cleanBankName, isMeuPluggyConnector } from "./bank-name.ts";
 import type { PluggyAccount } from "./schemas.ts";
 
 /*
@@ -34,8 +34,8 @@ function accountLabel(account: PluggyAccount): string | null {
 }
 
 /**
- * O nome pode ser trocado pela sincronização? Só se o dono não renomeou e o nome atual é vazio ou o do próprio
- * conector (ex.: "MeuPluggy"): nome digitado ou sugerido por outra fonte nunca é sobrescrito.
+ * O nome pode ser trocado pela sincronização? Só se o dono não renomeou e o nome atual é vazio ou o do conector
+ * MeuPluggy: nome digitado ou sugerido por outra fonte nunca é sobrescrito.
  */
 export function labelIsReplaceable(
 	current: string | null,
@@ -45,8 +45,8 @@ export function labelIsReplaceable(
 	if (editedByOwner) return false;
 	const label = clean(current ?? "");
 	if (label.length === 0) return true;
-	const connector = clean(connectorName ?? "");
-	return connector.length > 0 && plain(label) === plain(connector);
+	// Só o "MeuPluggy" esconde o banco; o nome de um conector de verdade ("Nubank") já diz o que a conexão é.
+	return isMeuPluggyConnector(connectorName) && plain(label) === plain(connectorName ?? "");
 }
 
 /**

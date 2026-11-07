@@ -57,6 +57,9 @@ describe("labelIsReplaceable", () => {
 		expect(labelIsReplaceable("MeuPluggy", "MeuPluggy", true)).toBe(false);
 		expect(labelIsReplaceable("Nubank", "MeuPluggy", false)).toBe(false);
 		expect(labelIsReplaceable("MeuPluggy", null, false)).toBe(false);
+		// Conector de verdade: o nome dele já é o banco, não se troca (só o vazio).
+		expect(labelIsReplaceable("Nubank", "Nubank", false)).toBe(false);
+		expect(labelIsReplaceable(null, "Nubank", false)).toBe(true);
 	});
 });
 
@@ -69,5 +72,6 @@ describe("chooseConnectionLabel", () => {
 		expect(chooseConnectionLabel({ ...base, current: "Meu nome" })).toBeNull();
 		expect(chooseConnectionLabel({ ...base, current: "MeuPluggy", editedByOwner: true })).toBeNull();
 		expect(chooseConnectionLabel({ ...base, current: "MeuPluggy", accounts: [] })).toBeNull();
+		expect(chooseConnectionLabel({ ...base, connectorName: "Nubank", current: "Nubank" })).toBeNull();
 	});
 });

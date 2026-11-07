@@ -10,7 +10,7 @@ export function normalizeLabel(value: unknown): string {
 	const label = typeof value === "string" ? value.trim() : "";
 	if (label.length === 0) throw invalid("Informe um nome.");
 	if (label.length > PLUGGY_LABEL_MAX) throw invalid(`O nome passa de ${PLUGGY_LABEL_MAX} letras.`);
-	if (/\p{Cc}/u.test(label)) throw invalid("O nome tem caracteres que não podem ser usados.");
+	if (/[\p{Cc}\p{Cf}]/u.test(label)) throw invalid("O nome tem caracteres que não podem ser usados.");
 	return label;
 }
 
