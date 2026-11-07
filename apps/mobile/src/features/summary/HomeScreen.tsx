@@ -64,7 +64,7 @@ export function HomeScreen() {
 	};
 
 	return (
-		<Screen footer={<BottomBar onNew={() => router.push("/novo")} />} floatingFooter>
+		<Screen fadeTop footer={<BottomBar onNew={() => router.push("/novo")} />} floatingFooter>
 			<ScrollView
 				contentContainerStyle={{
 					paddingHorizontal: spacing.lg,
