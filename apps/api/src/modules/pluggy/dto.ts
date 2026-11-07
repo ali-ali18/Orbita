@@ -10,5 +10,6 @@ export function toPluggyConnectionDto(c: PluggyConnectionRecord): PluggyConnecti
 		lastSyncAt: c.lastSyncAt?.toISOString() ?? null,
 		lastStatus: c.lastStatus,
 		lastError: c.lastError,
+		summary: { accounts: c.accountCount, cards: c.cardCount },
 	};
 }

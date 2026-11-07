@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	API_KEY,
 	BANK_ACCOUNT_ID,
+	bankAccount,
 	CARD_ACCOUNT_ID,
 	CLIENT_ID,
 	CLIENT_SECRET,
@@ -617,6 +618,99 @@ describe("syncPluggy", () => {
 			);
 			expect((await everything(t2.stores)).map((r) => r.externalId)).toEqual(["bom"]);
 			expect(JSON.stringify([logs, result])).not.toContain("texto do banco");
+		});
+	});
+	describe("nome da conexão e das contas", () => {
+		const meu = (over: object = {}) =>
+			setup({
+				item: { connector: { id: 1, name: "MeuPluggy", isSandbox: false } },
+				accounts: [
+					{ ...bankAccount, name: "MeuPluggy Banco Santander (Brasil) S.A.", marketingName: null },
+					{ ...cardAccount, name: "Cartão", marketingName: "MeuPluggy Mercado Pago" },
+				],
+				transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: [] },
+				...over,
+			});
+
+		it("nomeia a conexão pelas contas, limpa o prefixo, e guarda o resumo", async () => {
+			const t2 = meu();
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+			await t2.run();
+			expect(await t2.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({
+				label: "Santander, Mercado Pago",
+				labelEditedByOwner: false,
+				accountCount: 1,
+				cardCount: 1,
+			});
+			expect((await t2.stores.accounts.list())[0]?.name).toBe("Santander");
+			expect((await t2.stores.cards.list())[0]?.name).toBe("Mercado Pago");
+		});
+
+		it("nome do dono nunca é sobrescrito, nem o que ele renomeou depois", async () => {
+			const t2 = meu();
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+			await t2.stores.pluggyConnections.rename(ITEM_ID, "MeuPluggy");
+			await t2.run();
+			expect((await t2.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("MeuPluggy");
+
+			const t3 = meu();
+			await t3.stores.pluggyConnections.add({ id: ITEM_ID, label: "Minha conta" });
+			await t3.run();
+			expect((await t3.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("Minha conta");
+		});
+
+		it("conta já importada com prefixo MeuPluggy é limpa uma vez; a que o dono renomeou fica", async () => {
+			const t2 = meu();
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			const old = await t2.stores.accounts.create({
+				name: "MeuPluggy Banco Santander (Brasil) S.A.",
+				kind: "checking",
+				source: "pluggy",
+				externalId: BANK_ACCOUNT_ID,
+			});
+			const mine = await t2.stores.cards.create({
+				name: "Meu cartão",
+				closingDay: 10,
+				dueDay: 17,
+				source: "pluggy",
+				externalId: CARD_ACCOUNT_ID,
+			});
+			await t2.run();
+			expect((await t2.stores.accounts.get(old.id))?.name).toBe("Santander");
+			expect((await t2.stores.cards.get(mine.id))?.name).toBe("Meu cartão");
+		});
+
+		it("conector que não é o MeuPluggy mantém o nome do banco", async () => {
+			const t2 = setup({ transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: [] } });
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID, label: "Nubank" });
+			await t2.run();
+			expect((await t2.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("Nubank");
+		});
+
+		it("falha ao gravar o nome só vira nota: o sync segue e conta o resumo", async () => {
+			const t2 = meu();
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+			t2.stores.pluggyConnections.setAutoLabel = async () => {
+				throw new Error("segredo-do-banco");
+			};
+			const result = await t2.run();
+			expect(result.status).toBe("ok");
+			expect(result.connections[0]?.notes).toEqual(["Não deu para sugerir o nome da conexão agora."]);
+			expect(JSON.stringify(result)).not.toContain("segredo-do-banco");
+			expect(await t2.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({ accountCount: 1, cardCount: 1 });
+		});
+
+		it("erro antes de ligar as contas não zera o resumo", async () => {
+			const t2 = meu();
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			const t3 = { ...t2, fake: fakePluggy({ item: { status: "LOGIN_ERROR" } }) };
+			await syncPluggy({ ...t2.deps(), fetch: t3.fake.fetch });
+			expect(await t2.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({
+				lastStatus: "error",
+				accountCount: 1,
+				cardCount: 1,
+			});
 		});
 	});
 });

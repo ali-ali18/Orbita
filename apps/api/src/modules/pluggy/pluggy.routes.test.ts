@@ -57,6 +57,7 @@ describe("rotas do Meu Pluggy: autenticação", () => {
 		for (const [method, path, body] of [
 			["GET", "/v1/pluggy/connections", undefined],
 			["POST", "/v1/pluggy/connections", { itemId: ITEM }],
+			["PATCH", `/v1/pluggy/connections/${ITEM}`, { label: "Inter" }],
 			["DELETE", `/v1/pluggy/connections/${ITEM}`, undefined],
 			["POST", "/v1/pluggy/sync", {}],
 			["GET", "/v1/pluggy/status", undefined],
@@ -82,6 +83,7 @@ describe("conexões", () => {
 			lastSyncAt: null,
 			lastStatus: null,
 			lastError: null,
+			summary: { accounts: 0, cards: 0 },
 		});
 		expect((await api.get("/v1/pluggy/connections")).body.connections).toHaveLength(1);
 		const removed = await api.delete(`/v1/pluggy/connections/${ITEM}`);
@@ -106,6 +108,47 @@ describe("conexões", () => {
 			expect(res.body.error.code).toBe("dados_invalidos");
 		}
 		expect((await api.delete("/v1/pluggy/connections/abc")).status).toBe(400);
+	});
+
+	it("renomeia: aparar, validar, 404 e marca como do dono", async () => {
+		const { api, stores } = await make();
+		await api.post("/v1/pluggy/connections", { itemId: ITEM });
+		const res = await api.patch(`/v1/pluggy/connections/${ITEM.toUpperCase()}`, {
+			label: "  Inter + Mercado Pago ",
+		});
+		expect(res.status).toBe(200);
+		expect(res.body.connection).toMatchObject({ id: ITEM, label: "Inter + Mercado Pago" });
+		expect((await stores.pluggyConnections.get(ITEM))?.labelEditedByOwner).toBe(true);
+		expect((await api.get("/v1/pluggy/connections")).body.connections[0].label).toBe("Inter + Mercado Pago");
+
+		for (const body of [
+			{},
+			{ label: "" },
+			{ label: "   " },
+			{ label: "x".repeat(61) },
+			{ label: "linha\nquebrada" },
+			{ label: "invisi\u200bvel" },
+			{ label: 12 },
+			{ label: "Ok", itemId: OTHER },
+		]) {
+			const bad = await api.patch(`/v1/pluggy/connections/${ITEM}`, body);
+			expect(bad.status, JSON.stringify(body)).toBe(400);
+			expect(bad.body.error.code).toBe("dados_invalidos");
+		}
+		expect((await api.patch("/v1/pluggy/connections/abc", { label: "A" })).status).toBe(400);
+		const missing = await api.patch(`/v1/pluggy/connections/${OTHER}`, { label: "A" });
+		expect(missing.status).toBe(404);
+		expect((await api.get("/v1/pluggy/connections")).body.connections[0].label).toBe("Inter + Mercado Pago");
+	});
+
+	it("nome digitado ao cadastrar é do dono; o sugerido pelo Pluggy não", async () => {
+		const { api, stores } = await make();
+		await withKeys(api);
+		await api.post("/v1/pluggy/connections", { itemId: ITEM });
+		expect((await stores.pluggyConnections.get(ITEM))?.labelEditedByOwner).toBe(false);
+		await stores.pluggyConnections.remove(ITEM);
+		await api.post("/v1/pluggy/connections", { itemId: ITEM, label: "Meu nome" });
+		expect((await stores.pluggyConnections.get(ITEM))?.labelEditedByOwner).toBe(true);
 	});
 
 	it("a mesma conexão duas vezes dá 409", async () => {

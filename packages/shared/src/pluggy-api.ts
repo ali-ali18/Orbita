@@ -21,6 +21,21 @@ export const PLUGGY_LABEL_MAX = 60;
 export const PLUGGY_SYNC_STATUSES = ["ok", "partial", "error", "no_keys"] as const;
 export type PluggySyncStatus = (typeof PLUGGY_SYNC_STATUSES)[number];
 
+/** Sem caractere de controle (quebra de linha, tabulação, etc.): o nome vai para uma linha só. */
+const noControlChars = (v: string) => !/[\p{Cc}\p{Cf}]/u.test(v);
+
+/** Nome de uma conexão: 1..60 letras, aparado, sem controle. */
+export const pluggyLabelSchema = z
+	.string("Informe um nome.")
+	.trim()
+	.min(1, "Informe um nome.")
+	.max(PLUGGY_LABEL_MAX, "O nome passa de 60 letras.")
+	.refine(noControlChars, "O nome tem caracteres que não podem ser usados.");
+
+/** `PATCH /v1/pluggy/connections/:id`: o dono renomeia; a sincronização não troca mais o nome. */
+export const pluggyConnectionRenameBody = z.object({ label: pluggyLabelSchema }).strict();
+export type PluggyConnectionRenameBody = z.infer<typeof pluggyConnectionRenameBody>;
+
 export const pluggyConnectionCreateBody = z
 	.object({
 		itemId: pluggyItemIdSchema,
@@ -43,6 +58,8 @@ export const pluggyConnectionDto = z.object({
 	lastSyncAt: timestampSchema.nullable(),
 	lastStatus: z.enum(PLUGGY_SYNC_STATUSES).nullable(),
 	lastError: z.string().nullable(),
+	/** O que a última sincronização trouxe desta conexão (contas e cartões do Órbita ligados a ela). */
+	summary: z.object({ accounts: z.number().int().min(0), cards: z.number().int().min(0) }),
 });
 export type PluggyConnectionDto = z.infer<typeof pluggyConnectionDto>;
 

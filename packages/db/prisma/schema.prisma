@@ -261,15 +261,20 @@ model ServerSecret {
 /// Conexão do Meu Pluggy cadastrada pelo dono. O plano pessoal não lista conexões pela API: o id (itemId) é colado uma vez.
 model PluggyConnection {
   /// O itemId do Pluggy (UUID).
-  id         String    @id
-  label      String?
-  createdAt  DateTime  @default(now()) @map("created_at")
+  id                 String    @id
+  label              String?
+  createdAt          DateTime  @default(now()) @map("created_at")
   /// Início da última sincronização que terminou sem erro (a próxima janela parte daqui).
-  lastSyncAt DateTime? @map("last_sync_at")
+  lastSyncAt         DateTime? @map("last_sync_at")
   /// "ok" | "partial" | "error" | "no_keys".
-  lastStatus String?   @map("last_status")
+  lastStatus         String?   @map("last_status")
   /// Mensagem já sanitizada (sem segredo).
-  lastError  String?   @map("last_error")
+  lastError          String?   @map("last_error")
+  /// O dono deu o nome (digitado ou renomeado): a sincronização não o troca mais.
+  labelEditedByOwner Boolean   @default(false) @map("label_edited_by_owner")
+  /// Contas e cartões que a última sincronização ligou a esta conexão (o Pluggy não guarda o vínculo item → conta no Órbita).
+  accountCount       Int       @default(0) @map("account_count")
+  cardCount          Int       @default(0) @map("card_count")
 
   @@map("pluggy_connections")
 }

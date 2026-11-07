@@ -3,7 +3,7 @@ import type { Db } from "./client.ts";
 import { DataError } from "./errors.ts";
 import type { Clock } from "./memory-state.ts";
 import { PLUGGY_CONNECTION_TAKEN_MESSAGE } from "./messages.ts";
-import { normalizeConnection, normalizeSyncResult } from "./pluggy-connection-rules.ts";
+import { normalizeConnection, normalizeLabel, normalizeSyncResult } from "./pluggy-connection-rules.ts";
 import type { PluggyConnectionRecord, PluggyConnectionStore } from "./pluggy-connection-store.ts";
 import { isRecordMissing, translate } from "./prisma-errors.ts";
 
@@ -37,18 +37,46 @@ export function createPrismaPluggyConnectionStore(db: Db, now: Clock): PluggyCon
 			return rows.map(toRecord);
 		},
 		async recordSync(id, result) {
-			const { status, error, syncedAt } = normalizeSyncResult(result);
+			const { status, error, syncedAt, counts } = normalizeSyncResult(result);
 			try {
 				return toRecord(
 					await db.pluggyConnection.update({
 						where: { id },
-						data: { lastStatus: status, lastError: error, ...(syncedAt ? { lastSyncAt: syncedAt } : {}) },
+						data: {
+							lastStatus: status,
+							lastError: error,
+							...(syncedAt ? { lastSyncAt: syncedAt } : {}),
+							...(counts ?? {}),
+						},
 					}),
 				);
 			} catch (e) {
 				if (isRecordMissing(e)) return null;
 				throw e;
 			}
+		},
+		async rename(id, label) {
+			const clean = normalizeLabel(label);
+			try {
+				return toRecord(
+					await db.pluggyConnection.update({
+						where: { id: id.trim().toLowerCase() },
+						data: { label: clean, labelEditedByOwner: true },
+					}),
+				);
+			} catch (e) {
+				if (isRecordMissing(e)) return null;
+				throw e;
+			}
+		},
+		async setAutoLabel(id, label) {
+			const clean = normalizeLabel(label);
+			// A condição no WHERE torna "o dono ainda não renomeou" atômico com a gravação.
+			const res = await db.pluggyConnection.updateMany({
+				where: { id, labelEditedByOwner: false },
+				data: { label: clean },
+			});
+			return res.count > 0;
 		},
 	};
 }
