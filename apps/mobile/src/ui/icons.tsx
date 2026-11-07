@@ -97,6 +97,27 @@ const bodies = {
 			<Path d="m19 9-5 5-4-4-3 3" />
 		</>
 	),
+	/** Do Figma "Novo lançamento" (abas e ações): mesmo traço do conjunto, redesenhados no viewBox 24. */
+	"menos-circulo": (
+		<>
+			<Circle cx="12" cy="12" r="10" />
+			<Path d="M8 12h8" />
+		</>
+	),
+	transferir: (
+		<>
+			<Path d="m8 3-4 4 4 4" />
+			<Path d="M4 7h16" />
+			<Path d="m16 21 4-4-4-4" />
+			<Path d="M20 17H4" />
+		</>
+	),
+	microfone: (
+		<>
+			<Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+			<Path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3" />
+		</>
+	),
 	/** Não existe no Figma: o olho com um risco, só para o estado "valores escondidos". */
 	"olho-cortado": (
 		<>

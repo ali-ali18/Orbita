@@ -14,6 +14,7 @@ const toneColor: Record<TextTone, string> = {
 
 /** Variantes que ficam em coluna (valor, lista) usam algarismos tabulares. */
 const tabular: ReadonlySet<TextVariant> = new Set([
+	"numberDisplay",
 	"numberHero",
 	"numberLarge",
 	"numberMedium",

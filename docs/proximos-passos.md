@@ -6,17 +6,17 @@ Onde o projeto está e como continuar, em ordem. Escrito para uma sessão nova (
 
 ## Status
 
-| Fase                                                                  | Situação      |
-| --------------------------------------------------------------------- | ------------- |
-| 1. Fundação (monorepo, pareamento, segurança, Docker, CI/CD)          | ✅ PR #1      |
-| 2. Engine financeiro (`packages/core`)                                | ✅ PR #16     |
-| 3. Dados no banco (modelos + stores)                                  | ✅ PR #17     |
-| 4. API das finanças                                                   | ✅ PR #18     |
+| Fase                                                                  | Situação       |
+| --------------------------------------------------------------------- | -------------- |
+| 1. Fundação (monorepo, pareamento, segurança, Docker, CI/CD)          | ✅ PR #1       |
+| 2. Engine financeiro (`packages/core`)                                | ✅ PR #16      |
+| 3. Dados no banco (modelos + stores)                                  | ✅ PR #17      |
+| 4. API das finanças                                                   | ✅ PR #18      |
 | 5. App mobile (Expo)                                                  | 🚧 PRs #19–#21 |
-| 6. Ingestão (notificação, comprovante, extrato, conciliação, Revisão) | ⏳            |
-| 7. Meu Pluggy                                                         | ⏳            |
-| 8. Agentes de IA                                                      | ⏳            |
-| 9. Metas, assinaturas e demais agentes                                | ⏳            |
+| 6. Ingestão (notificação, comprovante, extrato, conciliação, Revisão) | ⏳             |
+| 7. Meu Pluggy                                                         | ⏳             |
+| 8. Agentes de IA                                                      | ⏳             |
+| 9. Metas, assinaturas e demais agentes                                | ⏳             |
 
 ## Fase 3 — Dados no banco ✅
 
@@ -48,7 +48,11 @@ Feito no PR #18. O app consome (todas exigem `Authorization: Bearer <token do ap
 
 **Fidelidade ao Figma (PR #21):** ícones exatos em `ui/icons.tsx`, barra de baixo, avatar, medidas; tokens `layout` (barra de status, barra de gestos, alvo de toque). Comparações em `docs/previews/app/figma/`.
 
-**Próximas etapas do app:** Novo lançamento (à vista e parcelado, frame Figma `33:404`) → Atividades (`24:142`) → Cartão (Faturas `33:501`, Parcelas `28:306`, Limites `36:636`) → Assinaturas (`28:450`) → Configurações (`41:605`). Sempre gerar prévias e mandar link.
+**Novo lançamento (PR seguinte ao #21):** rota `novo` (modal) aberta pelo "+" da barra; Saída/Entrada, à vista em conta ou cartão, parcelado 2..72 no cartão; prévia "N× de ~R$ X" (o servidor divide). Ler comprovante, Ditar, Transferir e "+ Nova" categoria aparecem desativados.
+
+**Ordem combinada com o dono (para ele testar com dados reais):** Configurações → **Servidor e chaves** (`44:817`: Client ID/Secret do Pluggy, IDs das conexões, chave da Anthropic; cifrados com `@orbita/security`, a API nunca devolve o valor, só "configurado") → **sincronização do Meu Pluggy** (fase 7) → demais telas.
+
+**Depois:** Atividades (`24:142`) → Cartão (Faturas `33:501`, Parcelas `28:306`, Limites `36:636`) → Assinaturas (`28:450`) → Configurações (`41:605`). Sempre gerar prévias e mandar link.
 
 - `apps/mobile` com Expo Router, TanStack Query e cliente tipado do Hono (`hono/client` com o `AppType` da API).
 - Camadas: `ui/` (primitivos só com tokens de `@orbita/tokens`), `features/` (por assunto), `app/` (telas). Ver `docs/styleguide.md`.

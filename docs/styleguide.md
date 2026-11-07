@@ -59,17 +59,18 @@ Regras:
 
 `import { typography } from "@orbita/tokens"` · fonte **Geist**.
 
-| Token          | Peso / tamanho / altura | Uso                                                               |
-| -------------- | ----------------------- | ----------------------------------------------------------------- |
-| `numberHero`   | 700 / 40 / 46           | O número principal da tela ("Dá pra gastar", valor do lançamento) |
-| `numberLarge`  | 600 / 28 / 32           | Total de card (saldo, gastos do mês)                              |
-| `numberMedium` | 600 / 20 / 23           | Valor em card quadrado, nome em destaque                          |
-| `greeting`     | 600 / 30 / 34           | Título de tela ("Bom dia, Alisson", "Atividades")                 |
-| `cardTitle`    | 500 / 15 / 20           | Rótulo do topo de card (em `textSecondary`)                       |
-| `body`         | 400 / 15 / 20           | Texto corrido, nome em lista                                      |
-| `bodyStrong`   | 600 / 15 / 20           | Nome de lançamento, valor em lista, botão                         |
-| `caption`      | 400 / 13 / 18           | Data, conta, legenda                                              |
-| `micro`        | 500 / 11 / 15           | Selo ("Ativo", "Fechada"), contador                               |
+| Token           | Peso / tamanho / altura | Uso                                                                              |
+| --------------- | ----------------------- | -------------------------------------------------------------------------------- |
+| `numberDisplay` | 700 / 52 / 60           | O valor digitado em Novo lançamento (maior que `numberHero`; encolhe para caber) |
+| `numberHero`    | 700 / 40 / 46           | O número principal da tela ("Dá pra gastar", valor do lançamento)                |
+| `numberLarge`   | 600 / 28 / 32           | Total de card (saldo, gastos do mês)                                             |
+| `numberMedium`  | 600 / 20 / 23           | Valor em card quadrado, nome em destaque                                         |
+| `greeting`      | 600 / 30 / 34           | Título de tela ("Bom dia, Alisson", "Atividades")                                |
+| `cardTitle`     | 500 / 15 / 20           | Rótulo do topo de card (em `textSecondary`)                                      |
+| `body`          | 400 / 15 / 20           | Texto corrido, nome em lista                                                     |
+| `bodyStrong`    | 600 / 15 / 20           | Nome de lançamento, valor em lista, botão                                        |
+| `caption`       | 400 / 13 / 18           | Data, conta, legenda                                                             |
+| `micro`         | 500 / 11 / 15           | Selo ("Ativo", "Fechada"), contador                                              |
 
 Números usam algarismos tabulares quando ficam em coluna (lista, tabela). Valores negativos usam o sinal de menos tipográfico (`−`), não hífen.
 

@@ -9,6 +9,7 @@ const style = (
 ) => ({ fontFamily: fontFamily.sans, fontWeight, fontSize, lineHeight, letterSpacing }) as const;
 
 export const text = {
+	numberDisplay: style(700, 52, 60, -2),
 	numberHero: style(700, 40, 46, -1.5),
 	numberLarge: style(600, 28, 32, -0.8),
 	numberMedium: style(600, 20, 23, -0.4),
