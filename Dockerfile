@@ -29,6 +29,7 @@ COPY --from=deps /app /app
 # `ota/` (atualização do app, assinada no CI) é copiada junto, para /app/ota; sem ela o servidor responde "sem atualização".
 COPY . .
 RUN pnpm --filter @orbita/db generate \
+	&& pnpm --filter @orbita/api build:connect \
 	&& printf '#!/bin/sh\ncd /app/apps/api && exec node --import tsx src/cli/parear.ts "$@"\n' > /usr/local/bin/parear \
 	&& chmod +x /usr/local/bin/parear \
 	&& chmod -R a+rX /app

@@ -139,7 +139,8 @@ export function fakePluggy(options: FakePluggyOptions = {}) {
 				status: "UPDATED",
 				executionStatus: "SUCCESS",
 				lastUpdatedAt: "2026-11-07T08:00:00.000Z",
-				connector: { id: 612, name: "Nubank" },
+				createdAt: "2026-11-01T08:00:00.000Z",
+				connector: { id: 612, name: "Nubank", isSandbox: false },
 				...item,
 			});
 		}

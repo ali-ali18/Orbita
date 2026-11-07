@@ -4,6 +4,7 @@
 CREATE TABLE "pluggy_connect_sessions" (
     "id" TEXT NOT NULL,
     "token_hash" TEXT NOT NULL,
+    "device_id" TEXT NOT NULL,
     "expires_at" TIMESTAMP(3) NOT NULL,
     "used_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -16,3 +17,6 @@ CREATE UNIQUE INDEX "pluggy_connect_sessions_token_hash_key" ON "pluggy_connect_
 
 -- CreateIndex
 CREATE INDEX "pluggy_connect_sessions_used_at_expires_at_idx" ON "pluggy_connect_sessions"("used_at", "expires_at");
+
+-- AddForeignKey
+ALTER TABLE "pluggy_connect_sessions" ADD CONSTRAINT "pluggy_connect_sessions_device_id_fkey" FOREIGN KEY ("device_id") REFERENCES "devices"("id") ON DELETE CASCADE ON UPDATE CASCADE;

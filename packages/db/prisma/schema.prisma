@@ -16,6 +16,8 @@ model Device {
   lastSeenAt DateTime? @map("last_seen_at")
   revokedAt  DateTime? @map("revoked_at")
 
+  pluggyConnectSessions PluggyConnectSession[]
+
   @@map("devices")
 }
 
@@ -276,9 +278,13 @@ model PluggyConnection {
 model PluggyConnectSession {
   id        String    @id @default(cuid())
   tokenHash String    @unique @map("token_hash")
+  /// O aparelho que pediu a sessão: se for revogado, a sessão deixa de valer.
+  deviceId  String    @map("device_id")
   expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
   createdAt DateTime  @default(now()) @map("created_at")
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([usedAt, expiresAt])
   @@map("pluggy_connect_sessions")

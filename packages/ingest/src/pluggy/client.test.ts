@@ -52,6 +52,13 @@ describe("createPluggyClient", () => {
 		await expect(make(fake.fetch).connectToken("a/b")).rejects.toThrow(RangeError);
 	});
 
+	it("lê createdAt e connector.isSandbox do item", async () => {
+		const fake = fakePluggy({ item: { connector: { name: "Banco Teste", isSandbox: true } } });
+		const item = await make(fake.fetch).item(ITEM_ID);
+		expect(item.createdAt).toBe("2026-11-01T08:00:00.000Z");
+		expect(item.connector).toEqual({ name: "Banco Teste", isSandbox: true });
+	});
+
 	it("renova a apiKey depois de 100 min", async () => {
 		const fake = fakePluggy();
 		let t = new Date("2026-11-07T09:00:00Z").getTime();

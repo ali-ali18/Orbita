@@ -83,6 +83,7 @@ export function createApp(deps: AppDeps) {
 			pluggyConnect.routes({
 				sessions: deps.stores.pluggyConnectSessions,
 				connections: deps.stores.pluggyConnections,
+				devices: deps.stores.auth,
 				vault: deps.vault,
 				syncQueue: deps.pluggySyncQueue ?? null,
 				now: deps.now,

@@ -44,6 +44,10 @@ export function createPrismaAuthStore(db: Db): AuthStore {
 			return db.device.findUnique({ where: { tokenHash } });
 		},
 
+		findDeviceById(id) {
+			return db.device.findUnique({ where: { id } });
+		},
+
 		async touchDevice({ deviceId, now }) {
 			await db.device.update({ where: { id: deviceId }, data: { lastSeenAt: now } });
 		},

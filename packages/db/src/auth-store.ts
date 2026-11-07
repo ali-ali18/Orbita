@@ -46,6 +46,7 @@ export interface AuthStore {
 		tokenHash: string;
 	}): Promise<DeviceRecord | null>;
 	findDeviceByTokenHash(tokenHash: string): Promise<DeviceRecord | null>;
+	findDeviceById(id: string): Promise<DeviceRecord | null>;
 	touchDevice(input: { deviceId: string; now: Date }): Promise<void>;
 	revokeDevice(input: { deviceId: string; now: Date }): Promise<void>;
 	/** Aparelhos ainda conectados (não revogados). Zero significa servidor sem dono. */

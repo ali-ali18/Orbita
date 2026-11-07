@@ -94,15 +94,17 @@ O plano pessoal não mostra o ID da conexão no meu.pluggy.ai e não lista items
 
 **Fluxo**
 
-1. App: `POST /v1/pluggy/connect-sessions` (Bearer do aparelho). O servidor cria um token aleatório de 32 bytes (guarda só o SHA-256; vale 15 min; uso único; uma sessão ativa por vez) e devolve `{ path: "/pluggy/conectar#s=<token>", expiresAt }`. O app monta a URL com o endereço do servidor pareado (recusa caminho que saia dele) e abre no navegador.
+1. App: `POST /v1/pluggy/connect-sessions` (Bearer do aparelho). O servidor cria um token aleatório de 32 bytes (guarda só o SHA-256, o aparelho que pediu e a hora; vale 15 min; uso único; uma sessão ativa por vez, garantido por lock no banco) e devolve `{ path: "/pluggy/conectar#s=<token>", expiresAt }`. O app monta a URL com o endereço do servidor pareado (recusa caminho que saia dele) e abre no navegador.
 2. Página `GET /pluggy/conectar` (HTML estático, pt-BR, tema escuro dos tokens) + `GET /pluggy/conectar/app.<hash>.js` (o widget). O JS lê o token do fragmento e o apaga do histórico (`history.replaceState`).
-3. `POST /pluggy/connect-token {session}`: o servidor confere a sessão (sem gastar), chama `POST /connect_token` no Pluggy com as chaves do cofre e `clientUserId: "orbita"`, e devolve **só** `{ connectToken }`. O widget abre (`includeSandbox: false`, `language: "pt"`, `theme: "dark"`).
-4. `onSuccess({ item })`: a página manda `POST /pluggy/connect-complete {session, itemId}` com `item.id`. O servidor: confere a sessão; confere `GET /items/{id}` com as nossas chaves (item de outra aplicação dá 404/403 no Pluggy: recusado com 422 e a sessão **não** é gasta); gasta a sessão (atômico, uso único); cadastra a conexão (nome do banco como rótulo; idempotente se já existe); enfileira a sincronização.
+3. `POST /pluggy/connect-token {session}`: o servidor confere a sessão (sem gastar) e que o aparelho que a pediu não foi revogado, chama `POST /connect_token` no Pluggy com as chaves do cofre e `clientUserId: "orbita"`, e devolve **só** `{ connectToken }`. O widget abre (`includeSandbox: false`, `language: "pt"`, `theme: "dark"`).
+4. `onSuccess({ item })`: a página manda `POST /pluggy/connect-complete {session, itemId}` com `item.id`. O servidor: confere a sessão e o aparelho; confere `GET /items/{id}` com as nossas chaves e recusa (422, sem gastar a sessão) item que não existe na nossa aplicação (404/403 no Pluggy), conector de teste (`connector.isSandbox`) e item criado antes de `sessão − 2 min` (`item.createdAt`; a folga cobre diferença de relógio); gasta a sessão (atômico, uso único); cadastra a conexão (nome do banco como rótulo; idempotente se já existe) e, se o cadastro falhar, **devolve** a sessão (`release`) para tentar de novo; enfileira a sincronização.
 5. A página mostra "Pronto!" e um botão para `orbita://configuracoes/bancos` (scheme do `app.json`). O app, ao voltar para o primeiro plano, recarrega o status e a lista.
 
 `onError` (credencial inválida, MFA que falhou) não fecha nada: o widget segue aberto para tentar de novo; se a pessoa o fechar, a página mostra o motivo e "Tentar de novo".
 
-**O widget (`pluggy-connect-sdk` 2.15.0, MIT, uso sem React)**: o pacote npm traz só módulos (sem bundle de navegador; esse mora no CDN do Pluggy). O servidor empacota `client/main.ts` + SDK + `zoid` com o `esbuild` na primeira vez que a página é pedida, guarda em memória e serve com o hash do conteúdo no nome (`app.<8 hex>.js`, `immutable`). Nada vem de CDN. Falha ao empacotar derruba só a página (503).
+**O widget (`pluggy-connect-sdk` 2.15.0, MIT, uso sem React)**: o pacote npm traz só módulos (sem bundle de navegador; esse mora no CDN do Pluggy). O empacotamento acontece no **build**: `pnpm --filter @orbita/api build:connect` junta `client/main.ts` + SDK + `zoid` com o `esbuild` e grava `apps/api/connect-dist/app.<8 hex>.js` + `manifest.json` (fora do git). O Dockerfile roda esse passo na imagem; em desenvolvimento o `predev` roda. O servidor só **lê e serve** o arquivo (`immutable`, hash no nome) e nunca monta nada em tempo de execução; se o arquivo faltar, lembra a falha por 10 min em vez de reler o disco a cada pedido. Nada vem de CDN. `esbuild` e `pluggy-connect-sdk` são `devDependencies` do pacote api. (A imagem não faz prune de dev: as dependências continuam instaladas nela, mas só o build as usa.)
+
+Se o arquivo faltar, `GET /pluggy/conectar` **continua respondendo 200** com uma página de aviso e só carrega `/pluggy/conectar/limpar.js` (uma linha fixa que tira o token do endereço).
 
 **O que o widget exige (lido no código do pacote; nunca executado fora do build)**
 
@@ -142,7 +144,7 @@ Todas as de `/v1/pluggy/*` exigem `Authorization: Bearer`; as de `/pluggy/*` sã
 - `DELETE /v1/pluggy/connections/:id` → `{ connection }` (404 se não existe)
 - `POST /v1/pluggy/connect-sessions` → 201 `{ path, expiresAt }` (409 `sem_chaves` se as chaves não estão cadastradas)
 - `POST /pluggy/connect-token`, `POST /pluggy/connect-complete` (públicos; 30 pedidos por IP a cada 10 min, corpo até 1 KB, mensagens fixas; 401 `sessao_invalida`, 409 `sem_chaves`, 422 `conexao_invalida`, 502 falha do Pluggy)
-- `GET /pluggy/conectar` e `GET /pluggy/conectar/app.<hash>.js` (públicos; 60 por IP a cada 10 min)
+- `GET /pluggy/conectar`, `GET /pluggy/conectar/app.<hash>.js` e `GET /pluggy/conectar/limpar.js` (públicos; 60 por IP a cada 10 min)
 - `POST /v1/pluggy/sync` → 202 `{ sync: "queued" | "running" }` (400 `sem_conexoes`/`sem_chaves`; 503 sem Redis). Enfileira no worker com `jobId` fixo: pedidos repetidos viram um só e nunca rodam em paralelo com o diário.
 - `GET /v1/pluggy/status` → `{ keysConfigured, sync, lastSyncAt, connections }`
 

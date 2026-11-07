@@ -56,8 +56,21 @@ section{display:flex;flex-direction:column;gap:12px}
 @keyframes spin{to{transform:rotate(360deg)}}
 `;
 
-/** Página estática em pt-BR. O script é externo (CSP sem inline); o texto dinâmico entra por `textContent`. */
-export function renderConnectPage(scriptPath: string): string {
+/** Script mínimo e fixo (não depende do widget): só tira o token do endereço. */
+export const CLEAR_SCRIPT_PATH = "/pluggy/conectar/limpar.js";
+export const CLEAR_SCRIPT = 'history.replaceState(null,"",location.pathname);\n';
+
+export const UNAVAILABLE_MESSAGE =
+	"Esta página ainda não está pronta neste servidor. Atualize o servidor do Órbita e tente de novo pelo app.";
+
+/**
+ * Página estática em pt-BR. O script é externo (CSP sem inline); o texto dinâmico entra por `textContent`.
+ * `scriptPath` `null` = o widget não existe neste servidor: a página continua existindo (com um aviso) e só carrega
+ * o script que limpa o token do endereço.
+ */
+export function renderConnectPage(scriptPath: string | null): string {
+	const ready = scriptPath !== null;
+	const hide = (view: string) => (ready ? view !== "loading" : view !== "error");
 	return `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -71,7 +84,7 @@ export function renderConnectPage(scriptPath: string): string {
 </head>
 <body>
 <main>
-<section data-view="loading" role="status" aria-live="polite">
+<section data-view="loading"${hide("loading") ? " hidden" : ""} role="status" aria-live="polite">
 <div class="dot" aria-hidden="true"></div>
 <h1>Conectar banco</h1>
 <p>Abrindo o Pluggy…</p>
@@ -86,13 +99,13 @@ export function renderConnectPage(scriptPath: string): string {
 <p>O banco foi conectado. Volte para o app: a primeira sincronização já começou.</p>
 <a class="btn" href="${APP_RETURN_URL}">Voltar para o Órbita</a>
 </section>
-<section data-view="error" hidden role="alert">
+<section data-view="error"${hide("error") ? " hidden" : ""} role="alert">
 <h1>Não deu certo</h1>
-<p data-message></p>
-<button class="btn secondary" type="button" data-action="connect">Tentar de novo</button>
+<p data-message>${ready ? "" : UNAVAILABLE_MESSAGE}</p>
+${ready ? '<button class="btn secondary" type="button" data-action="connect">Tentar de novo</button>' : ""}
 </section>
 </main>
-<script src="${scriptPath}"></script>
+<script src="${scriptPath ?? CLEAR_SCRIPT_PATH}"></script>
 </body>
 </html>
 `;

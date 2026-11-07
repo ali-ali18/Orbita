@@ -17,14 +17,24 @@ export interface CreatedConnectSession {
 
 export async function createConnectSession(
 	store: PluggyConnectSessionStore,
+	deviceId: string,
 	now: Date,
 ): Promise<CreatedConnectSession> {
 	const token = randomBytes(32).toString("base64url");
 	const expiresAt = new Date(now.getTime() + CONNECT_SESSION_TTL_MS);
-	await store.create({ tokenHash: hashConnectToken(token), expiresAt, now });
+	await store.create({ tokenHash: hashConnectToken(token), deviceId, expiresAt, now });
 	await store.deleteStale(new Date(now.getTime() - STALE_AFTER_MS));
 	return { token, expiresAt };
 }
 
 /** O que o app abre no navegador. O token vai no fragmento (`#s=`): o navegador não o envia ao servidor. */
 export const connectPagePath = (token: string) => `/pluggy/conectar#s=${token}`;
+
+/** Tolerância de relógio entre o servidor e o Pluggy: o item só vale se nasceu depois de (sessão − 2 min). */
+export const ITEM_CLOCK_SKEW_MS = 2 * 60_000;
+
+/** O item foi criado depois que a sessão começou? Item velho (ou já removido) não volta por uma sessão nova. */
+export function itemIsFresh(itemCreatedAt: string | null | undefined, sessionCreatedAt: Date): boolean {
+	const created = itemCreatedAt ? Date.parse(itemCreatedAt) : Number.NaN;
+	return Number.isFinite(created) && created >= sessionCreatedAt.getTime() - ITEM_CLOCK_SKEW_MS;
+}

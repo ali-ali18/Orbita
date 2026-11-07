@@ -3,21 +3,25 @@ import type { PluggyConnectSessionStore } from "./pluggy-connect-session-store.t
 
 export function createPrismaPluggyConnectSessionStore(db: Db): PluggyConnectSessionStore {
 	return {
-		async create({ tokenHash, expiresAt, now }) {
+		async create({ tokenHash, deviceId, expiresAt, now }) {
 			await db.$transaction(async (tx) => {
+				// Serializa os criadores: sem isto, dois pedidos simultâneos expirariam só as sessões que já existiam
+				// e as duas novas ficariam ativas. O lock vale até o fim da transação.
+				await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('orbita:pluggy_connect_sessions'))`;
 				await tx.pluggyConnectSession.updateMany({
 					where: { usedAt: null, expiresAt: { gt: now } },
 					data: { expiresAt: now },
 				});
-				await tx.pluggyConnectSession.create({ data: { tokenHash, expiresAt } });
+				await tx.pluggyConnectSession.create({ data: { tokenHash, deviceId, expiresAt, createdAt: now } });
 			});
 		},
 
-		async isActive(tokenHash, now) {
-			const count = await db.pluggyConnectSession.count({
+		async find(tokenHash, now) {
+			const row = await db.pluggyConnectSession.findFirst({
 				where: { tokenHash, usedAt: null, expiresAt: { gt: now } },
+				select: { deviceId: true, createdAt: true },
 			});
-			return count === 1;
+			return row ?? null;
 		},
 
 		async consume(tokenHash, now) {
@@ -27,6 +31,10 @@ export function createPrismaPluggyConnectSessionStore(db: Db): PluggyConnectSess
 				data: { usedAt: now },
 			});
 			return res.count === 1;
+		},
+
+		async release(tokenHash) {
+			await db.pluggyConnectSession.updateMany({ where: { tokenHash }, data: { usedAt: null } });
 		},
 
 		async deleteStale(before) {

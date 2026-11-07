@@ -92,7 +92,11 @@ export function routes({
 					409,
 				);
 			}
-			const { token, expiresAt } = await createConnectSession(stores.pluggyConnectSessions, now());
+			const { token, expiresAt } = await createConnectSession(
+				stores.pluggyConnectSessions,
+				c.get("device").id,
+				now(),
+			);
 			const body: PluggyConnectSessionResponse = {
 				path: connectPagePath(token),
 				expiresAt: expiresAt.toISOString(),

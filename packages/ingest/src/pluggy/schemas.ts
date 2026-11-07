@@ -22,7 +22,10 @@ export const itemResponse = z.object({
 	status: z.string().max(60),
 	executionStatus: z.string().max(60).nullish(),
 	lastUpdatedAt: z.string().max(40).nullish(),
-	connector: z.object({ name: text }).nullish(),
+	/** Quando o item foi criado (SDK 0.94.2: `Item.createdAt`). Serve para recusar item antigo no "Conectar banco". */
+	createdAt: z.string().max(40).nullish(),
+	/** `isSandbox`: conector de teste (SDK 0.94.2, types/connector.d.ts). */
+	connector: z.object({ name: text, isSandbox: z.boolean().nullish() }).nullish(),
 });
 export type PluggyItem = z.infer<typeof itemResponse>;
 

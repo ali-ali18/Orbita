@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
 
 /** O widget empacotado: o servidor serve o arquivo (nada de CDN), com o hash do conteúdo no nome. */
 export interface ConnectAsset {
@@ -9,42 +8,59 @@ export interface ConnectAsset {
 	code: Uint8Array<ArrayBuffer>;
 }
 
-const ENTRY = fileURLToPath(new URL("./client/main.ts", import.meta.url));
+/** Onde `pnpm --filter @orbita/api build:connect` grava o widget (no Docker, durante o build da imagem). */
+export const CONNECT_DIST_DIR = fileURLToPath(new URL("../../../../connect-dist/", import.meta.url));
+export const CONNECT_MANIFEST = "manifest.json";
+export const CONNECT_FILE = /^app\.[0-9a-f]{8}\.js$/;
+export const CONNECT_PUBLIC_PREFIX = "/pluggy/conectar/";
 
-/**
- * Empacota `client/main.ts` + `pluggy-connect-sdk` (e o zoid dele) num arquivo só. O npm só traz o código em módulos,
- * sem o bundle de navegador (esse mora no CDN do Pluggy), então o servidor monta o seu na primeira vez que a página é
- * pedida e guarda na memória. Falha de montagem derruba só a página (a rota responde 503), nunca o servidor.
- */
-export async function buildConnectAsset(): Promise<ConnectAsset> {
-	const result = await build({
-		entryPoints: [ENTRY],
-		bundle: true,
-		write: false,
-		format: "iife",
-		platform: "browser",
-		target: ["es2020"],
-		minify: true,
-		legalComments: "none",
-		logLevel: "silent",
-		// Nada do ambiente do servidor entra no código do navegador.
-		define: { "process.env.NODE_ENV": '"production"' },
-	});
-	const file = result.outputFiles[0];
-	if (!file) throw new Error("esbuild não gerou saída");
-	const code = new Uint8Array(file.contents);
-	const hash = createHash("sha256").update(code).digest("hex").slice(0, 8);
-	return { path: `/pluggy/conectar/app.${hash}.js`, code };
+/** Lê o que o build gravou. `null` se a pasta não existe, o manifesto não casa ou o arquivo sumiu. */
+export async function readConnectAsset(dir: string): Promise<ConnectAsset | null> {
+	const manifest: unknown = JSON.parse(await readFile(`${dir}/${CONNECT_MANIFEST}`, "utf8"));
+	const file = (manifest as { file?: unknown } | null)?.file;
+	// O nome vem de um arquivo: só vale no formato que o build gera (nada de caminho).
+	if (typeof file !== "string" || !CONNECT_FILE.test(file)) return null;
+	const buf = await readFile(`${dir}/${file}`);
+	return { path: `${CONNECT_PUBLIC_PREFIX}${file}`, code: new Uint8Array(buf) };
 }
 
-/** Monta uma vez só; se falhar, tenta de novo no próximo pedido. */
-export function lazyConnectAsset(builder: () => Promise<ConnectAsset> = buildConnectAsset) {
-	let pending: Promise<ConnectAsset> | null = null;
-	return () => {
-		pending ??= builder().catch((e: unknown) => {
-			pending = null;
-			throw e;
-		});
+export const CONNECT_RETRY_AFTER_MS = 10 * 60_000;
+
+/**
+ * Lê o widget uma vez e guarda. Se faltar (servidor sem o passo de build), lembra a falha por 10 min em vez de ler o
+ * disco e logar a cada pedido. Nunca monta nada em tempo de execução: quem monta é o build.
+ */
+export function createConnectAssetLoader(options: {
+	dir?: string;
+	now: () => Date;
+	retryAfterMs?: number;
+	log?: (e: unknown) => void;
+}): () => Promise<ConnectAsset | null> {
+	const dir = options.dir ?? CONNECT_DIST_DIR;
+	const retryAfterMs = options.retryAfterMs ?? CONNECT_RETRY_AFTER_MS;
+	const log = options.log ?? ((e) => console.error("widget do Pluggy Connect indisponível:", e));
+	let loaded: ConnectAsset | null = null;
+	let failedAt: number | null = null;
+	let pending: Promise<ConnectAsset | null> | null = null;
+	return async () => {
+		if (loaded) return loaded;
+		const t = options.now().getTime();
+		if (failedAt !== null && t - failedAt < retryAfterMs) return null;
+		pending ??= readConnectAsset(dir)
+			.then((asset) => {
+				if (!asset) throw new Error("manifesto inválido");
+				loaded = asset;
+				failedAt = null;
+				return asset;
+			})
+			.catch((e: unknown) => {
+				failedAt = t;
+				log(e);
+				return null;
+			})
+			.finally(() => {
+				pending = null;
+			});
 		return pending;
 	};
 }

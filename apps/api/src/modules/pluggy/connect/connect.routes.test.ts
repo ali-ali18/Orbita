@@ -1,7 +1,11 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { NOW, setupFinance } from "../../../test-support.ts";
 import type { PluggyQueueState, PluggySyncQueue } from "../queue.ts";
-import { buildConnectAsset } from "./assets.ts";
+import { createConnectAssetLoader, readConnectAsset } from "./assets.ts";
+import { bundleConnectWidget, writeConnectWidget } from "./build.ts";
 import { createConnectSession, hashConnectToken } from "./session.ts";
 
 const ITEM = "123e4567-e89b-42d3-a456-426614174000";
@@ -12,10 +16,17 @@ const API_KEY = "eyJhbGciOiJIUzI1NiJ9.fake-api-key-payload.fake-signature";
 const CONNECT_TOKEN = "eyJhbGciOiJIUzI1NiJ9.fake-connect-token.fake-signature";
 const ASSET = { path: "/pluggy/conectar/app.abcd1234.js", code: new TextEncoder().encode("/*widget*/") };
 
+const SESSION_AT = new Date(NOW);
+const ago = (ms: number) => new Date(SESSION_AT.getTime() - ms).toISOString();
+
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 /** Pluggy falso: só conhece o ITEM; o FOREIGN é de outra aplicação (404). */
-function pluggyFetch(log: { path: string; body: string }[] = [], failItems = false) {
+function pluggyFetch(
+	log: { path: string; body: string }[] = [],
+	failItems = false,
+	item: { createdAt?: string; isSandbox?: boolean } = {},
+) {
 	return async (url: string, init: RequestInit): Promise<Response> => {
 		const u = new URL(url);
 		log.push({ path: `${init.method} ${u.pathname}`, body: String(init.body ?? "") });
@@ -23,7 +34,12 @@ function pluggyFetch(log: { path: string; body: string }[] = [], failItems = fal
 		if (u.pathname === "/connect_token") return json({ accessToken: CONNECT_TOKEN });
 		if (failItems) return json({ message: `erro com ${CLIENT_SECRET}` }, 503);
 		if (u.pathname === `/items/${ITEM}`) {
-			return json({ id: ITEM, status: "UPDATED", connector: { name: "Nubank" } });
+			return json({
+				id: ITEM,
+				status: "UPDATED",
+				createdAt: item.createdAt ?? NOW,
+				connector: { name: "Nubank", isSandbox: item.isSandbox ?? false },
+			});
 		}
 		return json({ message: "Item not found" }, 404);
 	};
@@ -46,12 +62,14 @@ function fakeQueue() {
 	return { queue, calls };
 }
 
-async function make(opts: { keys?: boolean; failItems?: boolean } = {}) {
+async function make(
+	opts: { keys?: boolean; failItems?: boolean; item?: { createdAt?: string; isSandbox?: boolean } } = {},
+) {
 	const log: { path: string; body: string }[] = [];
 	const q = fakeQueue();
 	const t = await setupFinance(NOW, undefined, {
 		pluggySyncQueue: q.queue,
-		pluggyFetch: pluggyFetch(log, opts.failItems),
+		pluggyFetch: pluggyFetch(log, opts.failItems, opts.item),
 		pluggyConnectAsset: async () => ASSET,
 	});
 	if (opts.keys !== false) {
@@ -64,7 +82,8 @@ async function make(opts: { keys?: boolean; failItems?: boolean } = {}) {
 		return (res.body.path as string).split("#s=")[1] as string;
 	};
 	const pub = (path: string, body: unknown) => t.call("POST", path, body, null);
-	return { ...t, q, log, newSession, pub };
+	const deviceId = () => (t.stores.auth as unknown as { devices: { id: string }[] }).devices[0]?.id ?? "";
+	return { ...t, q, log, newSession, pub, deviceId };
 }
 
 describe("criar a sessão (app)", () => {
@@ -87,8 +106,9 @@ describe("criar a sessão (app)", () => {
 		expect(Date.parse(res.body.expiresAt) - Date.parse(NOW)).toBe(15 * 60_000);
 		const token = (res.body.path as string).split("#s=")[1] as string;
 		const now = new Date(NOW);
-		expect(await stores.pluggyConnectSessions.isActive(hashConnectToken(token), now)).toBe(true);
-		expect(await stores.pluggyConnectSessions.isActive(token, now)).toBe(false);
+		const stored = await stores.pluggyConnectSessions.find(hashConnectToken(token), now);
+		expect(stored?.deviceId).toBeTruthy();
+		expect(await stores.pluggyConnectSessions.find(token, now)).toBeNull();
 	});
 
 	it("uma sessão nova invalida a anterior", async () => {
@@ -119,8 +139,12 @@ describe("POST /pluggy/connect-token (público)", () => {
 	});
 
 	it("sessão desconhecida, expirada ou mal formada é recusada com mensagem fixa", async () => {
-		const { stores, pub } = await make();
-		const old = await createConnectSession(stores.pluggyConnectSessions, new Date("2026-11-15T14:30:00Z"));
+		const { stores, pub, deviceId } = await make();
+		const old = await createConnectSession(
+			stores.pluggyConnectSessions,
+			deviceId(),
+			new Date("2026-11-15T14:30:00Z"),
+		);
 		const expired = await pub("/pluggy/connect-token", { session: old.token });
 		expect(expired.status).toBe(401);
 		expect(expired.body.error.code).toBe("sessao_invalida");
@@ -266,6 +290,94 @@ describe("POST /pluggy/connect-complete (público)", () => {
 	});
 });
 
+describe("o item precisa ser desta sessão", () => {
+	it("recusa conector de teste (sandbox) sem gastar a sessão", async () => {
+		const { newSession, pub, api } = await make({ item: { isSandbox: true } });
+		const session = await newSession();
+		const res = await pub("/pluggy/connect-complete", { session, itemId: ITEM });
+		expect(res.status).toBe(422);
+		expect(res.body.error.message).toBe("Bancos de teste (sandbox) não podem ser conectados aqui.");
+		expect((await api.get("/v1/pluggy/connections")).body.connections).toEqual([]);
+		expect((await pub("/pluggy/connect-token", { session })).status).toBe(200);
+	});
+
+	it("recusa item criado antes da sessão (mais de 2 min de folga)", async () => {
+		const { newSession, pub, api } = await make({ item: { createdAt: ago(3 * 60_000) } });
+		const res = await pub("/pluggy/connect-complete", { session: await newSession(), itemId: ITEM });
+		expect(res.status).toBe(422);
+		expect(res.body.error.code).toBe("conexao_invalida");
+		expect(res.body.error.message).toBe(
+			"Essa conexão não é nova. Toque em Conectar banco no app e entre no banco de novo.",
+		);
+		expect((await api.get("/v1/pluggy/connections")).body.connections).toEqual([]);
+	});
+
+	it("aceita item criado até 2 min antes da sessão (relógios) ou depois dela", async () => {
+		for (const createdAt of [ago(119_000), ago(0), new Date(SESSION_AT.getTime() + 60_000).toISOString()]) {
+			const { newSession, pub } = await make({ item: { createdAt } });
+			const res = await pub("/pluggy/connect-complete", { session: await newSession(), itemId: ITEM });
+			expect(res.status, createdAt).toBe(200);
+		}
+	});
+
+	it("item sem data de criação é recusado", async () => {
+		const t = await setupFinance(NOW, undefined, {
+			pluggyConnectAsset: async () => ASSET,
+			pluggyFetch: async (url) => {
+				const p = new URL(url).pathname;
+				if (p === "/auth") return json({ apiKey: API_KEY });
+				return json({ id: ITEM, status: "UPDATED", connector: { name: "Nubank" } });
+			},
+		});
+		await t.api.put("/v1/settings/secrets/pluggy_client_id", { value: CLIENT_ID });
+		await t.api.put("/v1/settings/secrets/pluggy_client_secret", { value: CLIENT_SECRET });
+		const session = ((await t.api.post("/v1/pluggy/connect-sessions")).body.path as string).split("#s=")[1];
+		const res = await t.call("POST", "/pluggy/connect-complete", { session, itemId: ITEM }, null);
+		expect(res.status).toBe(422);
+	});
+});
+
+describe("aparelho revogado", () => {
+	it("a sessão deixa de valer no connect-token e no connect-complete", async () => {
+		const { newSession, pub, stores, deviceId } = await make();
+		const session = await newSession();
+		expect((await pub("/pluggy/connect-token", { session })).status).toBe(200);
+		await stores.auth.revokeDevice({ deviceId: deviceId(), now: new Date(NOW) });
+		const token = await pub("/pluggy/connect-token", { session });
+		expect(token.status).toBe(401);
+		expect(token.body.error.code).toBe("sessao_invalida");
+		const done = await pub("/pluggy/connect-complete", { session, itemId: ITEM });
+		expect(done.status).toBe(401);
+	});
+
+	it("revogado entre o token do widget e a conclusão não cadastra nada", async () => {
+		const { newSession, pub, stores, deviceId } = await make();
+		const session = await newSession();
+		await pub("/pluggy/connect-token", { session });
+		await stores.auth.revokeDevice({ deviceId: deviceId(), now: new Date(NOW) });
+		expect((await pub("/pluggy/connect-complete", { session, itemId: ITEM })).status).toBe(401);
+		expect(await stores.pluggyConnections.list()).toEqual([]);
+	});
+});
+
+describe("falha ao cadastrar", () => {
+	it("a sessão volta a valer e o dono pode tentar de novo", async () => {
+		const { newSession, pub, stores, q } = await make();
+		const session = await newSession();
+		const real = stores.pluggyConnections.add;
+		stores.pluggyConnections.add = async () => {
+			throw new Error("banco fora do ar");
+		};
+		const failed = await pub("/pluggy/connect-complete", { session, itemId: ITEM });
+		expect(failed.status).toBe(500);
+		expect(q.calls).toEqual([]);
+		stores.pluggyConnections.add = real;
+		const again = await pub("/pluggy/connect-complete", { session, itemId: ITEM });
+		expect(again.status).toBe(200);
+		expect(await stores.pluggyConnections.list()).toHaveLength(1);
+	});
+});
+
 describe("página e cabeçalhos de segurança", () => {
 	it("serve a página em pt-BR com CSP restritiva, sem referrer, sem iframe e sem cache", async () => {
 		const { app } = await make();
@@ -313,15 +425,19 @@ describe("página e cabeçalhos de segurança", () => {
 		expect(res.headers.get("cache-control")).toBe("no-store");
 	});
 
-	it("se o widget não monta, a página responde 503 sem derrubar nada", async () => {
-		const t = await setupFinance(NOW, undefined, {
-			pluggyConnectAsset: async () => {
-				throw new Error("falhou");
-			},
-		});
+	it("sem o widget a página continua existindo, com aviso, e só limpa o token do endereço", async () => {
+		const t = await setupFinance(NOW, undefined, { pluggyConnectAsset: async () => null });
 		const res = await t.app.request("/pluggy/conectar");
-		expect(res.status).toBe(503);
-		expect((await t.app.request("/health")).status).toBe(200);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-security-policy")).toContain("script-src 'self'");
+		const html = await res.text();
+		expect(html).toContain("Esta página ainda não está pronta neste servidor");
+		expect(html).toContain('<script src="/pluggy/conectar/limpar.js"></script>');
+		expect(html).not.toContain("Tentar de novo");
+		const clear = await t.app.request("/pluggy/conectar/limpar.js");
+		expect(clear.status).toBe(200);
+		expect(await clear.text()).toContain("history.replaceState");
+		expect((await t.app.request("/pluggy/conectar/app.00000000.js")).status).toBe(404);
 	});
 
 	it("o resto da API mantém os cabeçalhos padrão", async () => {
@@ -331,9 +447,9 @@ describe("página e cabeçalhos de segurança", () => {
 	});
 });
 
-describe("widget empacotado de verdade", () => {
-	it("monta o pluggy-connect-sdk num arquivo só, com o hash no nome e sem eval", async () => {
-		const asset = await buildConnectAsset();
+describe("widget empacotado no build", () => {
+	it("o build monta o pluggy-connect-sdk num arquivo só, com o hash no nome e sem eval", async () => {
+		const asset = await bundleConnectWidget();
 		expect(asset.path).toMatch(/^\/pluggy\/conectar\/app\.[0-9a-f]{8}\.js$/);
 		const text = new TextDecoder().decode(asset.code);
 		expect(text).toContain("https://connect.pluggy.ai");
@@ -341,4 +457,64 @@ describe("widget empacotado de verdade", () => {
 		expect(text).toContain("/pluggy/connect-complete");
 		expect(text).toContain("includeSandbox");
 	}, 30_000);
+
+	it("grava o arquivo e o manifesto; o servidor só lê e serve (e o build seguinte limpa o antigo)", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "orbita-connect-"));
+		try {
+			const first = await writeConnectWidget(dir, {
+				path: "/pluggy/conectar/app.11111111.js",
+				code: new TextEncoder().encode("a"),
+			});
+			const second = await writeConnectWidget(dir, {
+				path: "/pluggy/conectar/app.22222222.js",
+				code: new TextEncoder().encode("b"),
+			});
+			expect([first, second]).toEqual(["app.11111111.js", "app.22222222.js"]);
+			await expect(readFile(join(dir, first))).rejects.toThrow();
+			const asset = await readConnectAsset(dir);
+			expect(asset?.path).toBe("/pluggy/conectar/app.22222222.js");
+			expect(new TextDecoder().decode(asset?.code)).toBe("b");
+			const t = await setupFinance(NOW, undefined, {
+				pluggyConnectAsset: createConnectAssetLoader({ dir, now: () => new Date(NOW) }),
+			});
+			const page = await (await t.app.request("/pluggy/conectar")).text();
+			expect(page).toContain('src="/pluggy/conectar/app.22222222.js"');
+			expect(await (await t.app.request("/pluggy/conectar/app.22222222.js")).text()).toBe("b");
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("manifesto com nome fora do formato (caminho) é recusado", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "orbita-connect-"));
+		try {
+			await writeFile(join(dir, "manifest.json"), JSON.stringify({ file: "../../etc/passwd" }));
+			expect(await readConnectAsset(dir)).toBeNull();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("widget ausente: lê o disco uma vez, lembra a falha por 10 min e tenta de novo depois", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "orbita-connect-"));
+		try {
+			let t = Date.parse(NOW);
+			const logs: unknown[] = [];
+			const load = createConnectAssetLoader({
+				dir: join(dir, "nao-existe"),
+				now: () => new Date(t),
+				log: (e) => logs.push(e),
+			});
+			for (let i = 0; i < 5; i++) expect(await load()).toBeNull();
+			expect(logs).toHaveLength(1);
+			t += 9 * 60_000;
+			expect(await load()).toBeNull();
+			expect(logs).toHaveLength(1);
+			t += 2 * 60_000;
+			expect(await load()).toBeNull();
+			expect(logs).toHaveLength(2);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
 });

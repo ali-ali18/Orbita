@@ -48,6 +48,10 @@ export function createMemoryAuthStore(): AuthStore & {
 			const d = devices.find((x) => x.tokenHash === tokenHash);
 			return d ? { ...d } : null;
 		},
+		async findDeviceById(id) {
+			const d = devices.find((x) => x.id === id);
+			return d ? { ...d } : null;
+		},
 		async touchDevice({ deviceId, now }) {
 			const d = devices.find((x) => x.id === deviceId);
 			if (d) d.lastSeenAt = now;
