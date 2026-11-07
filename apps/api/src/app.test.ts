@@ -5,6 +5,7 @@ import { createApp } from "./app.ts";
 import { createPairingGuard, PAIRING_FAILED_CLAIMS_LIMIT } from "./modules/pairing/guard.ts";
 import { createPairingCode, hashPairingCode, type PairingDeps } from "./modules/pairing/service.ts";
 import { createSecretVault } from "./modules/settings/service.ts";
+import { createMemoryOtaStore } from "./modules/updates/store.ts";
 
 function setup() {
 	const stores = createMemoryStores();
@@ -18,7 +19,15 @@ function setup() {
 	return {
 		deps,
 		guard,
-		app: createApp({ ...deps, stores, guard, vault, version: "0.0.0-test", trustedProxyHops: 1 }),
+		app: createApp({
+			...deps,
+			stores,
+			guard,
+			vault,
+			version: "0.0.0-test",
+			trustedProxyHops: 1,
+			ota: createMemoryOtaStore(),
+		}),
 	};
 }
 

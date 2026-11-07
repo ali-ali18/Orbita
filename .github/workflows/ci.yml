@@ -46,6 +46,46 @@ jobs:
       - run: pnpm db:deploy
       - run: pnpm test
 
+  # Prova que o caminho do OTA funciona (exportar, montar o manifesto, assinar, conferir), com uma chave e um
+  # certificado DESCARTÁVEIS criados aqui. Nada disto é publicado e não usa segredos.
+  ota:
+    name: Atualização OTA (chave de teste)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Gerar chave e certificado de teste
+        run: |
+          pnpm --filter @orbita/mobile exec expo-updates codesigning:generate \
+            --key-output-directory "$RUNNER_TEMP/ota-keys" \
+            --certificate-output-directory "$RUNNER_TEMP/ota-certs" \
+            --certificate-validity-duration-years 1 \
+            --certificate-common-name "Orbita CI"
+          # O app só liga o OTA quando o certificado existe; esta cópia vive só neste job.
+          mkdir -p apps/mobile/certs
+          cp "$RUNNER_TEMP/ota-certs/certificate.pem" apps/mobile/certs/ota-certificate.pem
+      - name: Exportar, montar o manifesto e assinar
+        env:
+          ORBITA_PUBLIC_URL: https://ci.exemplo.dev
+        run: |
+          node packages/ota/src/cli.ts build \
+            --work "$RUNNER_TEMP/ota-work" --out "$RUNNER_TEMP/ota" \
+            --base-url https://ci.exemplo.dev \
+            --key-file "$RUNNER_TEMP/ota-keys/private-key.pem" \
+            --certificate apps/mobile/certs/ota-certificate.pem
+          test -s "$RUNNER_TEMP/ota/android/manifest.json"
+          test -s "$RUNNER_TEMP/ota/android/manifest.signature"
+          test "$(ls "$RUNNER_TEMP/ota/assets" | wc -l)" -gt 1
+
   docker:
     name: Imagem Docker (sem publicar)
     runs-on: ubuntu-latest

@@ -7,6 +7,7 @@ import { loadEnv } from "./env.ts";
 import { startAutoPairing } from "./modules/pairing/auto.ts";
 import { createPairingGuard } from "./modules/pairing/guard.ts";
 import { createSecretVault } from "./modules/settings/service.ts";
+import { createFsOtaStore } from "./modules/updates/store.ts";
 
 const env = loadEnv();
 const db = createDb(env.DATABASE_URL);
@@ -23,7 +24,15 @@ const vault = createSecretVault({ store: stores.secrets, key: deriveKey(env.APP_
 const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
 	version: string;
 };
-const app = createApp({ ...deps, stores, guard, vault, version, trustedProxyHops: env.TRUSTED_PROXY_HOPS });
+const app = createApp({
+	...deps,
+	stores,
+	guard,
+	vault,
+	version,
+	trustedProxyHops: env.TRUSTED_PROXY_HOPS,
+	ota: createFsOtaStore(env.OTA_DIR),
+});
 
 const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
 	console.log(`API ouvindo na porta ${info.port}`);

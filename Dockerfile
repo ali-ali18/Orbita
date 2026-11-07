@@ -21,6 +21,7 @@ LABEL org.opencontainers.image.source="https://github.com/ali-ali18/orbita" \
 	org.opencontainers.image.licenses="MIT"
 ENV NODE_ENV=production
 COPY --from=deps /app /app
+# `ota/` (atualização do app, assinada no CI) é copiada junto, para /app/ota; sem ela o servidor responde "sem atualização".
 COPY . .
 RUN pnpm --filter @orbita/db generate \
 	&& printf '#!/bin/sh\ncd /app/apps/api && exec node --import tsx src/cli/parear.ts "$@"\n' > /usr/local/bin/parear \

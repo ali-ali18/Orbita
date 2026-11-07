@@ -6,6 +6,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { AutoUpdate } from "../lib/auto-update.tsx";
 import { ClockProvider } from "../lib/clock.tsx";
 import { PrivacyProvider, usePrivacy } from "../lib/privacy.tsx";
 import { bindFocusToAppState, createAppQueryClient } from "../lib/query-client.ts";
@@ -70,6 +71,7 @@ export default function RootLayout() {
 				<ClockProvider>
 					<SessionProvider>
 						<QueryErrorBridge target={onError} />
+						<AutoUpdate />
 						<PrivacyProvider>
 							<StatusBar style="light" />
 							<Gate>

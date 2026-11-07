@@ -19,5 +19,8 @@ ios/
 *.keystore
 *.jks
 
+# Atualização OTA assinada: gerada no CI e embutida na imagem (nunca vai para o git)
+/ota/
+
 # Prisma Client gerado no install
 packages/db/src/generated/

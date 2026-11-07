@@ -17,6 +17,8 @@ const envSchema = z.object({
 	 * Quantos proxies confiáveis há na frente: 0 = nenhum (usa o IP do socket),
 	 * 1 = Traefik/Dokploy, 2 = Cloudflare + Traefik. Valor errado deixa forjar o IP.
 	 */
+	/** Pasta com a atualização OTA assinada do app (gerada no CI e embutida na imagem). Ausente = sem atualização. */
+	OTA_DIR: z.string().min(1).default("/app/ota"),
 	TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0, "Use um inteiro maior ou igual a 0.").default(0),
 });
 export type Env = z.infer<typeof envSchema>;

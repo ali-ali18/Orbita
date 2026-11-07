@@ -1,6 +1,10 @@
 name: Release
 
 # Publica a imagem no GHCR só depois que o CI passou na main, e avisa o Dokploy.
+# Antes de construir a imagem, gera a atualização OTA do app (JS exportado + manifesto ASSINADO) e a embute
+# em /app/ota. A chave privada (segredo OTA_SIGNING_KEY) só existe no passo que assina; sem a chave, sem o
+# endereço público (variável ORBITA_PUBLIC_URL) ou sem o certificado no repositório, a imagem sai sem
+# atualização e o servidor responde "sem atualização". Veja docs/servidor.md, "Atualizar o app sem APK".
 
 on:
   workflow_run:
@@ -43,8 +47,51 @@ jobs:
         with:
           # O commit exato que o CI aprovou, não o que estiver na ponta da main agora.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # O build do app executa código de dependências: o token não fica no .git para elas.
+          persist-credentials: false
       - id: sha
         run: echo "short=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Decide se há OTA a gerar. Aqui o segredo só é testado (vazio ou não), nunca lido.
+      - name: Conferir se a atualização OTA está configurada
+        id: ota
+        env:
+          HAS_KEY: ${{ secrets.OTA_SIGNING_KEY != '' }}
+          PUBLIC_URL: ${{ vars.ORBITA_PUBLIC_URL }}
+        run: |
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::notice::Segredo OTA_SIGNING_KEY ausente: a imagem sai sem atualização OTA do app."
+          elif [ -z "$PUBLIC_URL" ]; then
+            echo "::warning::Variável ORBITA_PUBLIC_URL ausente (endereço público do servidor): a imagem sai sem atualização OTA do app."
+          elif [ ! -f apps/mobile/certs/ota-certificate.pem ]; then
+            echo "::warning::apps/mobile/certs/ota-certificate.pem não está no repositório: a imagem sai sem atualização OTA do app."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.ota.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v4
+      - if: steps.ota.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - if: steps.ota.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+      # Executa o código do projeto (Metro, plugins): SEM acesso à chave.
+      - name: Exportar o app (sem segredos)
+        if: steps.ota.outputs.enabled == 'true'
+        env:
+          ORBITA_VERSION_SUFFIX: +${{ steps.sha.outputs.short }}
+          # Entra no app.config.ts (updates.url) e, por isso, no runtimeVersion: tem de ser igual à do APK.
+          ORBITA_PUBLIC_URL: ${{ vars.ORBITA_PUBLIC_URL }}
+        run: node packages/ota/src/cli.ts prepare --work "$RUNNER_TEMP/ota-work"
+      # Só código do repositório sem dependências (packages/ota): é o único passo que lê a chave.
+      - name: Assinar a atualização
+        if: steps.ota.outputs.enabled == 'true'
+        env:
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+          PUBLIC_URL: ${{ vars.ORBITA_PUBLIC_URL }}
+        run: node packages/ota/src/cli.ts sign --work "$RUNNER_TEMP/ota-work" --base-url "$PUBLIC_URL" --out ota
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3

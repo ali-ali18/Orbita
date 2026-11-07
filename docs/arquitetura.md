@@ -13,6 +13,7 @@ packages/
   shared/     Schemas Zod e tipos que o app e a API compartilham.
   tokens/     Design system: cores, raios, espaços, tipografia.
   security/   Derivação de chaves, criptografia de segredos, limite de requisições.
+  ota/        Atualização OTA do app: layout do diretório, manifesto, assinatura e o CLI que roda no CI.
   db/         Prisma e as implementações das "stores".
   core/       Engine financeiro: funções puras (próxima fase).
 ```
@@ -20,11 +21,11 @@ packages/
 ### Quem pode importar quem
 
 ```
-apps/*  ──►  packages/core, db, security, shared
+apps/*  ──►  packages/core, db, security, shared, ota   (ota: só a API)
 mobile  ──►  packages/shared, tokens
 db      ──►  core, shared
 core    ──►  shared            (sem banco, sem rede, sem relógio)
-tokens, shared, security: não importam nada do projeto
+tokens, shared, security, ota: não importam nada do projeto
 ```
 
 Uma seta proibida é sinal de que a coisa está no lugar errado: mova para o pacote certo em vez de criar a seta.
@@ -63,6 +64,10 @@ Exemplo: "lançamentos".
 6. No app: bloco em `features/transactions/`, usando primitivos de `ui/` (ver [styleguide](styleguide.md)).
 
 Se algum passo não se aplica, pule. Se a feature não tem regra de dinheiro, não precisa mexer no `core`.
+
+## Atualização OTA do app
+
+`packages/ota` é o contrato entre quem **gera** a atualização (o CLI `pnpm ota`, no GitHub Actions) e quem a **serve** (`apps/api/src/modules/updates/`): o formato do diretório `/app/ota`, os nomes de arquivo (hash no nome, nada de caminho vindo da URL) e a assinatura. O módulo da API segue o padrão de store com duas implementações (`createFsOtaStore` e `createMemoryOtaStore`); o diretório entra por `OTA_DIR` (padrão `/app/ota`), lido só em `env.ts`. Detalhes de uso e segurança em [servidor](servidor.md#atualizar-o-app-sem-apk) e [segurança](seguranca.md#atualização-ota-do-app).
 
 ## Tarefas em segundo plano
 

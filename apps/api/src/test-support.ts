@@ -4,6 +4,7 @@ import { createApp } from "./app.ts";
 import { createPairingGuard } from "./modules/pairing/guard.ts";
 import { createPairingCode, type PairingDeps } from "./modules/pairing/service.ts";
 import { createSecretVault } from "./modules/settings/service.ts";
+import { createMemoryOtaStore } from "./modules/updates/store.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: corpo JSON de resposta, lido de forma solta nos testes
 export type Json = any;
@@ -26,7 +27,15 @@ export async function setupFinance(
 	};
 	const guard = createPairingGuard(() => now().getTime());
 	const vault = createSecretVault({ store: stores.secrets, key: deriveKey("s".repeat(48), "secret-box") });
-	const app = createApp({ ...deps, stores, guard, vault, version: "0.0.0-test", trustedProxyHops: 0 });
+	const app = createApp({
+		...deps,
+		stores,
+		guard,
+		vault,
+		version: "0.0.0-test",
+		trustedProxyHops: 0,
+		ota: createMemoryOtaStore(),
+	});
 
 	const { code } = await createPairingCode(deps);
 	const claim = await app.request("/v1/pairing/claim", {
