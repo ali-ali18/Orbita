@@ -19,6 +19,7 @@ export { createDb, type Db } from "./client.ts";
 export { DataError, type DataErrorCode } from "./errors.ts";
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
+export type { PluggyConnectSessionStore } from "./pluggy-connect-session-store.ts";
 export type {
 	PluggyConnectionInput,
 	PluggyConnectionRecord,

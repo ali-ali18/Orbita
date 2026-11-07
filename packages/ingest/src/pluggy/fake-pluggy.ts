@@ -8,6 +8,7 @@ import type { PluggyFetch } from "./client.ts";
 export const CLIENT_ID = "aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb";
 export const CLIENT_SECRET = "cccccccc-2222-4333-8444-dddddddddddd";
 export const API_KEY = "eyJhbGciOiJIUzI1NiJ9.fake-api-key-payload.fake-signature";
+export const CONNECT_TOKEN = "eyJhbGciOiJIUzI1NiJ9.fake-connect-token-payload.fake-connect-signature";
 export const ITEM_ID = "123e4567-e89b-42d3-a456-426614174000";
 export const BANK_ACCOUNT_ID = "0f1d2c3b-aaaa-4bbb-8ccc-000000000001";
 export const CARD_ACCOUNT_ID = "0f1d2c3b-aaaa-4bbb-8ccc-000000000002";
@@ -128,6 +129,9 @@ export function fakePluggy(options: FakePluggyOptions = {}) {
 		}
 		const key = (init.headers as Record<string, string>)["x-api-key"];
 		if (key !== API_KEY) return json({ message: "Unauthorized" }, 401);
+		if (url.pathname === "/connect_token" && init.method === "POST") {
+			return json({ accessToken: CONNECT_TOKEN });
+		}
 		if (url.pathname === `/items/${ITEM_ID}`) {
 			const item = typeof options.item === "function" ? options.item() : options.item;
 			return json({

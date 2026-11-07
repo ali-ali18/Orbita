@@ -15,6 +15,7 @@ COPY packages/ingest/package.json packages/ingest/
 COPY packages/ota/package.json packages/ota/
 COPY packages/security/package.json packages/security/
 COPY packages/shared/package.json packages/shared/
+COPY packages/tokens/package.json packages/tokens/
 COPY packages/db/prisma packages/db/prisma
 COPY packages/db/prisma.config.ts packages/db/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile

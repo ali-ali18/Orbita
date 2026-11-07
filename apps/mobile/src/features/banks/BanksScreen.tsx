@@ -1,8 +1,9 @@
 import { colors, layout, radius, spacing } from "@orbita/tokens";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { AppState, Linking, ScrollView, View } from "react-native";
 import { toLoadable } from "../../lib/loadable.ts";
+import { useSession } from "../../lib/session.tsx";
 import { BankLogo, Button, ErrorState, IconButton, Screen, Skeleton, Text } from "../../ui/index.ts";
 import { SettingsRow, SettingsSection } from "../settings/SettingsRows.tsx";
 import {
@@ -23,6 +24,18 @@ import {
 	syncErrorMessage,
 } from "./banks-model.ts";
 import { AddConnectionSheet, ConnectionSheet } from "./ConnectionSheets.tsx";
+import {
+	CONNECT_BUTTON,
+	CONNECT_OPEN_FAILED,
+	CONNECT_PENDING_HINT,
+	canConnect,
+	connectErrorMessage,
+	connectionArrived,
+	connectUrl,
+	isWaitingForConnect,
+	MANUAL_BUTTON,
+	returnedToApp,
+} from "./connect-model.ts";
 import { usePluggyActions, usePluggyStatus } from "./queries.ts";
 import { useNow } from "./use-now.ts";
 
@@ -46,7 +59,8 @@ export function BanksScreen() {
 	const router = useRouter();
 	const now = useNow();
 	const statusQ = usePluggyStatus();
-	const { sync, add, remove } = usePluggyActions();
+	const { sync, add, remove, connect } = usePluggyActions();
+	const { baseUrl } = useSession();
 	const [adding, setAdding] = useState(false);
 	const [openId, setOpenId] = useState<string | null>(null);
 	const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -54,6 +68,10 @@ export function BanksScreen() {
 	const [announcement, setAnnouncement] = useState("");
 	const previousSync = useRef<SyncState | undefined>(undefined);
 	const [activeSince, setActiveSince] = useState<number | null>(null);
+	const [connectMessage, setConnectMessage] = useState<string | null>(null);
+	const connectLocked = useRef(false);
+	// Quando a página do Pluggy foi aberta e quantas conexões havia: ao voltar ao app, confere se apareceu uma.
+	const connectOpened = useRef<{ at: number; count: number } | null>(null);
 
 	const status = toLoadable(statusQ);
 	const data = status.phase === "ready" ? status.data : null;
@@ -79,6 +97,49 @@ export function BanksScreen() {
 		setActiveSince((prev) => (isSyncActive(sinceData) ? (prev ?? Date.now()) : null));
 	}, [sinceData]);
 	const slow = isSlowSync(activeSince, now.getTime());
+
+	const connectionCount = data?.connections.length;
+	const { refetch } = statusQ;
+	useEffect(() => {
+		let prev: string = AppState.currentState ?? "active";
+		const sub = AppState.addEventListener("change", (next) => {
+			const back = returnedToApp(prev, next);
+			prev = next;
+			const opened = connectOpened.current;
+			if (back && opened && isWaitingForConnect(opened.at, Date.now())) void refetch();
+		});
+		return () => sub.remove();
+	}, [refetch]);
+	useEffect(() => {
+		const opened = connectOpened.current;
+		if (opened && connectionCount !== undefined && connectionArrived(opened.count, connectionCount)) {
+			connectOpened.current = null;
+			setConnectMessage(null);
+		}
+	}, [connectionCount]);
+
+	const startConnect = async () => {
+		if (connectLocked.current || baseUrl === null) return;
+		connectLocked.current = true;
+		setConnectMessage(null);
+		try {
+			const { path } = await connect.mutateAsync();
+			const url = connectUrl(baseUrl, path);
+			if (!url) throw new Error(CONNECT_OPEN_FAILED);
+			connectOpened.current = { at: Date.now(), count: connectionCount ?? 0 };
+			await Linking.openURL(url);
+			setConnectMessage(CONNECT_PENDING_HINT);
+		} catch (error) {
+			connectOpened.current = null;
+			setConnectMessage(
+				error instanceof Error && error.message === CONNECT_OPEN_FAILED
+					? CONNECT_OPEN_FAILED
+					: connectErrorMessage(error),
+			);
+		} finally {
+			connectLocked.current = false;
+		}
+	};
 
 	const card = data ? syncCardText(data, now, slow) : null;
 	const opened = data?.connections.find((c) => c.id === openId) ?? null;
@@ -206,7 +267,21 @@ export function BanksScreen() {
 							</Panel>
 						)}
 
-						<Button label="Adicionar conexão" icon="mais" onPress={() => setAdding(true)} />
+						{connectMessage ? (
+							<View accessibilityRole="alert" accessibilityLiveRegion="polite">
+								<Text variant="caption" tone="secondary">
+									{connectMessage}
+								</Text>
+							</View>
+						) : null}
+						<Button
+							label={CONNECT_BUTTON}
+							icon="mais"
+							loading={connect.isPending}
+							disabled={!canConnect(data)}
+							onPress={() => void startConnect()}
+						/>
+						<Button label={MANUAL_BUTTON} variant="secondary" onPress={() => setAdding(true)} />
 					</>
 				) : null}
 			</ScrollView>

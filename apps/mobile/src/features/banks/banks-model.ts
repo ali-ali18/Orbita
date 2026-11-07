@@ -15,12 +15,12 @@ import { errorMessage } from "../../lib/loadable.ts";
 export type SyncState = PluggyStatusResponse["sync"];
 
 export const PLUGGY_URL = "https://meu.pluggy.ai";
-export const ADD_HINT = "Conecte o banco em meu.pluggy.ai e cole o ID da conexão aqui.";
+export const ADD_HINT = "Se você já tem o ID de uma conexão do Meu Pluggy, cole aqui.";
 export const KEYS_MISSING_TITLE = "Faltam as chaves do Meu Pluggy";
 export const KEYS_MISSING_MESSAGE =
 	"Sem o Client ID e o Client Secret o servidor não consegue buscar nada no Pluggy.";
 export const EMPTY_TITLE = "Nenhum banco conectado";
-export const EMPTY_MESSAGE = "Conecte o banco em meu.pluggy.ai e depois cole aqui o ID da conexão.";
+export const EMPTY_MESSAGE = "Toque em Conectar banco para entrar no seu banco pelo Pluggy.";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

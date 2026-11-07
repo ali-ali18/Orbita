@@ -47,12 +47,21 @@ importers:
       '@orbita/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@orbita/tokens':
+        specifier: workspace:*
+        version: link:../../packages/tokens
       bullmq:
         specifier: 6.7.1
         version: 6.7.1(ioredis@5.11.1)(pg@8.23.1)
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       hono:
         specifier: 4.13.16
         version: 4.13.16
+      pluggy-connect-sdk:
+        specifier: 2.15.0
+        version: 2.15.0
       tsx:
         specifier: 4.23.15
         version: 4.23.15
@@ -2067,6 +2076,9 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
+  belter@1.0.190:
+    resolution: {integrity: sha512-jz05FHrO+bwitdI6JxV5ESyRdVhTcwMWQ7L4o+q/R4LNJFQrG58sp9EiwsSjhbihhiyYFcmmCMRRagxte6igtw==}
+
   better-result@2.10.0:
     resolution: {integrity: sha512-oQhh0y1qo2/ZKdAAEvHZAqKKiHOFU5k/bW96fE2ScgQOVkJRiHwB+nOS1SgFsYqRlxMDWvefXi9Q3px7QvgNDw==}
 
@@ -2253,6 +2265,12 @@ packages:
   cron-parser@5.10.3:
     resolution: {integrity: sha512-Fwlmlgiyoj5e7XDCy5T3ueFd3imgt714k7xjAzhkOBUrUgQxWtsjS7kWSEN3efDX34bebxBJAmPoCSisHvjlpw==}
     engines: {node: '>=18'}
+
+  cross-domain-safe-weakmap@1.0.29:
+    resolution: {integrity: sha512-VLoUgf2SXnf3+na8NfeUFV59TRZkIJqCIATaMdbhccgtnTlSnHXkyTRwokngEGYdQXx8JbHT9GDYitgR2sdjuA==}
+
+  cross-domain-utils@2.0.38:
+    resolution: {integrity: sha512-zZfi3+2EIR9l4chrEiXI2xFleyacsJf8YMLR1eJ0Veb5FTMXeJ3DpxDjZkto2FhL/g717WSELqbptNSo85UJDw==}
 
   cross-fetch@3.2.0:
     resolution: {integrity: sha512-Q+xVJLoGOeIMXZmbUK4HYk+69cQH6LudR0Vu/pRm2YlU/hDV9CiS0gKUMaWY5f2NeUH9C1nV3bsTlCo0FsTV1Q==}
@@ -2967,6 +2985,10 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
+  jwt-decode@4.0.0:
+    resolution: {integrity: sha512-+KJGIyHgkGuIq3IEBNftfhW/LfWhXUIY6OmyVWjliu5KH1y0fw7VQ8YndE2O4qZdMSd9SqbnC8GOcZEy0Om7sA==}
+    engines: {node: '>=18'}
+
   kleur@3.0.3:
     resolution: {integrity: sha512-eTIzlVOSUR+JxdDFepEYcBMtZ9Qqdef+rnzWdRZuMbOywu5tO2w2N7rqjoANZ5k9vywhL6Br1VRjUIgTQx4E8w==}
     engines: {node: '>=6'}
@@ -3466,9 +3488,20 @@ packages:
     resolution: {integrity: sha512-ZIfcLJC+7E7FBFnDxm9MPmt7D+DidyQ26lewieO75AdhA2ayMtsJSES0iWzqJQbcVRSrTufQoy0DR94xHue0oA==}
     engines: {node: '>=10.4.0'}
 
+  pluggy-connect-sdk@2.15.0:
+    resolution: {integrity: sha512-WBYUNd/47NdhIQAc/RZOqd5DwmZgrmkg3DOmVt0+EHAWFw2CUd0ME9sBT8ak/I3Vcyb5U3Dxuk3kg3bS3fhHoQ==}
+    peerDependencies:
+      pluggy-js: '>= 0.16.0'
+    peerDependenciesMeta:
+      pluggy-js:
+        optional: true
+
   pngjs@3.4.0:
     resolution: {integrity: sha512-NCrCHhWmnQklfH4MtJMRjZ2a8c80qXeMlQMv2uVp9ISJMTt562SbGd6n2oq0PaPgKm7Z6pL9E2UlLIhC+SHL3w==}
     engines: {node: '>=4.0.0'}
+
+  post-robot@10.0.46:
+    resolution: {integrity: sha512-EgVJiuvI4iRWDZvzObWes0X/n8olWBEJWxlSw79zmhpgkigX8UsVL4VOBhVtoJKwf0Y9qP9g2zOONw1rv80QbA==}
 
   postcss-value-parser@4.2.0:
     resolution: {integrity: sha512-1NNCs6uurfkVbeXG4S8JFT9t19m45ICnif8zWLd5oPSZ50QnwMfK+H3jv408d4jw/7Bttv5axS5IiHoLaVNHeQ==}
@@ -4004,6 +4037,9 @@ packages:
     resolution: {integrity: sha512-hpbDzxUY9BFwX+UeBnxv3Sh1q7HFxj48DTmXchNgRa46lO8uj3/1iEn3MiNUYTg1g9ctIqXCCERn8gYZhHC5lQ==}
     engines: {node: '>=4'}
 
+  universal-serialize@1.0.10:
+    resolution: {integrity: sha512-FdouA4xSFa0fudk1+z5vLWtxZCoC0Q9lKYV3uUdFl7DttNfolmiw2ASr5ddY+/Yz6Isr68u3IqC9XMSwMP+Pow==}
+
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
     engines: {node: '>= 0.8'}
@@ -4220,11 +4256,17 @@ packages:
     resolution: {integrity: sha512-GZtjxm/J/4TSxuL3FNYjCmLktBTnIw/rVmKSIyKeYAZpmJB2ig9VauCC5xsa82GNKVKDAqpOn3KVzNt0zmrU0g==}
     engines: {node: '>=12'}
 
+  zalgo-promise@1.0.48:
+    resolution: {integrity: sha512-LLHANmdm53+MucY9aOFIggzYtUdkSBFxUsy4glTTQYNyK6B3uCPWTbfiGvSrEvLojw0mSzyFJ1/RRLv+QMNdzQ==}
+
   zeptomatch@2.1.0:
     resolution: {integrity: sha512-KiGErG2J0G82LSpniV0CtIzjlJ10E04j02VOudJsPyPwNZgGnRKQy7I1R7GMyg/QswnE4l7ohSGrQbQbjXPPDA==}
 
   zod@4.6.7:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
+
+  zoid@9.0.63:
+    resolution: {integrity: sha512-c9OccNUlOV9KuTKJJRhCU3B5SRHObTTiPAUayKkBQ0/qZugfh59MDW+zkFDR8IZN+c7NB/R90FCIpAfBp8+U/g==}
 
 snapshots:
 
@@ -6226,6 +6268,12 @@ snapshots:
 
   baseline-browser-mapping@2.11.35: {}
 
+  belter@1.0.190:
+    dependencies:
+      cross-domain-safe-weakmap: 1.0.29
+      cross-domain-utils: 2.0.38
+      zalgo-promise: 1.0.48
+
   better-result@2.10.0: {}
 
   big-integer@1.6.52: {}
@@ -6406,6 +6454,14 @@ snapshots:
   cron-parser@5.10.3:
     dependencies:
       luxon: 3.7.2
+
+  cross-domain-safe-weakmap@1.0.29:
+    dependencies:
+      cross-domain-utils: 2.0.38
+
+  cross-domain-utils@2.0.38:
+    dependencies:
+      zalgo-promise: 1.0.48
 
   cross-fetch@3.2.0:
     dependencies:
@@ -7128,6 +7184,8 @@ snapshots:
 
   json5@2.2.3: {}
 
+  jwt-decode@4.0.0: {}
+
   kleur@3.0.3: {}
 
   lan-network@0.2.1: {}
@@ -7798,7 +7856,20 @@ snapshots:
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
 
+  pluggy-connect-sdk@2.15.0:
+    dependencies:
+      jwt-decode: 4.0.0
+      zoid: 9.0.63
+
   pngjs@3.4.0: {}
+
+  post-robot@10.0.46:
+    dependencies:
+      belter: 1.0.190
+      cross-domain-safe-weakmap: 1.0.29
+      cross-domain-utils: 2.0.38
+      universal-serialize: 1.0.10
+      zalgo-promise: 1.0.48
 
   postcss-value-parser@4.2.0: {}
 
@@ -8362,6 +8433,8 @@ snapshots:
 
   unicode-property-aliases-ecmascript@2.2.0: {}
 
+  universal-serialize@1.0.10: {}
+
   unpipe@1.0.0: {}
 
   update-browserslist-db@1.3.4(browserslist@4.29.5):
@@ -8490,9 +8563,18 @@ snapshots:
       y18n: 5.0.8
       yargs-parser: 21.1.1
 
+  zalgo-promise@1.0.48: {}
+
   zeptomatch@2.1.0:
     dependencies:
       grammex: 3.1.13
       graphmatch: 1.1.1
 
   zod@4.6.7: {}
+
+  zoid@9.0.63:
+    dependencies:
+      belter: 1.0.190
+      cross-domain-utils: 2.0.38
+      post-robot: 10.0.46
+      zalgo-promise: 1.0.48

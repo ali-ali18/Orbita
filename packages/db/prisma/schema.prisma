@@ -271,3 +271,15 @@ model PluggyConnection {
 
   @@map("pluggy_connections")
 }
+
+/// Sessão para conectar um banco pelo Pluggy Connect (página web do servidor). Token aleatório de uso único e vida curta; só o hash fica aqui.
+model PluggyConnectSession {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([usedAt, expiresAt])
+  @@map("pluggy_connect_sessions")
+}

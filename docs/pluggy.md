@@ -44,7 +44,7 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 
 ## Fluxo
 
-1. O dono cola Client ID e Client Secret em **Servidor e chaves** (cofre) e o `itemId` de cada conexão (`POST /v1/pluggy/connections`).
+1. O dono cola Client ID e Client Secret em **Servidor e chaves** (cofre) e conecta cada banco com **Conectar banco** (Pluggy Connect, abaixo). Colar o `itemId` à mão (`POST /v1/pluggy/connections`) continua possível ("Já tenho o ID da conexão").
 2. O worker roda `syncPluggy` todo dia às 06:00 (America/Sao_Paulo) e quando o app chama `POST /v1/pluggy/sync`.
 3. Para cada conexão: `GET /items/{id}` (se o banco pediu reconexão, para com erro claro) → `GET /accounts` → por conta, `GET /v2/transactions` na janela (e `GET /bills` para os cartões) → `upsertByExternal("pluggy", id)`.
 
@@ -88,11 +88,61 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 - Cartão sem datas de fatura no `creditData` é ignorado, com aviso nas notas do resultado.
 - Lançamentos de moeda estrangeira sem valor convertido são ignorados.
 
-## Rotas (todas exigem `Authorization: Bearer`)
+## Conectar banco (Pluggy Connect)
+
+O plano pessoal não mostra o ID da conexão no meu.pluggy.ai e não lista items pela API (403 `LIST_ITEMS_FEATURE_NOT_ENABLED`). O caminho oficial é abrir o widget **Pluggy Connect** e guardar o `itemId` que ele entrega no `onSuccess`. Sem módulo nativo novo (o APK já está instalado; tudo chega por OTA), o widget roda numa **página web do próprio servidor**, aberta no navegador do celular com `Linking.openURL`.
+
+**Fluxo**
+
+1. App: `POST /v1/pluggy/connect-sessions` (Bearer do aparelho). O servidor cria um token aleatório de 32 bytes (guarda só o SHA-256; vale 15 min; uso único; uma sessão ativa por vez) e devolve `{ path: "/pluggy/conectar#s=<token>", expiresAt }`. O app monta a URL com o endereço do servidor pareado (recusa caminho que saia dele) e abre no navegador.
+2. Página `GET /pluggy/conectar` (HTML estático, pt-BR, tema escuro dos tokens) + `GET /pluggy/conectar/app.<hash>.js` (o widget). O JS lê o token do fragmento e o apaga do histórico (`history.replaceState`).
+3. `POST /pluggy/connect-token {session}`: o servidor confere a sessão (sem gastar), chama `POST /connect_token` no Pluggy com as chaves do cofre e `clientUserId: "orbita"`, e devolve **só** `{ connectToken }`. O widget abre (`includeSandbox: false`, `language: "pt"`, `theme: "dark"`).
+4. `onSuccess({ item })`: a página manda `POST /pluggy/connect-complete {session, itemId}` com `item.id`. O servidor: confere a sessão; confere `GET /items/{id}` com as nossas chaves (item de outra aplicação dá 404/403 no Pluggy: recusado com 422 e a sessão **não** é gasta); gasta a sessão (atômico, uso único); cadastra a conexão (nome do banco como rótulo; idempotente se já existe); enfileira a sincronização.
+5. A página mostra "Pronto!" e um botão para `orbita://configuracoes/bancos` (scheme do `app.json`). O app, ao voltar para o primeiro plano, recarrega o status e a lista.
+
+`onError` (credencial inválida, MFA que falhou) não fecha nada: o widget segue aberto para tentar de novo; se a pessoa o fechar, a página mostra o motivo e "Tentar de novo".
+
+**O widget (`pluggy-connect-sdk` 2.15.0, MIT, uso sem React)**: o pacote npm traz só módulos (sem bundle de navegador; esse mora no CDN do Pluggy). O servidor empacota `client/main.ts` + SDK + `zoid` com o `esbuild` na primeira vez que a página é pedida, guarda em memória e serve com o hash do conteúdo no nome (`app.<8 hex>.js`, `immutable`). Nada vem de CDN. Falha ao empacotar derruba só a página (503).
+
+**O que o widget exige (lido no código do pacote; nunca executado fora do build)**
+
+- O widget é um **iframe** de `https://connect.pluggy.ai` (`CONNECT_PRODUCTION_URL`), montado pelo `zoid`; o SDK só aceita mensagens vindas dessa origem. Daí `frame-src https://connect.pluggy.ai`.
+- O SDK injeta `<style>` por `innerHTML` (modal e carregando) sem nonce: `style-src 'unsafe-inline'`.
+- Nenhum `eval`/`new Function` no bundle (conferido por teste); nenhum `fetch`/XHR do lado da página. As referências a `api.pluggy.ai` são do caminho Cordova e não rodam no navegador.
+- OAuth/Open Finance abre janelas: por isso a página **não** manda `Cross-Origin-Opener-Policy` (`same-origin` cortaria a ligação).
+
+**Cabeçalhos finais de `/pluggy/*`**
+
+```
+Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src https://connect.pluggy.ai; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'
+Referrer-Policy: no-referrer
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+Cache-Control: no-store            (o .js: public, max-age=31536000, immutable)
+Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+```
+
+**Confirmado vs. suposição (esta etapa)**
+
+| Ponto                                                                                                       | Situação                                                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /connect_token` `{ options: { clientUserId } }` → `{ accessToken }`                                   | Confirmado no `pluggy-sdk` 0.94.2 (`createConnectToken`)                                                                                            |
+| `onSuccess({ item })` traz `item.id`; `includeSandbox`, `onError`, `onClose`; iframe de `connect.pluggy.ai` | Confirmado no código e no README do `pluggy-connect-sdk` 2.15.0                                                                                     |
+| Esse guia (servidor cria o token, front abre o widget, ID no `onSuccess`)                                   | Confirmado também no guia do dashboard do Pluggy (informado pelo dono)                                                                              |
+| Com a CSP acima o bundle monta e roda sem violação                                                          | Testado no Chromium, **com o widget trocado por um falso** (`connect.pluggy.ai` fica fora da rede da sessão)                                        |
+| O conteúdo do iframe real, o OAuth dos bancos e o `COOP` ausente                                            | **Suposição**: não foi possível abrir o widget de verdade aqui. Se algo falhar no celular, o primeiro suspeito é a CSP (ver o console do navegador) |
+| `connect.pluggy.ai` aceita ser embutido por qualquer origem                                                 | Suposição (é o uso documentado)                                                                                                                     |
+
+## Rotas
+
+Todas as de `/v1/pluggy/*` exigem `Authorization: Bearer`; as de `/pluggy/*` são públicas e autenticadas pela sessão (ver acima).
 
 - `GET /v1/pluggy/connections` → `{ connections }`
 - `POST /v1/pluggy/connections` `{ itemId, label? }` → 201 `{ connection }` (409 se repetida; com chaves cadastradas confere no Pluggy: 422 `conexao_invalida` se o ID não existe ou é de outra conta)
 - `DELETE /v1/pluggy/connections/:id` → `{ connection }` (404 se não existe)
+- `POST /v1/pluggy/connect-sessions` → 201 `{ path, expiresAt }` (409 `sem_chaves` se as chaves não estão cadastradas)
+- `POST /pluggy/connect-token`, `POST /pluggy/connect-complete` (públicos; 30 pedidos por IP a cada 10 min, corpo até 1 KB, mensagens fixas; 401 `sessao_invalida`, 409 `sem_chaves`, 422 `conexao_invalida`, 502 falha do Pluggy)
+- `GET /pluggy/conectar` e `GET /pluggy/conectar/app.<hash>.js` (públicos; 60 por IP a cada 10 min)
 - `POST /v1/pluggy/sync` → 202 `{ sync: "queued" | "running" }` (400 `sem_conexoes`/`sem_chaves`; 503 sem Redis). Enfileira no worker com `jobId` fixo: pedidos repetidos viram um só e nunca rodam em paralelo com o diário.
 - `GET /v1/pluggy/status` → `{ keysConfigured, sync, lastSyncAt, connections }`
 

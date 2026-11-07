@@ -10,6 +10,7 @@ import * as cards from "./modules/cards/routes.ts";
 import * as categories from "./modules/categories/routes.ts";
 import * as devices from "./modules/devices/routes.ts";
 import * as pairing from "./modules/pairing/routes.ts";
+import * as pluggyConnect from "./modules/pluggy/connect/routes.ts";
 import type { PluggySyncQueue } from "./modules/pluggy/queue.ts";
 import * as pluggy from "./modules/pluggy/routes.ts";
 import * as recurrences from "./modules/recurrences/routes.ts";
@@ -31,6 +32,8 @@ export type AppDeps = pairing.PairingRoutesDeps & {
 	pluggySyncQueue?: PluggySyncQueue | null;
 	/** `fetch` com que a API confere uma conexão nova no Pluggy (os testes injetam um falso). */
 	pluggyFetch?: pluggy.PluggyRoutesDeps["fetch"];
+	/** Só para testes: o widget já empacotado, em vez de montar o do SDK. */
+	pluggyConnectAsset?: pluggyConnect.PluggyConnectRoutesDeps["asset"];
 };
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -40,7 +43,10 @@ export function createApp(deps: AppDeps) {
 
 	// Sem CORS de propósito: o cliente é um app nativo, não um navegador. Habilitar
 	// CORS só abriria a API para páginas web de terceiros.
-	app.use(secureHeaders());
+	// `/pluggy/*` (a página do Pluggy Connect) traz os seus próprios cabeçalhos, com CSP: o mesmo `secureHeaders`
+	// global os sobrescreveria (ele escreve depois da rota).
+	const defaultHeaders = secureHeaders();
+	app.use(async (c, next) => (c.req.path.startsWith("/pluggy/") ? next() : defaultHeaders(c, next)));
 	app.use(
 		bodyLimit({
 			maxSize: MAX_BODY_BYTES,
@@ -70,6 +76,19 @@ export function createApp(deps: AppDeps) {
 				vault: deps.vault,
 				syncQueue: deps.pluggySyncQueue ?? null,
 				...(deps.pluggyFetch ? { fetch: deps.pluggyFetch } : {}),
+			}),
+		)
+		.route(
+			"/",
+			pluggyConnect.routes({
+				sessions: deps.stores.pluggyConnectSessions,
+				connections: deps.stores.pluggyConnections,
+				vault: deps.vault,
+				syncQueue: deps.pluggySyncQueue ?? null,
+				now: deps.now,
+				trustedProxyHops: deps.trustedProxyHops,
+				...(deps.pluggyFetch ? { fetch: deps.pluggyFetch } : {}),
+				...(deps.pluggyConnectAsset ? { asset: deps.pluggyConnectAsset } : {}),
 			}),
 		);
 

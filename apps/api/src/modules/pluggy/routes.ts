@@ -1,6 +1,7 @@
 import type { SecretVault } from "@orbita/db";
 import { createPluggyClient, PluggyError, type PluggyFetch } from "@orbita/ingest";
 import {
+	type PluggyConnectSessionResponse,
 	type PluggyStatusResponse,
 	pluggyConnectionCreateBody,
 	pluggyConnectionIdParam,
@@ -10,6 +11,7 @@ import { apiError, defined, orNotFound } from "../../http/errors.ts";
 import type { ModuleDeps } from "../../http/module-deps.ts";
 import type { AppEnv } from "../../http/require-device.ts";
 import { validate } from "../../http/validate.ts";
+import { connectPagePath, createConnectSession } from "./connect/session.ts";
 import { toPluggyConnectionDto } from "./dto.ts";
 import type { PluggySyncQueue } from "./queue.ts";
 
@@ -81,6 +83,21 @@ export function routes({
 			const connection = orNotFound(await pluggyConnections.get(id), "Conexão");
 			await pluggyConnections.remove(id);
 			return c.json({ connection: toPluggyConnectionDto(connection) });
+		})
+		.post("/v1/pluggy/connect-sessions", async (c) => {
+			// Quem não tem as chaves não chega à página: avisa já, no app.
+			if (!(await readKeys(vault))) {
+				return c.json(
+					apiError("sem_chaves", "Cadastre as chaves do Pluggy no app (Servidor e chaves)."),
+					409,
+				);
+			}
+			const { token, expiresAt } = await createConnectSession(stores.pluggyConnectSessions, now());
+			const body: PluggyConnectSessionResponse = {
+				path: connectPagePath(token),
+				expiresAt: expiresAt.toISOString(),
+			};
+			return c.json(body, 201, { "Cache-Control": "no-store" });
 		})
 		.post("/v1/pluggy/sync", async (c) => {
 			if (!syncQueue) {

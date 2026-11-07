@@ -118,5 +118,9 @@ export function usePluggyActions() {
 		mutationFn: (id: string) => call(() => api.v1.pluggy.connections[":id"].$delete({ param: { id } })),
 		onSettled: refresh,
 	});
-	return { sync, add, remove };
+	// Cria a sessão de uso único; quem abre o navegador é a tela.
+	const connect = useMutation({
+		mutationFn: () => call(() => api.v1.pluggy["connect-sessions"].$post()),
+	});
+	return { sync, add, remove, connect };
 }

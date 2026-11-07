@@ -4,6 +4,7 @@ import {
 	accountSchema,
 	authResponse,
 	billSchema,
+	connectTokenResponse,
 	cursorPage,
 	itemResponse,
 	type PluggyAccount,
@@ -37,6 +38,11 @@ export interface PluggyTransactionsResult {
 }
 
 export interface PluggyClient {
+	/**
+	 * `POST /connect_token` com `clientUserId` fixo: o token de curta duração com que a página web abre o
+	 * Pluggy Connect. Devolve só o `accessToken` (nunca a apiKey).
+	 */
+	connectToken(clientUserId: string): Promise<string>;
 	/** `GET /items/{id}`: existe? qual banco? em que estado? */
 	item(itemId: string): Promise<PluggyItem>;
 	/** `GET /accounts?itemId=`: todas as páginas. */
@@ -172,12 +178,17 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 		return key;
 	}
 
-	/** GET autenticado. Se a apiKey for recusada (venceu antes do previsto), renova uma vez. */
-	async function get(path: string): Promise<unknown> {
+	/** Pedido autenticado. Se a apiKey for recusada (venceu antes do previsto), renova uma vez. */
+	async function authed(path: string, method: "GET" | "POST", json?: unknown): Promise<unknown> {
 		const call = async (force: boolean) =>
 			send(path, {
-				method: "GET",
-				headers: { "x-api-key": await apiKey(force), accept: "application/json" },
+				method,
+				headers: {
+					"x-api-key": await apiKey(force),
+					accept: "application/json",
+					...(json === undefined ? {} : { "content-type": "application/json" }),
+				},
+				...(json === undefined ? {} : { body: JSON.stringify(json) }),
 			});
 		try {
 			return await call(false);
@@ -189,6 +200,7 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 			throw e;
 		}
 	}
+	const get = (path: string) => authed(path, "GET");
 
 	async function allPages<S extends z.ZodType>(path: string, params: Record<string, string>, item: S) {
 		const out: z.infer<S>[] = [];
@@ -249,6 +261,11 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 	};
 
 	return {
+		async connectToken(clientUserId) {
+			if (!SAFE_ID.test(clientUserId)) throw new RangeError("clientUserId inválido");
+			const body = await authed("/connect_token", "POST", { options: { clientUserId } });
+			return parse(connectTokenResponse, body).accessToken;
+		},
 		async item(itemId) {
 			return parse(itemResponse, await get(`/items/${needUuid(itemId)}`));
 		},

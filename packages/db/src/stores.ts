@@ -9,17 +9,20 @@ import { createMemoryAuthStore } from "./memory-auth-store.ts";
 import { createMemoryBudgetStore } from "./memory-budget-store.ts";
 import { createMemoryCardStore } from "./memory-card-store.ts";
 import { createMemoryCategoryStore } from "./memory-category-store.ts";
+import { createMemoryPluggyConnectSessionStore } from "./memory-pluggy-connect-session-store.ts";
 import { createMemoryPluggyConnectionStore } from "./memory-pluggy-connection-store.ts";
 import { createMemoryRecurrenceStore } from "./memory-recurrence-store.ts";
 import { createMemorySecretStore } from "./memory-secret-store.ts";
 import { type Clock, createMemoryState } from "./memory-state.ts";
 import { createMemoryTransactionStore } from "./memory-transaction-store.ts";
+import type { PluggyConnectSessionStore } from "./pluggy-connect-session-store.ts";
 import type { PluggyConnectionStore } from "./pluggy-connection-store.ts";
 import { createPrismaAccountStore } from "./prisma-account-store.ts";
 import { createPrismaAuthStore } from "./prisma-auth-store.ts";
 import { createPrismaBudgetStore } from "./prisma-budget-store.ts";
 import { createPrismaCardStore } from "./prisma-card-store.ts";
 import { createPrismaCategoryStore } from "./prisma-category-store.ts";
+import { createPrismaPluggyConnectSessionStore } from "./prisma-pluggy-connect-session-store.ts";
 import { createPrismaPluggyConnectionStore } from "./prisma-pluggy-connection-store.ts";
 import { createPrismaRecurrenceStore } from "./prisma-recurrence-store.ts";
 import { createPrismaSecretStore } from "./prisma-secret-store.ts";
@@ -38,6 +41,7 @@ export interface Stores {
 	budgets: BudgetStore;
 	secrets: SecretStore;
 	pluggyConnections: PluggyConnectionStore;
+	pluggyConnectSessions: PluggyConnectSessionStore;
 }
 
 export interface StoresOptions {
@@ -58,6 +62,7 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		budgets: createPrismaBudgetStore(db, now),
 		secrets: createPrismaSecretStore(db, now),
 		pluggyConnections: createPrismaPluggyConnectionStore(db, now),
+		pluggyConnectSessions: createPrismaPluggyConnectSessionStore(db),
 	};
 }
 
@@ -74,5 +79,6 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		budgets: createMemoryBudgetStore(state),
 		secrets: createMemorySecretStore(state),
 		pluggyConnections: createMemoryPluggyConnectionStore(state),
+		pluggyConnectSessions: createMemoryPluggyConnectSessionStore(),
 	};
 }

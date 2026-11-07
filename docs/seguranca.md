@@ -13,7 +13,7 @@ Só **uma porta**: a da API (3000), e mesmo ela não é publicada pelo compose. 
 | Redis    | Não. Sem porta publicada, e com senha                   |
 | Worker   | Não recebe conexões                                     |
 
-Rotas sem autenticação: `GET /health`, `POST /v1/pairing/claim` (trocar código por token) e `GET /updates/manifest` / `GET /updates/assets/:nome` (atualização do app, protegida por assinatura: veja abaixo). Todo o resto exige o token do aparelho.
+Rotas sem Bearer: `GET /health`, `POST /v1/pairing/claim` (trocar código por token), `GET /updates/manifest` / `GET /updates/assets/:nome` (atualização do app, protegida por assinatura: veja abaixo) e `/pluggy/*` (a página do Pluggy Connect, autenticada por uma sessão de uso único: veja "Meu Pluggy"). Todo o resto exige o token do aparelho.
 
 ## Pareamento
 
@@ -70,6 +70,21 @@ O app aceita atualizações de JavaScript do próprio servidor, o que é uma via
 - Toda resposta do Pluggy passa por Zod. Formato inesperado vira erro claro; o texto do erro vem de uma lista fixa em pt-BR e **nunca** cita o corpo da resposta, a URL, a chave ou o segredo. É isso que vai para `lastError` e para o app.
 - Nome, descrição e categoria que vêm do banco são **dados**, nunca instrução (mesma regra das notificações).
 - A tela só vê estado (`ok`, `partial`, `error`, `no_keys`), datas e a mensagem sanitizada.
+
+### Conectar banco (página `/pluggy/*`)
+
+O app abre no navegador uma página do servidor que carrega o Pluggy Connect. As rotas são públicas, então a defesa é a **sessão**:
+
+- **Sessão de uso único**: 32 bytes aleatórios, 15 min, só o SHA-256 no banco, uma ativa por vez (criar outra expira a anterior), gasta de forma atômica (um `UPDATE` com as condições no `WHERE`) só quando a conexão é cadastrada. Criar a sessão exige o Bearer do aparelho.
+- **Token no fragmento** (`/pluggy/conectar#s=…`): o navegador não envia o fragmento ao servidor, então ele não aparece em logs do proxy nem no `Referer`; a página o apaga do histórico logo ao carregar. Mesmo assim a página manda `Referrer-Policy: no-referrer`.
+- **O ID vem do navegador, então é conferido**: antes de cadastrar, o servidor faz `GET /items/{id}` no Pluggy com as chaves do cofre. Um ID de outra aplicação não existe para nós (404/403) e é recusado; não dá para injetar a conexão de outra conta.
+- **O navegador nunca vê chave**: recebe só o `connectToken` de curta duração do widget. Client ID, Client Secret e `apiKey` ficam no servidor; nenhuma resposta cita corpo do Pluggy (mensagens fixas em pt-BR).
+- **Limites**: por IP (30 pedidos a cada 10 min nas ações, 60 na página; IPv6 por /64), corpo de até 1 KB, validação Zod estrita.
+- **CSP restritiva**: `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src https://connect.pluggy.ai; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'`. Scripts só do próprio servidor (nada inline, nada de CDN: o widget é empacotado pelo servidor). O único domínio externo é `connect.pluggy.ai`, o iframe do widget. `'unsafe-inline'` vale só para estilo (o SDK injeta `<style>`). Também `X-Frame-Options: DENY`, `nosniff`, `Cache-Control: no-store` e `Permissions-Policy` sem câmera, microfone, localização e pagamento.
+- **Sem `COOP`** na página: o widget abre janelas para o login do banco e `same-origin` as desconectaria. A página não guarda nada além da sessão, que só vale uma vez.
+- Cabeçalhos do resto da API (`SAMEORIGIN` etc.) seguem iguais; `/pluggy/*` usa os seus.
+- **Risco aceito**: quem tiver o link da sessão (token) durante os 15 min pode concluir a conexão de um banco **da nossa conta Pluggy**. Não ganha acesso a dado nenhum: o dado só entra no servidor do dono.
+- `includeSandbox` fica sempre desligado.
 
 ## Containers
 

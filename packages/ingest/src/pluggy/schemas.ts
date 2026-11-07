@@ -14,6 +14,9 @@ const money = z.union([z.number(), z.string().regex(/^-?\d{1,12}(\.\d+)?$/)]);
 
 export const authResponse = z.object({ apiKey: z.string().min(10).max(4000) });
 
+/** `POST /connect_token` (SDK 0.94.2: `createConnectToken` → `{ accessToken }`). Vale para abrir o widget, não para a API. */
+export const connectTokenResponse = z.object({ accessToken: z.string().min(10).max(4000) });
+
 export const itemResponse = z.object({
 	id,
 	status: z.string().max(60),
