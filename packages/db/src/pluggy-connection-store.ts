@@ -53,4 +53,9 @@ export interface PluggyConnectionStore {
 	 * Nome sugerido pela sincronização: só vale se o dono ainda não renomeou (a checagem é atômica). `true` se gravou.
 	 */
 	setAutoLabel(id: string, label: string): Promise<boolean>;
+	/**
+	 * Esquece a última sincronização boa de todas as conexões (`lastSyncAt` volta a `null`): a próxima rodada refaz a
+	 * janela inicial inteira. Devolve quantas conexões. Não mexe em nome, status nem contagens.
+	 */
+	resetSyncWindow(): Promise<number>;
 }

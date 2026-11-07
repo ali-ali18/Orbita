@@ -191,6 +191,20 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			});
 		},
 
+		async hardDeleteBySource(source) {
+			if (source === "manual") throw invalid("Só dá para apagar lançamentos de uma origem de fora.");
+			return db.$transaction(async (tx) => {
+				const ofSource = { OR: [{ source }, { refundOf: { source } }] };
+				await tx.recurrencePosting.deleteMany({ where: { transaction: ofSource } });
+				// Estornos de outra origem primeiro: a chave estrangeira aponta deles para a compra.
+				const refunds = await tx.transaction.deleteMany({
+					where: { source: { not: source }, refundOf: { source } },
+				});
+				const own = await tx.transaction.deleteMany({ where: { source } });
+				return refunds.count + own.count;
+			});
+		},
+
 		async get(id) {
 			const row = await db.transaction.findFirst({ where: { id, deletedAt: null } });
 			return row ? toRecord(row) : null;

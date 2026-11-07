@@ -81,6 +81,8 @@ export interface FakePluggyOptions {
 	transactions?: Record<string, Json[]>;
 	/** Faturas por accountId do cartão (`GET /bills`). Ausente = 404, como num conector sem faturas. */
 	bills?: Record<string, Json[]>;
+	/** Árvore de categorias (`GET /categories`). Ausente = 404. */
+	categories?: Json[];
 	/** Lançamentos por página do cursor (padrão: `pageSize`). */
 	cursorPageSize?: number;
 	pageSize?: number;
@@ -146,6 +148,9 @@ export function fakePluggy(options: FakePluggyOptions = {}) {
 		}
 		if (url.pathname === "/accounts" && url.searchParams.get("itemId") === ITEM_ID) {
 			return paged(options.accounts ?? [bankAccount, cardAccount], url);
+		}
+		if (url.pathname === "/categories") {
+			return options.categories ? paged(options.categories, url) : json({ message: "Not found" }, 404);
 		}
 		if (url.pathname === "/bills") {
 			const list = options.bills?.[url.searchParams.get("accountId") ?? ""];

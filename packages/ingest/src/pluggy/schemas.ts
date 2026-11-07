@@ -98,6 +98,8 @@ export const billSchema = z.object({
 	id,
 	/** Vencimento: o mês dele é o mês da fatura no Órbita (`Invoice.month`). */
 	dueDate: z.string().max(40).nullish(),
+	/** Fechamento da fatura (SDK 0.94.2: `billClosingDate`, `Date | null`). Com o vencimento, dá o dia de fechamento do cartão. */
+	billClosingDate: z.string().max(40).nullish(),
 	totalAmount: money.nullish(),
 	payments: z
 		.array(
@@ -111,6 +113,18 @@ export const billSchema = z.object({
 		.default([]),
 });
 export type PluggyBill = z.infer<typeof billSchema>;
+
+/**
+ * Categoria do Pluggy (`GET /categories`, SDK 0.94.2: types/category.d.ts). O que importa é a hierarquia
+ * (`parentId`/`parentDescription`): a folha ("Pharmacy") diz pouco sem a raiz ("Healthcare").
+ */
+export const categorySchema = z.object({
+	id,
+	description: text,
+	parentId: id.nullish(),
+	parentDescription: text.nullish(),
+});
+export type PluggyCategory = z.infer<typeof categorySchema>;
 
 /** Paginação por página: `results` + `totalPages` (`total` também vem, mas não é usado). */
 export const page = <T extends z.ZodType>(item: T) =>

@@ -69,6 +69,9 @@ export function createPrismaPluggyConnectionStore(db: Db, now: Clock): PluggyCon
 				throw e;
 			}
 		},
+		async resetSyncWindow() {
+			return (await db.pluggyConnection.updateMany({ data: { lastSyncAt: null } })).count;
+		},
 		async setAutoLabel(id, label) {
 			const clean = normalizeLabel(label);
 			// A condição no WHERE torna "o dono ainda não renomeou" atômico com a gravação.

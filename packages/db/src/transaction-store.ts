@@ -147,6 +147,13 @@ export interface TransactionStore {
 	softDelete(id: string): Promise<boolean>;
 	/** Apaga todas as parcelas do grupo (com a mesma cascata de `softDelete`). Devolve quantas parcelas. */
 	softDeleteGroup(groupId: string): Promise<number>;
+	/**
+	 * Apaga DE VERDADE (não é exclusão lógica), numa operação só, todos os lançamentos de uma origem de fora,
+	 * os que o dono já tinha apagado inclusive (o `externalId` fica livre para a ingestão trazer de novo), os estornos
+	 * deles (de qualquer origem: um estorno não vive sem a compra) e as ligações com recorrências. Lançamentos de
+	 * outras origens, contas, cartões e recorrências ficam. `invalid` para "manual". Devolve quantos lançamentos saíram.
+	 */
+	hardDeleteBySource(source: TransactionSource): Promise<number>;
 	get(id: string): Promise<TransactionRecord | null>;
 	/** Por data, depois por criação. */
 	listByBudgetMonth(month: MonthKey): Promise<TransactionRecord[]>;

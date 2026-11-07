@@ -122,4 +122,24 @@ describe.each(contractSuites())("PluggyConnectionStore (%s)", (_name, make) => {
 		expect(res?.lastError).toHaveLength(500);
 		expect(await stores.pluggyConnections.recordSync(OTHER, { status: "ok" })).toBeNull();
 	});
+
+	it("resetSyncWindow zera a última sincronização de todas e mantém o resto", async () => {
+		await stores.pluggyConnections.add({ id: ITEM, label: "Nubank" });
+		await stores.pluggyConnections.add({ id: OTHER });
+		const at = new Date("2026-11-06T09:00:00Z");
+		await stores.pluggyConnections.recordSync(ITEM, {
+			status: "ok",
+			syncedAt: at,
+			counts: { accounts: 1, cards: 1 },
+		});
+		await stores.pluggyConnections.recordSync(OTHER, { status: "ok", syncedAt: at });
+		expect(await stores.pluggyConnections.resetSyncWindow()).toBe(2);
+		const [a, b] = await stores.pluggyConnections.list();
+		expect(a).toMatchObject({ id: ITEM, label: "Nubank", lastSyncAt: null, lastStatus: "ok", cardCount: 1 });
+		expect(b?.lastSyncAt).toBeNull();
+	});
+
+	it("resetSyncWindow sem conexões devolve 0", async () => {
+		expect(await stores.pluggyConnections.resetSyncWindow()).toBe(0);
+	});
 });

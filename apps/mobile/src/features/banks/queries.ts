@@ -109,6 +109,18 @@ export function usePluggyActions() {
 			await refresh();
 		},
 	});
+	// Apaga o que veio do Pluggy e enfileira a busca completa; o polling do status mostra o andamento.
+	const reimport = useMutation({
+		mutationFn: () => call(() => api.v1.pluggy.reimport.$post()),
+		onSuccess: async (result) => {
+			queryClient.setQueryData(statusKey, (old: { sync: SyncState } | undefined) =>
+				old ? { ...old, sync: result.sync } : old,
+			);
+			await refresh();
+			// Os lançamentos mudaram: o Início, o extrato e as faturas recarregam.
+			void queryClient.invalidateQueries({ predicate: (q) => isHomeQuery(q.queryKey, baseUrl) });
+		},
+	});
 	const add = useMutation({
 		mutationFn: (json: { itemId: string; label?: string }) =>
 			call(() => api.v1.pluggy.connections.$post({ json })),
@@ -127,5 +139,5 @@ export function usePluggyActions() {
 	const connect = useMutation({
 		mutationFn: () => call(() => api.v1.pluggy["connect-sessions"].$post()),
 	});
-	return { sync, add, rename, remove, connect };
+	return { sync, reimport, add, rename, remove, connect };
 }

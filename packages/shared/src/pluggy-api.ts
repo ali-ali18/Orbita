@@ -82,6 +82,13 @@ export type PluggyStatusResponse = z.infer<typeof pluggyStatusResponse>;
 export const pluggySyncResponse = z.object({ sync: z.enum(["queued", "running"]) });
 export type PluggySyncResponse = z.infer<typeof pluggySyncResponse>;
 
+/** `POST /v1/pluggy/reimport` (202): quantos lançamentos do Pluggy saíram e como está a nova sincronização. */
+export const pluggyReimportResponse = z.object({
+	deleted: z.number().int().min(0),
+	sync: z.enum(["queued", "running"]),
+});
+export type PluggyReimportResponse = z.infer<typeof pluggyReimportResponse>;
+
 /** `POST /v1/pluggy/connect-sessions` (201). O caminho (com o token no fragmento) é relativo ao endereço do servidor. */
 export const pluggyConnectSessionResponse = z.object({
 	path: z.string(),

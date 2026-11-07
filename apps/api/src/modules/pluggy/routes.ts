@@ -2,6 +2,7 @@ import type { SecretVault } from "@orbita/db";
 import { createPluggyClient, PluggyError, type PluggyFetch } from "@orbita/ingest";
 import {
 	type PluggyConnectSessionResponse,
+	type PluggyReimportResponse,
 	type PluggyStatusResponse,
 	pluggyConnectionCreateBody,
 	pluggyConnectionIdParam,
@@ -135,6 +136,36 @@ export function routes({
 				);
 			}
 			return c.json({ sync: await syncQueue.enqueue() }, 202);
+		})
+		.post("/v1/pluggy/reimport", async (c) => {
+			// Tudo que pode falhar sem estrago vem ANTES de apagar: sem fila, conexões ou chaves não há como trazer de volta.
+			if (!syncQueue) {
+				return c.json(
+					apiError("fila_indisponivel", "A fila de sincronização não está ligada neste servidor."),
+					503,
+				);
+			}
+			if ((await pluggyConnections.list()).length === 0) {
+				return c.json(apiError("sem_conexoes", "Cadastre o ID de uma conexão do Meu Pluggy primeiro."), 400);
+			}
+			if (!(await readKeys(vault))) {
+				return c.json(
+					apiError("sem_chaves", "Cadastre o Client ID e o Client Secret do Pluggy em Servidor e chaves."),
+					400,
+				);
+			}
+			// Uma sincronização em andamento gravaria a data de agora por cima do zero e a nova só olharia 40 dias.
+			if ((await syncQueue.state()) === "running") {
+				return c.json(
+					apiError("sincronizando", "Há uma sincronização em andamento. Tente de novo quando ela terminar."),
+					409,
+				);
+			}
+			// Primeiro esquece a janela, depois apaga: se algo falhar no meio, o pior caso é buscar de novo (idempotente).
+			await pluggyConnections.resetSyncWindow();
+			const deleted = await stores.transactions.hardDeleteBySource("pluggy");
+			const body: PluggyReimportResponse = { deleted, sync: await syncQueue.enqueue() };
+			return c.json(body, 202);
 		})
 		.get("/v1/pluggy/status", async (c) => {
 			const connections = await pluggyConnections.list();

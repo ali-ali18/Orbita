@@ -55,6 +55,12 @@ export function createMemoryPluggyConnectionStore(state: MemoryState): PluggyCon
 			state.pluggyConnections.set(key, next);
 			return { ...next };
 		},
+		async resetSyncWindow() {
+			for (const [id, current] of state.pluggyConnections) {
+				state.pluggyConnections.set(id, { ...current, lastSyncAt: null });
+			}
+			return state.pluggyConnections.size;
+		},
 		async setAutoLabel(id, label) {
 			const current = state.pluggyConnections.get(id);
 			const clean = normalizeLabel(label);

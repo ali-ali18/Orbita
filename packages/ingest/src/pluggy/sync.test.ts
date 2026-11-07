@@ -494,6 +494,151 @@ describe("syncPluggy", () => {
 			});
 		});
 
+		describe("datas do cartão", () => {
+			const noDates = {
+				...cardAccount,
+				creditData: { ...cardAccount.creditData, balanceCloseDate: null, balanceDueDate: null },
+			};
+			const run = async (options: FakePluggyOptions) => {
+				const t2 = setup({ accounts: [bankAccount, noDates], ...options });
+				await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+				const result = await t2.run();
+				return { t2, result };
+			};
+
+			it("creditData sem datas: usa a fatura mais recente (fechamento e vencimento)", async () => {
+				const { t2, result } = await run({
+					bills: {
+						[CARD_ACCOUNT_ID]: [
+							{
+								...bill("b-old", "2026-10-08T00:00:00.000Z", 10),
+								billClosingDate: "2026-10-01T00:00:00.000Z",
+							},
+							{
+								...bill("b-new", "2026-11-09T00:00:00.000Z", 830.1),
+								billClosingDate: "2026-11-02T00:00:00.000Z",
+							},
+						],
+					},
+				});
+				expect(result.status).toBe("ok");
+				expect(await t2.stores.cards.list()).toEqual([expect.objectContaining({ closingDay: 2, dueDay: 9 })]);
+				expect(result.connections[0]?.notes.join()).not.toContain("estimad");
+			});
+
+			it("só o vencimento: fechamento 7 dias antes, com aviso de estimado", async () => {
+				const { t2, result } = await run({
+					bills: { [CARD_ACCOUNT_ID]: [bill("b", "2026-11-05T00:00:00.000Z", 830.1)] },
+				});
+				expect(await t2.stores.cards.list()).toEqual([
+					expect.objectContaining({ closingDay: 29, dueDay: 5 }),
+				]);
+				expect(result.connections[0]?.notes.join()).toContain("estimado");
+			});
+
+			it("conector sem faturas (404) e sem datas: cria o cartão com dias padrão e avisa que são estimados", async () => {
+				const { t2, result } = await run({ bills: {} });
+				expect(result.status).toBe("ok");
+				expect(await t2.stores.cards.list()).toEqual([
+					expect.objectContaining({ closingDay: 20, dueDay: 27 }),
+				]);
+				expect(result.connections[0]?.notes.join()).toContain("datas estimadas");
+				// As compras do cartão entram.
+				expect((await everything(t2.stores)).some((r) => r.externalId === "c-1")).toBe(true);
+			});
+
+			it("falha de verdade nas faturas e sem datas: não inventa dias; cartão espera, conexão 'partial'; depois entra", async () => {
+				let broken = true;
+				const t2 = setup({
+					accounts: [bankAccount, noDates],
+					bills: {
+						[CARD_ACCOUNT_ID]: [
+							{
+								...bill("b", "2026-11-09T00:00:00.000Z", 830.1),
+								billClosingDate: "2026-11-02T00:00:00.000Z",
+							},
+						],
+					},
+					override: (url) =>
+						broken && url.pathname === "/bills" ? new Response("{}", { status: 503 }) : undefined,
+				});
+				await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+				expect((await t2.run()).status).toBe("partial");
+				expect(await t2.stores.cards.list()).toEqual([]);
+				broken = false;
+				expect((await t2.run()).status).toBe("ok");
+				expect(await t2.stores.cards.list()).toEqual([expect.objectContaining({ closingDay: 2, dueDay: 9 })]);
+			});
+		});
+
+		describe("classificação pelas categorias do Pluggy", () => {
+			const categories = [
+				{ id: "03000000", description: "Investments" },
+				{
+					id: "03020000",
+					description: "Fixed income",
+					parentId: "03000000",
+					parentDescription: "Investments",
+				},
+				{ id: "10000000", description: "Healthcare" },
+				{ id: "10020000", description: "Pharmacy", parentId: "10000000", parentDescription: "Healthcare" },
+			];
+			const txs = [
+				tx("i-1", {
+					description: "Aplicação CDB",
+					amount: -1000,
+					category: "Fixed income",
+					categoryId: "03020000",
+				}),
+				tx("i-2", {
+					description: "Resgate CDB",
+					type: "CREDIT",
+					amount: 1000,
+					category: "Fixed income",
+					categoryId: "03020000",
+				}),
+				tx("i-3", {
+					description: "Rendimento",
+					type: "CREDIT",
+					amount: 2.5,
+					category: "Interests on investments",
+				}),
+				tx("i-4", { description: "Drogaria", amount: -30, category: "Pharmacy", categoryId: "10020000" }),
+				tx("i-5", { description: "Sem nome", amount: -30, category: null, categoryId: null }),
+			];
+
+			it("investimento fica de fora, rendimento é receita, despesa ganha categoria do Órbita", async () => {
+				const t2 = setup({ categories, transactions: { [BANK_ACCOUNT_ID]: txs, [CARD_ACCOUNT_ID]: [] } });
+				await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+				const result = await t2.run();
+				expect(result.status).toBe("ok");
+				expect(result.connections[0]?.skipped.investment).toBe(2);
+				expect(result.connections[0]?.notes.join()).toContain("investimento");
+				const cats = new Map((await t2.stores.categories.list()).map((c) => [c.id, c.slug]));
+				const rows = Object.fromEntries((await everything(t2.stores)).map((r) => [r.externalId, r]));
+				expect(Object.keys(rows).sort()).toEqual(["i-3", "i-4", "i-5"]);
+				expect(rows["i-3"]).toMatchObject({ kind: "income", categoryId: null });
+				expect(cats.get(rows["i-4"]?.categoryId ?? "")).toBe("saude");
+				expect(cats.get(rows["i-5"]?.categoryId ?? "")).toBe("outros");
+			});
+
+			it("busca /categories uma vez por rodada; se falhar, segue pelo nome e avisa", async () => {
+				const t2 = setup({ categories, transactions: { [BANK_ACCOUNT_ID]: txs, [CARD_ACCOUNT_ID]: [] } });
+				await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+				await t2.stores.pluggyConnections.add({ id: "9f8e7d6c-5b4a-4321-8fed-cba987654321" });
+				await t2.run();
+				expect(t2.fake.requests.filter((r) => r.url.pathname === "/categories")).toHaveLength(1);
+
+				const t3 = setup({ transactions: { [BANK_ACCOUNT_ID]: txs, [CARD_ACCOUNT_ID]: [] } }); // /categories dá 404
+				await t3.stores.pluggyConnections.add({ id: ITEM_ID });
+				const result = await t3.run();
+				expect(result.status).toBe("ok");
+				expect(result.connections[0]?.notes.join()).toContain("categorias do Pluggy não carregaram");
+				// Pelo nome da categoria do lançamento, a aplicação continua fora.
+				expect(result.connections[0]?.skipped.investment).toBe(2);
+			});
+		});
+
 		it("conector sem faturas (404) vale como 'sem faturas', sem ficar partial", async () => {
 			const t2 = setup({ bills: {} });
 			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
@@ -695,7 +840,7 @@ describe("syncPluggy", () => {
 			};
 			const result = await t2.run();
 			expect(result.status).toBe("ok");
-			expect(result.connections[0]?.notes).toEqual(["Não deu para sugerir o nome da conexão agora."]);
+			expect(result.connections[0]?.notes).toContain("Não deu para sugerir o nome da conexão agora.");
 			expect(JSON.stringify(result)).not.toContain("segredo-do-banco");
 			expect(await t2.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({ accountCount: 1, cardCount: 1 });
 		});
