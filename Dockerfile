@@ -1,6 +1,6 @@
 # Uma imagem para a API e o worker (o comando muda no docker-compose).
 # Construída pelo CI e publicada no GHCR; o servidor só faz pull.
-FROM node:22-slim AS base
+FROM node:25-slim AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
 RUN corepack enable
 WORKDIR /app
