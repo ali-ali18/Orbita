@@ -1,7 +1,6 @@
 import { colors, layout, radius, spacing } from "@orbita/tokens";
-import { StyleSheet, View } from "react-native";
+import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { OrbitaAvatar } from "./Avatar.tsx";
 import { IconButton } from "./IconButton.tsx";
 import { Icon } from "./icons.tsx";
@@ -17,33 +16,10 @@ export function useBottomBarHeight(): number {
 	return spacing.md + ROW_HEIGHT + Math.max(insets.bottom, layout.homeIndicator);
 }
 
-/** Degradê do Figma: transparente em cima, preto a 92% em 45% e preto cheio embaixo. */
-function Backdrop() {
-	return (
-		<Svg
-			style={StyleSheet.absoluteFill}
-			width="100%"
-			height="100%"
-			preserveAspectRatio="none"
-			pointerEvents="none"
-			accessibilityElementsHidden
-		>
-			<Defs>
-				<LinearGradient id="bar-fade" x1="0" y1="0" x2="0" y2="1">
-					<Stop offset="0" stopColor={colors.background} stopOpacity={0} />
-					<Stop offset="0.45" stopColor={colors.background} stopOpacity={0.92} />
-					<Stop offset="1" stopColor={colors.background} stopOpacity={1} />
-				</LinearGradient>
-			</Defs>
-			<Rect width="100%" height="100%" fill="url(#bar-fade)" />
-		</Svg>
-	);
-}
-
 /**
  * Barra de baixo: início, campo "Pergunte à Órbita" com o "+" dentro e o avatar do agente. O campo e
  * o "+" abre o Novo lançamento (`onNew`); o campo ainda não tem tela (fica desativado); o início é a tela atual. Flutua sobre o conteúdo,
- * com o degradê do Figma por trás.
+ * sem fundo (o degradê ficava com faixas no Android).
  */
 export function BottomBar({ onHome, onNew }: { onHome?: () => void; onNew?: () => void }) {
 	const insets = useSafeAreaInsets();
@@ -56,7 +32,6 @@ export function BottomBar({ onHome, onNew }: { onHome?: () => void; onNew?: () =
 				paddingBottom: Math.max(insets.bottom, layout.homeIndicator),
 			}}
 		>
-			<Backdrop />
 			<View style={{ height: ROW_HEIGHT, flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
 				<IconButton
 					icon="inicio"
