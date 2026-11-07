@@ -1,5 +1,6 @@
 import { colors, spacing } from "@orbita/tokens";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import { RefreshControl, ScrollView, View } from "react-native";
 import { useClock } from "../../lib/clock.tsx";
@@ -35,6 +36,7 @@ export function HomeScreen() {
 	const { signOut } = useSession();
 	const { hidden, toggle } = usePrivacy();
 	const queryClient = useQueryClient();
+	const router = useRouter();
 	const [refreshing, setRefreshing] = useState(false);
 	const [confirmingSignOut, setConfirmingSignOut] = useState(false);
 	const bottomBarHeight = useBottomBarHeight();
@@ -66,7 +68,7 @@ export function HomeScreen() {
 	};
 
 	return (
-		<Screen footer={<BottomBar />} floatingFooter>
+		<Screen footer={<BottomBar onNew={() => router.push("/novo")} />} floatingFooter>
 			<ScrollView
 				contentContainerStyle={{
 					paddingHorizontal: spacing.lg,

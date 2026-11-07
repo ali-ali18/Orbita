@@ -20,6 +20,11 @@ function Routes() {
 		<Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
 			<Stack.Protected guard={state.status === "in"}>
 				<Stack.Screen name="index" />
+				<Stack.Screen
+					name="novo"
+					dangerouslySingular
+					options={{ presentation: "modal", animation: "slide_from_bottom" }}
+				/>
 			</Stack.Protected>
 			<Stack.Protected guard={state.status === "out"}>
 				<Stack.Screen name="conectar" />

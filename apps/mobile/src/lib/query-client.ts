@@ -1,4 +1,4 @@
-import { focusManager, QueryCache, QueryClient } from "@tanstack/react-query";
+import { focusManager, MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { AppState } from "react-native";
 import { ApiError } from "./api.ts";
 
@@ -7,10 +7,11 @@ export function shouldRetry(count: number, error: unknown): boolean {
 	return !(error instanceof ApiError && error.status !== null) && count < 2;
 }
 
-/** `onError` recebe o erro de QUALQUER consulta (usado para sair da sessão no 401, uma vez só). */
+/** `onError` recebe o erro de QUALQUER consulta ou gravação (usado para sair da sessão no 401, uma vez só). */
 export function createAppQueryClient(onError: (error: unknown) => void): QueryClient {
 	return new QueryClient({
 		queryCache: new QueryCache({ onError }),
+		mutationCache: new MutationCache({ onError }),
 		defaultOptions: { queries: { staleTime: 30_000, retry: shouldRetry } },
 	});
 }

@@ -12,5 +12,6 @@ export { Icon, type IconName } from "./icons.tsx";
 export { ListRow } from "./ListRow.tsx";
 export { type BarPart, ProgressBar } from "./ProgressBar.tsx";
 export { Screen } from "./Screen.tsx";
+export { Sheet } from "./Sheet.tsx";
 export { Skeleton } from "./Skeleton.tsx";
 export { Text } from "./Text.tsx";
