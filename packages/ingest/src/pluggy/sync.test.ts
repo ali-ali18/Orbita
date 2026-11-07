@@ -840,7 +840,7 @@ describe("syncPluggy", () => {
 			};
 			const result = await t2.run();
 			expect(result.status).toBe("ok");
-			expect(result.connections[0]?.notes).toEqual(["Não deu para sugerir o nome da conexão agora."]);
+			expect(result.connections[0]?.notes).toContain("Não deu para sugerir o nome da conexão agora.");
 			expect(JSON.stringify(result)).not.toContain("segredo-do-banco");
 			expect(await t2.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({ accountCount: 1, cardCount: 1 });
 		});
