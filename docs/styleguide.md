@@ -78,12 +78,14 @@ Números usam algarismos tabulares quando ficam em coluna (lista, tabela). Valor
 
 `import { radius } from "@orbita/tokens"`
 
-| Token   | Valor | Uso                                        |
-| ------- | ----- | ------------------------------------------ |
-| `sm`    | 8     | Barras de gráfico, selos pequenos          |
-| `inner` | 16    | Campo de texto, nota, caixa dentro de card |
-| `card`  | 28    | Card, gaveta (cantos de cima)              |
-| `pill`  | 999   | Botão, chip, barra de baixo, avatar        |
+| Token   | Valor | Uso                                                     |
+| ------- | ----- | ------------------------------------------------------- |
+| `sm`    | 8     | Barras de gráfico, selos pequenos                       |
+| `inner` | 16    | Campo de texto, nota, caixa dentro de card              |
+| `group` | 20    | Bloco de lista das Configurações (linhas com divisória) |
+| `block` | 24    | Card de status das Configurações                        |
+| `card`  | 28    | Card, gaveta (cantos de cima)                           |
+| `pill`  | 999   | Botão, chip, barra de baixo, avatar                     |
 
 Regra de aninhamento: elemento dentro de card usa raio **menor** que o card (`inner` dentro de `card`).
 
