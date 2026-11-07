@@ -4,7 +4,7 @@ Como o Órbita se parece e como manter isso consistente sem engessar. Os valores
 
 ## Princípios
 
-1. **Neutro por padrão, cor com significado.** A interface é preta, cinza e branca. Cor aparece só onde informa algo: gráficos (categoria) e logos de banco (de qual conta é).
+1. **Neutro por padrão, cor com significado.** A interface é preta, cinza e branca. Cor aparece só onde informa algo: gráficos (categoria), logos de banco (de qual conta é) e o verde do dinheiro que entra.
 2. **Número grande, rótulo pequeno.** A hierarquia vem do tamanho e do peso, não de caixa, borda ou ícone.
 3. **Token, nunca valor solto.** Se um valor não existe como token, ou você está inventando um caso novo (crie o token e documente aqui) ou está fugindo do padrão (não faça).
 4. **Componente antes de tela.** Tela monta componentes; componente usa tokens.
@@ -13,20 +13,21 @@ Como o Órbita se parece e como manter isso consistente sem engessar. Os valores
 
 `import { colors } from "@orbita/tokens"`
 
-| Token           | Valor     | Use para                                                                   | Não use para               |
-| --------------- | --------- | -------------------------------------------------------------------------- | -------------------------- |
-| `background`    | `#000000` | Fundo de tela                                                              | Card                       |
-| `surface`       | `#141414` | Card, barra de baixo, gaveta                                               | Fundo de tela              |
-| `surface2`      | `#1F1F1F` | Elemento dentro de card (ícone em círculo, botão secundário, chip)         | Card                       |
-| `surface3`      | `#2A2A2A` | Trilho de barra de progresso, avatar sem foto, chip selecionado secundário | Texto                      |
-| `border`        | `#262626` | Divisória entre linhas, contorno de campo                                  | Destaque                   |
-| `text`          | `#FFFFFF` | Valores, títulos, texto principal                                          | —                          |
-| `textSecondary` | `#8F8F8F` | Rótulos, legendas, datas                                                   | Valor de dinheiro          |
-| `textTertiary`  | `#5A5A5A` | Placeholder, chevron, desativado                                           | Texto que precisa ser lido |
-| `accent`        | `#FFFFFF` | Botão principal, chip ativo, switch ligado, ponto de "não lido"            | Fundo grande               |
-| `onAccent`      | `#000000` | Texto e ícone sobre `accent`                                               | —                          |
+| Token           | Valor     | Use para                                                                             | Não use para                         |
+| --------------- | --------- | ------------------------------------------------------------------------------------ | ------------------------------------ |
+| `background`    | `#000000` | Fundo de tela                                                                        | Card                                 |
+| `surface`       | `#141414` | Card, barra de baixo, gaveta                                                         | Fundo de tela                        |
+| `surface2`      | `#1F1F1F` | Elemento dentro de card (ícone em círculo, botão secundário, chip)                   | Card                                 |
+| `surface3`      | `#2A2A2A` | Trilho de barra de progresso, avatar sem foto, chip selecionado secundário           | Texto                                |
+| `border`        | `#262626` | Divisória entre linhas, contorno de campo                                            | Destaque                             |
+| `text`          | `#FFFFFF` | Valores, títulos, texto principal                                                    | —                                    |
+| `textSecondary` | `#8F8F8F` | Rótulos, legendas, datas                                                             | Valor de dinheiro                    |
+| `textTertiary`  | `#5A5A5A` | Placeholder, chevron, desativado                                                     | Texto que precisa ser lido           |
+| `positive`      | `#34D17A` | **Valor de dinheiro que entra**: receita, estorno e pagamento de fatura; selo "Paga" | Texto corrido, ícone, fundo, gráfico |
+| `accent`        | `#FFFFFF` | Botão principal, chip ativo, switch ligado, ponto de "não lido"                      | Fundo grande                         |
+| `onAccent`      | `#000000` | Texto e ícone sobre `accent`                                                         | —                                    |
 
-Não existe verde de "positivo" nem vermelho de "negativo": o sinal (`+R$` / `−R$`) e o texto dizem isso. Se um dia precisar de estado (erro, aviso), crie tokens `danger`/`warning` aqui antes de usar.
+**Verde só para dinheiro que entra.** `positive` colore o valor (e o selo "Paga") de receita, estorno e pagamento de fatura, junto do rótulo e do sinal (`+` em receita e estorno), então a cor reforça o texto e nunca é a única informação. Saída continua branca (`text`) e transferência entre contas próprias é neutra (`textSecondary`), porque o dinheiro só mudou de lugar. A regra mora numa função só no app, `amountTone(kind)`, usada por Início, Atividades, Detalhe e Fatura. Passa AA (4,5:1) sobre `background`, `surface` e `surface2` (teste em `@orbita/tokens`). Não existe vermelho de "negativo": a saída é o sinal `−`. Se um dia precisar de estado de erro ou aviso, crie `danger`/`warning` aqui antes de usar.
 
 ### Gráficos
 
@@ -53,7 +54,7 @@ Regras:
 
 ### Bancos
 
-`import { banks } from "@orbita/tokens"`: cor de fundo do círculo atrás do logo. Logos vêm do pacote `logos-bancos-br` (MIT). Banco sem logo usa `banks.generic` com as iniciais.
+`import { banks } from "@orbita/tokens"`: cor de fundo do círculo atrás do logo. Logos vêm do pacote `logos-bancos-br` (MIT; as marcas são das instituições, uso só para identificá-las): PNGs só dos bancos usados em `apps/mobile/assets/banks` (ver `NOTICE.txt`), casados por ISPB ou pelo nome em `lib/bank-logos.ts`. Com logo, o círculo é branco e mostra a imagem; sem logo, a cor da marca (ou `banks.generic`) com a inicial.
 
 ## Tipografia
 

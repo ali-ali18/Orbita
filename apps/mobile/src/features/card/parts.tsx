@@ -2,16 +2,45 @@ import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, ScrollView, type ScrollViewInstance, View } from "react-native";
 import { BankLogo, Icon, Text } from "../../ui/index.ts";
-import { initialOf } from "../summary/transaction-model.ts";
-import { type CardLike, cardColor, cardLabel, cardSpokenName } from "./card-model.ts";
+import { bankBadge } from "../summary/summary-model.ts";
+import { type CardLike, cardLabel, cardSpokenName, type PaymentBadge } from "./card-model.ts";
 
 /** Número grande com rótulo em cima e legenda embaixo (topo de cada aba). */
-export function BigNumber({ label, value, caption }: { label: string; value: string; caption?: string }) {
+export function BigNumber({
+	label,
+	value,
+	caption,
+	badge,
+}: {
+	label: string;
+	value: string;
+	caption?: string;
+	/** Selo ao lado do rótulo (ex.: situação do pagamento da fatura). */
+	badge?: PaymentBadge;
+}) {
 	return (
 		<View style={{ gap: spacing.xs, paddingTop: spacing.xs }}>
-			<Text variant="cardTitle" tone="secondary">
-				{label}
-			</Text>
+			<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" }}>
+				<Text variant="cardTitle" tone="secondary">
+					{label}
+				</Text>
+				{badge ? (
+					<View
+						accessible
+						accessibilityLabel={`Situação: ${badge.label}`}
+						style={{
+							paddingHorizontal: spacing.sm,
+							paddingVertical: 2,
+							borderRadius: radius.pill,
+							backgroundColor: colors.surface3,
+						}}
+					>
+						<Text variant="micro" tone={badge.tone}>
+							{badge.label}
+						</Text>
+					</View>
+				) : null}
+			</View>
 			<Text variant="numberHero" adjustsFontSizeToFit numberOfLines={1}>
 				{value}
 			</Text>
@@ -85,7 +114,7 @@ export function CardChip({
 				{card === null ? (
 					<Icon name="cartao" size={18} color={selected ? colors.onAccent : colors.text} />
 				) : (
-					<BankLogo initial={initialOf(card.name)} color={cardColor(card)} size={24} />
+					<BankLogo {...bankBadge(card)} size={24} />
 				)}
 				<Text
 					variant="bodyStrong"

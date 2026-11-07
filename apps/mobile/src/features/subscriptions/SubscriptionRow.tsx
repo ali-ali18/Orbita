@@ -1,6 +1,6 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
-import { BankLogo, Button, LetterAvatar, Text } from "../../ui/index.ts";
+import { type BankBadge, BankLogo, Button, LetterAvatar, Text } from "../../ui/index.ts";
 import type { MonthStatus } from "./subscriptions-model.ts";
 
 /** Selo do banco no canto do círculo (Figma "Banco/Logo", 20 em (30, 30) de um círculo de 48). */
@@ -27,7 +27,7 @@ export function SubscriptionRow({
 	/** Já formatado (ou escondido pelo olho). */
 	value: string;
 	status: MonthStatus;
-	bank?: { initial: string; color: string } | undefined;
+	bank?: BankBadge | undefined;
 	posting: boolean;
 	onPress: () => void;
 	onPostNow: () => void;
@@ -51,7 +51,7 @@ export function SubscriptionRow({
 					<LetterAvatar letter={name.trim().charAt(0).toLocaleUpperCase("pt-BR") || "·"} size={LOGO} />
 					{bank ? (
 						<View style={{ position: "absolute", left: BADGE_OFFSET, top: BADGE_OFFSET }}>
-							<BankLogo initial={bank.initial} color={bank.color} size={BADGE} ring={colors.background} />
+							<BankLogo {...bank} size={BADGE} ring={colors.background} />
 						</View>
 					) : null}
 				</View>

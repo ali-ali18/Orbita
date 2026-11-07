@@ -6,7 +6,7 @@ import { money } from "../../lib/format.ts";
 import { toLoadable } from "../../lib/loadable.ts";
 import { BankLogo, ErrorState, ProgressBar, Skeleton, Text } from "../../ui/index.ts";
 import { useInstallments } from "../summary/queries.ts";
-import { initialOf } from "../summary/transaction-model.ts";
+import { bankBadge } from "../summary/summary-model.ts";
 import {
 	bestPurchaseDay,
 	type CardLike,
@@ -106,7 +106,7 @@ export function LimitsTab({ cards, hidden }: { cards: readonly CardLike[]; hidde
 						}}
 					>
 						<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-							<BankLogo initial={initialOf(r.card.name)} color={r.color} size={40} />
+							<BankLogo {...bankBadge(r.card)} size={40} />
 							<View style={{ flex: 1, gap: 2 }}>
 								<Text variant="bodyStrong" numberOfLines={1}>
 									{r.card.name}

@@ -16,8 +16,7 @@ import {
 	Text,
 } from "../../ui/index.ts";
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
-import { bankColor } from "../summary/summary-model.ts";
-import { initialOf } from "../summary/transaction-model.ts";
+import { bankBadge } from "../summary/summary-model.ts";
 import { AmountInput } from "./AmountInput.tsx";
 import { CategoryChips } from "./CategoryChips.tsx";
 import { EntryTabs } from "./EntryTabs.tsx";
@@ -181,7 +180,7 @@ export function NewTransactionScreen() {
 							>
 								{source ? (
 									<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-										<BankLogo initial={initialOf(source.name)} color={bankColor(source.bankCode)} size={22} />
+										<BankLogo {...bankBadge(source)} size={22} />
 										<Text variant="body">{source.label}</Text>
 									</View>
 								) : (

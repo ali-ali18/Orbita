@@ -692,6 +692,31 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect(await tx.listByInvoice(other.id, "2026-12")).toEqual([]);
 		});
 
+		it("listCardPayments traz só pagamentos do cartão na janela (bordas inclusas), sem apagados", async () => {
+			const other = await stores.cards.create({ name: "Inter", closingDay: 1, dueDay: 8 });
+			const pay = (extra: Partial<TransactionInput> = {}) =>
+				tx.create({
+					kind: "card_payment",
+					amountCents: 10_000,
+					date: "2026-11-05",
+					description: "Fatura",
+					accountId: b.checking.id,
+					cardId: b.card.id,
+					...extra,
+				});
+			const edgeFrom = await pay({ date: "2026-10-25" });
+			const mid = await pay({ date: "2026-11-05", amountCents: 20_000 });
+			const edgeTo = await pay({ date: "2026-11-24" });
+			await pay({ date: "2026-10-24" });
+			await pay({ date: "2026-11-25" });
+			await pay({ cardId: other.id });
+			const gone = await pay({ date: "2026-11-06" });
+			await tx.softDelete(gone.id);
+			await tx.create(cardPurchase({ date: "2026-11-05" }));
+			const found = await tx.listCardPayments(b.card.id, { from: "2026-10-25", to: "2026-11-24" });
+			expect(found.map((t) => t.id)).toEqual([edgeFrom.id, mid.id, edgeTo.id]);
+		});
+
 		it("listPending só traz os pendentes, do mais recente ao mais antigo", async () => {
 			const old = await tx.create(expense({ status: "pending", date: "2026-11-01" }));
 			const recent = await tx.create(expense({ status: "pending", date: "2026-11-09" }));

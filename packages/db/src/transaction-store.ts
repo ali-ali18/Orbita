@@ -191,6 +191,8 @@ export interface TransactionStore {
 	/** Por data, depois por criação. */
 	listByBudgetMonth(month: MonthKey): Promise<TransactionRecord[]>;
 	listByInvoice(cardId: string, invoiceMonth: MonthKey): Promise<TransactionRecord[]>;
+	/** Pagamentos de fatura (`card_payment`) vivos do cartão com data entre `from` e `to`, inclusive, por data. */
+	listCardPayments(cardId: string, range: { from: LocalDate; to: LocalDate }): Promise<TransactionRecord[]>;
 	/** Os que esperam revisão, do mais recente para o mais antigo. `limit` padrão 200, máximo 500. */
 	listPending(options?: { limit?: number }): Promise<TransactionRecord[]>;
 	/**

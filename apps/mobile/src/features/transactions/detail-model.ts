@@ -26,6 +26,9 @@ export interface DetailTransaction {
 	status: "pending" | "confirmed";
 	source: DetailSource;
 	note: string | null;
+	/** Nome do estabelecimento e categoria que o banco mandou (só importados). */
+	merchantName?: string | null | undefined;
+	sourceCategory?: string | null | undefined;
 }
 
 export interface Editable {
@@ -212,4 +215,32 @@ export function deleteMessage(installment: boolean): string {
 	return !installment
 		? "O lançamento some do histórico e dos totais. Não dá para desfazer."
 		: "Esta compra é parcelada. Escolha o que apagar. Não dá para desfazer.";
+}
+
+// ------------------------------------------------- aplicar a todos da loja
+
+/** Só consumo (despesa e estorno) tem regra de categoria por loja; e precisa ter categoria escolhida. */
+export function canApplyToAll(t: Pick<DetailTransaction, "kind" | "categoryId">): boolean {
+	return (t.kind === "expense" || t.kind === "refund") && t.categoryId !== null;
+}
+
+/** Nome da loja como o servidor o usa para a regra: o do banco, senão a descrição. */
+export function storeNameOf(t: Pick<DetailTransaction, "merchantName" | "description">): string {
+	return t.merchantName?.trim() || t.description.trim();
+}
+
+export function applyAllLabel(t: Pick<DetailTransaction, "merchantName" | "description">): string {
+	return `Aplicar a todos de ${storeNameOf(t)}`;
+}
+
+/** Resultado do "Aplicar a todos" (`updated` = quantos OUTROS lançamentos mudaram). */
+export function appliedMessage(updated: number): string {
+	if (updated <= 0) return "Nenhum outro lançamento para atualizar.";
+	return updated === 1 ? "1 lançamento atualizado" : `${updated} lançamentos atualizados`;
+}
+
+/** "Categoria no banco: Shopping › Eletrônicos", ou `null` se o banco não mandou. */
+export function bankCategoryLabel(t: Pick<DetailTransaction, "sourceCategory">): string | null {
+	const text = t.sourceCategory?.trim();
+	return text ? `Categoria no banco: ${text}` : null;
 }

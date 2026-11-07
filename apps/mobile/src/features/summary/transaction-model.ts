@@ -13,10 +13,27 @@ export interface TransactionLike {
 	status: "pending" | "confirmed";
 }
 
-/** Sinal do valor (o design não usa verde/vermelho): saída −, entrada +, movimento entre contas sem sinal. */
+/** Sinal do valor: saída −, entrada +, movimento entre contas sem sinal. A cor vem de `amountTone`. */
 export function signedAmount(t: Pick<TransactionLike, "kind" | "amountCents">): Cents {
 	if (t.kind === "expense") return -t.amountCents;
 	return t.amountCents;
+}
+
+/**
+ * Cor do valor de dinheiro: o que entra (receita, estorno, pagamento de fatura) é verde (`positive`), a saída
+ * segue branca e a transferência entre contas próprias é neutra, porque o dinheiro só mudou de lugar.
+ */
+export function amountTone(kind: TransactionLike["kind"]): "positive" | "primary" | "secondary" {
+	switch (kind) {
+		case "income":
+		case "refund":
+		case "card_payment":
+			return "positive";
+		case "transfer":
+			return "secondary";
+		case "expense":
+			return "primary";
+	}
 }
 
 export function amountSignMode(kind: TransactionLike["kind"]): "always" | "never" {

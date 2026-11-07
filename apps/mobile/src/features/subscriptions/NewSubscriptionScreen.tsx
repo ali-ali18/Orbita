@@ -19,7 +19,7 @@ import {
 } from "../../ui/index.ts";
 import { SettingsRow, SettingsSection } from "../settings/SettingsRows.tsx";
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
-import { bankColor } from "../summary/summary-model.ts";
+import { bankBadge } from "../summary/summary-model.ts";
 import { initialOf } from "../summary/transaction-model.ts";
 import { effectiveSource, formatAmount, sourceOptions } from "../transactions/new-transaction-model.ts";
 import { SourceSheet } from "../transactions/PickerSheets.tsx";
@@ -283,11 +283,7 @@ export function NewSubscriptionScreen() {
 										trailing={
 											source ? (
 												<View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-													<BankLogo
-														initial={initialOf(source.name)}
-														color={bankColor(source.bankCode)}
-														size={20}
-													/>
+													<BankLogo {...bankBadge(source)} size={20} />
 													<Text variant="caption" tone="secondary" numberOfLines={1}>
 														{source.label}
 													</Text>

@@ -177,6 +177,68 @@ describe("parcelado", () => {
 	});
 });
 
+describe("fatura paga", () => {
+	// Cartão fecha dia 10 e vence dia 20; hoje = 15/11/2026. A fatura 2026-11 fechou 10/11 e vence 20/11.
+	async function withNovInvoice() {
+		const ctx = await withRent();
+		await ctx.api.post("/v1/transactions", {
+			kind: "expense",
+			amountCents: 100_000,
+			date: "2026-10-20",
+			description: "TV",
+			cardId: ctx.card.id,
+		});
+		const pay = (amountCents: number, date: string) =>
+			ctx.api.post("/v1/transactions", {
+				kind: "card_payment",
+				amountCents,
+				date,
+				description: "Fatura",
+				accountId: ctx.account.id,
+				cardId: ctx.card.id,
+			});
+		const inv = async (month: string) =>
+			(await ctx.api.get(`/v1/cards/${ctx.card.id}/invoices/${month}`)).body.invoice;
+		return { ...ctx, pay, inv };
+	}
+
+	it("sem pagamento: fechada e não paga; a do mês seguinte segue aberta", async () => {
+		const { inv } = await withNovInvoice();
+		expect(await inv("2026-11")).toMatchObject({ status: "closed", paidCents: 0, paymentStatus: "unpaid" });
+		expect(await inv("2026-12")).toMatchObject({ status: "open", paidCents: 0, paymentStatus: "open" });
+	});
+
+	it("paga em parte e depois por inteiro", async () => {
+		const { pay, inv } = await withNovInvoice();
+		await pay(40_000, "2026-11-12");
+		expect(await inv("2026-11")).toMatchObject({ paidCents: 40_000, paymentStatus: "partial" });
+		await pay(60_000, "2026-11-14");
+		expect(await inv("2026-11")).toMatchObject({ paidCents: 100_000, paymentStatus: "paid" });
+	});
+
+	it("pagamento só conta na fatura a que pertence (o do ciclo seguinte não paga esta)", async () => {
+		const { pay, inv } = await withNovInvoice();
+		await pay(100_000, "2026-12-10"); // depois do fechamento de dezembro: é da fatura de dezembro
+		expect(await inv("2026-11")).toMatchObject({ paidCents: 0, paymentStatus: "unpaid" });
+		expect((await inv("2026-12")).paidCents).toBe(100_000);
+	});
+
+	it("pagamento de outro cartão não conta", async () => {
+		const { api, pay, inv, account } = await withNovInvoice();
+		const other = (await api.post("/v1/cards", { name: "Outro", closingDay: 10, dueDay: 20 })).body.card;
+		await api.post("/v1/transactions", {
+			kind: "card_payment",
+			amountCents: 100_000,
+			date: "2026-11-12",
+			description: "Fatura",
+			accountId: account.id,
+			cardId: other.id,
+		});
+		await pay(1_000, "2026-11-12");
+		expect(await inv("2026-11")).toMatchObject({ paidCents: 1_000, paymentStatus: "partial" });
+	});
+});
+
 describe("estorno, pagamento de fatura e transferência", () => {
 	it("estorno de compra do mês passado abate a categoria da compra original", async () => {
 		const { api, account, category } = await withRent();

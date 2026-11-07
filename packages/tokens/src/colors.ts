@@ -8,6 +8,8 @@ export const colors = {
 	text: "#FFFFFF",
 	textSecondary: "#8F8F8F",
 	textTertiary: "#5A5A5A",
+	/** Dinheiro que entra (receita, estorno, pagamento de fatura). Só em valor de dinheiro; ver styleguide. */
+	positive: "#34D17A",
 	accent: "#FFFFFF",
 	onAccent: "#000000",
 } as const;

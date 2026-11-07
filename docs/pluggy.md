@@ -75,6 +75,10 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 
 **Estorno** exige a compra original gravada (mesmo cartão, valor e descrição, nas faturas dos últimos 3 meses). Sem ela, fica de fora e é tentado de novo na próxima rodada (`refund_without_original` no resultado).
 
+## Fatura paga
+
+`GET /v1/cards/:id/invoices/:month` devolve em `invoice` o `paidCents` e o `paymentStatus` (`paid`, `partial`, `unpaid`, `open`), calculados em `packages/core/src/invoice-payment.ts`. `paidCents` é a soma dos lançamentos `card_payment` do cartão atribuídos àquela fatura: um pagamento vale para a **última fatura já fechada na data dele** (a anterior à que está aberta naquele dia). A fatura recebe os pagamentos do dia seguinte ao fim das compras dela até o fim das compras da seguinte; isso cobre pagar antes do vencimento, no vencimento e atrasado, sem janela de tolerância em dias (não há buraco entre ciclos). Fatura que ainda recebe compras é `open`; fechada com total ≤ 0 conta como `paid`. "Atrasada" não vem do servidor: o app combina `unpaid`/`partial` com `status: "overdue"`. Limite: pagamento adiantado de uma fatura ainda aberta abate a fechada mais antiga (como o banco faz), então a aberta aparece sem pagamento.
+
 ## Limitações conhecidas (para a Fase 6 ou depois)
 
 - **Parcelas** viram parcelamento de verdade (ver "Parcelamentos"), desde que o Pluggy mande a data da compra; sem ela entram como lançamentos simples ("Parcela 3/10" na observação).

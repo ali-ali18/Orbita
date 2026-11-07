@@ -110,6 +110,41 @@ export function statusLabel(status: InvoiceStatus): string {
 	}
 }
 
+export type PaymentStatusLike = "paid" | "partial" | "unpaid" | "open";
+
+export interface PaymentBadge {
+	label: string;
+	/** `positive` só para fatura paga; o resto é neutro (cor nunca é a única informação: o texto diz tudo). */
+	tone: "positive" | "primary" | "secondary";
+}
+
+/**
+ * Selo de pagamento da fatura, a partir do que o servidor calculou (`paymentStatus`, `paidCents`):
+ * Paga · Paga em parte (falta R$ X) · Em aberto · Vence dia X · Atrasada. "Atrasada" só quando a fatura
+ * venceu e não foi paga por inteiro; paga em parte e vencida acrescenta " · atrasada".
+ */
+export function paymentBadge(
+	invoice: { status: InvoiceStatus; dueDate: LocalDate; paymentStatus: PaymentStatusLike; paidCents: Cents },
+	totalCents: Cents,
+	formatMoney: (cents: Cents) => string,
+): PaymentBadge {
+	const overdue = invoice.status === "overdue";
+	switch (invoice.paymentStatus) {
+		case "paid":
+			return { label: "Paga", tone: "positive" };
+		case "partial": {
+			const left = formatMoney(Math.max(0, totalCents - invoice.paidCents));
+			return { label: `Paga em parte (falta ${left})${overdue ? " · atrasada" : ""}`, tone: "primary" };
+		}
+		case "unpaid":
+			return overdue
+				? { label: "Atrasada", tone: "primary" }
+				: { label: `Vence dia ${Number(invoice.dueDate.slice(8, 10))}`, tone: "primary" };
+		case "open":
+			return { label: "Em aberto", tone: "secondary" };
+	}
+}
+
 export const capitalize = (text: string) => text.charAt(0).toLocaleUpperCase("pt-BR") + text.slice(1);
 
 /** "Vence 7 de nov · fechou 31 de out" (fechada), "Fecha 30 de nov · vence 7 de dez" (aberta). */
@@ -117,6 +152,7 @@ export function invoiceDatesCaption(invoice: {
 	status: InvoiceStatus;
 	closingDate: LocalDate;
 	dueDate: LocalDate;
+	paymentStatus?: PaymentStatusLike;
 }): string {
 	const closing = dayMonth(invoice.closingDate);
 	const due = dayMonth(invoice.dueDate);
@@ -126,8 +162,20 @@ export function invoiceDatesCaption(invoice: {
 		case "closed":
 			return `Vence ${due} · fechou ${closing}`;
 		case "overdue":
-			return `Venceu ${due} · fechou ${closing}`;
+			// Fatura paga não "venceu": o vencimento só passou.
+			return invoice.paymentStatus === "paid"
+				? `Vencimento ${due} · fechou ${closing}`
+				: `Venceu ${due} · fechou ${closing}`;
 	}
+}
+
+/** Selo da fatura (canto do card): a situação do pagamento quando ela já fechou, senão o calendário. */
+export function invoiceStatusTag(invoice: {
+	status: InvoiceStatus;
+	paymentStatus: PaymentStatusLike;
+}): string {
+	if (invoice.status !== "open" && invoice.paymentStatus === "paid") return "Paga";
+	return capitalize(statusLabel(invoice.status));
 }
 
 export interface CompositionLike {

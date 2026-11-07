@@ -39,6 +39,22 @@ export function useUpdateTransaction(id: string) {
 	});
 }
 
+/** Cria a regra "esta loja é desta categoria" e reclassifica os outros lançamentos dela; devolve quantos mudaram. */
+export function useApplyCategoryRule(transactionId: string) {
+	const { api, baseUrl, queryClient } = useDetailMutations();
+	return useMutation({
+		mutationFn: (categoryId: string) =>
+			call(() =>
+				api.v1["category-rules"].$post({
+					json: { transactionId, categoryId, applyToExisting: true },
+				}),
+			),
+		onSuccess: () => {
+			invalidateLists(queryClient, baseUrl);
+		},
+	});
+}
+
 /** Pendente vira confirmado. */
 export function useConfirmTransaction(id: string) {
 	const { api, keep } = useDetailMutations();

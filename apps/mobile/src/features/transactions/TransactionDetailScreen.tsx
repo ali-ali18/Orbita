@@ -18,14 +18,18 @@ import {
 	Text,
 } from "../../ui/index.ts";
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
-import { bankColor } from "../summary/summary-model.ts";
-import { amountSignMode, initialOf, signedAmount, transactionIcon } from "../summary/transaction-model.ts";
+import { bankBadge } from "../summary/summary-model.ts";
+import { amountSignMode, amountTone, signedAmount, transactionIcon } from "../summary/transaction-model.ts";
 import { DetailActions } from "./DetailActions.tsx";
 import { CategoryPill, DetailGroup, DetailRow, OriginLine, RowValue } from "./DetailRows.tsx";
 import { CategorySheet, DeleteSheet, MoreSheet, TextEditSheet } from "./DetailSheets.tsx";
 import { DetailSummary } from "./DetailSummary.tsx";
 import {
+	appliedMessage,
+	applyAllLabel,
+	bankCategoryLabel,
 	buildPatch,
+	canApplyToAll,
 	type DeleteScope,
 	type DetailDraft,
 	type DetailSource,
@@ -39,7 +43,12 @@ import {
 	sourceTitle,
 	statusText,
 } from "./detail-model.ts";
-import { useConfirmTransaction, useDeleteTransaction, useUpdateTransaction } from "./detail-mutations.ts";
+import {
+	useApplyCategoryRule,
+	useConfirmTransaction,
+	useDeleteTransaction,
+	useUpdateTransaction,
+} from "./detail-mutations.ts";
 import { useTransactionDetail } from "./detail-queries.ts";
 import { formatEntryDate } from "./new-transaction-model.ts";
 
@@ -66,6 +75,8 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 	const [message, setMessage] = useState<string | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const [refreshing, setRefreshing] = useState(false);
+	// Depois de trocar a categoria, a gaveta fica aberta oferecendo "Aplicar a todos de <loja>".
+	const [offerApply, setOfferApply] = useState(false);
 	// `isPending` só muda no próximo render; a trava em ref barra o segundo toque no mesmo instante.
 	const busyRef = useRef(false);
 
@@ -76,7 +87,8 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 	const update = useUpdateTransaction(id);
 	const confirm = useConfirmTransaction(id);
 	const remove = useDeleteTransaction(id);
-	const busy = update.isPending || confirm.isPending || remove.isPending;
+	const applyRule = useApplyCategoryRule(id);
+	const busy = update.isPending || confirm.isPending || remove.isPending || applyRule.isPending;
 
 	const close = () => (router.canGoBack() ? router.back() : router.replace("/"));
 
@@ -166,6 +178,7 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 
 	const openSheet = (next: OpenSheet) => {
 		setMessage(null);
+		setOfferApply(false);
 		setSheet(next);
 	};
 	const askDelete = () => {
@@ -173,6 +186,33 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 		setMessage(null);
 		if (installment) setSheet("delete");
 		else setConfirmDelete(true);
+	};
+	const selectCategory = (categoryId: string | null) => {
+		if (!t) return;
+		const built = buildPatch(t, { categoryId });
+		if (!built.ok) {
+			setMessage(built.message);
+			return;
+		}
+		if (built.body === null) {
+			setSheet(null);
+			return;
+		}
+		const body = built.body;
+		const offer = categoryId !== null && (t.kind === "expense" || t.kind === "refund");
+		void run(
+			() => update.mutateAsync(body),
+			() => (offer ? setOfferApply(true) : setSheet(null)),
+		);
+	};
+	const applyToAll = () => {
+		if (!t || t.categoryId === null) return;
+		const categoryId = t.categoryId;
+		void run(async () => {
+			const { updated } = await applyRule.mutateAsync(categoryId);
+			setOfferApply(false);
+			setMessage(appliedMessage(updated));
+		});
 	};
 	const doDelete = (scope: DeleteScope) => void run(() => remove.mutateAsync(scope), close);
 
@@ -207,9 +247,10 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 				{header}
 				<DetailSummary
 					icon={transactionIcon(t.kind, category?.slug)}
-					bank={origin ? { initial: initialOf(origin.name), color: bankColor(origin.bankCode) } : undefined}
+					bank={origin ? bankBadge(origin) : undefined}
 					title={t.description}
 					amount={money(signedAmount(t), hidden, { sign: amountSignMode(t.kind) })}
+					amountTone={amountTone(t.kind)}
 					caption={formatEntryDate(t.date, today)}
 				/>
 
@@ -239,7 +280,7 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 							<View
 								style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm - 2, flexShrink: 1 }}
 							>
-								<BankLogo initial={initialOf(origin.name)} color={bankColor(origin.bankCode)} size={20} />
+								<BankLogo {...bankBadge(origin)} size={20} />
 								<RowValue>{card ? `${card.name} · crédito` : origin.name}</RowValue>
 							</View>
 						</DetailRow>
@@ -255,6 +296,11 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 						</DetailRow>
 					) : null}
 				</DetailGroup>
+				{bankCategoryLabel(t) ? (
+					<Text variant="caption" tone="secondary" style={{ paddingHorizontal: spacing.xs }}>
+						{bankCategoryLabel(t)}
+					</Text>
+				) : null}
 
 				<View
 					style={{
@@ -331,7 +377,10 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 				selectedId={t.categoryId}
 				busy={busy}
 				message={message}
-				onSelect={(categoryId) => save({ categoryId })}
+				applyAll={
+					offerApply && canApplyToAll(t) ? { label: applyAllLabel(t), onPress: applyToAll } : undefined
+				}
+				onSelect={selectCategory}
 				onClose={() => setSheet(null)}
 			/>
 			<TextEditSheet

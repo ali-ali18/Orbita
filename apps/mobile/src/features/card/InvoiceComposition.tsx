@@ -3,7 +3,7 @@ import { View } from "react-native";
 import type { InvoiceView } from "../../lib/api.ts";
 import { money, monthName } from "../../lib/format.ts";
 import { Card, ProgressBar, Text } from "../../ui/index.ts";
-import { capitalize, compositionBar, compositionRows, statusLabel } from "./card-model.ts";
+import { compositionBar, compositionRows, invoiceStatusTag } from "./card-model.ts";
 import { Dot } from "./parts.tsx";
 
 /** "Fatura de novembro · O que entrou nela" com a barra por tipo e as quatro linhas. */
@@ -28,7 +28,7 @@ export function InvoiceComposition({ data, hidden }: { data: InvoiceView; hidden
 						backgroundColor: colors.surface3,
 					}}
 				>
-					<Text variant="micro">{capitalize(statusLabel(data.invoice.status))}</Text>
+					<Text variant="micro">{invoiceStatusTag(data.invoice)}</Text>
 				</View>
 			</View>
 			<ProgressBar parts={compositionBar(rows)} height={10} />

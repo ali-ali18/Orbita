@@ -1,5 +1,5 @@
 export { LetterAvatar, OrbitaAvatar } from "./Avatar.tsx";
-export { BankLogo } from "./BankLogo.tsx";
+export { type BankBadge, BankLogo } from "./BankLogo.tsx";
 export { BottomBar, useBottomBarHeight } from "./BottomBar.tsx";
 export { Button } from "./Button.tsx";
 export { Card, CardHeader } from "./Card.tsx";
@@ -15,4 +15,4 @@ export { Screen } from "./Screen.tsx";
 export { Segmented } from "./Segmented.tsx";
 export { Sheet } from "./Sheet.tsx";
 export { Skeleton } from "./Skeleton.tsx";
-export { Text } from "./Text.tsx";
+export { Text, type TextTone } from "./Text.tsx";

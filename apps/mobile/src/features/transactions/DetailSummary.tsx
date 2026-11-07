@@ -1,6 +1,6 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import { View } from "react-native";
-import { BankLogo, Icon, type IconName, Text } from "../../ui/index.ts";
+import { type BankBadge, BankLogo, Icon, type IconName, Text, type TextTone } from "../../ui/index.ts";
 
 const DISC = 64;
 const BADGE = 24;
@@ -11,12 +11,14 @@ export function DetailSummary({
 	bank,
 	title,
 	amount,
+	amountTone = "primary",
 	caption,
 }: {
 	icon: IconName;
-	bank?: { initial: string; color: string } | undefined;
+	bank?: BankBadge | undefined;
 	title: string;
 	amount: string;
+	amountTone?: TextTone;
 	caption: string;
 }) {
 	return (
@@ -38,7 +40,7 @@ export function DetailSummary({
 				</View>
 				{bank ? (
 					<View style={{ position: "absolute", left: 42, top: 42 }}>
-						<BankLogo initial={bank.initial} color={bank.color} size={BADGE} ring={colors.background} />
+						<BankLogo {...bank} size={BADGE} ring={colors.background} />
 					</View>
 				) : null}
 			</View>
@@ -47,6 +49,7 @@ export function DetailSummary({
 			</Text>
 			<Text
 				variant="numberHero"
+				tone={amountTone}
 				accessibilityLabel={`Valor ${amount}`}
 				adjustsFontSizeToFit
 				numberOfLines={1}

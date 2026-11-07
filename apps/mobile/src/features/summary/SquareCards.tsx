@@ -5,8 +5,7 @@ import type { CardsView, InstallmentsView, InvoiceView } from "../../lib/api.ts"
 import { money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
 import { BankLogo, Card, ErrorState, Icon, type IconName, Skeleton, Text } from "../../ui/index.ts";
-import { bankColor, installmentsOverview, invoiceCaption } from "./summary-model.ts";
-import { initialOf } from "./transaction-model.ts";
+import { bankBadge, installmentsOverview, invoiceCaption } from "./summary-model.ts";
 
 /** Altura dos cards quadrados no Figma (173 de largura por 221 de altura). */
 const SQUARE_MIN_HEIGHT = 221;
@@ -129,7 +128,7 @@ export function InvoiceSquare({
 	}
 	const top = (
 		<>
-			<BankLogo initial={initialOf(card.name)} size={32} color={bankColor(card.bankCode)} />
+			<BankLogo {...bankBadge(card)} size={32} />
 			<Text variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>
 				{card.last4 ? `•••• ${card.last4}` : card.name}
 			</Text>
