@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BANK_ACCOUNT_ID, bankAccount, cardAccount, tx } from "./fake-pluggy.ts";
 import {
+	assignBillPayments,
 	mapPluggyAccount,
 	mapPluggyTransaction,
 	pluggyDateToLocal,
@@ -16,14 +17,12 @@ const bankCtx: TransactionContext = {
 	accountType: "BANK",
 	accountId: "acc-1",
 	card: null,
-	paymentCardId: "card-1",
 };
 // Fecha dia 10 (compra no dia 10 já vai para a seguinte), vence dia 17.
 const cardCtx: TransactionContext = {
 	accountType: "CREDIT",
 	accountId: null,
 	card: { id: "card-1", config: { closingDay: 10, dueDay: 17, closingRule: "closing-day-next" } },
-	paymentCardId: null,
 };
 
 describe("pluggyDateToLocal", () => {
@@ -142,16 +141,24 @@ describe("mapPluggyTransaction: conta", () => {
 		});
 	});
 
-	it("pagamento de fatura pela conta é card_payment (não é gasto) quando se sabe o cartão", () => {
+	it("plano B: pagamento por categoria só liga ao cartão cujo total de fatura bate", () => {
 		const payment = parse({ category: "Credit card payment", amount: -830.1 });
-		expect(mapPluggyTransaction(payment, bankCtx)).toMatchObject({
+		const ctx = { ...bankCtx, billTotals: [{ cardId: "card-1", amountCents: 83_010 }] };
+		expect(mapPluggyTransaction(payment, ctx)).toMatchObject({
 			action: "upsert",
 			input: { kind: "card_payment", accountId: "acc-1", cardId: "card-1", amountCents: 83_010 },
 		});
-		expect(mapPluggyTransaction(payment, { ...bankCtx, paymentCardId: null })).toEqual({
-			action: "skip",
-			reason: "card_payment_unlinked",
-		});
+		const skipped = { action: "skip", reason: "card_payment_unlinked" };
+		// Sem faturas, total diferente ou dois cartões com o mesmo total: não adivinha.
+		expect(mapPluggyTransaction(payment, bankCtx)).toEqual(skipped);
+		expect(
+			mapPluggyTransaction(payment, { ...bankCtx, billTotals: [{ cardId: "c", amountCents: 1 }] }),
+		).toEqual(skipped);
+		const both = [
+			{ cardId: "card-1", amountCents: 83_010 },
+			{ cardId: "card-2", amountCents: 83_010 },
+		];
+		expect(mapPluggyTransaction(payment, { ...bankCtx, billTotals: both })).toEqual(skipped);
 	});
 
 	it("transferência entre contas do próprio dono não é gasto nem receita", () => {
@@ -289,45 +296,111 @@ describe("mapPluggyTransaction: sinais mais fortes que o nome da categoria", () 
 		});
 	});
 
-	it("débito que bate (valor, até 3 dias) com pagamento registrado na fatura é card_payment do cartão certo", () => {
-		const ctx = {
-			...bankCtx,
-			paymentCardId: null,
-			billPayments: [{ cardId: "card-9", amountCents: 83_010, date: "2026-11-05" }],
-		};
-		const pay = parse({
-			category: null,
-			description: "Débito automático",
-			amount: -830.1,
-			date: "2026-11-03T00:00:00.000Z",
-		});
+	it("débito casado com um pagamento da fatura é card_payment do cartão certo", () => {
+		const pay = parse({ category: null, description: "Débito automático", amount: -830.1, id: "t-pay" });
+		const payment = { cardId: "card-9", amountCents: 83_010, date: "2026-11-05" };
+		const ctx = { ...bankCtx, billPaymentMatches: new Map([["t-pay", payment]]) };
 		expect(mapPluggyTransaction(pay, ctx)).toMatchObject({
 			action: "upsert",
 			input: { kind: "card_payment", cardId: "card-9", accountId: "acc-1", amountCents: 83_010 },
 		});
-		// Dia longe demais ou valor diferente: é gasto normal.
-		expect(
-			mapPluggyTransaction(parse({ category: null, amount: -830.1, date: "2026-11-09T00:00:00.000Z" }), ctx),
-		).toMatchObject({
-			input: { kind: "expense" },
-		});
-		expect(
-			mapPluggyTransaction(parse({ category: null, amount: -830.11, date: "2026-11-05T00:00:00.000Z" }), ctx),
-		).toMatchObject({
-			input: { kind: "expense" },
-		});
+		// Sem casamento atribuído a este lançamento, é gasto normal.
+		expect(mapPluggyTransaction(pay, bankCtx)).toMatchObject({ input: { kind: "expense" } });
 	});
 
-	it("crédito no cartão igual a um pagamento da fatura daquele cartão não é estorno", () => {
-		const ctx = { ...cardCtx, billPayments: [{ cardId: "card-1", amountCents: 12_345, date: "2026-11-05" }] };
+	it("crédito casado com pagamento da fatura daquele cartão não é estorno", () => {
 		const credit = parse({
 			type: "CREDIT",
 			amount: -123.45,
 			description: "Crédito",
 			category: null,
-			date: "2026-11-05T00:00:00.000Z",
+			id: "t-cr",
 		});
+		const ctx = {
+			...cardCtx,
+			billPaymentMatches: new Map([["t-cr", { cardId: "card-1", amountCents: 12_345, date: "2026-11-05" }]]),
+		};
 		expect(mapPluggyTransaction(credit, ctx)).toEqual({ action: "skip", reason: "card_payment" });
 		expect(mapPluggyTransaction(credit, cardCtx)).toMatchObject({ action: "refund" });
+	});
+
+	it("faturas indisponíveis: débito da conta e crédito do cartão ficam de fora (não dá para classificar)", () => {
+		const skipped = { action: "skip", reason: "bills_unavailable" };
+		expect(mapPluggyTransaction(parse({ category: null }), { ...bankCtx, billsUnavailable: true })).toEqual(
+			skipped,
+		);
+		expect(
+			mapPluggyTransaction(parse({ type: "CREDIT", amount: -9 }), { ...cardCtx, billsUnavailable: true }),
+		).toEqual(skipped);
+		// Receita na conta e compra no cartão não dependem das faturas.
+		expect(
+			mapPluggyTransaction(parse({ type: "CREDIT", amount: 9 }), { ...bankCtx, billsUnavailable: true }),
+		).toMatchObject({ input: { kind: "income" } });
+		expect(mapPluggyTransaction(parse({ amount: 9 }), { ...cardCtx, billsUnavailable: true })).toMatchObject({
+			input: { kind: "expense" },
+		});
+	});
+
+	it("billId com fatura conhecida define o invoiceMonth; o engine é o plano B", () => {
+		// 09/11 cairia na fatura de 2026-11 (fecha dia 10); o Pluggy diz que está na de 2026-12.
+		const meta = { billId: "bill-dez" };
+		const withBill = parse({ date: "2026-11-09T00:00:00.000Z", creditCardMetadata: meta });
+		const ctx = { ...cardCtx, billMonths: new Map([["bill-dez", "2026-12"]]) };
+		expect(mapPluggyTransaction(withBill, ctx)).toMatchObject({ input: { invoiceMonth: "2026-12" } });
+		expect(mapPluggyTransaction(withBill, cardCtx)).toMatchObject({ input: { invoiceMonth: "2026-11" } });
+		const unknown = parse({ date: "2026-11-09T00:00:00.000Z", creditCardMetadata: { billId: "outra" } });
+		expect(mapPluggyTransaction(unknown, ctx)).toMatchObject({ input: { invoiceMonth: "2026-11" } });
+		// Estorno também.
+		const refund = parse({
+			type: "CREDIT",
+			amount: -5,
+			date: "2026-11-09T00:00:00.000Z",
+			creditCardMetadata: meta,
+		});
+		expect(mapPluggyTransaction(refund, ctx)).toMatchObject({
+			action: "refund",
+			input: { invoiceMonth: "2026-12" },
+		});
+	});
+});
+
+describe("assignBillPayments", () => {
+	const pay = (amountCents: number, date: string, cardId = "c") => ({ cardId, amountCents, date });
+	const cand = (id: string, amountCents: number, date: string) => ({ id, amountCents, date });
+
+	it("cada pagamento casa com um débito só: o aluguel de mesmo valor 2 dias depois continua gasto", () => {
+		const out = assignBillPayments(
+			[cand("fatura", 120_000, "2026-11-05"), cand("aluguel", 120_000, "2026-11-07")],
+			[pay(120_000, "2026-11-05")],
+		);
+		expect([...out.keys()]).toEqual(["fatura"]);
+	});
+
+	it("prefere o mesmo dia e depois o mais próximo, e vale a ordem inversa da lista", () => {
+		const list = [
+			cand("longe", 100, "2026-11-08"),
+			cand("perto", 100, "2026-11-06"),
+			cand("mesmo", 100, "2026-11-05"),
+		];
+		expect([...assignBillPayments(list, [pay(100, "2026-11-05")]).keys()]).toEqual(["mesmo"]);
+		expect([...assignBillPayments(list.slice(0, 2), [pay(100, "2026-11-05")]).keys()]).toEqual(["perto"]);
+	});
+
+	it("dois pagamentos iguais consomem dois débitos; o terceiro sobra", () => {
+		const out = assignBillPayments(
+			[cand("a", 100, "2026-11-05"), cand("b", 100, "2026-11-05"), cand("c", 100, "2026-11-05")],
+			[pay(100, "2026-11-05", "x"), pay(100, "2026-11-05", "y")],
+		);
+		expect([...out.keys()].sort()).toEqual(["a", "b"]);
+		expect(new Set([...out.values()].map((p) => p.cardId))).toEqual(new Set(["x", "y"]));
+	});
+
+	it("valor diferente ou mais de 3 dias não casa", () => {
+		expect(
+			assignBillPayments(
+				[cand("a", 101, "2026-11-05"), cand("b", 100, "2026-11-09")],
+				[pay(100, "2026-11-05")],
+			).size,
+		).toBe(0);
 	});
 });

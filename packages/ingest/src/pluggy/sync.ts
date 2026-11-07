@@ -11,13 +11,17 @@ import type { PluggySyncStatus, SecretName } from "@orbita/shared";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
 import { PluggyError, safeErrorMessage } from "./errors.ts";
 import {
+	assignBillPayments,
 	type BillPayment,
+	type BillTotal,
 	mapPluggyAccount,
 	mapPluggyTransaction,
+	type PaymentCandidate,
 	PLUGGY_SOURCE,
 	pluggyDateToLocal,
 	type SkipReason,
 	type TransactionContext,
+	transactionFacts,
 } from "./mapping.ts";
 import type { PluggyAccount, PluggyTransaction } from "./schemas.ts";
 
@@ -30,8 +34,11 @@ export const PLUGGY_MANUAL_JOB_ID = "pluggy-agora";
 
 /** Primeira sincronização de uma conexão: quantos dias para trás. */
 export const FIRST_SYNC_DAYS = 90;
-/** Depois: recomeça tantos dias antes da última sincronização boa (o Pluggy efetiva lançamentos com atraso). */
-export const OVERLAP_DAYS = 7;
+/**
+ * Depois: recomeça tantos dias antes da última sincronização boa. Lançamento de cartão pode levar semanas para
+ * efetivar (aparece na fatura com a data da compra); a gravação é idempotente, então a folga só custa uma consulta maior.
+ */
+export const OVERLAP_DAYS = 40;
 /** Estorno procura a compra original nas faturas dos últimos N meses. */
 const REFUND_LOOKBACK_MONTHS = 3;
 
@@ -77,8 +84,9 @@ const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().t
  *
  * - Idempotente: o lançamento é gravado por `upsertByExternal("pluggy", id do Pluggy)`; rodar de novo não duplica
  *   nem altera o que já está gravado. Conta e cartão são ligados por `findByExternal`.
- * - Janela: primeira vez, 90 dias; depois, desde `lastSyncAt` menos 7 dias. `lastSyncAt` só avança quando a
- *   conexão termina `ok` (um `partial` repete a janela na próxima).
+ * - Janela: primeira vez, 90 dias; depois, desde `lastSyncAt` menos 40 dias. `lastSyncAt` só avança quando a
+ *   conexão termina `ok` (um `partial` repete a janela na próxima). Item que não está `UPDATED`, falha em /bills e
+ *   conta que não sincronizou deixam a conexão `partial`.
  * - Sem chaves: grava "no_keys" em cada conexão e sai, sem erro e sem chamar o Pluggy.
  * - O que o Pluggy trouxe é `confirmed`. Lançamentos `PENDING` do Pluggy ficam de fora (o id pode mudar ao efetivar).
  * - Nunca lança por causa de uma conexão: o erro vira o `lastError` (já sanitizado) daquela conexão.
@@ -157,6 +165,8 @@ async function syncConnection(
 	startedAt: Date,
 ): Promise<ConnectionSyncResult> {
 	const result = blank(connection.id, "ok", null);
+	// Motivos para a conexão terminar `partial`: não avança `lastSyncAt`, então a próxima rodada refaz a janela.
+	const partial: string[] = [];
 	try {
 		const today = toLocalDate(startedAt);
 		const from = connection.lastSyncAt
@@ -170,71 +180,141 @@ async function syncConnection(
 				"O banco pediu para você reconectar. Abra o Meu Pluggy, atualize a conexão e sincronize de novo.";
 			return result;
 		}
+		// O Pluggy só tem o dado novo quando o item está atualizado. Com o banco atrasado (UPDATING, OUTDATED…) o
+		// lançamento que ainda vai efetivar não veio; por isso a janela não avança.
+		if (item.status !== "UPDATED") {
+			result.notes.push("O banco não atualizou os dados no Pluggy ainda.");
+			partial.push("o banco não atualizou os dados no Pluggy ainda");
+		}
 		const pluggyAccounts = await client.accounts(connection.id);
 		const linked = await linkAccounts(deps, pluggyAccounts, item.connector?.name, result);
-		// Um pagamento de fatura feito pela conta só sabe qual cartão quita se há um único cartão na conexão.
 		const liveCards = linked.filter((l) => l.card !== null && l.card.archivedAt === null);
-		const paymentCardId = liveCards.length === 1 ? (liveCards[0]?.card?.id ?? null) : null;
 
-		// Pagamentos de fatura registrados no Pluggy: deixam casar o débito da conta com o cartão certo.
-		// Faturas podem não existir para o conector; sem elas, vale o plano B por categoria.
+		// Faturas dos cartões: pagamentos (casam débito da conta com cartão), totais (plano B) e mês de cada fatura.
+		// Conector sem faturas (404/403) vale como "sem faturas". Falha de verdade impede classificar os débitos e
+		// créditos que poderiam ser pagamento (o upsert nunca corrige depois): ficam de fora e a conexão fica `partial`.
 		const billPayments: BillPayment[] = [];
+		const billTotals: BillTotal[] = [];
+		const billMonths = new Map<string, string>();
+		let billsUnavailable = false;
 		for (const target of liveCards) {
+			const cardId = target.card?.id as string;
 			try {
 				for (const bill of await client.bills(target.pluggyId)) {
+					const due = bill.dueDate ? pluggyDateToLocal(bill.dueDate) : null;
+					if (due !== null) billMonths.set(bill.id, due.slice(0, 7));
+					const total = centsOrNull(bill.totalAmount);
+					if (total !== null) billTotals.push({ cardId, amountCents: total });
 					for (const p of bill.payments) {
 						const date = pluggyDateToLocal(p.paymentDate);
-						if (date === null || (p.currencyCode && p.currencyCode !== "BRL")) continue;
-						try {
-							const amountCents = Math.abs(decimalToCents(p.amount));
-							if (amountCents > 0)
-								billPayments.push({ cardId: target.card?.id as string, amountCents, date });
-						} catch {
-							// valor fora do que o Órbita aceita: ignora este pagamento
-						}
+						const amountCents = centsOrNull(p.amount);
+						if (date === null || amountCents === null || (p.currencyCode && p.currencyCode !== "BRL"))
+							continue;
+						billPayments.push({ cardId, amountCents, date });
 					}
 				}
 			} catch (e) {
-				if (e instanceof PluggyError && (e.code === "auth" || e.code === "rate_limit")) throw e;
+				if (!(e instanceof PluggyError)) throw e;
+				if (e.code === "auth" || e.code === "rate_limit") throw e;
+				if (e.code === "not_found" || e.code === "forbidden") continue;
+				billsUnavailable = true;
 			}
 		}
+		if (billsUnavailable) {
+			result.notes.push(
+				"As faturas do cartão não carregaram: débitos e créditos que podem ser pagamento de fatura ficaram de fora.",
+			);
+			partial.push("as faturas do cartão não carregaram");
+		}
 
+		// 1) Baixa os lançamentos de todas as contas.
+		const fetched: Array<{ target: Linked; txs: PluggyTransaction[] }> = [];
 		let failedAccounts = 0;
+		let dropped = 0;
 		for (const target of linked) {
 			if ((target.account ?? target.card)?.archivedAt) {
 				bump(result.skipped, "archived_account");
 				continue;
 			}
 			try {
-				const txs = await client.transactions({ accountId: target.pluggyId, from, to: today });
-				const ctx: TransactionContext = {
-					accountType: target.account ? "BANK" : "CREDIT",
-					accountId: target.account?.id ?? null,
-					card: target.card ? { id: target.card.id, config: toCardConfig(target.card) } : null,
-					paymentCardId,
-					ownerTaxNumber: target.taxNumber,
-					billPayments,
-				};
-				await storeTransactions(deps, txs, ctx, result);
+				const res = await client.transactions({ accountId: target.pluggyId, from, to: today });
+				dropped += res.dropped;
+				fetched.push({ target, txs: res.transactions });
 			} catch (e) {
 				if (e instanceof PluggyError && (e.code === "auth" || e.code === "rate_limit")) throw e;
 				failedAccounts += 1;
 				result.notes.push(`Uma conta não sincronizou: ${safeErrorMessage(e)}`);
 			}
 		}
-		if (failedAccounts > 0 || result.failed > 0) {
+		if (dropped > 0)
+			result.notes.push(`${dropped} lançamento(s) vieram fora do formato e foram descartados.`);
+
+		// 2) Casa cada pagamento de fatura com UM lançamento. O pool do banco é da conexão inteira (o pagamento pode
+		// sair de qualquer conta); o do cartão é por cartão.
+		const matches = new Map<string, BillPayment>();
+		const bankPool: PaymentCandidate[] = [];
+		for (const { target, txs } of fetched) {
+			const pool = txs.flatMap((tx) => {
+				if (tx.status === "PENDING") return [];
+				const facts = transactionFacts(tx);
+				if (!facts || tx.type !== (target.card ? "CREDIT" : "DEBIT")) return [];
+				return [{ id: tx.id, ...facts }];
+			});
+			if (target.card) {
+				const cardId = target.card.id;
+				const mine = billPayments.filter((p) => p.cardId === cardId);
+				for (const [id, payment] of assignBillPayments(pool, mine)) matches.set(id, payment);
+			} else {
+				bankPool.push(...pool);
+			}
+		}
+		for (const [id, payment] of assignBillPayments(bankPool, billPayments)) matches.set(id, payment);
+
+		// 3) Grava.
+		for (const { target, txs } of fetched) {
+			const ctx: TransactionContext = {
+				accountType: target.account ? "BANK" : "CREDIT",
+				accountId: target.account?.id ?? null,
+				card: target.card ? { id: target.card.id, config: toCardConfig(target.card) } : null,
+				ownerTaxNumber: target.taxNumber,
+				billPaymentMatches: matches,
+				billTotals,
+				billMonths,
+				billsUnavailable,
+			};
+			await storeTransactions(deps, txs, ctx, result);
+		}
+		const unlinked = result.skipped.card_payment_unlinked ?? 0;
+		if (unlinked > 0) {
+			result.notes.push(
+				`${unlinked} pagamento(s) de fatura não foram ligados a um cartão e ficaram de fora (o valor não bate com nenhuma fatura).`,
+			);
+		}
+
+		if (failedAccounts > 0) partial.push(`${failedAccounts} conta(s) não sincronizaram`);
+		if (result.failed > 0) partial.push(`${result.failed} lançamento(s) não puderam ser gravados`);
+		if (partial.length > 0) {
 			result.status = "partial";
-			const parts = [
-				failedAccounts > 0 ? `${failedAccounts} conta(s) não sincronizaram` : null,
-				result.failed > 0 ? `${result.failed} lançamento(s) não puderam ser gravados` : null,
-			].filter(Boolean);
-			result.error = `${parts.join("; ")}. Na próxima sincronização o Órbita tenta de novo.`;
+			result.error = `${capitalize(partial.join("; "))}. Na próxima sincronização o Órbita tenta de novo.`;
 		}
 		return result;
 	} catch (e) {
 		result.status = "error";
 		result.error = safeErrorMessage(e);
 		return result;
+	}
+}
+
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** Centavos positivos de um valor do Pluggy, ou `null` se zero/fora do que o Órbita aceita. */
+function centsOrNull(value: number | string | null | undefined): number | null {
+	if (value === null || value === undefined) return null;
+	try {
+		const cents = Math.abs(decimalToCents(value));
+		return cents > 0 ? cents : null;
+	} catch {
+		return null;
 	}
 }
 
@@ -302,7 +382,7 @@ const bump = (counts: ConnectionSyncResult["skipped"], key: SkipReason | "archiv
 
 async function storeTransactions(
 	deps: SyncPluggyDeps,
-	txs: Awaited<ReturnType<PluggyClient["transactions"]>>,
+	txs: readonly PluggyTransaction[],
 	ctx: TransactionContext,
 	result: ConnectionSyncResult,
 ): Promise<void> {

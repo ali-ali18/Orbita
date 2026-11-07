@@ -152,9 +152,12 @@ export function fakePluggy(options: FakePluggyOptions = {}) {
 			// Como o SDK: `dateFrom`/`dateTo` filtram pelo dia e `after` é o cursor (aqui, o índice em base64).
 			const from = url.searchParams.get("dateFrom") ?? "0000-00-00";
 			const to = url.searchParams.get("dateTo") ?? "9999-99-99";
-			const inRange = list.filter(
-				(t) => String(t.date).slice(0, 10) >= from && String(t.date).slice(0, 10) <= to,
-			);
+			// Linhas que nem objeto são (lixo de teste) passam direto, para o cliente decidir.
+			const inRange = list.filter((t) => {
+				if (typeof t !== "object" || t === null) return true;
+				const day = String(t.date).slice(0, 10);
+				return day >= from && day <= to;
+			});
 			const size = options.cursorPageSize ?? pageSize;
 			const start = Number(Buffer.from(url.searchParams.get("after") ?? "MA==", "base64").toString());
 			const end = start + size;

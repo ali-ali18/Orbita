@@ -91,7 +91,8 @@ describe("createPluggyClient", () => {
 			from: "2026-08-09",
 			to: "2026-11-07",
 		});
-		expect(all.map((t) => t.id)).toEqual(["t-0", "t-1", "t-2", "t-3", "t-4"]);
+		expect(all.dropped).toBe(0);
+		expect(all.transactions.map((t) => t.id)).toEqual(["t-0", "t-1", "t-2", "t-3", "t-4"]);
 		const calls = fake.requests.filter((r) => r.url.pathname === "/v2/transactions");
 		expect(calls).toHaveLength(3);
 		expect(calls[0]?.url.searchParams.get("after")).toBeNull();
@@ -156,8 +157,6 @@ describe("createPluggyClient", () => {
 
 	it("resposta fora do formato é erro claro (campo obrigatório ausente, tipo errado)", async () => {
 		const bad = [
-			{ results: [{ id: "x" }], next: null }, // falta amount/date/type
-			{ results: [tx("t", { amount: { v: 1 } })], next: null },
 			{ results: "nada", next: null },
 			{ results: [], page: 1, totalPages: 1 }, // formato de página no endpoint de cursor
 			{ nada: true },
@@ -175,6 +174,25 @@ describe("createPluggyClient", () => {
 			override: (url) => (url.pathname === "/auth" ? ok({ token: "x" }) : undefined),
 		});
 		await expect(make(noKey.fetch).item(ITEM_ID)).rejects.toMatchObject({ code: "invalid_response" });
+	});
+
+	it("linha fora do formato é descartada e contada; o resto da página fica", async () => {
+		const rows = [
+			tx("ok-1", {}),
+			{ id: "sem-valor", date: "2026-11-03T00:00:00.000Z" }, // falta amount/date/type
+			tx("amount-torto", { amount: { v: 1 } }),
+			"lixo",
+			null,
+			tx("ok-2", { amount: 2 }),
+		];
+		const fake = fakePluggy({ transactions: { [BANK_ACCOUNT_ID]: rows as never } });
+		const res = await make(fake.fetch).transactions({
+			accountId: BANK_ACCOUNT_ID,
+			from: "2026-08-09",
+			to: "2026-11-12",
+		});
+		expect(res.transactions.map((t) => t.id)).toEqual(["ok-1", "ok-2"]);
+		expect(res.dropped).toBe(4);
 	});
 
 	it("corpo que não é JSON é resposta inválida", async () => {

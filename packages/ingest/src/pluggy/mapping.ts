@@ -121,7 +121,8 @@ export type SkipReason =
 	| "foreign_currency"
 	| "own_transfer" // entre contas do próprio dono: não é gasto nem receita
 	| "card_payment" // o lado do cartão do pagamento da fatura (o lado do banco é quem conta)
-	| "card_payment_unlinked" // pagamento de fatura sem como saber qual cartão
+	| "card_payment_unlinked" // pagamento de fatura que não dá para ligar a um cartão (o Órbita não tem pagamento "sem cartão")
+	| "bills_unavailable" // as faturas não carregaram: não dá para saber se o débito/crédito é pagamento de fatura
 	| "refund_without_original"; // estorno no cartão sem a compra original gravada (o sync tenta de novo)
 
 export type MappedTransaction =
@@ -145,18 +146,73 @@ export interface BillPayment {
 /** Pagamento na conta e na fatura costumam cair no mesmo dia; folga de 3 dias para compensação. */
 const BILL_PAYMENT_DAYS = 3;
 
+/** Total de uma fatura (`GET /bills`), para o plano B: pagamento por categoria só liga ao cartão cujo total bate. */
+export interface BillTotal {
+	cardId: string;
+	amountCents: number;
+}
+
+/** Um lançamento que pode ser pagamento de fatura (débito da conta ou crédito do cartão). */
+export interface PaymentCandidate {
+	id: string;
+	amountCents: number;
+	date: LocalDate;
+}
+
+/**
+ * Casa cada pagamento da fatura com UM lançamento: mesmo valor, até 3 dias de diferença, preferindo o mesmo dia e
+ * depois o mais próximo. Pagamento consumido não casa de novo, então um aluguel de mesmo valor dois dias depois (ou
+ * um estorno real de mesmo valor no cartão) continua sendo gasto/estorno. Devolve `id do lançamento → pagamento`.
+ */
+export function assignBillPayments(
+	candidates: readonly PaymentCandidate[],
+	payments: readonly BillPayment[],
+): Map<string, BillPayment> {
+	const assigned = new Map<string, BillPayment>();
+	const ordered = [...payments].sort(
+		(a, b) =>
+			a.date.localeCompare(b.date) || a.amountCents - b.amountCents || a.cardId.localeCompare(b.cardId),
+	);
+	for (const payment of ordered) {
+		let best: { candidate: PaymentCandidate; distance: number } | undefined;
+		for (const candidate of candidates) {
+			if (assigned.has(candidate.id) || candidate.amountCents !== payment.amountCents) continue;
+			const distance = Math.abs(daysBetween(payment.date, candidate.date));
+			if (distance > BILL_PAYMENT_DAYS) continue;
+			if (
+				!best ||
+				distance < best.distance ||
+				(distance === best.distance &&
+					(candidate.date < best.candidate.date ||
+						(candidate.date === best.candidate.date && candidate.id < best.candidate.id)))
+			) {
+				best = { candidate, distance };
+			}
+		}
+		if (best) assigned.set(best.candidate.id, payment);
+	}
+	return assigned;
+}
+
 export interface TransactionContext {
 	accountType: "BANK" | "CREDIT";
 	/** Conta do Órbita (para `BANK`). */
 	accountId: string | null;
 	/** Cartão do Órbita e a regra de fatura dele (para `CREDIT`). */
 	card: { id: string; config: CardConfig } | null;
-	/** O cartão que um pagamento de fatura feito pela conta quita; `null` se há mais de um ou nenhum. */
-	paymentCardId: string | null;
 	/** CPF/CNPJ do titular da conta (`taxNumber`), para reconhecer transferência para si mesmo. */
 	ownerTaxNumber?: string | null;
-	/** Pagamentos de fatura conhecidos (`GET /bills`). Mais confiável que o nome da categoria. */
-	billPayments?: readonly BillPayment[];
+	/**
+	 * Quais lançamentos são pagamento de fatura, já casados um a um (`assignBillPayments`), por id do lançamento.
+	 * Mais confiável que o nome da categoria.
+	 */
+	billPaymentMatches?: ReadonlyMap<string, BillPayment>;
+	/** Totais das faturas (plano B por categoria). */
+	billTotals?: readonly BillTotal[];
+	/** Mês de cada fatura (`billId` → mês do vencimento): vale mais que o cálculo pelo dia de fechamento. */
+	billMonths?: ReadonlyMap<string, string>;
+	/** As faturas não carregaram: débito da conta e crédito do cartão ficam de fora até carregarem. */
+	billsUnavailable?: boolean;
 }
 
 const digits = (value: string | null | undefined) => (value ?? "").replace(/\D/g, "");
@@ -174,14 +230,11 @@ function isOwnTransferByDocument(tx: PluggyTransaction, ownerTaxNumber: string |
 	return owner !== "" && other === owner;
 }
 
-function matchingBillPayment(
-	payments: readonly BillPayment[] | undefined,
-	amountCents: number,
-	date: LocalDate,
-): BillPayment | undefined {
-	return payments?.find(
-		(p) => p.amountCents === amountCents && Math.abs(daysBetween(p.date, date)) <= BILL_PAYMENT_DAYS,
-	);
+/** Valor (centavos) e dia de um lançamento, ou `null` se o Órbita não aceita. Base do casamento com as faturas. */
+export function transactionFacts(tx: PluggyTransaction): { amountCents: number; date: LocalDate } | null {
+	const amount = amountCentsOf(tx);
+	const date = pluggyDateToLocal(tx.date);
+	return typeof amount === "number" && date !== null ? { amountCents: amount, date } : null;
 }
 
 /** Minúsculo e sem acento, para comparar texto de categoria. */
@@ -242,8 +295,10 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 
 	if (ctx.accountType === "BANK") {
 		if (ctx.accountId === null) return { action: "skip", reason: "invalid" };
-		// 1) Pagamento que o próprio Pluggy registrou na fatura (valor + dia): sabe até qual cartão.
-		const billPayment = tx.type === "DEBIT" ? matchingBillPayment(ctx.billPayments, amount, date) : undefined;
+		// Sem as faturas não dá para distinguir pagamento de fatura de gasto, e o upsert nunca corrige depois.
+		if (tx.type === "DEBIT" && ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
+		// 1) Pagamento que o próprio Pluggy registrou na fatura (valor + dia, um débito por pagamento): sabe o cartão.
+		const billPayment = tx.type === "DEBIT" ? ctx.billPaymentMatches?.get(tx.id) : undefined;
 		if (billPayment) {
 			return {
 				action: "upsert",
@@ -251,14 +306,19 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 				input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: billPayment.cardId },
 			};
 		}
-		// 2) Sem fatura para casar: o nome da categoria (suposição), e só com um cartão na conexão.
+		// 2) Sem pagamento para casar: o nome da categoria (suposição). Só liga a um cartão se o valor bate com o total
+		// de uma fatura de um único cartão; senão fica de fora (o Órbita não tem pagamento de fatura "sem cartão").
 		if (isCardPayment) {
 			if (tx.type === "CREDIT") return { action: "skip", reason: "card_payment" };
-			if (ctx.paymentCardId === null) return { action: "skip", reason: "card_payment_unlinked" };
+			const cards = new Set(
+				(ctx.billTotals ?? []).filter((b) => b.amountCents === amount).map((b) => b.cardId),
+			);
+			const [only] = [...cards];
+			if (cards.size !== 1 || only === undefined) return { action: "skip", reason: "card_payment_unlinked" };
 			return {
 				action: "upsert",
 				externalId: tx.id,
-				input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: ctx.paymentCardId },
+				input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: only },
 			};
 		}
 		if (isOwnTransferByDocument(tx, ctx.ownerTaxNumber) || includesAny(category, OWN_TRANSFER_CATEGORIES)) {
@@ -273,8 +333,10 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 
 	// Cartão de crédito.
 	if (ctx.card === null) return { action: "skip", reason: "invalid" };
-	const invoiceMonth = invoiceFor(date, ctx.card.config).month;
 	const meta = tx.creditCardMetadata;
+	// A fatura que o próprio Pluggy indica (billId → mês do vencimento) vale mais que o cálculo pelo fechamento.
+	const invoiceMonth =
+		(meta?.billId ? ctx.billMonths?.get(meta.billId) : undefined) ?? invoiceFor(date, ctx.card.config).month;
 	const installment =
 		meta?.installmentNumber && meta.totalInstallments && meta.totalInstallments > 1
 			? `Parcela ${meta.installmentNumber}/${meta.totalInstallments}`
@@ -290,9 +352,10 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 			input: { ...base, kind: "expense", cardId: ctx.card.id, invoiceMonth, note },
 		};
 	}
+	if (ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
 	const side = plain(tx.description) || plain(tx.descriptionRaw);
 	if (
-		matchingBillPayment(ctx.billPayments, amount, date)?.cardId === ctx.card.id ||
+		ctx.billPaymentMatches?.has(tx.id) ||
 		isCardPayment ||
 		includesAny(side, CARD_SIDE_PAYMENT_DESCRIPTIONS)
 	) {

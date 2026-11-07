@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import { z } from "zod";
 import { PluggyError, type PluggyErrorCode, pluggyError } from "./errors.ts";
 import {
 	accountSchema,
@@ -30,6 +30,12 @@ export interface PluggyClientOptions {
 	maxBytes?: number;
 }
 
+/** Lançamentos válidos e quantas linhas vieram fora do formato (descartadas uma a uma, sem derrubar a página). */
+export interface PluggyTransactionsResult {
+	transactions: PluggyTransaction[];
+	dropped: number;
+}
+
 export interface PluggyClient {
 	/** `GET /items/{id}`: existe? qual banco? em que estado? */
 	item(itemId: string): Promise<PluggyItem>;
@@ -41,7 +47,7 @@ export interface PluggyClient {
 	 * `GET /v2/transactions?accountId=&dateFrom=&dateTo=` (paginação por cursor; o `GET /transactions` por página está
 	 * marcado como obsoleto no SDK): todas as páginas. Datas "AAAA-MM-DD".
 	 */
-	transactions(input: { accountId: string; from: string; to: string }): Promise<PluggyTransaction[]>;
+	transactions(input: { accountId: string; from: string; to: string }): Promise<PluggyTransactionsResult>;
 }
 
 const PAGE_SIZE = 500;
@@ -196,17 +202,29 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 		throw pluggyError("too_large");
 	}
 
-	// Entram no caminho da URL: só caracteres seguros (nunca "/", "?" ou "..").
-	/** Todas as páginas de um endpoint por cursor. Só o parâmetro `after` do `next` é aproveitado: o host nunca vem da resposta. */
-	async function allCursorPages<S extends z.ZodType>(path: string, params: Record<string, string>, item: S) {
-		const out: z.infer<S>[] = [];
-		const schema = cursorPage(item);
+	/**
+	 * Todas as páginas de um endpoint por cursor. Só o parâmetro `after` do `next` é aproveitado: o host nunca vem da
+	 * resposta. O envelope (`results`, `next`) é rígido; cada linha é validada sozinha e a que não passa é descartada
+	 * e contada (nunca logada: o conteúdo é dado de terceiro).
+	 */
+	async function allCursorPages<S extends z.ZodType>(
+		path: string,
+		params: Record<string, string>,
+		item: S,
+	): Promise<{ rows: z.infer<S>[]; dropped: number }> {
+		const rows: z.infer<S>[] = [];
+		let dropped = 0;
+		const schema = cursorPage(z.unknown());
 		let after: string | null = null;
 		for (let n = 1; n <= MAX_CURSOR_PAGES; n++) {
 			const query: URLSearchParams = new URLSearchParams(after === null ? params : { ...params, after });
 			const body = parse(schema, await get(`${path}?${query}`));
-			out.push(...body.results);
-			if (body.next === null || body.results.length === 0) return out;
+			for (const raw of body.results) {
+				const row = item.safeParse(raw);
+				if (row.success) rows.push(row.data);
+				else dropped += 1;
+			}
+			if (body.next === null || body.results.length === 0) return { rows, dropped };
 			let next: string | null = null;
 			try {
 				next = new URL(body.next, PLUGGY_BASE_URL).searchParams.get("after");
@@ -220,6 +238,7 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 		throw pluggyError("too_large");
 	}
 
+	// Entram no caminho da URL: só caracteres seguros (nunca "/", "?" ou "..").
 	const needUuid = (value: string) => {
 		if (!UUID.test(value)) throw new RangeError("o ID da conexão deve ser um UUID");
 		return value;
@@ -241,11 +260,12 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 		},
 		async transactions({ accountId, from, to }) {
 			if (!DATE.test(from) || !DATE.test(to)) throw new RangeError("datas devem ser AAAA-MM-DD");
-			return allCursorPages(
+			const { rows, dropped } = await allCursorPages(
 				"/v2/transactions",
 				{ accountId: needSafeId(accountId), dateFrom: from, dateTo: to },
 				transactionSchema,
 			);
+			return { transactions: rows, dropped };
 		},
 	};
 }

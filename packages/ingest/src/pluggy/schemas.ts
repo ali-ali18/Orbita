@@ -90,6 +90,9 @@ export const cursorPage = <T extends z.ZodType>(item: T) =>
 /** Fatura do cartão (`GET /bills`): só o que importa, os pagamentos feitos nela. */
 export const billSchema = z.object({
 	id,
+	/** Vencimento: o mês dele é o mês da fatura no Órbita (`Invoice.month`). */
+	dueDate: z.string().max(40).nullish(),
+	totalAmount: money.nullish(),
 	payments: z
 		.array(
 			z.object({

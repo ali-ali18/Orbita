@@ -27,9 +27,9 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 
 **Detecção de pagamento de fatura e de transferência própria.** O SDK **não** expõe `categoryId` fixo, enum de `operationType` (é `string | null` livre) nem lista de categorias (`types/category.d.ts` só tem `id`/`description`). Por isso o Órbita usa, nesta ordem, sinais estruturais:
 
-1. Pagamento de fatura: débito na conta com mesmo valor (e até 3 dias de diferença) de um `payments[]` de `/bills` → `card_payment` ligado ao cartão daquela fatura (funciona com vários cartões). O crédito de mesmo valor no cartão não é estorno.
+1. Pagamento de fatura: cada `payments[]` de `/bills` casa com **um** débito da conta (mesmo valor, até 3 dias de diferença; prefere o mesmo dia, depois o mais próximo; o pagamento é consumido) → `card_payment` ligado ao cartão daquela fatura, com qualquer número de cartões. Um aluguel de mesmo valor dois dias depois continua gasto. No cartão vale o mesmo: o crédito casado é o pagamento (ignorado) e um estorno real de mesmo valor continua estorno.
 2. Transferência própria: `paymentData.payer` e `receiver` com o mesmo CPF/CNPJ, ou a outra ponta igual ao `taxNumber` da conta.
-3. Só se nada acima serve: nome da categoria (suposição) — pagamento de fatura com um único cartão na conexão.
+3. Só se nada acima serve: nome da categoria (suposição), e **só liga a um cartão se o valor bate com o total (`totalAmount`) de uma fatura de um único cartão** da conexão. Senão o lançamento fica de fora (`card_payment_unlinked`, com aviso): o Órbita não tem "pagamento de fatura sem cartão" (`card_payment` exige conta e cartão), então ignorar é mais honesto que inventar um cartão ou contar como gasto.
 
 **Ainda suposição (o SDK não diz)**
 
@@ -48,7 +48,7 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 2. O worker roda `syncPluggy` todo dia às 06:00 (America/Sao_Paulo) e quando o app chama `POST /v1/pluggy/sync`.
 3. Para cada conexão: `GET /items/{id}` (se o banco pediu reconexão, para com erro claro) → `GET /accounts` → por conta, `GET /v2/transactions` na janela (e `GET /bills` para os cartões) → `upsertByExternal("pluggy", id)`.
 
-**Janela:** primeira vez, 90 dias; depois, desde a última sincronização boa menos 7 dias (o Pluggy efetiva lançamentos com atraso). `lastSyncAt` só avança quando a conexão termina `ok`; `partial` e `error` repetem a janela.
+**Janela:** primeira vez, 90 dias; depois, desde a última sincronização boa menos **40 dias**. Lançamento de cartão pode levar semanas para efetivar (entra com a data da compra); a gravação é idempotente, então a folga só custa uma consulta maior. `lastSyncAt` só avança quando a conexão termina `ok`. Ficam `partial` (e repetem a janela): item que não está `UPDATED` (banco atrasado: `UPDATING`, `OUTDATED`…, nota "o banco não atualizou"), falha nas faturas e conta que não sincronizou.
 
 **Idempotência:** conta e cartão ligados por `(source "pluggy", externalId)`; lançamento por `upsertByExternal`. Rodar duas vezes não duplica nem sobrescreve. O que o dono apagou não volta; conta/cartão arquivados são pulados.
 
@@ -56,18 +56,18 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 
 ## Mapeamento
 
-| Pluggy                              | Órbita                                                                                                                                                       |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| conta `BANK`                        | `Account` (`checking`, ou `savings` se `SAVINGS_ACCOUNT`)                                                                                                    |
-| conta `CREDIT`                      | `Card` com fechamento/vencimento (dia de `balanceCloseDate`/`balanceDueDate`) e limite; o dono pode ajustar os dias depois, o sync só mantém o limite em dia |
-| `DEBIT` na conta                    | `expense`                                                                                                                                                    |
-| `CREDIT` na conta                   | `income`                                                                                                                                                     |
-| `DEBIT` no cartão                   | `expense` com `invoiceMonth` de `invoiceFor` (engine)                                                                                                        |
-| `CREDIT` no cartão                  | pagamento recebido: ignorado; senão `refund` ligado à compra original                                                                                        |
-| pagamento de fatura pela conta      | `card_payment` (não é gasto) — só se a conexão tem **um** cartão                                                                                             |
-| transferência entre contas próprias | ignorada (não é gasto nem receita)                                                                                                                           |
-| `PENDING`                           | ignorado até efetivar (o id pode mudar)                                                                                                                      |
-| moeda ≠ BRL                         | usa `amountInAccountCurrency` se vier; senão ignora                                                                                                          |
+| Pluggy                              | Órbita                                                                                                                                                                            |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| conta `BANK`                        | `Account` (`checking`, ou `savings` se `SAVINGS_ACCOUNT`)                                                                                                                         |
+| conta `CREDIT`                      | `Card` com fechamento/vencimento (dia de `balanceCloseDate`/`balanceDueDate`) e limite; o dono pode ajustar os dias depois, o sync só mantém o limite em dia                      |
+| `DEBIT` na conta                    | `expense`                                                                                                                                                                         |
+| `CREDIT` na conta                   | `income`                                                                                                                                                                          |
+| `DEBIT` no cartão                   | `expense`; `invoiceMonth` = mês do vencimento da fatura indicada por `creditCardMetadata.billId` (quando `/bills` a traz); sem isso, `invoiceFor` (engine) pelo dia de fechamento |
+| `CREDIT` no cartão                  | pagamento recebido: ignorado; senão `refund` ligado à compra original                                                                                                             |
+| pagamento de fatura pela conta      | `card_payment` (não é gasto) — só se a conexão tem **um** cartão                                                                                                                  |
+| transferência entre contas próprias | ignorada (não é gasto nem receita)                                                                                                                                                |
+| `PENDING`                           | ignorado até efetivar (o id pode mudar)                                                                                                                                           |
+| moeda ≠ BRL                         | usa `amountInAccountCurrency` se vier; senão ignora                                                                                                                               |
 
 **Dinheiro:** o `amount` do Pluggy é float. `decimalToCents` (em `@orbita/core`) converte via texto com 6 casas e arredonda meio centavo para longe do zero (`0.1 + 0.2` → 30). Nunca `amount * 100`.
 
@@ -79,7 +79,10 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 
 - **Parcelas** entram como lançamentos simples ("Parcela 3/10" na observação). O Pluggy manda uma parcela por fatura, sem id de grupo; casar com `createInstallmentGroup` exigiria heurística (descrição + valor + total).
 - **`pending` ↔ Pluggy:** o Pluggy não casa com o lançamento que a notificação criou como `pending`; os dois coexistem até o conciliador da Fase 6.
-- **Pagamento de fatura** sem fatura correspondente em `/bills` e com 2+ cartões na conexão é ignorado (`card_payment_unlinked`).
+- **Pagamento de fatura** que não casa com `/bills` nem tem total de fatura igual é ignorado (`card_payment_unlinked`), com aviso nas notas.
+- **Falha em `/bills`** (que não seja 404/403 = conector sem faturas) deixa a conexão `partial` e tira da rodada os débitos da conta e os créditos do cartão (`bills_unavailable`): como o `upsertByExternal` nunca corrige um lançamento já gravado, gravar agora um pagamento de fatura como gasto o deixaria errado para sempre. Entram na rodada seguinte.
+- **Reclassificar lançamento já importado** (ex.: `expense` → `card_payment` quando as faturas passam a casar) **não foi feito**: o store não guarda "editado pelo dono" (só `updatedAt`, que também muda por automação), então não dá para saber com segurança se o dono mexeu. Fica como pendência; o caminho seguro é o descrito acima (não gravar na dúvida).
+- **Linha fora do formato** em `/v2/transactions` é descartada e contada nas notas ("N lançamento(s) vieram fora do formato"), sem derrubar a página nem logar o conteúdo; a conexão segue `ok` (se virasse `partial`, uma linha ruim permanente travaria a janela).
 - Sem categorização (`categoryId` nulo): vem das regras da Fase 6.
 - Remover uma conexão só para de sincronizar; contas e lançamentos importados ficam.
 - Cartão sem datas de fatura no `creditData` é ignorado, com aviso nas notas do resultado.

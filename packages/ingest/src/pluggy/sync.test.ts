@@ -61,10 +61,19 @@ const cardTxs = [
 	}),
 ];
 
+const bill = (id: string, dueDate: string, totalAmount: number, payments: object[] = []) => ({
+	id,
+	dueDate,
+	totalAmount,
+	payments,
+});
+
 function setup(options: FakePluggyOptions = {}, secrets = SECRETS) {
 	const stores = createMemoryStores({ now: () => NOW });
 	const fake = fakePluggy({
 		transactions: { [BANK_ACCOUNT_ID]: bankTxs, [CARD_ACCOUNT_ID]: cardTxs },
+		// Fatura de novembro: vence 17/11, total R$ 830,10 (o plano B por categoria casa pelo total).
+		bills: { [CARD_ACCOUNT_ID]: [bill("bill-nov", "2026-11-17T00:00:00.000Z", 830.1)] },
 		...options,
 	});
 	let clock = NOW;
@@ -161,11 +170,11 @@ describe("syncPluggy", () => {
 		expect(after).toEqual(before);
 		expect(await t.stores.accounts.list()).toHaveLength(1);
 		expect(await t.stores.cards.list()).toHaveLength(1);
-		// A segunda rodada só olha desde 05/11 (12/11 menos 7 dias): os 4 lançamentos dessa janela já existem.
-		expect(second.connections[0]).toMatchObject({ created: 0, existing: 4, status: "ok" });
+		// A segunda rodada olha desde 03/10 (12/11 menos 40 dias): os 6 lançamentos já existem.
+		expect(second.connections[0]).toMatchObject({ created: 0, existing: 6, status: "ok" });
 	});
 
-	it("primeira vez busca 90 dias; depois, desde a última sincronização boa menos 7 dias", async () => {
+	it("primeira vez busca 90 dias; depois, desde a última sincronização boa menos 40 dias", async () => {
 		await t.run();
 		const from = () =>
 			t.fake.requests
@@ -179,7 +188,7 @@ describe("syncPluggy", () => {
 		t.fake.requests.length = 0;
 		t.setNow(new Date("2026-11-13T09:00:00Z"));
 		await t.run();
-		expect(from()).toEqual(["2026-11-05", "2026-11-05"]);
+		expect(from()).toEqual(["2026-10-03", "2026-10-03"]);
 	});
 
 	it("o lançamento que o dono apagou não volta", async () => {
@@ -221,15 +230,20 @@ describe("syncPluggy", () => {
 		expect(first?.limitCents).toBe(700_000);
 	});
 
-	it("com mais de um cartão na conexão, o pagamento de fatura não adivinha qual", async () => {
+	it("plano B: dois cartões com fatura do mesmo total não deixam adivinhar; fica de fora, com aviso", async () => {
 		const other = { ...cardAccount, id: "0f1d2c3b-aaaa-4bbb-8ccc-000000000003", number: "9999" };
 		const t2 = setup({
 			accounts: [(await import("./fake-pluggy.ts")).bankAccount, cardAccount, other],
 			transactions: { [BANK_ACCOUNT_ID]: bankTxs, [CARD_ACCOUNT_ID]: [], [other.id]: [] },
+			bills: {
+				[CARD_ACCOUNT_ID]: [bill("a", "2026-11-17T00:00:00.000Z", 830.1)],
+				[other.id]: [bill("b", "2026-11-20T00:00:00.000Z", 830.1)],
+			},
 		});
 		await t2.stores.pluggyConnections.add({ id: ITEM_ID });
 		const result = await t2.run();
 		expect(result.connections[0]?.skipped.card_payment_unlinked).toBe(1);
+		expect(result.connections[0]?.notes.join(" ")).toContain("pagamento(s) de fatura não foram ligados");
 		expect((await everything(t2.stores)).some((r) => r.kind === "card_payment")).toBe(false);
 	});
 
@@ -416,5 +430,193 @@ describe("syncPluggy", () => {
 			cards: await t.stores.cards.list(),
 		});
 		for (const secret of [CLIENT_ID, CLIENT_SECRET, API_KEY]) expect(dump).not.toContain(secret);
+	});
+
+	describe("janela, estado do banco e faturas", () => {
+		const jan = (extra: Record<string, unknown>) =>
+			tx("c-late", { description: "Compra tardia", amount: 75, ...extra });
+
+		it("lançamento do cartão que efetiva semanas depois ainda entra (sobreposição de 40 dias)", async () => {
+			await t.run(); // 12/11, lastSyncAt = 12/11
+			cardTxs.push(jan({ date: "2026-10-25T00:00:00.000Z" })); // 18 dias antes da última sincronização
+			try {
+				t.setNow(new Date("2026-12-02T09:00:00Z"));
+				await t.run();
+			} finally {
+				cardTxs.pop();
+			}
+			expect((await everything(t.stores)).find((r) => r.externalId === "c-late")).toMatchObject({
+				kind: "expense",
+				amountCents: 7500,
+			});
+		});
+
+		it.each(["OUTDATED", "UPDATING"])(
+			"item %s: importa o que veio, mas fica 'partial' e a janela não avança",
+			async (status) => {
+				const t2 = setup({ item: { status } });
+				await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+				const result = await t2.run();
+				expect(result.status).toBe("partial");
+				expect(result.connections[0]?.notes).toContain("O banco não atualizou os dados no Pluggy ainda.");
+				const [c] = await t2.stores.pluggyConnections.list();
+				expect(c).toMatchObject({ lastStatus: "partial", lastSyncAt: null });
+				expect(c?.lastError).toContain("banco não atualizou");
+				expect((await everything(t2.stores)).length).toBeGreaterThan(0);
+			},
+		);
+
+		it("falha nas faturas: débitos que podem ser pagamento ficam de fora, conexão 'partial'; na volta, entram certos", async () => {
+			let broken = true;
+			const t2 = setup({
+				bills: { [CARD_ACCOUNT_ID]: [bill("bill-nov", "2026-11-17T00:00:00.000Z", 830.1)] },
+				override: (url) =>
+					broken && url.pathname === "/bills" ? new Response("{}", { status: 503 }) : undefined,
+			});
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			const first = await t2.run();
+			expect(first.status).toBe("partial");
+			// Débitos da conta (b-1, b-3, b-4) e créditos do cartão (c-3, c-4, c-5).
+			expect(first.connections[0]?.skipped.bills_unavailable).toBe(6);
+			const [c] = await t2.stores.pluggyConnections.list();
+			expect(c).toMatchObject({ lastStatus: "partial", lastSyncAt: null });
+			expect(c?.lastError).toContain("faturas do cartão não carregaram");
+			const ids = (await everything(t2.stores)).map((r) => r.externalId);
+			expect(ids).not.toContain("b-4"); // nunca vira "gasto" por engano
+			expect(ids).toContain("b-2"); // receita e compras no cartão não dependem das faturas
+			expect(ids).toContain("c-1");
+
+			broken = false;
+			expect((await t2.run()).status).toBe("ok");
+			expect((await everything(t2.stores)).find((r) => r.externalId === "b-4")).toMatchObject({
+				kind: "card_payment",
+			});
+		});
+
+		it("conector sem faturas (404) vale como 'sem faturas', sem ficar partial", async () => {
+			const t2 = setup({ bills: {} });
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			const result = await t2.run();
+			expect(result.status).toBe("ok");
+			expect(result.connections[0]?.skipped.card_payment_unlinked).toBe(1);
+		});
+
+		it("billId com fatura conhecida decide o invoiceMonth; sem ela vale o engine", async () => {
+			const t2 = setup({
+				transactions: {
+					[BANK_ACCOUNT_ID]: [],
+					[CARD_ACCOUNT_ID]: [
+						// 09/11 caiu na fatura de dezembro segundo o banco (o engine diria novembro).
+						tx("with-bill", {
+							amount: 10,
+							date: "2026-11-09T00:00:00.000Z",
+							creditCardMetadata: { billId: "bill-dez" },
+						}),
+						tx("no-bill", { amount: 11, date: "2026-11-09T00:00:00.000Z" }),
+						tx("unknown-bill", {
+							amount: 12,
+							date: "2026-11-09T00:00:00.000Z",
+							creditCardMetadata: { billId: "?" },
+						}),
+					],
+				},
+				bills: { [CARD_ACCOUNT_ID]: [bill("bill-dez", "2026-12-17T00:00:00.000Z", 10)] },
+			});
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			const by = Object.fromEntries((await everything(t2.stores)).map((r) => [r.externalId, r.invoiceMonth]));
+			expect(by).toEqual({ "with-bill": "2026-12", "no-bill": "2026-11", "unknown-bill": "2026-11" });
+		});
+
+		it("o pagamento da fatura consome um débito só: aluguel de mesmo valor 2 dias depois continua gasto", async () => {
+			const t2 = setup({
+				transactions: {
+					[BANK_ACCOUNT_ID]: [
+						tx("rent", {
+							description: "Aluguel",
+							amount: -1200,
+							category: null,
+							date: "2026-11-07T00:00:00.000Z",
+						}),
+						tx("fatura", {
+							description: "Débito",
+							amount: -1200,
+							category: null,
+							date: "2026-11-05T00:00:00.000Z",
+						}),
+					],
+					[CARD_ACCOUNT_ID]: [],
+				},
+				bills: {
+					[CARD_ACCOUNT_ID]: [
+						bill("b", "2026-11-17T00:00:00.000Z", 1200, [
+							{ paymentDate: "2026-11-05T00:00:00.000Z", amount: 1200 },
+						]),
+					],
+				},
+			});
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			const by = Object.fromEntries((await everything(t2.stores)).map((r) => [r.externalId, r.kind]));
+			expect(by).toEqual({ fatura: "card_payment", rent: "expense" });
+		});
+
+		it("no cartão: o crédito do pagamento é ignorado e o estorno real de mesmo valor continua estorno", async () => {
+			const t2 = setup({
+				transactions: {
+					[BANK_ACCOUNT_ID]: [],
+					[CARD_ACCOUNT_ID]: [
+						tx("loja", { description: "Loja", amount: 300, date: "2026-10-20T00:00:00.000Z" }),
+						tx("pagto", {
+							description: "Crédito",
+							type: "CREDIT",
+							amount: -300,
+							category: null,
+							date: "2026-11-05T00:00:00.000Z",
+						}),
+						tx("estorno", {
+							description: "Loja",
+							type: "CREDIT",
+							amount: -300,
+							category: null,
+							date: "2026-11-06T00:00:00.000Z",
+						}),
+					],
+				},
+				bills: {
+					[CARD_ACCOUNT_ID]: [
+						bill("b", "2026-11-17T00:00:00.000Z", 300, [
+							{ paymentDate: "2026-11-05T00:00:00.000Z", amount: 300 },
+						]),
+					],
+				},
+			});
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			const by = Object.fromEntries((await everything(t2.stores)).map((r) => [r.externalId, r.kind]));
+			expect(by).toEqual({ loja: "expense", estorno: "refund" });
+		});
+
+		it("linha fora do formato é descartada e anotada; o resto entra e a conexão segue 'ok'", async () => {
+			const t2 = setup({
+				transactions: {
+					[BANK_ACCOUNT_ID]: [
+						tx("bom", { amount: -5 }),
+						{ id: "ruim", date: "2026-11-03T00:00:00.000Z", segredo: "texto do banco" },
+						tx("torto", { amount: { v: 1 } }),
+					] as never,
+					[CARD_ACCOUNT_ID]: [],
+				},
+			});
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			const logs: string[] = [];
+			const result = await syncPluggy({ ...t2.deps(), log: (l) => logs.push(l) });
+			expect(result.status).toBe("ok");
+			expect(result.connections[0]?.notes).toContain(
+				"2 lançamento(s) vieram fora do formato e foram descartados.",
+			);
+			expect((await everything(t2.stores)).map((r) => r.externalId)).toEqual(["bom"]);
+			expect(JSON.stringify([logs, result])).not.toContain("texto do banco");
+		});
 	});
 });
