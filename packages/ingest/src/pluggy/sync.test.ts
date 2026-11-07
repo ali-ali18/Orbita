@@ -825,6 +825,26 @@ describe("syncPluggy", () => {
 			expect((await t2.stores.cards.get(mine.id))?.name).toBe("Meu cartão");
 		});
 
+		it("conector que não é o MeuPluggy mantém o nome do banco", async () => {
+			const t2 = setup({ transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: [] } });
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID, label: "Nubank" });
+			await t2.run();
+			expect((await t2.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("Nubank");
+		});
+
+		it("falha ao gravar o nome só vira nota: o sync segue e conta o resumo", async () => {
+			const t2 = meu();
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+			t2.stores.pluggyConnections.setAutoLabel = async () => {
+				throw new Error("segredo-do-banco");
+			};
+			const result = await t2.run();
+			expect(result.status).toBe("ok");
+			expect(result.connections[0]?.notes).toEqual(["Não deu para sugerir o nome da conexão agora."]);
+			expect(JSON.stringify(result)).not.toContain("segredo-do-banco");
+			expect(await t2.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({ accountCount: 1, cardCount: 1 });
+		});
+
 		it("erro antes de ligar as contas não zera o resumo", async () => {
 			const t2 = meu();
 			await t2.stores.pluggyConnections.add({ id: ITEM_ID });

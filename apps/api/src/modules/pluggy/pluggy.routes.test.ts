@@ -129,6 +129,7 @@ describe("conexões", () => {
 			{ label: "   " },
 			{ label: "x".repeat(61) },
 			{ label: "linha\nquebrada" },
+			{ label: "invisi\u200bvel" },
 			{ label: 12 },
 			{ label: "Ok", itemId: OTHER },
 		]) {

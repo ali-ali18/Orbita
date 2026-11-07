@@ -261,7 +261,12 @@ async function syncConnection(
 			accounts: linked.filter((l) => l.account !== null && l.account.archivedAt === null).length,
 			cards: linked.filter((l) => l.card !== null && l.card.archivedAt === null).length,
 		};
-		await suggestLabel(deps, connection, item.connector?.name, pluggyAccounts);
+		try {
+			await suggestLabel(deps, connection, item.connector?.name, pluggyAccounts);
+		} catch {
+			// O nome é só conforto: falhar aqui não pode derrubar a sincronização. Sem detalhe (pode vir do banco).
+			result.notes.push("Não deu para sugerir o nome da conexão agora.");
+		}
 		const liveCards = linked.filter((l) => l.card !== null && l.card.archivedAt === null);
 
 		// Pagamentos (casam débito da conta com cartão), totais (plano B) e mês de cada fatura.

@@ -22,7 +22,7 @@ export const PLUGGY_SYNC_STATUSES = ["ok", "partial", "error", "no_keys"] as con
 export type PluggySyncStatus = (typeof PLUGGY_SYNC_STATUSES)[number];
 
 /** Sem caractere de controle (quebra de linha, tabulação, etc.): o nome vai para uma linha só. */
-const noControlChars = (v: string) => !/\p{Cc}/u.test(v);
+const noControlChars = (v: string) => !/[\p{Cc}\p{Cf}]/u.test(v);
 
 /** Nome de uma conexão: 1..60 letras, aparado, sem controle. */
 export const pluggyLabelSchema = z

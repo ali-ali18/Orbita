@@ -237,8 +237,10 @@ function ConnectionDetail({
 	const [saveMessage, setSaveMessage] = useState<string | null>(null);
 	const saveLocked = useRef(false);
 
+	const nameChanged = labelText.trim() !== "" && labelText.trim() !== (connection.label ?? "");
+
 	const saveName = async () => {
-		if (saveLocked.current) return;
+		if (saveLocked.current || !nameChanged) return;
 		saveLocked.current = true;
 		setSaving(true);
 		setSaveMessage(null);
@@ -311,10 +313,15 @@ function ConnectionDetail({
 				label="Salvar nome"
 				variant="secondary"
 				loading={saving}
-				disabled={labelText.trim() === "" || labelText.trim() === (connection.label ?? "")}
+				disabled={!nameChanged}
 				onPress={() => void saveName()}
 			/>
-			<Button label="Remover conexão" variant="secondary" onPress={() => setConfirming(true)} />
+			<Button
+				label="Remover conexão"
+				variant="secondary"
+				disabled={saving}
+				onPress={() => setConfirming(true)}
+			/>
 		</View>
 	);
 }

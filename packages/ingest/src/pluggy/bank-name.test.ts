@@ -29,9 +29,19 @@ describe("cleanBankName", () => {
 	it("mantém o que não é só o banco e põe Title Case no que veio em caixa alta", () => {
 		expect(cleanBankName("MeuPluggy Mercado Pago Conta Corrente")).toBe("Mercado Pago Conta Corrente");
 		expect(cleanBankName("Mastercard Black")).toBe("Mastercard Black");
-		expect(cleanBankName("BANCO XYZ DE INVESTIMENTOS")).toBe("Banco Xyz de Investimentos");
-		expect(cleanBankName("MeuPluggy BANC…")).toBe("Banc…");
+		expect(cleanBankName("BANCO XYZ DE INVESTIMENTOS")).toBe("Banco XYZ de Investimentos");
+		expect(cleanBankName("MeuPluggy BANC…")).toBe("BANC…");
 		expect(cleanBankName("  MeuPluggy  ")).toBe("");
+		expect(cleanBankName("BANCO BMG")).toBe("Banco BMG");
+		expect(cleanBankName("BANCO PAN S.A. BRASIL")).toBe("Banco PAN S.A. Brasil");
+		expect(cleanBankName("Mastercard Black")).toBe("Mastercard Black");
+	});
+
+	it("tira invisíveis e repetição do prefixo", () => {
+		expect(cleanBankName("\u200b MeuPluggy \u202e Inter\u200b")).toBe("Inter");
+		expect(cleanBankName("\u200b\u200f \u2060")).toBe("");
+		expect(cleanBankName("MeuPluggy MeuPluggy Mercado Pago")).toBe("Mercado Pago");
+		expect(cleanBankName("meu pluggy - MeuPluggy Nubank")).toBe("Nubank");
 	});
 });
 

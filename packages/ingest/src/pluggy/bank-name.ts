@@ -11,6 +11,7 @@ export const hasMeuPluggyPrefix = (value: string): boolean => PREFIX.test(value.
 
 const squash = (v: string) =>
 	v
+		.replace(/\p{Cf}/gu, "")
 		.replace(/\p{Cc}/gu, " ")
 		.replace(/\s+/g, " ")
 		.trim();
@@ -44,11 +45,26 @@ const KNOWN_BANKS: ReadonlyArray<readonly [name: string, match: RegExp]> = [
 
 const SMALL_WORDS = new Set(["de", "do", "da", "dos", "das", "e"]);
 
+/** Sigla: até 4 letras, todas maiúsculas ("BMG", "S.A."). */
+const isAcronym = (w: string) => {
+	const letters = w.replace(/[^\p{L}]/gu, "");
+	return (
+		letters.length > 0 &&
+		letters.length <= 4 &&
+		letters === letters.toUpperCase() &&
+		letters !== letters.toLowerCase()
+	);
+};
+
 function titleCase(text: string): string {
 	return text
-		.toLowerCase()
 		.split(" ")
-		.map((w, i) => (i > 0 && SMALL_WORDS.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+		.map((word, i) => {
+			const w = word.toLowerCase();
+			if (i > 0 && SMALL_WORDS.has(w)) return w;
+			if (isAcronym(word)) return word;
+			return w.charAt(0).toUpperCase() + w.slice(1);
+		})
 		.join(" ");
 }
 
@@ -57,7 +73,9 @@ function titleCase(text: string): string {
  * (Brasil) S.A." → "Santander"); o resto fica como veio, só em Title Case quando veio todo em caixa alta (ou baixa).
  */
 export function cleanBankName(raw: string): string {
-	const text = squash(raw.trim().replace(PREFIX, ""));
+	// Invisíveis (ZWSP, bidi) saem antes de aparar e de decidir se ficou vazio; prefixo repetido sai todo.
+	let text = squash(raw);
+	while (PREFIX.test(text)) text = squash(text.replace(PREFIX, ""));
 	if (text.length === 0) return "";
 	const k = key(text);
 	for (const [name, match] of KNOWN_BANKS) if (match.test(k)) return name;
