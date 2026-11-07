@@ -28,9 +28,12 @@ function Routes() {
 				/>
 				<Stack.Screen name="atividades" />
 				<Stack.Screen name="lancamento/[id]" />
+				<Stack.Screen name="assinaturas" />
+				<Stack.Screen name="assinatura" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
 				<Stack.Screen name="configuracoes/index" />
 				<Stack.Screen name="configuracoes/servidor" />
 				<Stack.Screen name="configuracoes/bancos" />
+				<Stack.Screen name="configuracoes/orcamento" />
 			</Stack.Protected>
 			<Stack.Protected guard={state.status === "out"}>
 				<Stack.Screen name="conectar" />

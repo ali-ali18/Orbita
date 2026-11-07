@@ -1,0 +1,105 @@
+import type { Cents } from "@orbita/core";
+import { MAX_CENTS } from "@orbita/shared";
+import { percentOf } from "../../lib/format.ts";
+
+/*
+ * Lógica pura da tela "Orçamento do mês": o limite total e um limite por categoria, o quanto já foi
+ * gasto de cada e a requisição. O cálculo de gasto, sobra e "dá pra gastar" é do servidor; aqui só se organiza o que ele devolve.
+ */
+
+/** Mesmo valor de `TOTAL_BUDGET_SCOPE` em `@orbita/db` (o app não importa o banco). */
+export const TOTAL_SCOPE = "total";
+
+export interface BudgetLike {
+	scope: string;
+	limitCents: Cents;
+}
+
+export interface CategoryLike {
+	id: string;
+	name: string;
+	chartSlot: number | null;
+	archivedAt: string | null;
+}
+
+export interface BudgetRow {
+	id: string;
+	name: string;
+	chartSlot: number | null;
+	/** `null` = sem limite definido. */
+	limitCents: Cents | null;
+	spentCents: Cents;
+	/** 0..100 da barra (passou do limite = 100). */
+	fillPercent: number;
+	over: boolean;
+}
+
+export function totalLimit(budgets: readonly BudgetLike[]): Cents | null {
+	return budgets.find((b) => b.scope === TOTAL_SCOPE)?.limitCents ?? null;
+}
+
+/**
+ * Uma linha por categoria ativa. Com limite primeiro (na ordem das cores do gráfico), sem limite depois, por nome.
+ * Limite de categoria que não existe mais (arquivada) não aparece.
+ */
+export function budgetRows(
+	categories: readonly CategoryLike[],
+	budgets: readonly BudgetLike[],
+	byCategory: Readonly<Record<string, Cents>>,
+): BudgetRow[] {
+	const limits = new Map(budgets.map((b) => [b.scope, b.limitCents]));
+	const rows = categories
+		.filter((c) => c.archivedAt === null)
+		.map<BudgetRow>((c) => {
+			const limit = limits.get(c.id) ?? null;
+			const spent = Math.max(0, byCategory[c.id] ?? 0);
+			return {
+				id: c.id,
+				name: c.name,
+				chartSlot: c.chartSlot,
+				limitCents: limit,
+				spentCents: spent,
+				fillPercent:
+					limit === null ? 0 : limit === 0 ? (spent > 0 ? 100 : 0) : Math.min(100, percentOf(spent, limit)),
+				over: limit !== null && spent > limit,
+			};
+		});
+	const slot = (r: BudgetRow) => r.chartSlot ?? 99;
+	return rows.sort(
+		(a, b) =>
+			Number(a.limitCents === null) - Number(b.limitCents === null) ||
+			(a.limitCents === null ? 0 : slot(a) - slot(b)) ||
+			a.name.localeCompare(b.name, "pt-BR"),
+	);
+}
+
+/** Soma dos limites por categoria; serve de aviso quando passa do total do mês. */
+export function categoryLimitsSum(rows: readonly BudgetRow[]): Cents {
+	return rows.reduce((s, r) => s + (r.limitCents ?? 0), 0);
+}
+
+/** Os limites por categoria somam mais que o total do mês? */
+export function limitsExceedTotal(rows: readonly BudgetRow[], total: Cents | null): boolean {
+	return total !== null && categoryLimitsSum(rows) > total;
+}
+
+export function validateLimit(cents: Cents): string | null {
+	if (!Number.isInteger(cents) || cents <= 0) return "Informe um valor maior que zero.";
+	if (cents > MAX_CENTS) return "O valor passa do limite aceito.";
+	return null;
+}
+
+export type SetRequest = { scope: string; limitCents: Cents };
+
+export function buildSetRequest(
+	scope: string,
+	cents: Cents,
+): { ok: true; request: SetRequest } | { ok: false; message: string } {
+	const message = validateLimit(cents);
+	return message ? { ok: false, message } : { ok: true, request: { scope, limitCents: cents } };
+}
+
+/** Salvar o limite muda o "Dá pra gastar" do Início e a barra dele: o resumo recarrega junto com a lista de limites. */
+export function isAffectedByBudget(queryKey: readonly unknown[], baseUrl: string): boolean {
+	return queryKey[0] === baseUrl && (queryKey[1] === "summary" || queryKey[1] === "budgets");
+}
