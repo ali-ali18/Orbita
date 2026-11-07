@@ -25,6 +25,8 @@ function Routes() {
 					dangerouslySingular
 					options={{ presentation: "modal", animation: "slide_from_bottom" }}
 				/>
+				<Stack.Screen name="configuracoes/index" />
+				<Stack.Screen name="configuracoes/servidor" />
 			</Stack.Protected>
 			<Stack.Protected guard={state.status === "out"}>
 				<Stack.Screen name="conectar" />

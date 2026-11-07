@@ -118,6 +118,78 @@ const bodies = {
 			<Path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3" />
 		</>
 	),
+	/** Das Configurações (Figma 41:605 e 44:817): mesmo traço do conjunto, no viewBox 24. */
+	chave: (
+		<>
+			<Circle cx="7.5" cy="15.5" r="5.5" />
+			<Path d="m21 2-9.6 9.6" />
+			<Path d="m15.5 7.5 3 3L22 7l-3-3" />
+		</>
+	),
+	banco: (
+		<>
+			<Path d="M3 21h18" />
+			<Path d="M5 21V10M10 21V10M14 21V10M19 21V10" />
+			<Path d="m2 10 10-7 10 7z" />
+		</>
+	),
+	alvo: (
+		<>
+			<Circle cx="12" cy="12" r="10" />
+			<Circle cx="12" cy="12" r="6" />
+			<Circle cx="12" cy="12" r="2" />
+		</>
+	),
+	etiqueta: (
+		<>
+			<Path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z" />
+			<Circle cx="7.5" cy="7.5" r=".5" />
+		</>
+	),
+	usuario: (
+		<>
+			<Path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+			<Circle cx="12" cy="7" r="4" />
+		</>
+	),
+	ajustes: (
+		<>
+			<Path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3" />
+			<Path d="M14 2v4M8 10v4M16 18v4" />
+		</>
+	),
+	cadeado: (
+		<>
+			<Rect x="3" y="11" width="18" height="11" rx="2" />
+			<Path d="M7 11V7a5 5 0 0 1 10 0v4" />
+		</>
+	),
+	baixar: (
+		<>
+			<Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+			<Path d="m7 10 5 5 5-5M12 15V3" />
+		</>
+	),
+	"banco-de-dados": (
+		<>
+			<Path d="M3 5a9 3 0 0 0 18 0 9 3 0 0 0-18 0" />
+			<Path d="M3 5v14a9 3 0 0 0 18 0V5" />
+			<Path d="M3 12a9 3 0 0 0 18 0" />
+		</>
+	),
+	codigo: <Path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />,
+	alerta: (
+		<>
+			<Circle cx="12" cy="12" r="10" />
+			<Path d="M12 8v4M12 16h.01" />
+		</>
+	),
+	sair: (
+		<>
+			<Path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+			<Path d="m16 17 5-5-5-5M21 12H9" />
+		</>
+	),
 	/** Não existe no Figma: o olho com um risco, só para o estado "valores escondidos". */
 	"olho-cortado": (
 		<>
