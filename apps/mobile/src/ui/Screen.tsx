@@ -20,12 +20,7 @@ export function Screen({
 }) {
 	const insets = useSafeAreaInsets();
 	return (
-		<View
-			style={[
-				{ flex: 1, backgroundColor: colors.background, paddingTop: Math.max(insets.top, layout.statusBar) },
-				style,
-			]}
-		>
+		<View style={[{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }, style]}>
 			<View style={{ flex: 1 }}>{children}</View>
 			{footer && floatingFooter ? (
 				<View style={styles.floating} pointerEvents="box-none">
