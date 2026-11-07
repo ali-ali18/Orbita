@@ -3,7 +3,7 @@ import type { CategoriesView, InvoiceView } from "../../lib/api.ts";
 import { money } from "../../lib/format.ts";
 import { ListRow, Text } from "../../ui/index.ts";
 import { TransactionDisc } from "../summary/TransactionDisc.tsx";
-import { transactionIcon } from "../summary/transaction-model.ts";
+import { amountTone, transactionIcon } from "../summary/transaction-model.ts";
 import {
 	emptyInvoiceMessage,
 	filterInvoiceLines,
@@ -43,6 +43,7 @@ export function InvoiceLines({
 						title={t.description}
 						caption={invoiceLineCaption(t, category?.name)}
 						value={money(t.amountCents, hidden, { sign: t.kind === "refund" ? "always" : "never" })}
+						valueTone={amountTone(t.kind)}
 						{...(t.status === "pending" ? { badge: "Pendente" } : {})}
 					/>
 				);

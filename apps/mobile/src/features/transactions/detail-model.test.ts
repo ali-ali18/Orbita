@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+	appliedMessage,
+	applyAllLabel,
+	bankCategoryLabel,
 	buildPatch,
+	canApplyToAll,
 	type DetailTransaction,
 	deleteChoices,
 	editableFields,
@@ -138,5 +142,39 @@ describe("rótulos", () => {
 		expect(sourceTitle("manual")).toBe("Lançado por você");
 		expect(statusText("pending").title).toBe("Para revisar");
 		expect(statusText("confirmed").title).toBe("Confirmado");
+	});
+});
+
+describe("aplicar a todos da loja", () => {
+	it("só despesa e estorno com categoria escolhida", () => {
+		expect(canApplyToAll(base)).toBe(true);
+		expect(canApplyToAll({ ...base, kind: "refund" })).toBe(true);
+		expect(canApplyToAll({ ...base, categoryId: null })).toBe(false);
+		expect(canApplyToAll({ ...base, kind: "income" })).toBe(false);
+		expect(canApplyToAll({ ...base, kind: "transfer" })).toBe(false);
+		expect(canApplyToAll({ ...base, kind: "card_payment" })).toBe(false);
+	});
+
+	it("o nome da loja é o do banco, senão a descrição", () => {
+		expect(applyAllLabel({ merchantName: "Uber", description: "UBER *TRIP" })).toBe(
+			"Aplicar a todos de Uber",
+		);
+		expect(applyAllLabel({ merchantName: "  ", description: "iFood" })).toBe("Aplicar a todos de iFood");
+		expect(applyAllLabel({ description: "iFood" })).toBe("Aplicar a todos de iFood");
+	});
+
+	it("mensagem do resultado concorda em número", () => {
+		expect(appliedMessage(0)).toBe("Nenhum outro lançamento para atualizar.");
+		expect(appliedMessage(1)).toBe("1 lançamento atualizado");
+		expect(appliedMessage(12)).toBe("12 lançamentos atualizados");
+	});
+
+	it("categoria no banco só aparece quando o banco mandou", () => {
+		expect(bankCategoryLabel({ sourceCategory: "Shopping › Eletrônicos" })).toBe(
+			"Categoria no banco: Shopping › Eletrônicos",
+		);
+		expect(bankCategoryLabel({ sourceCategory: null })).toBeNull();
+		expect(bankCategoryLabel({ sourceCategory: "  " })).toBeNull();
+		expect(bankCategoryLabel({})).toBeNull();
 	});
 });

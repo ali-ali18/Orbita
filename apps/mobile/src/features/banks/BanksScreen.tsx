@@ -6,6 +6,7 @@ import { toLoadable } from "../../lib/loadable.ts";
 import { useSession } from "../../lib/session.tsx";
 import { BankLogo, Button, ErrorState, IconButton, Screen, Skeleton, Text } from "../../ui/index.ts";
 import { SettingsRow, SettingsSection } from "../settings/SettingsRows.tsx";
+import { bankBadge } from "../summary/summary-model.ts";
 import {
 	bankColorByName,
 	canSync,
@@ -246,13 +247,7 @@ export function BanksScreen() {
 									return (
 										<SettingsRow
 											key={c.id}
-											leading={
-												<BankLogo
-													initial={name.charAt(0).toLocaleUpperCase("pt-BR")}
-													color={bankColorByName(name)}
-													size={36}
-												/>
-											}
+											leading={<BankLogo {...bankBadge({ name })} color={bankColorByName(name)} size={36} />}
 											title={name}
 											caption={connectionCaption(c, now)}
 											onPress={() => setOpenId(c.id)}

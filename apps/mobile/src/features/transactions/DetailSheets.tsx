@@ -23,6 +23,7 @@ export function CategorySheet({
 	selectedId,
 	busy,
 	message,
+	applyAll,
 	onSelect,
 	onClose,
 }: {
@@ -31,6 +32,8 @@ export function CategorySheet({
 	selectedId: string | null;
 	busy: boolean;
 	message: string | null;
+	/** Oferta "Aplicar a todos de <loja>", mostrada depois de trocar a categoria. */
+	applyAll?: { label: string; onPress: () => void } | undefined;
 	onSelect: (id: string | null) => void;
 	onClose: () => void;
 }) {
@@ -42,6 +45,9 @@ export function CategorySheet({
 			>
 				<CategoryChips categories={categories} selectedId={selectedId} onSelect={onSelect} allowNew={false} />
 			</View>
+			{applyAll ? (
+				<Button variant="secondary" label={applyAll.label} onPress={applyAll.onPress} loading={busy} />
+			) : null}
 			<ErrorLine message={message} />
 		</Sheet>
 	);

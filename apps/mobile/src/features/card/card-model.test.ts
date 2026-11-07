@@ -15,6 +15,7 @@ import {
 	installmentCard,
 	invoiceDatesCaption,
 	invoiceLineCaption,
+	invoiceStatusTag,
 	limitBar,
 	limitsOverview,
 	monthAbbrev,
@@ -22,6 +23,7 @@ import {
 	monthWindow,
 	openInvoiceMonth,
 	parseTab,
+	paymentBadge,
 	statusLabel,
 	statusOfMonth,
 	usageMonths,
@@ -274,5 +276,70 @@ describe("limites", () => {
 		expect(cycleLabel(santander)).toBe("Fecha dia 31 · vence dia 7");
 		// Fecha dia 31 (regra padrão): comprar no próprio dia de fechamento rende o prazo máximo.
 		expect(bestPurchaseDay(santander, "2026-11-07")).toBe(30);
+	});
+});
+
+describe("selo de pagamento da fatura", () => {
+	const reais = (c: number) => `R$ ${(c / 100).toFixed(2).replace(".", ",")}`;
+	const base = { dueDate: "2026-11-07", paidCents: 0 };
+
+	it("paga", () => {
+		expect(
+			paymentBadge({ ...base, status: "closed", paymentStatus: "paid", paidCents: 10_000 }, 10_000, reais),
+		).toEqual({
+			label: "Paga",
+			tone: "positive",
+		});
+		// Paga continua paga depois do vencimento.
+		expect(paymentBadge({ ...base, status: "overdue", paymentStatus: "paid" }, 10_000, reais).label).toBe(
+			"Paga",
+		);
+	});
+
+	it("paga em parte diz quanto falta", () => {
+		const closed = paymentBadge(
+			{ ...base, status: "closed", paymentStatus: "partial", paidCents: 4_000 },
+			10_000,
+			reais,
+		);
+		expect(closed.label).toBe("Paga em parte (falta R$ 60,00)");
+		const late = paymentBadge(
+			{ ...base, status: "overdue", paymentStatus: "partial", paidCents: 4_000 },
+			10_000,
+			reais,
+		);
+		expect(late.label).toBe("Paga em parte (falta R$ 60,00) · atrasada");
+	});
+
+	it("não paga: vence dia X antes do vencimento, Atrasada depois", () => {
+		expect(paymentBadge({ ...base, status: "closed", paymentStatus: "unpaid" }, 10_000, reais).label).toBe(
+			"Vence dia 7",
+		);
+		expect(paymentBadge({ ...base, status: "overdue", paymentStatus: "unpaid" }, 10_000, reais).label).toBe(
+			"Atrasada",
+		);
+	});
+
+	it("aberta", () => {
+		expect(paymentBadge({ ...base, status: "open", paymentStatus: "open" }, 10_000, reais)).toEqual({
+			label: "Em aberto",
+			tone: "secondary",
+		});
+	});
+});
+
+describe("fatura paga não 'venceu'", () => {
+	const inv = { closingDate: "2026-10-31", dueDate: "2026-11-07" };
+	it("legenda e selo seguem o pagamento", () => {
+		expect(invoiceDatesCaption({ ...inv, status: "overdue", paymentStatus: "paid" })).toBe(
+			"Vencimento 7 de nov · fechou 31 de out",
+		);
+		expect(invoiceDatesCaption({ ...inv, status: "overdue", paymentStatus: "unpaid" })).toBe(
+			"Venceu 7 de nov · fechou 31 de out",
+		);
+		expect(invoiceStatusTag({ status: "overdue", paymentStatus: "paid" })).toBe("Paga");
+		expect(invoiceStatusTag({ status: "closed", paymentStatus: "paid" })).toBe("Paga");
+		expect(invoiceStatusTag({ status: "overdue", paymentStatus: "unpaid" })).toBe("Venceu");
+		expect(invoiceStatusTag({ status: "open", paymentStatus: "open" })).toBe("Aberta");
 	});
 });

@@ -9,8 +9,7 @@ import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.t
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { Button, ErrorState, IconButton, Screen, Skeleton, Text } from "../../ui/index.ts";
 import { useAccounts, useCards } from "../summary/queries.ts";
-import { bankColor } from "../summary/summary-model.ts";
-import { initialOf } from "../summary/transaction-model.ts";
+import { bankBadge } from "../summary/summary-model.ts";
 import { useMonthTransactions, usePostSubscription, useRecurrences } from "./queries.ts";
 import { SubscriptionRow } from "./SubscriptionRow.tsx";
 import {
@@ -149,9 +148,7 @@ export function SubscriptionsScreen() {
 										caption={chargeCaption(r, status, today, month)}
 										value={money(r.amountCents, hidden, { sign: "never" })}
 										status={status}
-										bank={
-											bank ? { initial: initialOf(bank.name), color: bankColor(bank.bankCode) } : undefined
-										}
+										bank={bank ? bankBadge(bank) : undefined}
 										posting={postingId === r.id}
 										onPress={() => router.push({ pathname: "/assinatura", params: { id: r.id } })}
 										onPostNow={() => postNow(r.id)}

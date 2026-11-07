@@ -1,6 +1,6 @@
 import { colors, radius } from "@orbita/tokens";
 import { View } from "react-native";
-import { BankLogo, Icon, type IconName } from "../../ui/index.ts";
+import { type BankBadge, BankLogo, Icon, type IconName } from "../../ui/index.ts";
 
 const DISC = 44;
 const BADGE = 18;
@@ -8,13 +8,7 @@ const BADGE = 18;
 const BADGE_OFFSET = 28;
 
 /** Disco de 44 com o ícone da categoria e, se houver conta ou cartão, o selo do banco por cima. */
-export function TransactionDisc({
-	icon,
-	bank,
-}: {
-	icon: IconName;
-	bank?: { initial: string; color: string } | undefined;
-}) {
+export function TransactionDisc({ icon, bank }: { icon: IconName; bank?: BankBadge | undefined }) {
 	return (
 		<View style={{ width: DISC, height: DISC }}>
 			<View
@@ -31,7 +25,7 @@ export function TransactionDisc({
 			</View>
 			{bank ? (
 				<View style={{ position: "absolute", left: BADGE_OFFSET, top: BADGE_OFFSET }}>
-					<BankLogo initial={bank.initial} color={bank.color} size={BADGE} ring={colors.background} />
+					<BankLogo {...bank} size={BADGE} ring={colors.background} />
 				</View>
 			) : null}
 		</View>

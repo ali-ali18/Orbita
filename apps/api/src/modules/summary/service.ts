@@ -7,6 +7,9 @@ import {
 	type LocalDate,
 	type MonthKey,
 	monthOf,
+	paidForInvoice,
+	paymentStatus,
+	paymentWindow,
 	pendingInMonth,
 	projectMonth,
 	remainingInstallments,
@@ -147,18 +150,30 @@ export async function monthSummary(
 export async function cardInvoice(stores: Stores, cardId: string, month: MonthKey, today: LocalDate) {
 	const card = orNotFound(await stores.cards.get(cardId), "Cartão", "o");
 	const invoice = invoiceByMonth(month, toCardConfig(card));
-	const txs = await stores.transactions.listByInvoice(cardId, month);
+	const config = toCardConfig(card);
+	const [txs, payments] = await Promise.all([
+		stores.transactions.listByInvoice(cardId, month),
+		stores.transactions.listCardPayments(cardId, paymentWindow(month, config)),
+	]);
 	// Um posting vale para o mês do orçamento do lançamento: busca só os meses que aparecem na fatura.
 	const budgetMonths = [
 		...new Set(txs.filter((t) => t.installmentGroupId === null).map((t) => t.budgetMonth)),
 	];
 	const postings = (await Promise.all(budgetMonths.map((m) => stores.recurrences.listPostings(m)))).flat();
+	const composition = invoiceComposition(txs, {
+		recurringTransactionIds: new Set(postings.map((p) => p.transactionId)),
+	});
+	// Pago = pagamentos de fatura (`card_payment`) atribuídos a esta fatura (regra em `invoice-payment.ts` do core).
+	const paidCents = paidForInvoice(payments, month, config);
 	return {
 		card,
-		invoice: { ...invoice, status: invoiceStatus(invoice, today) },
-		composition: invoiceComposition(txs, {
-			recurringTransactionIds: new Set(postings.map((p) => p.transactionId)),
-		}),
+		invoice: {
+			...invoice,
+			status: invoiceStatus(invoice, today),
+			paidCents,
+			paymentStatus: paymentStatus(invoice, composition.totalCents, paidCents, today),
+		},
+		composition,
 		transactions: txs,
 	};
 }

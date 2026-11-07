@@ -1,7 +1,7 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
-import { Text } from "./Text.tsx";
+import { Text, type TextTone } from "./Text.tsx";
 
 /** Linha de lista: ícone/avatar à esquerda, título + legenda, valor à direita (com legenda opcional). */
 export function ListRow({
@@ -9,6 +9,7 @@ export function ListRow({
 	title,
 	caption,
 	value,
+	valueTone = "primary",
 	valueCaption,
 	badge,
 	onPress,
@@ -17,6 +18,8 @@ export function ListRow({
 	title: string;
 	caption?: string;
 	value?: string;
+	/** Cor do valor: `positive` para dinheiro que entra, `secondary` para movimento entre contas. */
+	valueTone?: TextTone;
 	valueCaption?: string;
 	/** Selo pequeno embaixo do valor (ex.: "Pendente"). */
 	badge?: string;
@@ -38,7 +41,9 @@ export function ListRow({
 			</View>
 			{value ? (
 				<View style={{ alignItems: "flex-end" }}>
-					<Text variant="bodyStrong">{value}</Text>
+					<Text variant="bodyStrong" tone={valueTone}>
+						{value}
+					</Text>
 					{badge ? (
 						<View
 							style={{

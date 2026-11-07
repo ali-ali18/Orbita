@@ -13,6 +13,7 @@ import {
 	invoiceDatesCaption,
 	monthWindow,
 	openInvoiceMonth,
+	paymentBadge,
 	statusLabel,
 	statusOfMonth,
 } from "./card-model.ts";
@@ -74,6 +75,9 @@ export function InvoicesTab({
 					label={card.name}
 					value={money(invoice.data.composition.totalCents, hidden)}
 					caption={invoiceDatesCaption(invoice.data.invoice)}
+					badge={paymentBadge(invoice.data.invoice, invoice.data.composition.totalCents, (c) =>
+						money(c, hidden),
+					)}
 				/>
 			) : (
 				<View style={{ gap: spacing.sm }}>

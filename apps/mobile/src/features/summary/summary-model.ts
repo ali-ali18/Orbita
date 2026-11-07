@@ -1,6 +1,9 @@
 import { type Cents, daysBetween, invoiceFor, type LocalDate, type MonthKey } from "@orbita/core";
 import { banks, chart, chartSeries, colors } from "@orbita/tokens";
+import { bankLogoKey } from "../../lib/bank-logos.ts";
 import { percentOf, pluralDays } from "../../lib/format.ts";
+import type { BankBadge } from "../../ui/index.ts";
+import { initialOf } from "./transaction-model.ts";
 
 /*
  * Funções puras que montam o que a tela Início mostra a partir das respostas da API. Nenhuma
@@ -122,6 +125,15 @@ export function bankColor(bankCode: string | null): string {
 		default:
 			return banks.generic;
 	}
+}
+
+/** O círculo de uma conta, cartão ou conexão: logo do banco se for conhecido (pelo ISPB ou pelo nome), senão a inicial. */
+export function bankBadge(source: { name: string; bankCode?: string | null | undefined }): BankBadge {
+	return {
+		initial: initialOf(source.name),
+		color: bankColor(source.bankCode ?? null),
+		logo: bankLogoKey(source),
+	};
 }
 
 export interface HeroModel {

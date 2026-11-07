@@ -18,9 +18,9 @@ import {
 	useBottomBarHeight,
 } from "../../ui/index.ts";
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
-import { bankColor } from "../summary/summary-model.ts";
+import { bankBadge } from "../summary/summary-model.ts";
 import { TransactionDisc } from "../summary/TransactionDisc.tsx";
-import { amountSignMode, initialOf, signedAmount, transactionIcon } from "../summary/transaction-model.ts";
+import { amountSignMode, amountTone, signedAmount, transactionIcon } from "../summary/transaction-model.ts";
 import {
 	type ActivityFilter,
 	type ActivityTransaction,
@@ -123,12 +123,13 @@ export function ActivityScreen() {
 				leading={
 					<TransactionDisc
 						icon={transactionIcon(t.kind, category?.slug)}
-						bank={source ? { initial: initialOf(source.name), color: bankColor(source.bankCode) } : undefined}
+						bank={source ? bankBadge(source) : undefined}
 					/>
 				}
 				title={t.description}
 				caption={activityCaption(t, category?.name, sources)}
 				value={money(signedAmount(t), hidden, { sign: amountSignMode(t.kind) })}
+				valueTone={amountTone(t.kind)}
 				{...(t.status === "pending" ? { badge: "Pendente" } : {})}
 			/>
 		);

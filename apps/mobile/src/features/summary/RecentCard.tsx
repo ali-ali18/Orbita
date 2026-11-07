@@ -5,11 +5,11 @@ import { money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
 import { ListRow, Text } from "../../ui/index.ts";
 import { LoadableCard } from "./LoadableCard.tsx";
-import { bankColor } from "./summary-model.ts";
+import { bankBadge } from "./summary-model.ts";
 import { TransactionDisc } from "./TransactionDisc.tsx";
 import {
 	amountSignMode,
-	initialOf,
+	amountTone,
 	signedAmount,
 	transactionCaption,
 	transactionIcon,
@@ -69,16 +69,13 @@ export function RecentCard({
 									leading={
 										<TransactionDisc
 											icon={transactionIcon(t.kind, t.categoryId ? slugById.get(t.categoryId) : undefined)}
-											bank={
-												source
-													? { initial: initialOf(source.name), color: bankColor(source.bankCode) }
-													: undefined
-											}
+											bank={source ? bankBadge(source) : undefined}
 										/>
 									}
 									title={t.description}
 									caption={transactionCaption(t, today, { accounts: accountById, cards: cardById })}
 									value={money(signedAmount(t), hidden, { sign: amountSignMode(t.kind) })}
+									valueTone={amountTone(t.kind)}
 								/>
 							);
 						})}

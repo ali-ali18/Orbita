@@ -1,0 +1,7 @@
+Logos dos bancos (PNG 256x256), copiados do pacote npm `logos-bancos-br` 0.8.4 (devDependency de @orbita/mobile),
+pasta logos/png/<ISPB>.png. O pacote é MIT (Copyright (c) 2026 Rafael Matos), mas os logos NÃO são cobertos pela
+licença: são marcas das instituições, publicadas por elas no diretório do Open Finance Brasil. Uso nominativo apenas
+(identificar a conta ou o cartão do banco), sem recolorir nem sugerir parceria. Veja DISCLAIMER.md no pacote.
+
+Só entram os logos usados (lista em src/lib/bank-logos.ts). Para acrescentar um, copie o PNG do mesmo ISPB para esta
+pasta e inclua a chave em src/lib/bank-logos.ts e em src/ui/bank-logo-assets.ts.

@@ -3,8 +3,7 @@ import { colors, radius, spacing, text as typography } from "@orbita/tokens";
 import { type ReactNode, useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { BankLogo, Button, familyByWeight, Icon, Sheet, Text } from "../../ui/index.ts";
-import { bankColor } from "../summary/summary-model.ts";
-import { initialOf } from "../summary/transaction-model.ts";
+import { bankBadge } from "../summary/summary-model.ts";
 import {
 	formatEntryDate,
 	INSTALLMENT_COUNTS,
@@ -78,7 +77,7 @@ export function SourceSheet({
 					selected={o.key === selectedKey}
 					label={o.label}
 					caption={o.detail}
-					leading={<BankLogo initial={initialOf(o.name)} color={bankColor(o.bankCode)} size={32} />}
+					leading={<BankLogo {...bankBadge(o)} size={32} />}
 					onPress={() => onSelect(o.key)}
 				/>
 			))}

@@ -2,8 +2,9 @@ import { colors, radius, spacing } from "@orbita/tokens";
 import { View } from "react-native";
 import { money } from "../../lib/format.ts";
 import { BankLogo, Text } from "../../ui/index.ts";
+import { bankBadge } from "../summary/summary-model.ts";
 import { initialOf } from "../summary/transaction-model.ts";
-import { type CardLike, cardColor, type InstallmentCardModel } from "./card-model.ts";
+import type { CardLike, InstallmentCardModel } from "./card-model.ts";
 
 /** Um parcelamento: inicial da compra com o selo do banco, "Parcela N de M", barra, pago/falta e fim. */
 export function InstallmentCard({
@@ -44,12 +45,7 @@ export function InstallmentCard({
 					</View>
 					{card ? (
 						<View style={{ position: "absolute", left: 26, top: 26 }}>
-							<BankLogo
-								initial={initialOf(card.name)}
-								color={cardColor(card)}
-								size={20}
-								ring={colors.surface}
-							/>
+							<BankLogo {...bankBadge(card)} size={20} ring={colors.surface} />
 						</View>
 					) : null}
 				</View>

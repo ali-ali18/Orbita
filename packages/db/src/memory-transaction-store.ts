@@ -194,6 +194,13 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 				.sort(byDateAsc);
 		},
 
+		async listCardPayments(cardId, { from, to }) {
+			return live()
+				.filter((t) => t.kind === "card_payment" && t.cardId === cardId && t.date >= from && t.date <= to)
+				.map(view)
+				.sort(byDateAsc);
+		},
+
 		async listPending(options = {}) {
 			const limit = cleanLimit(options.limit ?? DEFAULT_PENDING_LIMIT);
 			return live()

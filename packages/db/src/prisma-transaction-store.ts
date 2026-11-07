@@ -260,6 +260,20 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			);
 		},
 
+		async listCardPayments(cardId, { from, to }) {
+			return await many(
+				db.transaction.findMany({
+					where: {
+						cardId,
+						kind: "card_payment",
+						date: { gte: toDbDate(from), lte: toDbDate(to) },
+						deletedAt: null,
+					},
+					orderBy: [...ORDER_BY_DATE],
+				}),
+			);
+		},
+
 		async listPending(options = {}) {
 			const take = cleanLimit(options.limit ?? DEFAULT_PENDING_LIMIT);
 			return await many(
