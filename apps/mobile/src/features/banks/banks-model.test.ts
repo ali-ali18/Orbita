@@ -9,15 +9,23 @@ import {
 	connectionName,
 	connectionStatusLine,
 	formatAgo,
+	homeRefreshDecision,
 	isHomeQuery,
+	isSlowSync,
 	nextPollDelay,
 	parseConnectionInput,
-	shouldRefreshHome,
+	syncAnnouncement,
 	syncButtonLabel,
 	syncCardText,
 	syncErrorMessage,
+	syncSignature,
 } from "./banks-model.ts";
-import { initialAddForm, removeConnection, submitConnection } from "./connection-form-model.ts";
+import {
+	addFormReducer,
+	initialAddForm,
+	removeConnection,
+	submitConnection,
+} from "./connection-form-model.ts";
 
 const NOW = new Date("2026-11-07T15:00:00.000Z");
 const ID = "3F2504E0-4F89-11D3-9A0C-0305E82C3301";
@@ -114,27 +122,75 @@ describe("cartão e botão de sincronização", () => {
 });
 
 describe("polling", () => {
-	it("continua de 3 em 3 s só enquanto roda, com teto de 5 min", () => {
+	it("3 s no começo, 30 s depois de 5 min, nunca para enquanto roda", () => {
 		expect(nextPollDelay("queued", 0)).toBe(3000);
 		expect(nextPollDelay("running", 299_999)).toBe(3000);
-		expect(nextPollDelay("running", 300_000)).toBe(false);
+		expect(nextPollDelay("running", 300_000)).toBe(30_000);
+		expect(nextPollDelay("queued", 3_600_000)).toBe(30_000);
 		expect(nextPollDelay("idle", 0)).toBe(false);
-		expect(nextPollDelay("unavailable", 0)).toBe(false);
+		expect(nextPollDelay("unavailable", 600_000)).toBe(false);
 		expect(nextPollDelay(undefined, 0)).toBe(false);
 	});
-	it("recarrega o Início só quando termina com dado", () => {
+	it("demora: marca depois de 5 min e zera quando nada roda", () => {
+		expect(isSlowSync(null, 10_000_000)).toBe(false);
+		expect(isSlowSync(1000, 1000 + 299_999)).toBe(false);
+		expect(isSlowSync(1000, 1000 + 300_000)).toBe(true);
+		expect(syncCardText({ sync: "running", lastSyncAt: null }, NOW, true).caption).toMatch(
+			/Pode sair desta tela/,
+		);
+		expect(syncCardText({ sync: "running", lastSyncAt: null }, NOW, false).caption).toBe(
+			"Isso pode levar alguns minutos.",
+		);
+	});
+	it("anuncia só a troca de estado", () => {
 		const ok = status({ connections: [conn({ lastStatus: "ok" })] });
-		expect(shouldRefreshHome("running", ok)).toBe(true);
-		expect(shouldRefreshHome("queued", ok)).toBe(true);
-		expect(shouldRefreshHome("idle", ok)).toBe(false);
-		expect(shouldRefreshHome(undefined, ok)).toBe(false);
-		expect(shouldRefreshHome("running", { ...ok, sync: "running" })).toBe(false);
-		expect(shouldRefreshHome("running", status({ connections: [conn({ lastStatus: "error" })] }))).toBe(
-			false,
+		expect(syncAnnouncement(undefined, status({ sync: "queued" }))).toBe("Sincronização na fila.");
+		expect(syncAnnouncement("queued", status({ sync: "running" }))).toBe("Sincronizando.");
+		expect(syncAnnouncement("running", ok)).toBe("Sincronização concluída.");
+		expect(syncAnnouncement("running", status({ connections: [conn({ lastStatus: "error" })] }))).toBe(
+			"A sincronização terminou com erro.",
 		);
-		expect(shouldRefreshHome("running", status({ connections: [conn({ lastStatus: "partial" })] }))).toBe(
-			true,
+		expect(syncAnnouncement("running", status({ sync: "running" }))).toBeNull();
+		expect(syncAnnouncement("idle", ok)).toBeNull();
+		expect(syncAnnouncement(undefined, ok)).toBeNull();
+	});
+});
+
+describe("Início desatualizado", () => {
+	const a = conn({ id: "a", lastStatus: "ok", lastSyncAt: "2026-11-07T10:00:00.000Z" });
+	const b = conn({ id: "b", lastStatus: "ok", lastSyncAt: "2026-11-07T10:00:00.000Z" });
+	it("assinatura não depende da ordem e muda com a sincronização", () => {
+		expect(syncSignature({ connections: [a, b] })).toBe(syncSignature({ connections: [b, a] }));
+		const newer = { ...a, lastSyncAt: "2026-11-07T14:00:00.000Z" };
+		expect(syncSignature({ connections: [newer, b] })).not.toBe(syncSignature({ connections: [a, b] }));
+		expect(syncSignature({ connections: [] })).toBe("");
+	});
+	it("primeira vez só registra", () => {
+		const d = homeRefreshDecision(undefined, status({ connections: [a] }));
+		expect(d).toEqual({ reload: false, seen: syncSignature({ connections: [a] }) });
+	});
+	it("igual não recarrega", () => {
+		const sig = syncSignature({ connections: [a] });
+		expect(homeRefreshDecision(sig, status({ connections: [a] }))).toEqual({ reload: false, seen: sig });
+	});
+	it("mudou fora da tela (diária) recarrega e registra", () => {
+		const before = syncSignature({ connections: [a] });
+		const after = { ...a, lastSyncAt: "2026-11-08T09:00:00.000Z" };
+		const d = homeRefreshDecision(before, status({ connections: [after] }));
+		expect(d).toEqual({ reload: true, seen: syncSignature({ connections: [after] }) });
+	});
+	it("em andamento espera, sem registrar", () => {
+		const before = syncSignature({ connections: [a] });
+		const d = homeRefreshDecision(
+			before,
+			status({ sync: "running", connections: [{ ...a, lastSyncAt: null }] }),
 		);
+		expect(d).toEqual({ reload: false, seen: before });
+	});
+	it("mudou mas sem dado novo (erro) registra sem recarregar", () => {
+		const before = syncSignature({ connections: [a] });
+		const failed = { ...a, lastStatus: "error" as const, lastError: "x" };
+		expect(homeRefreshDecision(before, status({ connections: [failed] })).reload).toBe(false);
 	});
 	it("consultas do Início", () => {
 		for (const k of ["summary", "transactions", "accounts", "cards", "invoice", "installments"]) {
@@ -219,11 +275,44 @@ describe("formulário", () => {
 		});
 		expect(out).toEqual({ status: "failed", message: "Esta conexão já está cadastrada." });
 	});
-	it("remover devolve falha com a mensagem", async () => {
-		expect(await removeConnection("a", async () => {})).toEqual({ status: "saved" });
+	it("remover com 404 vale como removido (a conexão já sumiu)", async () => {
 		const out = await removeConnection("a", async () => {
 			throw new ApiError("Conexão não encontrada.", 404, "nao_encontrado");
 		});
-		expect(out).toEqual({ status: "failed", message: "Conexão não encontrada." });
+		expect(out).toEqual({ status: "saved" });
+	});
+	it("remover devolve falha com a mensagem", async () => {
+		expect(await removeConnection("a", async () => {})).toEqual({ status: "saved" });
+		const out = await removeConnection("a", async () => {
+			throw new ApiError("Sem resposta do servidor.", 500, "erro");
+		});
+		expect(out).toEqual({ status: "failed", message: "Sem resposta do servidor." });
+	});
+});
+
+describe("addFormReducer", () => {
+	it("digitar o ID ou o nome limpa a mensagem e guarda o texto", () => {
+		const failed = addFormReducer(initialAddForm, {
+			type: "failed",
+			message: "Esta conexão já está cadastrada.",
+		});
+		const typed = addFormReducer(failed, { type: "id", text: ID });
+		expect(typed).toEqual({ itemId: ID, label: "", message: null, busy: false });
+		expect(addFormReducer(typed, { type: "label", text: "Inter" }).label).toBe("Inter");
+	});
+	it("started trava e limpa a mensagem", () => {
+		const failed = addFormReducer(initialAddForm, { type: "failed", message: "x" });
+		expect(addFormReducer(failed, { type: "started" })).toMatchObject({ busy: true, message: null });
+	});
+	it("failed destrava, mostra a mensagem e mantém o que foi digitado", () => {
+		let s = addFormReducer(initialAddForm, { type: "id", text: ID });
+		s = addFormReducer(s, { type: "started" });
+		s = addFormReducer(s, { type: "failed", message: "Não achei essa conexão." });
+		expect(s).toEqual({ itemId: ID, label: "", message: "Não achei essa conexão.", busy: false });
+	});
+	it("não muda o estado anterior", () => {
+		const before = { ...initialAddForm };
+		addFormReducer(initialAddForm, { type: "id", text: "abc" });
+		expect(initialAddForm).toEqual(before);
 	});
 });

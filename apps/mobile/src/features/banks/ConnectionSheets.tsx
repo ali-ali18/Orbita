@@ -1,6 +1,6 @@
 import type { PluggyConnectionDto } from "@orbita/shared";
-import { colors, radius, spacing, text as typography } from "@orbita/tokens";
-import { type ReactNode, useReducer, useRef, useState } from "react";
+import { colors, layout, radius, spacing, text as typography } from "@orbita/tokens";
+import { type ComponentRef, type ReactNode, type Ref, useReducer, useRef, useState } from "react";
 import { Linking, Pressable, TextInput, View } from "react-native";
 import { Button, familyByWeight, Sheet, Text } from "../../ui/index.ts";
 import { ADD_HINT, connectionName, PLUGGY_LABEL_MAX, PLUGGY_URL } from "./banks-model.ts";
@@ -15,6 +15,20 @@ import {
 type Add = (body: { itemId: string; label?: string }) => Promise<void>;
 type Remove = (id: string) => Promise<void>;
 
+/**
+ * Número que sobe a cada abertura da gaveta. Serve de `key` do conteúdo: o formulário nasce limpo
+ * a cada abertura, mas continua montado durante a animação de saída (a gaveta não esvazia ao fechar).
+ */
+function useOpenSeq(open: boolean): number {
+	const [seq, setSeq] = useState(0);
+	const [wasOpen, setWasOpen] = useState(open);
+	if (open !== wasOpen) {
+		setWasOpen(open);
+		if (open) setSeq((n) => n + 1);
+	}
+	return seq;
+}
+
 function Field({
 	label,
 	value,
@@ -22,6 +36,8 @@ function Field({
 	placeholder,
 	onSubmit,
 	maxLength,
+	inputRef,
+	returnKeyType = "done",
 }: {
 	label: string;
 	value: string;
@@ -29,10 +45,13 @@ function Field({
 	placeholder: string;
 	onSubmit?: () => void;
 	maxLength?: number;
+	inputRef?: Ref<ComponentRef<typeof TextInput>>;
+	returnKeyType?: "done" | "next";
 }) {
 	// Sem `contextMenuHidden` e sem `secureTextEntry`: o ID não é segredo e precisa aceitar "colar".
 	return (
 		<TextInput
+			ref={inputRef}
 			value={value}
 			onChangeText={onChangeText}
 			autoCorrect={false}
@@ -42,7 +61,8 @@ function Field({
 			placeholderTextColor={colors.textTertiary}
 			accessibilityLabel={label}
 			onSubmitEditing={onSubmit}
-			returnKeyType="done"
+			returnKeyType={returnKeyType}
+			submitBehavior={returnKeyType === "next" ? "submit" : "blurAndSubmit"}
 			{...(maxLength ? { maxLength } : {})}
 			style={{
 				height: 52,
@@ -78,9 +98,10 @@ export function AddConnectionSheet({
 	add: Add;
 	onClose: () => void;
 }) {
+	const seq = useOpenSeq(visible);
 	return (
 		<Sheet visible={visible} title="Adicionar conexão" onClose={onClose}>
-			{visible ? <AddForm add={add} onClose={onClose} /> : null}
+			<AddForm key={seq} add={add} onClose={onClose} />
 		</Sheet>
 	);
 }
@@ -89,6 +110,7 @@ function AddForm({ add, onClose }: { add: Add; onClose: () => void }) {
 	const [form, dispatch] = useReducer(addFormReducer, initialAddForm);
 	// Trava no mesmo instante do toque: `busy` só muda no próximo render.
 	const locked = useRef(false);
+	const labelInput = useRef<ComponentRef<typeof TextInput>>(null);
 
 	const submit = async () => {
 		if (locked.current) return;
@@ -112,7 +134,7 @@ function AddForm({ add, onClose }: { add: Add; onClose: () => void }) {
 				accessibilityRole="link"
 				accessibilityLabel="Abrir meu.pluggy.ai no navegador"
 				onPress={() => void Linking.openURL(PLUGGY_URL).catch(() => {})}
-				style={{ minHeight: 44, justifyContent: "center", alignSelf: "flex-start" }}
+				style={{ minHeight: layout.touchTarget, justifyContent: "center", alignSelf: "flex-start" }}
 			>
 				<Text variant="bodyStrong">Abrir meu.pluggy.ai</Text>
 			</Pressable>
@@ -121,9 +143,11 @@ function AddForm({ add, onClose }: { add: Add; onClose: () => void }) {
 				value={form.itemId}
 				onChangeText={(text) => dispatch({ type: "id", text })}
 				placeholder="00000000-0000-0000-0000-000000000000"
-				onSubmit={() => void submit()}
+				returnKeyType="next"
+				onSubmit={() => labelInput.current?.focus()}
 			/>
 			<Field
+				inputRef={labelInput}
 				label="Nome da conexão (opcional)"
 				value={form.label}
 				onChangeText={(text) => dispatch({ type: "label", text })}
@@ -155,17 +179,20 @@ export function ConnectionSheet({
 	remove: Remove;
 	onClose: () => void;
 }) {
+	const seq = useOpenSeq(connection !== null);
+	// Guarda o último conteúdo: ao fechar (ou se a conexão sumir da lista) a gaveta não esvazia na animação de saída.
+	const [shown, setShown] = useState({ connection, statusLine });
+	if (connection && (shown.connection !== connection || shown.statusLine !== statusLine)) {
+		setShown({ connection, statusLine });
+	}
+	const content = shown.connection;
 	return (
-		<Sheet
-			visible={connection !== null}
-			title={connection ? connectionName(connection) : ""}
-			onClose={onClose}
-		>
-			{connection ? (
+		<Sheet visible={connection !== null} title={content ? connectionName(content) : ""} onClose={onClose}>
+			{content ? (
 				<ConnectionDetail
-					key={connection.id}
-					connection={connection}
-					statusLine={statusLine}
+					key={`${seq}:${content.id}`}
+					connection={content}
+					statusLine={shown.statusLine}
 					remove={remove}
 					onClose={onClose}
 				/>
@@ -233,9 +260,7 @@ function ConnectionDetail({
 
 	return (
 		<View style={{ gap: spacing.md, paddingVertical: spacing.md }}>
-			<Text variant="body" accessibilityLiveRegion="polite">
-				{statusLine}
-			</Text>
+			<Text variant="body">{statusLine}</Text>
 			<Text variant="caption" tone="secondary" selectable>
 				{`ID da conexão: ${connection.id}`}
 			</Text>

@@ -1,6 +1,6 @@
 import { colors, layout, radius, spacing } from "@orbita/tokens";
-import { useRouter } from "expo-router";
-import { useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { toLoadable } from "../../lib/loadable.ts";
 import { BankLogo, Button, ErrorState, IconButton, Screen, Skeleton, Text } from "../../ui/index.ts";
@@ -12,8 +12,12 @@ import {
 	connectionStatusLine,
 	EMPTY_MESSAGE,
 	EMPTY_TITLE,
+	isSlowSync,
+	isSyncActive,
 	KEYS_MISSING_MESSAGE,
 	KEYS_MISSING_TITLE,
+	type SyncState,
+	syncAnnouncement,
 	syncButtonLabel,
 	syncCardText,
 	syncErrorMessage,
@@ -47,10 +51,36 @@ export function BanksScreen() {
 	const [openId, setOpenId] = useState<string | null>(null);
 	const [syncMessage, setSyncMessage] = useState<string | null>(null);
 	const syncLocked = useRef(false);
+	const [announcement, setAnnouncement] = useState("");
+	const previousSync = useRef<SyncState | undefined>(undefined);
+	const [activeSince, setActiveSince] = useState<number | null>(null);
 
 	const status = toLoadable(statusQ);
 	const data = status.phase === "ready" ? status.data : null;
-	const card = data ? syncCardText(data, now) : null;
+	const sinceData = data?.sync;
+	const keys = data?.keysConfigured;
+
+	// O aviso errado de antes (sem chaves, falha de sync) some quando o estado muda ou ao voltar para a tela.
+	useEffect(() => {
+		if (sinceData !== undefined || keys !== undefined) setSyncMessage(null);
+	}, [sinceData, keys]);
+	useFocusEffect(useCallback(() => setSyncMessage(null), []));
+
+	// Leitor de tela: avisa só a troca de estado (na fila, sincronizando, concluído), nunca o "há N min".
+	useEffect(() => {
+		if (!data) return;
+		const text = syncAnnouncement(previousSync.current, data);
+		previousSync.current = data.sync;
+		if (text && previousSync.current !== undefined) setAnnouncement(text);
+	}, [data]);
+
+	// Quando a sincronização em andamento foi vista pela primeira vez (para o aviso de demora).
+	useEffect(() => {
+		setActiveSince((prev) => (isSyncActive(sinceData) ? (prev ?? Date.now()) : null));
+	}, [sinceData]);
+	const slow = isSlowSync(activeSince, now.getTime());
+
+	const card = data ? syncCardText(data, now, slow) : null;
 	const opened = data?.connections.find((c) => c.id === openId) ?? null;
 
 	const startSync = async () => {
@@ -122,7 +152,7 @@ export function BanksScreen() {
 
 						{data.connections.length > 0 ? (
 							<Panel>
-								<View accessible accessibilityLiveRegion="polite" style={{ gap: spacing.xs }}>
+								<View accessible style={{ gap: spacing.xs }}>
 									<Text variant="bodyStrong">{card?.title}</Text>
 									<Text variant="caption" tone="secondary">
 										{card?.caption}
@@ -138,7 +168,7 @@ export function BanksScreen() {
 								<Button
 									label={syncButtonLabel(data.sync)}
 									variant="secondary"
-									loading={sync.isPending || data.sync === "queued" || data.sync === "running"}
+									loading={sync.isPending}
 									disabled={!canSync(data)}
 									onPress={() => void startSync()}
 								/>
@@ -181,6 +211,12 @@ export function BanksScreen() {
 				) : null}
 			</ScrollView>
 
+			<Text
+				accessibilityLiveRegion="polite"
+				style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", opacity: 0 }}
+			>
+				{announcement}
+			</Text>
 			<AddConnectionSheet
 				visible={adding}
 				add={async (body) => {

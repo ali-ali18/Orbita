@@ -75,12 +75,19 @@ export function connectionStatusLine(c: PluggyConnectionDto, now: Date): string 
 export function syncCardText(
 	status: Pick<PluggyStatusResponse, "sync" | "lastSyncAt">,
 	now: Date,
+	slow = false,
 ): { title: string; caption: string } {
 	switch (status.sync) {
 		case "queued":
-			return { title: "Na fila", caption: "O servidor começa a sincronizar em instantes." };
+			return {
+				title: "Na fila",
+				caption: slow ? SLOW_SYNC_CAPTION : "O servidor começa a sincronizar em instantes.",
+			};
 		case "running":
-			return { title: "Sincronizando…", caption: "Isso pode levar alguns minutos." };
+			return {
+				title: "Sincronizando…",
+				caption: slow ? SLOW_SYNC_CAPTION : "Isso pode levar alguns minutos.",
+			};
 		case "unavailable":
 			return {
 				title: "Sincronização indisponível",
@@ -108,20 +115,63 @@ export function canSync(status: PluggyStatusResponse): boolean {
 }
 
 export const POLL_EVERY_MS = 3_000;
-export const POLL_MAX_MS = 5 * 60_000;
+/** Depois de 5 min o polling desacelera (não para): a sincronização pode mesmo demorar. */
+export const POLL_SLOW_AFTER_MS = 5 * 60_000;
+export const POLL_SLOW_EVERY_MS = 30_000;
+export const SLOW_SYNC_CAPTION =
+	"Ainda sincronizando. Pode sair desta tela: o Início atualiza sozinho quando terminar.";
 
-/** Próximo intervalo de atualização do status: só enquanto há sincronização em andamento e por no máximo 5 min. */
+/** Próximo intervalo de atualização do status: 3 s no começo, 30 s depois de 5 min; `false` quando nada roda. */
 export function nextPollDelay(sync: SyncState | undefined, elapsedMs: number): number | false {
-	return isSyncActive(sync) && elapsedMs < POLL_MAX_MS ? POLL_EVERY_MS : false;
+	if (!isSyncActive(sync)) return false;
+	return elapsedMs < POLL_SLOW_AFTER_MS ? POLL_EVERY_MS : POLL_SLOW_EVERY_MS;
 }
 
-/** Terminou uma sincronização que trouxe dado (ok ou parcial): vale recarregar o Início. */
-export function shouldRefreshHome(prev: SyncState | undefined, next: PluggyStatusResponse): boolean {
-	return (
-		isSyncActive(prev) &&
-		next.sync === "idle" &&
-		next.connections.some((c) => c.lastStatus === "ok" || c.lastStatus === "partial")
-	);
+/** `sinceMs` é quando a sincronização em andamento foi vista pela primeira vez (`null` = nada em andamento). */
+export function isSlowSync(sinceMs: number | null, nowMs: number): boolean {
+	return sinceMs !== null && nowMs - sinceMs >= POLL_SLOW_AFTER_MS;
+}
+
+/** Aviso para leitor de tela, só na troca de estado (nunca no "há N min", que muda sozinho). */
+export function syncAnnouncement(prev: SyncState | undefined, next: PluggyStatusResponse): string | null {
+	if (prev === next.sync) return null;
+	if (next.sync === "queued") return "Sincronização na fila.";
+	if (next.sync === "running") return "Sincronizando.";
+	if (next.sync === "idle" && isSyncActive(prev)) {
+		const failed =
+			next.connections.length > 0 &&
+			next.connections.every((c) => c.lastStatus === "error" || c.lastStatus === "no_keys");
+		return failed ? "A sincronização terminou com erro." : "Sincronização concluída.";
+	}
+	return null;
+}
+
+/**
+ * Assinatura do que a última sincronização trouxe: id, quando e como terminou cada conexão. Muda
+ * quando uma sincronização (a do botão ou a diária) termina, esteja o app onde estiver.
+ */
+export function syncSignature(status: Pick<PluggyStatusResponse, "connections">): string {
+	return [...status.connections]
+		.sort((a, b) => a.id.localeCompare(b.id))
+		.map((c) => `${c.id}|${c.lastSyncAt ?? ""}|${c.lastStatus ?? ""}`)
+		.join(";");
+}
+
+/**
+ * Decide se o Início está desatualizado. `seen` é a assinatura da última vez que o Início foi tratado
+ * (guardada no QueryClient, não numa tela). Sem `seen` (primeira vez) só registra. Com sincronização
+ * em andamento espera. Mudou e algum banco trouxe dado (ok ou parcial): recarrega.
+ */
+export function homeRefreshDecision(
+	seen: string | undefined,
+	status: PluggyStatusResponse,
+): { reload: boolean; seen: string | undefined } {
+	if (isSyncActive(status.sync)) return { reload: false, seen };
+	const now = syncSignature(status);
+	if (seen === undefined) return { reload: false, seen: now };
+	if (seen === now) return { reload: false, seen };
+	const brought = status.connections.some((c) => c.lastStatus === "ok" || c.lastStatus === "partial");
+	return { reload: brought, seen: now };
 }
 
 /** Consultas do Início que mudam com uma sincronização (a chave é `[baseUrl, assunto, …]`). */

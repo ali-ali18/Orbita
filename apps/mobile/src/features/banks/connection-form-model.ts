@@ -1,3 +1,4 @@
+import { ApiError } from "../../lib/api.ts";
 import { errorMessage } from "../../lib/loadable.ts";
 import { addErrorMessage, parseConnectionInput } from "./banks-model.ts";
 
@@ -55,6 +56,8 @@ export async function removeConnection(
 		await remove(id);
 		return { status: "saved" };
 	} catch (error) {
+		// 404: a conexão já não existe (removida em outro aparelho); o objetivo foi atingido.
+		if (error instanceof ApiError && error.status === 404) return { status: "saved" };
 		return { status: "failed", message: errorMessage(error) };
 	}
 }

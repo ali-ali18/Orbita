@@ -8,6 +8,7 @@ import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { BottomBar, Screen, Text, useBottomBarHeight } from "../../ui/index.ts";
+import { usePluggyHomeWatch } from "../banks/queries.ts";
 import { CategoriesCard } from "./CategoriesCard.tsx";
 import { HeroCard } from "./HeroCard.tsx";
 import { HomeHeader } from "./HomeHeader.tsx";
@@ -33,6 +34,8 @@ export function HomeScreen() {
 	const router = useRouter();
 	const [refreshing, setRefreshing] = useState(false);
 	const bottomBarHeight = useBottomBarHeight();
+	// Sincronização do Meu Pluggy que terminou fora desta tela (a diária, por exemplo): recarrega o que mudou.
+	usePluggyHomeWatch();
 
 	// Uma única fonte de "hoje" e "mês": todas as consultas usam os mesmos.
 	const { today, month, hour } = useClock();
