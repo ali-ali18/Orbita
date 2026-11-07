@@ -12,10 +12,13 @@ export function AmountInput({
 	cents,
 	onChange,
 	autoFocus,
+	label = "Valor do lançamento",
 }: {
 	cents: Cents;
 	onChange: (cents: Cents) => void;
 	autoFocus?: boolean;
+	/** Rótulo lido pelo leitor de tela (o campo é invisível). */
+	label?: string;
 }) {
 	const formatted = formatAmount(cents);
 	return (
@@ -41,7 +44,7 @@ export function AmountInput({
 				autoFocus={autoFocus}
 				caretHidden
 				maxLength={12}
-				accessibilityLabel="Valor do lançamento"
+				accessibilityLabel={label}
 				accessibilityValue={{ text: formatted }}
 				style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, opacity: 0 }}
 			/>
