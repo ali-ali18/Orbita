@@ -107,8 +107,14 @@ export function HomeScreen() {
 						invoice={firstCard ? toLoadable(invoiceQ) : null}
 						today={today}
 						hidden={hidden}
+						onPress={() => router.push("/cartao?aba=faturas")}
 					/>
-					<InstallmentsSquare installments={toLoadable(installmentsQ)} month={month} hidden={hidden} />
+					<InstallmentsSquare
+						installments={toLoadable(installmentsQ)}
+						month={month}
+						hidden={hidden}
+						onPress={() => router.push("/cartao?aba=parcelas")}
+					/>
 				</View>
 				<CategoriesCard state={summaryWithCategories} hidden={hidden} />
 				<RecentCard

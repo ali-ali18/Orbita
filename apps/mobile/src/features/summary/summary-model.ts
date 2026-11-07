@@ -115,6 +115,8 @@ export function bankColor(bankCode: string | null): string {
 			return banks.inter;
 		case "90400888":
 			return banks.santander;
+		case "10573521":
+			return banks.mercadoPago;
 		case "60701190":
 			return banks.itau;
 		default:
