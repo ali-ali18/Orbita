@@ -62,6 +62,10 @@ export const secretStatusSchema = z.object({
 	configured: z.boolean(),
 	/** ISO 8601; `null` quando não configurada. */
 	updatedAt: z.string().nullable(),
+	/** Nome do aparelho que gravou por último; `null` quando não configurada. */
+	updatedBy: z.string().nullable(),
+	/** `false` se não está configurada ou se o servidor não consegue abrir o valor (ex.: `APP_SECRET` trocado). */
+	readable: z.boolean(),
 });
 export type SecretStatusDto = z.infer<typeof secretStatusSchema>;
 

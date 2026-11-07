@@ -37,7 +37,7 @@ export function routes({ vault, version, requireDevice }: SettingsRoutesDeps) {
 			const name = c.get("secretName");
 			const parsed = parseSecretValue(name, c.req.valid("json").value);
 			if (!parsed.ok) return c.json(apiError("dados_invalidos", parsed.message), 400);
-			return c.json({ secret: await vault.put(name, parsed.value) });
+			return c.json({ secret: await vault.put(name, parsed.value, c.get("device").name) });
 		})
 		.delete("/v1/settings/secrets/:name", knownName, async (c) =>
 			c.json({ secret: await vault.remove(c.get("secretName")) }),

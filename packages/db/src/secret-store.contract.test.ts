@@ -9,13 +9,15 @@ describe.each(contractSuites())("SecretStore (%s)", (_name, make) => {
 	});
 
 	it("guarda, lê e troca o texto cifrado sem duplicar", async () => {
-		const first = await stores.secrets.put("anthropic_api_key", "v1.aaa");
-		expect(first.name).toBe("anthropic_api_key");
+		const first = await stores.secrets.put("anthropic_api_key", "v1.aaa", "Galaxy");
+		expect(first).toMatchObject({ name: "anthropic_api_key", updatedBy: "Galaxy" });
 		expect(await stores.secrets.get("anthropic_api_key")).toBe("v1.aaa");
 
-		const second = await stores.secrets.put("anthropic_api_key", "v1.bbb");
+		const second = await stores.secrets.put("anthropic_api_key", "v1.bbb", "Pixel");
 		expect(second.updatedAt.getTime()).toBeGreaterThan(first.updatedAt.getTime());
+		expect(second.updatedBy).toBe("Pixel");
 		expect(await stores.secrets.get("anthropic_api_key")).toBe("v1.bbb");
+		expect((await stores.secrets.list())[0]?.updatedBy).toBe("Pixel");
 		expect(await stores.secrets.list()).toHaveLength(1);
 	});
 
@@ -23,19 +25,19 @@ describe.each(contractSuites())("SecretStore (%s)", (_name, make) => {
 		expect(await stores.secrets.get("pluggy_client_id")).toBeNull();
 	});
 
-	it("lista só nome e data, ordenado pelo nome, sem o texto cifrado", async () => {
-		await stores.secrets.put("pluggy_client_id", "v1.ccc");
-		await stores.secrets.put("anthropic_api_key", "v1.aaa");
+	it("lista só nome, data e quem gravou, ordenado pelo nome, sem o texto cifrado", async () => {
+		await stores.secrets.put("pluggy_client_id", "v1.ccc", "Galaxy");
+		await stores.secrets.put("anthropic_api_key", "v1.aaa", "Galaxy");
 		const list = await stores.secrets.list();
 		expect(list.map((s) => s.name)).toEqual(["anthropic_api_key", "pluggy_client_id"]);
 		for (const item of list) {
-			expect(Object.keys(item).sort()).toEqual(["name", "updatedAt"]);
+			expect(Object.keys(item).sort()).toEqual(["name", "updatedAt", "updatedBy"]);
 			expect(item.updatedAt).toBeInstanceOf(Date);
 		}
 	});
 
 	it("remove e informa se existia", async () => {
-		await stores.secrets.put("pluggy_client_secret", "v1.ddd");
+		await stores.secrets.put("pluggy_client_secret", "v1.ddd", "Galaxy");
 		expect(await stores.secrets.remove("pluggy_client_secret")).toBe(true);
 		expect(await stores.secrets.remove("pluggy_client_secret")).toBe(false);
 		expect(await stores.secrets.get("pluggy_client_secret")).toBeNull();

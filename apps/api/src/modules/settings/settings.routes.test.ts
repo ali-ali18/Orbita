@@ -1,6 +1,6 @@
 import { createSecretBox } from "@orbita/security";
 import { describe, expect, it } from "vitest";
-import { setupFinance } from "../../test-support.ts";
+import { type Json, setupFinance } from "../../test-support.ts";
 import { createSecretVault } from "./service.ts";
 
 const ANTHROPIC = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
@@ -24,6 +24,11 @@ describe("GET /v1/server", () => {
 describe("chaves do servidor", () => {
 	it("sem token, tudo dá 401", async () => {
 		const { call } = await setupFinance();
+		// Nome desconhecido sem token também é 401: não revela quais nomes existem.
+		expect((await call("PUT", "/v1/settings/secrets/outra_chave", { value: ANTHROPIC }, null)).status).toBe(
+			401,
+		);
+		expect((await call("DELETE", "/v1/settings/secrets/outra_chave", undefined, null)).status).toBe(401);
 		expect((await call("GET", "/v1/settings/secrets", undefined, null)).status).toBe(401);
 		expect(
 			(await call("PUT", "/v1/settings/secrets/anthropic_api_key", { value: ANTHROPIC }, null)).status,
@@ -39,9 +44,15 @@ describe("chaves do servidor", () => {
 		expect(res.status).toBe(200);
 		expect(res.body).toEqual({
 			secrets: [
-				{ name: "anthropic_api_key", configured: false, updatedAt: null },
-				{ name: "pluggy_client_id", configured: false, updatedAt: null },
-				{ name: "pluggy_client_secret", configured: false, updatedAt: null },
+				{ name: "anthropic_api_key", configured: false, readable: false, updatedAt: null, updatedBy: null },
+				{ name: "pluggy_client_id", configured: false, readable: false, updatedAt: null, updatedBy: null },
+				{
+					name: "pluggy_client_secret",
+					configured: false,
+					readable: false,
+					updatedAt: null,
+					updatedBy: null,
+				},
 			],
 		});
 	});
@@ -58,7 +69,13 @@ describe("chaves do servidor", () => {
 			const put = await api.put(`/v1/settings/secrets/${name}`, { value });
 			expect(put.status).toBe(200);
 			expect(put.body).toEqual({
-				secret: { name, configured: true, updatedAt: "2026-11-15T15:00:00.000Z" },
+				secret: {
+					name,
+					configured: true,
+					readable: true,
+					updatedAt: "2026-11-15T15:00:00.000Z",
+					updatedBy: "Teste",
+				},
 			});
 			bodies.push(JSON.stringify(put.body));
 		}
@@ -66,7 +83,7 @@ describe("chaves do servidor", () => {
 		bodies.push(JSON.stringify(list.body));
 		expect(list.body.secrets.map((s: { configured: boolean }) => s.configured)).toEqual([true, true, true]);
 		for (const item of list.body.secrets)
-			expect(Object.keys(item).sort()).toEqual(["configured", "name", "updatedAt"]);
+			expect(Object.keys(item).sort()).toEqual(["configured", "name", "readable", "updatedAt", "updatedBy"]);
 
 		const everything = bodies.join("\n");
 		for (const raw of [ANTHROPIC, PLUGGY_ID, PLUGGY_SECRET]) {
@@ -131,7 +148,15 @@ describe("chaves do servidor", () => {
 		await api.put("/v1/settings/secrets/pluggy_client_id", { value: PLUGGY_ID });
 		const del = await api.delete("/v1/settings/secrets/pluggy_client_id");
 		expect(del.status).toBe(200);
-		expect(del.body).toEqual({ secret: { name: "pluggy_client_id", configured: false, updatedAt: null } });
+		expect(del.body).toEqual({
+			secret: {
+				name: "pluggy_client_id",
+				configured: false,
+				readable: false,
+				updatedAt: null,
+				updatedBy: null,
+			},
+		});
 		expect(await vault.read("pluggy_client_id")).toBeNull();
 		expect((await api.delete("/v1/settings/secrets/pluggy_client_id")).body.secret.configured).toBe(false);
 	});
@@ -145,16 +170,46 @@ describe("chaves do servidor", () => {
 	});
 });
 
+describe("estado da chave com APP_SECRET trocado", () => {
+	it("GET diz configured true e readable false quando o texto não abre com a chave do servidor", async () => {
+		const { api, stores } = await setupFinance();
+		// Grava com outra chave mestra, como se o APP_SECRET tivesse mudado depois.
+		const old = createSecretVault({ store: stores.secrets, key: KEY });
+		await old.put("anthropic_api_key", ANTHROPIC, "Teste");
+		await api.put("/v1/settings/secrets/pluggy_client_id", { value: PLUGGY_ID });
+
+		const get = await api.get("/v1/settings/secrets");
+		expect(get.body.secrets.map((s: Json) => [s.name, s.configured, s.readable])).toEqual([
+			["anthropic_api_key", true, false],
+			["pluggy_client_id", true, true],
+			["pluggy_client_secret", false, false],
+		]);
+		expect(JSON.stringify(get.body)).not.toContain(ANTHROPIC);
+
+		// Um PUT novo regrava com a chave atual e volta a abrir.
+		const put = await api.put("/v1/settings/secrets/anthropic_api_key", { value: ANTHROPIC });
+		expect(put.body.secret.readable).toBe(true);
+		expect((await api.get("/v1/settings/secrets")).body.secrets[0].readable).toBe(true);
+	});
+
+	it("o GET mostra readable true quando abre", async () => {
+		const { api } = await setupFinance();
+		await api.put("/v1/settings/secrets/pluggy_client_id", { value: PLUGGY_ID });
+		const get = await api.get("/v1/settings/secrets");
+		expect(get.body.secrets[1]).toMatchObject({ configured: true, readable: true, updatedBy: "Teste" });
+	});
+});
+
 describe("cofre (AAD = nome da chave)", () => {
 	it("o texto cifrado de uma chave não abre como outra", async () => {
 		const { stores } = await setupFinance();
 		const vault = createSecretVault({ store: stores.secrets, key: KEY });
-		await vault.put("pluggy_client_id", PLUGGY_ID);
+		await vault.put("pluggy_client_id", PLUGGY_ID, "Teste");
 		const sealed = (await stores.secrets.get("pluggy_client_id")) as string;
 		expect(await vault.read("pluggy_client_id")).toBe(PLUGGY_ID);
 
 		// Copia o ciphertext de uma chave para outra: abrir tem que falhar.
-		await stores.secrets.put("pluggy_client_secret", sealed);
+		await stores.secrets.put("pluggy_client_secret", sealed, "Teste");
 		await expect(vault.read("pluggy_client_secret")).rejects.toThrow();
 		// E o direto com a caixa mostra que só o AAD certo abre.
 		const box = createSecretBox(KEY);
@@ -164,7 +219,7 @@ describe("cofre (AAD = nome da chave)", () => {
 
 	it("com outra chave mestra o valor não abre", async () => {
 		const { stores } = await setupFinance();
-		await createSecretVault({ store: stores.secrets, key: KEY }).put("anthropic_api_key", ANTHROPIC);
+		await createSecretVault({ store: stores.secrets, key: KEY }).put("anthropic_api_key", ANTHROPIC, "Teste");
 		const other = createSecretVault({ store: stores.secrets, key: Buffer.alloc(32, 9) });
 		await expect(other.read("anthropic_api_key")).rejects.toThrow();
 	});

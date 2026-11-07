@@ -15,10 +15,20 @@ export type SecretVaultDeps = {
  */
 export function createSecretVault({ store, key }: SecretVaultDeps) {
 	const box = createSecretBox(key);
+	async function canOpen(name: SecretName): Promise<boolean> {
+		const sealed = await store.get(name);
+		if (sealed === null) return false;
+		try {
+			box.open(sealed, name);
+			return true;
+		} catch {
+			return false;
+		}
+	}
 	return {
-		async put(name: SecretName, value: string): Promise<SecretStatusDto> {
-			const saved = await store.put(name, box.seal(value, name));
-			return { name, configured: true, updatedAt: saved.updatedAt.toISOString() };
+		async put(name: SecretName, value: string, updatedBy: string): Promise<SecretStatusDto> {
+			const saved = await store.put(name, box.seal(value, name), updatedBy);
+			return { name, configured: true, readable: true, updatedAt: saved.updatedAt.toISOString(), updatedBy };
 		},
 
 		/**
@@ -32,16 +42,28 @@ export function createSecretVault({ store, key }: SecretVaultDeps) {
 
 		async remove(name: SecretName): Promise<SecretStatusDto> {
 			await store.remove(name);
-			return { name, configured: false, updatedAt: null };
+			return { name, configured: false, readable: false, updatedAt: null, updatedBy: null };
 		},
 
-		/** As 3 chaves, na ordem fixa; só o estado, nunca o valor. */
+		/**
+		 * As 3 chaves, na ordem fixa; só o estado, nunca o valor. `readable` diz se o texto cifrado ainda abre
+		 * (some quando o `APP_SECRET` muda). O valor aberto é descartado na hora e nunca vai a log.
+		 */
 		async status(): Promise<SecretStatusDto[]> {
-			const byName = new Map((await store.list()).map((s) => [s.name, s.updatedAt]));
-			return SECRET_NAMES.map((name) => {
-				const updatedAt = byName.get(name);
-				return { name, configured: updatedAt !== undefined, updatedAt: updatedAt?.toISOString() ?? null };
-			});
+			const byName = new Map((await store.list()).map((s) => [s.name, s]));
+			return Promise.all(
+				SECRET_NAMES.map(async (name): Promise<SecretStatusDto> => {
+					const row = byName.get(name);
+					if (!row) return { name, configured: false, readable: false, updatedAt: null, updatedBy: null };
+					return {
+						name,
+						configured: true,
+						readable: await canOpen(name),
+						updatedAt: row.updatedAt.toISOString(),
+						updatedBy: row.updatedBy,
+					};
+				}),
+			);
 		},
 	};
 }

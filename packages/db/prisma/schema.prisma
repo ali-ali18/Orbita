@@ -240,6 +240,8 @@ model Budget {
 model ServerSecret {
   name       String   @id
   ciphertext String
+  /// Nome do aparelho que gravou por último (cópia do nome na hora, não o id).
+  updatedBy  String?  @map("updated_by")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 

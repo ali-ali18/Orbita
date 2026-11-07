@@ -4,6 +4,7 @@
 CREATE TABLE "server_secrets" (
     "name" TEXT NOT NULL,
     "ciphertext" TEXT NOT NULL,
+    "updated_by" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
