@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { assetFileName, contentTypeForExt, OTA_BUNDLE_EXT } from "./layout.ts";
 
 /** Manifesto do protocolo Expo Updates v1 (https://docs.expo.dev/technical-specs/expo-updates-1/). */
@@ -32,7 +32,7 @@ export function otaFileName(file: Pick<OtaFile, "ext" | "bytes">): string {
 	return assetFileName(sha256Base64Url(file.bytes), file.ext);
 }
 
-/** Origem + caminho do servidor, sem barra no fim. Só https (http apenas em localhost, para testes). */
+/** Origem + caminho do servidor, sem barra no fim. Só https (o mesmo critério do app.config.ts do app). */
 export function normalizeBaseUrl(raw: string): string {
 	let url: URL;
 	try {
@@ -40,27 +40,21 @@ export function normalizeBaseUrl(raw: string): string {
 	} catch {
 		throw new Error(`Endereço do servidor inválido: ${raw}`);
 	}
-	const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-	if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) {
-		throw new Error("O endereço do servidor precisa ser https:// (http só em localhost).");
-	}
+	if (url.protocol !== "https:") throw new Error("O endereço do servidor precisa ser https://.");
 	if (url.search || url.hash || url.username || url.password) {
 		throw new Error("O endereço do servidor não pode ter query, fragmento nem credenciais.");
 	}
 	return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
-/** UUID determinístico: o mesmo conteúdo gera o mesmo id, então refazer o build não força download. */
-export function manifestId(runtimeVersion: string, fileHashes: string[]): string {
-	const digest = createHash("sha256")
-		.update(JSON.stringify([runtimeVersion, [...fileHashes].sort()]))
-		.digest("hex");
-	const variant = ((Number.parseInt(digest.slice(16, 18), 16) & 0x3f) | 0x80).toString(16);
-	return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-8${digest.slice(13, 16)}-${variant}${digest.slice(18, 20)}-${digest.slice(20, 32)}`;
-}
-
 export type BuildManifestInput = {
 	runtimeVersion: string;
+	/**
+	 * UUID desta PUBLICAÇÃO. Cada publicação tem o seu, mesmo com conteúdo igual: se o id dependesse só do
+	 * conteúdo, voltar a um bundle antigo repetiria um id que o celular já tem (com `createdAt` antigo) e ele
+	 * ficaria na versão defeituosa. Padrão: UUID aleatório.
+	 */
+	id?: string;
 	/** ISO 8601. O cliente escolhe a atualização mais recente por este campo. */
 	createdAt: string;
 	baseUrl: string;
@@ -96,15 +90,19 @@ export function buildManifest(input: BuildManifestInput): BuiltManifest {
 		};
 	};
 
-	const launchFile = { key: "bundle", ext: OTA_BUNDLE_EXT, bytes: input.launch.bytes };
-	const launchAsset = toAsset(launchFile, "bundle");
+	// A `key` do asset identifica o arquivo no celular: o expo-updates reaproveita o arquivo já baixado que tiver a
+	// mesma key. Com a key do bundle fixa, o celular rodaria o JS da primeira atualização para sempre. Por isso
+	// a key do bundle é o hash do conteúdo.
+	const launchFile = {
+		key: sha256Base64Url(input.launch.bytes),
+		ext: OTA_BUNDLE_EXT,
+		bytes: input.launch.bytes,
+	};
+	const launchAsset = toAsset(launchFile, launchFile.key);
 	const assets = input.assets.map((a) => ({ ...toAsset(a, a.key), fileExtension: `.${a.ext}` }));
 
 	const manifest: UpdateManifest = {
-		id: manifestId(
-			input.runtimeVersion,
-			[launchAsset, ...assets].map((a) => a.hash),
-		),
+		id: input.id ?? randomUUID(),
 		createdAt: input.createdAt,
 		runtimeVersion: input.runtimeVersion,
 		launchAsset,

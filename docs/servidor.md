@@ -69,7 +69,7 @@ Mudou só o JavaScript do app (telas, textos, regras)? Não precisa instalar APK
 ### Como funciona
 
 1. A cada release (`release.yml`, depois do CI verde na `main`) o GitHub Actions exporta o JS do app (`expo export --platform android`), monta o **manifesto** (id, hashes SHA-256 dos arquivos, `runtimeVersion`) e o **assina** com a chave privada (segredo `OTA_SIGNING_KEY`).
-2. O resultado vai para dentro da imagem Docker, em `/app/ota`. Nada é gerado nem assinado no servidor.
+2. O resultado vai para dentro da imagem Docker, em `/app/ota`. Nada é gerado nem assinado no servidor. Cada publicação recebe um `id` novo (mesmo que o conteúdo volte a ser igual ao de uma versão antiga, para o celular trocar a versão defeituosa pela revertida) e o bundle tem como `key` o seu próprio hash (para o celular nunca reaproveitar o arquivo de uma publicação anterior).
 3. O APK é construído já apontando para `${ORBITA_PUBLIC_URL}/updates/manifest` (o endereço fica fixo no APK). O app, em cada abertura e ao voltar do segundo plano (no máximo a cada 15 minutos), pergunta a esse endereço **só se o servidor pareado for o mesmo host** de `ORBITA_PUBLIC_URL`; pareado com outro servidor, ou sem servidor, ele não checa nada. Se o `runtimeVersion` combina e há atualização nova, ele baixa os arquivos de `/updates/assets/...`.
 4. Antes de usar qualquer coisa, o app confere a **assinatura do manifesto** contra o certificado público embutido no APK (`apps/mobile/certs/ota-certificate.pem`) e o hash de cada arquivo contra o manifesto. Assinatura inválida: a atualização é descartada.
 
@@ -120,8 +120,9 @@ Você não precisa lembrar disso: o CI calcula o `runtimeVersion` do APK e da at
 - **Atualização com defeito:** as proteções anti-bricking do `expo-updates` ficam **ligadas** (o endereço é fixo no APK, então não é preciso o `disableAntiBrickingMeasures`). Se o JS novo quebrar antes da primeira tela, o app marca a atualização como falha, busca uma correção e, se não houver, volta para uma atualização anterior que abriu bem ou para o JS embutido no APK. Passada a primeira tela, ele não reverte sozinho. Na prática: o CI (lint, tipos, testes) é a rede de segurança; se algo ruim sair, publique um commit corrigindo.
 - **Servidor pareado diferente do `ORBITA_PUBLIC_URL`:** o app não checa atualização. Ele continua funcionando normalmente com o JS que já tem.
 - **Atualização antiga (replay):** o manifesto assinado não expira. Quem controla o servidor pode servir uma atualização antiga **assinada por você**, nunca uma criada por ele. O app sempre roda a atualização de `createdAt` mais recente que ele já tem, então isso só atinge quem ainda não baixou a mais nova.
-- **Chave privada vazou:** gere um par novo (passos 1 a 4), troque o segredo e o certificado e publique um APK novo. Como o certificado vai dentro do APK, o `runtimeVersion` muda sozinho, e os APKs antigos deixam de aceitar as atualizações novas (e as assinadas com a chave vazada). O mesmo vale para o certificado vencer: o CI avisa quando faltam menos de 90 dias.
-- **Imagem e GitHub:** o segredo só é entregue ao passo que assina (um programa do repositório sem dependências), nunca ao passo que executa o build do app (Metro/plugins).
+- **Chave privada vazou (ou certificado vencendo):** gere um par novo (passos 1 a 4), troque o segredo e o certificado e construa um APK novo (o conteúdo do certificado entra no `runtimeVersion`, então o runtime muda). **Atenção:** os APKs que já estão instalados continuam confiando na chave **antiga** até você instalar o APK novo neles; quem tem a chave vazada pode assinar atualizações que esses aparelhos aceitam (precisando também do endereço do seu servidor, ou de um que o APK aceite). Por isso, depois de uma fuga, apague a chave antiga dos segredos, publique o APK novo e reinstale em todos os aparelhos o quanto antes; enquanto isso, o servidor ainda pode ser desligado das rotas `/updates` (ou a imagem publicada sem `ota/`) para não entregar nada. O CI avisa quando faltam menos de 90 dias para o certificado vencer.
+- **Isolamento da chave no GitHub:** o `release.yml` tem três etapas em jobs separados. (1) `ota-prepare` roda `pnpm install`, Metro e plugins (código de terceiros) **sem nenhum segredo** e entrega só um artefato de dados. (2) `ota-sign` é o **único** job com `OTA_SIGNING_KEY`: faz checkout e usa o Node, **sem** `pnpm install` e **sem** cache, e roda o `packages/ota` (sem dependências) sobre o artefato, tratado como dado não confiável. (3) A imagem baixa só o `ota/` já assinado, sem a chave. O segredo do webhook do Dokploy só existe no passo que o usa. Limite honesto: a assinatura atesta que o build saiu do pipeline, não que o bundle exportado seja bom; um build comprometido em `ota-prepare` ainda poderia gerar um bundle ruim, mas não consegue ler a chave nem assinar por conta própria.
+- **Falha do OTA não derruba o servidor:** se exportar ou assinar falhar, aparece um `::error::` no run e a imagem do servidor sai mesmo assim, sem `ota/` (o servidor responde "sem atualização"). Re-execução de uma release antiga (commit que não é mais a ponta da `main`) publica a imagem só com a tag do commit: sem `latest`, sem aviso ao Dokploy e sem OTA.
 - **Gasto de rede:** o app baixa só o que mudou (arquivos têm o hash no nome e são imutáveis) e o servidor limita pedidos por IP (60 consultas e 600 arquivos a cada 10 minutos).
 
 ### Referências (Expo SDK 58)
@@ -142,14 +143,17 @@ curl -i https://seu-dominio/updates/manifest \
 
 ### Testar o caminho completo no seu computador
 
+O certificado real já está em `apps/mobile/certs/`; não o toque. Use uma chave e um certificado de teste noutra pasta e passe o certificado de teste ao CLI (ele só serve para conferir a assinatura):
+
 ```bash
-# chave e certificado de teste (descartáveis); o certificado precisa estar em apps/mobile/certs só durante o teste
 pnpm --filter @orbita/mobile exec expo-updates codesigning:generate --key-output-directory /tmp/k --certificate-output-directory /tmp/c --certificate-validity-duration-years 1 --certificate-common-name teste
-mkdir -p apps/mobile/certs && cp /tmp/c/certificate.pem apps/mobile/certs/ota-certificate.pem
-ORBITA_PUBLIC_URL=https://localhost.exemplo.dev pnpm ota build --work /tmp/ota-work --out /tmp/ota-out --base-url http://localhost:3000 --key-file /tmp/k/private-key.pem
-OTA_DIR=/tmp/ota-out pnpm dev:api   # e confira com o curl acima (use o runtime de /tmp/ota-work/runtime-version.txt)
-rm -rf apps/mobile/certs            # não commite o certificado de teste
+ORBITA_PUBLIC_URL=https://localhost.exemplo.dev pnpm ota build --work /tmp/ota-work --out /tmp/ota-out \
+  --base-url https://localhost.exemplo.dev --key-file /tmp/k/private-key.pem --certificate /tmp/c/certificate.pem
+OTA_DIR=/tmp/ota-out pnpm dev:api   # e confira com o curl acima (runtime em /tmp/ota-work/runtime-version.txt)
+git status --short apps/mobile/certs   # deve estar vazio
 ```
+
+Se tiver mexido no certificado por engano: `git restore apps/mobile/certs/ota-certificate.pem`.
 
 ## VPS sem painel
 

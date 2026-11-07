@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ConfigContext, ExpoConfig } from "expo/config";
 
@@ -36,7 +37,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
 	const code = Number(process.env.ORBITA_VERSION_CODE);
 	const suffix = process.env.ORBITA_VERSION_SUFFIX ?? "";
 	const updateUrl = otaUpdateUrl(process.env.ORBITA_PUBLIC_URL);
-	const ota = updateUrl !== null && existsSync(join(projectRoot ?? process.cwd(), OTA_CERTIFICATE));
+	const certPath = join(projectRoot ?? process.cwd(), OTA_CERTIFICATE);
+	const ota = updateUrl !== null && existsSync(certPath);
 	return {
 		...config,
 		name: config.name ?? "Órbita",
@@ -50,7 +52,13 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
 			? {
 					runtimeVersion: { policy: "fingerprint" },
 					// O app só checa se o servidor pareado for este (src/lib/auto-update.tsx).
-					extra: { ...config.extra, otaUpdateUrl: updateUrl },
+					// `otaCertSha256`: o fingerprint não olha o CONTEÚDO do certificado; com o hash aqui, trocar o
+					// certificado muda o runtimeVersion (APK antigo, com o certificado velho, para de receber OTA novo).
+					extra: {
+						...config.extra,
+						otaUpdateUrl: updateUrl,
+						otaCertSha256: createHash("sha256").update(readFileSync(certPath)).digest("hex"),
+					},
 					updates: {
 						url: updateUrl,
 						// Nada de checagem nativa na abertura: quem decide é o app, e só com o servidor pareado

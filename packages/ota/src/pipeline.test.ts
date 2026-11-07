@@ -7,7 +7,8 @@ import { signOta } from "./pipeline.ts";
 import { readCertificate, signManifest, verifyManifestSignature } from "./sign.ts";
 import { KEY_ID, makeTestCertificate, makeWorkDir, tempDir } from "./test-support.ts";
 
-const NOW = new Date("2026-11-07T12:00:00Z");
+// Os certificados de teste valem a partir de agora (relógio real do openssl), então "agora" também é real.
+const NOW = new Date(Date.now() + 60_000); // folga: o openssl arredonda o início da validade para o segundo
 const { keyPem, certPem } = makeTestCertificate();
 
 function sign(overrides: Partial<Parameters<typeof signOta>[0]> = {}) {

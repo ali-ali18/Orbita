@@ -119,7 +119,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 function keyIdOf(codeSigning: unknown): string {
 	const keyid = (codeSigning as { keyid?: unknown } | null)?.keyid;
-	if (typeof keyid !== "string" || !keyid) {
+	if (typeof keyid !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(keyid)) {
 		throw new Error(
 			"A config do app não tem updates.codeSigningMetadata.keyid (falta o certificado em apps/mobile/certs?).",
 		);
@@ -127,10 +127,21 @@ function keyIdOf(codeSigning: unknown): string {
 	return keyid;
 }
 
-/** Passo 2 (COM a chave): monta o manifesto, assina, confere contra o certificado e grava o diretório OTA. */
+/**
+ * Passo 2 (COM a chave): monta o manifesto, assina, confere contra o certificado e grava o diretório OTA.
+ *
+ * Isolamento real (release.yml): o `prepare` roda num job SEM segredos (pnpm install, Metro e plugins de
+ * terceiros) e entrega a pasta de trabalho como artefato. Este passo roda em outro job, o único com a chave,
+ * que só faz checkout e usa o node: sem pnpm install, sem cache e sem dependências (este pacote não tem
+ * nenhuma). A pasta de trabalho é tratada como dado não confiável: caminhos são confinados ao export e
+ * os campos que vão para o manifesto são validados. O que a assinatura NÃO garante é que o bundle exportado
+ * seja bom: ela atesta que o build saiu do pipeline, não revisa o que o build gerou.
+ */
 export async function signOta(opts: SignOptions): Promise<SignResult> {
 	const warnings: string[] = [];
+	// A pasta de trabalho vem de outro job (que roda código de terceiros): é dado, validado antes de assinar.
 	const runtimeVersion = (await readFile(join(opts.work, WORK_FILES.runtimeVersion), "utf8")).trim();
+	if (!/^[A-Za-z0-9._-]{1,256}$/.test(runtimeVersion)) throw new Error("runtime-version.txt inválido.");
 	const expoClient = JSON.parse(await readFile(join(opts.work, WORK_FILES.expoConfig), "utf8")) as Record<
 		string,
 		unknown

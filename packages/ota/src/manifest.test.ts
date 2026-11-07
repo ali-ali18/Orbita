@@ -7,7 +7,7 @@ import {
 	isAssetFileName,
 	isSignatureHeader,
 } from "./layout.ts";
-import { buildManifest, manifestId, normalizeBaseUrl, sha256Base64Url } from "./manifest.ts";
+import { buildManifest, normalizeBaseUrl, sha256Base64Url } from "./manifest.ts";
 
 const bytes = (s: string) => new TextEncoder().encode(s);
 const input = {
@@ -45,13 +45,22 @@ describe("buildManifest", () => {
 		for (const f of built.files) expect(isAssetFileName(f.name)).toBe(true);
 	});
 
-	it("o id é UUID e depende só do conteúdo e do runtime", () => {
+	it("cada publicação tem id próprio, mesmo com conteúdo idêntico (reverter não repete id)", () => {
 		const a = buildManifest(input).manifest.id;
-		expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-		expect(buildManifest({ ...input, createdAt: "2027-01-01T00:00:00Z" }).manifest.id).toBe(a);
-		expect(buildManifest({ ...input, launch: { bytes: bytes("outro") } }).manifest.id).not.toBe(a);
-		expect(buildManifest({ ...input, runtimeVersion: "rt-2" }).manifest.id).not.toBe(a);
-		expect(manifestId("x", ["b", "a"])).toBe(manifestId("x", ["a", "b"]));
+		const b = buildManifest(input).manifest.id;
+		expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+		expect(a).not.toBe(b);
+		expect(buildManifest({ ...input, id: "11111111-1111-4111-8111-111111111111" }).manifest.id).toBe(
+			"11111111-1111-4111-8111-111111111111",
+		);
+	});
+
+	it("a key do bundle muda com o conteúdo: duas atualizações com bundles diferentes não compartilham key", () => {
+		const v1 = buildManifest(input).manifest.launchAsset;
+		const v2 = buildManifest({ ...input, launch: { bytes: bytes("outro bundle") } }).manifest.launchAsset;
+		expect(v1.key).toBe(v1.hash);
+		expect(v1.key).not.toBe(v2.key);
+		expect(buildManifest(input).manifest.launchAsset.key).toBe(v1.key);
 	});
 
 	it("asset repetido vira um arquivo só", () => {
@@ -66,11 +75,11 @@ describe("buildManifest", () => {
 });
 
 describe("normalizeBaseUrl", () => {
-	it("tira a barra final e exige https (http só em localhost)", () => {
+	it("tira a barra final e exige https (http nunca)", () => {
 		expect(normalizeBaseUrl("https://a.dev/")).toBe("https://a.dev");
 		expect(normalizeBaseUrl("https://a.dev/orbita//")).toBe("https://a.dev/orbita");
-		expect(normalizeBaseUrl("http://localhost:3000")).toBe("http://localhost:3000");
 		expect(() => normalizeBaseUrl("http://a.dev")).toThrow(/https/);
+		expect(() => normalizeBaseUrl("http://localhost:3000")).toThrow(/https/);
 		expect(() => normalizeBaseUrl("ftp://a.dev")).toThrow();
 		expect(() => normalizeBaseUrl("https://u:p@a.dev")).toThrow();
 		expect(() => normalizeBaseUrl("https://a.dev/?x=1")).toThrow();
