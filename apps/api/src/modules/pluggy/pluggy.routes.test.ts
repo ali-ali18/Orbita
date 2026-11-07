@@ -1,3 +1,4 @@
+import { createMemoryStores } from "@orbita/db";
 import { describe, expect, it } from "vitest";
 import { type Json, NOW, setupFinance } from "../../test-support.ts";
 import type { PluggyQueueState, PluggySyncQueue } from "./queue.ts";
@@ -60,6 +61,7 @@ describe("rotas do Meu Pluggy: autenticação", () => {
 			["PATCH", `/v1/pluggy/connections/${ITEM}`, { label: "Inter" }],
 			["DELETE", `/v1/pluggy/connections/${ITEM}`, undefined],
 			["POST", "/v1/pluggy/sync", {}],
+			["POST", "/v1/pluggy/reimport", {}],
 			["GET", "/v1/pluggy/status", undefined],
 		] as const) {
 			expect((await call(method, path, body, null)).status, `${method} ${path}`).toBe(401);
@@ -229,6 +231,61 @@ describe("sincronizar agora", () => {
 		const res = await api.post("/v1/pluggy/sync");
 		expect(res.status).toBe(503);
 		expect(res.body.error.code).toBe("fila_indisponivel");
+	});
+});
+
+describe("reimportar do zero", () => {
+	async function withData() {
+		const stores = createMemoryStores({ now: () => new Date(NOW) });
+		const q = fakeQueue();
+		const t = await setupFinance(NOW, () => stores, { pluggySyncQueue: q.queue, pluggyFetch: pluggyFetch() });
+		await withKeys(t.api);
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		const account = await stores.accounts.create({
+			name: "Conta",
+			kind: "checking",
+			source: "pluggy",
+			externalId: "a1",
+		});
+		await stores.pluggyConnections.recordSync(ITEM, {
+			status: "ok",
+			syncedAt: new Date("2026-11-10T09:00:00Z"),
+		});
+		const base = { kind: "expense" as const, amountCents: 1000, date: "2026-11-05", accountId: account.id };
+		const manual = await stores.transactions.create({ ...base, description: "Manual" });
+		await stores.transactions.upsertByExternal("pluggy", "p1", { ...base, description: "Do Pluggy" });
+		await stores.transactions.upsertByExternal("pluggy", "p2", { ...base, description: "Outro" });
+		return { ...t, q, stores, account, manual };
+	}
+
+	it("apaga só o que veio do Pluggy, zera a janela e enfileira; manuais, contas e cartões ficam", async () => {
+		const { api, q, stores, manual, account } = await withData();
+		const res = await api.post("/v1/pluggy/reimport");
+		expect(res.status).toBe(202);
+		expect(res.body).toEqual({ deleted: 2, sync: "queued" });
+		expect(q.calls).toEqual(["enqueue"]);
+		expect((await stores.transactions.listRecent({ limit: 10 })).map((t) => t.id)).toEqual([manual.id]);
+		expect(await stores.transactions.existsByExternal("pluggy", "p1")).toBe(false);
+		expect((await stores.pluggyConnections.get(ITEM))?.lastSyncAt).toBeNull();
+		expect(await stores.accounts.findByExternal("pluggy", "a1")).toMatchObject({ id: account.id });
+	});
+
+	it("recusa antes de apagar: sem fila, sem conexões, sem chaves ou com sincronização rodando", async () => {
+		const { api, q, stores } = await withData();
+		q.set("running");
+		const busy = await api.post("/v1/pluggy/reimport");
+		expect(busy.status).toBe(409);
+		expect(busy.body.error.code).toBe("sincronizando");
+		expect(await stores.transactions.existsByExternal("pluggy", "p1")).toBe(true);
+		expect((await stores.pluggyConnections.get(ITEM))?.lastSyncAt).not.toBeNull();
+
+		const none = await make();
+		expect((await none.api.post("/v1/pluggy/reimport")).body.error.code).toBe("sem_conexoes");
+		await none.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		expect((await none.api.post("/v1/pluggy/reimport")).body.error.code).toBe("sem_chaves");
+
+		const noQueue = await setupFinance();
+		expect((await noQueue.api.post("/v1/pluggy/reimport")).status).toBe(503);
 	});
 });
 

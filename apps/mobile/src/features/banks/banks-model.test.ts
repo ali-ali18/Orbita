@@ -16,6 +16,8 @@ import {
 	nextPollDelay,
 	parseConnectionInput,
 	parseRenameInput,
+	REIMPORT_WARNING,
+	reimportErrorMessage,
 	syncAnnouncement,
 	syncButtonLabel,
 	syncCardText,
@@ -372,5 +374,20 @@ describe("renomear", () => {
 			throw new ApiError("Sem resposta do servidor.", 500, "erro");
 		});
 		expect(down).toEqual({ status: "failed", message: "Sem resposta do servidor." });
+	});
+});
+
+describe("reimportar do zero", () => {
+	it("explica o que some e o que fica, sem jargão", () => {
+		expect(REIMPORT_WARNING).toContain("só o que veio do Meu Pluggy");
+		expect(REIMPORT_WARNING).toContain("à mão");
+		expect(REIMPORT_WARNING).toContain("contas e os cartões ficam");
+	});
+	it("mensagens de erro: sincronização em andamento e os recusas comuns", () => {
+		expect(reimportErrorMessage(new ApiError("x", 409, "sincronizando"))).toContain("em andamento");
+		expect(reimportErrorMessage(new ApiError("x", 400, "sem_chaves"))).toContain("Client ID");
+		expect(reimportErrorMessage(new ApiError("Sem resposta do servidor.", 500, "erro"))).toBe(
+			"Sem resposta do servidor.",
+		);
 	});
 });

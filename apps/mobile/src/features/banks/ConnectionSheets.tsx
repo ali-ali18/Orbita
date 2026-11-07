@@ -3,7 +3,15 @@ import { colors, layout, radius, spacing, text as typography } from "@orbita/tok
 import { type ComponentRef, type ReactNode, type Ref, useReducer, useRef, useState } from "react";
 import { Linking, Pressable, TextInput, View } from "react-native";
 import { Button, familyByWeight, Sheet, Text } from "../../ui/index.ts";
-import { ADD_HINT, connectionName, PLUGGY_LABEL_MAX, PLUGGY_URL } from "./banks-model.ts";
+import {
+	ADD_HINT,
+	connectionName,
+	PLUGGY_LABEL_MAX,
+	PLUGGY_URL,
+	REIMPORT_TITLE,
+	REIMPORT_WARNING,
+	reimportErrorMessage,
+} from "./banks-model.ts";
 import {
 	addFormReducer,
 	type ConnectionOutcome,
@@ -307,6 +315,56 @@ function ConnectionDetail({
 				onPress={() => void saveName()}
 			/>
 			<Button label="Remover conexão" variant="secondary" onPress={() => setConfirming(true)} />
+		</View>
+	);
+}
+
+/** Gaveta "Reimportar do zero": explica o que some e o que fica, e só então confirma (um modal só). */
+export function ReimportSheet({
+	visible,
+	reimport,
+	onClose,
+}: {
+	visible: boolean;
+	reimport: () => Promise<void>;
+	onClose: () => void;
+}) {
+	const seq = useOpenSeq(visible);
+	return (
+		<Sheet visible={visible} title={REIMPORT_TITLE} onClose={onClose}>
+			<ReimportForm key={seq} reimport={reimport} onClose={onClose} />
+		</Sheet>
+	);
+}
+
+function ReimportForm({ reimport, onClose }: { reimport: () => Promise<void>; onClose: () => void }) {
+	const [busy, setBusy] = useState(false);
+	const [message, setMessage] = useState<string | null>(null);
+	const locked = useRef(false);
+
+	const confirm = async () => {
+		if (locked.current) return;
+		locked.current = true;
+		setBusy(true);
+		setMessage(null);
+		try {
+			await reimport();
+			onClose();
+		} catch (error) {
+			locked.current = false;
+			setBusy(false);
+			setMessage(reimportErrorMessage(error));
+		}
+	};
+
+	return (
+		<View style={{ gap: spacing.md, paddingVertical: spacing.md }}>
+			<Text variant="caption" tone="secondary">
+				{REIMPORT_WARNING}
+			</Text>
+			{message ? <Message>{message}</Message> : null}
+			<Button label="Apagar e reimportar" loading={busy} onPress={() => void confirm()} />
+			<Button label="Cancelar" variant="secondary" disabled={busy} onPress={onClose} />
 		</View>
 	);
 }

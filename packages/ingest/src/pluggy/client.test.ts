@@ -300,3 +300,36 @@ describe("createPluggyClient", () => {
 		expect(redirect).toBe("error");
 	});
 });
+
+describe("categories", () => {
+	it("lê a árvore de categorias, todas as páginas, validada", async () => {
+		const fake = fakePluggy({
+			pageSize: 1,
+			categories: [
+				{ id: "03000000", description: "Investments" },
+				{
+					id: "03020000",
+					description: "Fixed income",
+					parentId: "03000000",
+					parentDescription: "Investments",
+				},
+			],
+		});
+		const client = createPluggyClient({
+			fetch: fake.fetch,
+			clientId: CLIENT_ID,
+			clientSecret: CLIENT_SECRET,
+		});
+		expect((await client.categories()).map((c) => c.id)).toEqual(["03000000", "03020000"]);
+	});
+
+	it("formato inesperado vira invalid_response", async () => {
+		const fake = fakePluggy({ categories: [{ nome: "x" }] });
+		const client = createPluggyClient({
+			fetch: fake.fetch,
+			clientId: CLIENT_ID,
+			clientSecret: CLIENT_SECRET,
+		});
+		await expect(client.categories()).rejects.toMatchObject({ code: "invalid_response" });
+	});
+});

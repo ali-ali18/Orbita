@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { buildCategoryIndex } from "./classify.ts";
 import { BANK_ACCOUNT_ID, bankAccount, cardAccount, tx } from "./fake-pluggy.ts";
 import {
 	assignBillPayments,
+	isEstimatedCardDates,
 	mapPluggyAccount,
 	mapPluggyTransaction,
 	pluggyDateToLocal,
+	resolveCardDates,
 	type TransactionContext,
 } from "./mapping.ts";
-import { accountSchema, transactionSchema } from "./schemas.ts";
+import { accountSchema, billSchema, transactionSchema } from "./schemas.ts";
 
 const account = (extra: object = {}) => accountSchema.parse({ ...bankAccount, ...extra });
 const card = (extra: object = {}) => accountSchema.parse({ ...cardAccount, ...extra });
@@ -74,8 +77,15 @@ describe("mapPluggyAccount", () => {
 		});
 	});
 
-	it("cartão sem datas de fatura, moeda estrangeira e tipos desconhecidos são ignorados com motivo", () => {
-		expect(mapPluggyAccount(card({ creditData: { creditLimit: 100 } }))).toMatchObject({ kind: "ignored" });
+	it("cartão sem nenhuma data NÃO é descartado: entra com dias padrão marcados como estimados", () => {
+		expect(mapPluggyAccount(card({ creditData: { creditLimit: 100 } }))).toMatchObject({
+			kind: "card",
+			input: { closingDay: 20, dueDay: 27, limitCents: 10_000 },
+			dates: { origin: "default" },
+		});
+	});
+
+	it("moeda estrangeira e tipos desconhecidos são ignorados com motivo", () => {
 		expect(mapPluggyAccount(account({ currencyCode: "USD" }))).toMatchObject({ kind: "ignored" });
 		expect(mapPluggyAccount(account({ type: "INVESTMENT" }))).toMatchObject({ kind: "ignored" });
 	});
@@ -402,5 +412,145 @@ describe("assignBillPayments", () => {
 				[pay(100, "2026-11-05")],
 			).size,
 		).toBe(0);
+	});
+});
+
+describe("resolveCardDates: fechamento e vencimento do cartão", () => {
+	const bill = (extra: object) => billSchema.parse({ id: "b", payments: [], ...extra });
+	const noDates = (extra: object = {}) => card({ creditData: { creditLimit: 100, ...extra } });
+
+	it("1) creditData com as duas datas vale mais que tudo", () => {
+		const bills = [
+			bill({ dueDate: "2026-10-05T00:00:00.000Z", billClosingDate: "2026-09-28T00:00:00.000Z" }),
+		];
+		expect(resolveCardDates(card(), bills)).toEqual({ closingDay: 10, dueDay: 17, origin: "credit_data" });
+	});
+
+	it("2) sem creditData, a fatura mais recente com fechamento e vencimento", () => {
+		const bills = [
+			bill({ id: "velha", dueDate: "2026-09-05T00:00:00.000Z", billClosingDate: "2026-08-29T00:00:00.000Z" }),
+			bill({ id: "nova", dueDate: "2026-11-08T00:00:00.000Z", billClosingDate: "2026-11-01T00:00:00.000Z" }),
+		];
+		expect(resolveCardDates(noDates(), bills)).toEqual({ closingDay: 1, dueDay: 8, origin: "bill" });
+	});
+
+	it("2b) creditData só com o vencimento + fatura completa: usa a fatura", () => {
+		const bills = [
+			bill({ dueDate: "2026-11-08T00:00:00.000Z", billClosingDate: "2026-11-01T00:00:00.000Z" }),
+		];
+		expect(resolveCardDates(noDates({ balanceDueDate: "2026-11-20T00:00:00.000Z" }), bills)).toMatchObject({
+			closingDay: 1,
+			dueDay: 8,
+			origin: "bill",
+		});
+	});
+
+	it("3) só o vencimento (da fatura): fechamento 7 dias antes, atravessando o mês, e marcado como estimado", () => {
+		const bills = [bill({ dueDate: "2026-11-03T00:00:00.000Z", billClosingDate: null })];
+		const dates = resolveCardDates(noDates(), bills);
+		expect(dates).toEqual({ closingDay: 27, dueDay: 3, origin: "due_date_only" });
+		expect(isEstimatedCardDates(dates.origin)).toBe(true);
+	});
+
+	it("3b) só o vencimento do creditData também serve", () => {
+		expect(resolveCardDates(noDates({ balanceDueDate: "2026-11-17T00:00:00.000Z" }), [])).toEqual({
+			closingDay: 10,
+			dueDay: 17,
+			origin: "due_date_only",
+		});
+	});
+
+	it("4) nada: dias padrão, estimado", () => {
+		const dates = resolveCardDates(noDates(), [bill({ dueDate: null })]);
+		expect(dates).toEqual({ closingDay: 20, dueDay: 27, origin: "default" });
+		expect(isEstimatedCardDates("credit_data")).toBe(false);
+		expect(isEstimatedCardDates("bill")).toBe(false);
+	});
+});
+
+describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () => {
+	const ids = new Map([
+		["mercado", "cat-mercado"],
+		["delivery", "cat-delivery"],
+		["saude", "cat-saude"],
+		["outros", "cat-outros"],
+	]);
+	const index = buildCategoryIndex([
+		{ id: "03000000", description: "Investments" },
+		{ id: "03020000", description: "Fixed income", parentId: "03000000", parentDescription: "Investments" },
+		{ id: "10000000", description: "Healthcare" },
+		{ id: "10020000", description: "Pharmacy", parentId: "10000000", parentDescription: "Healthcare" },
+	]);
+	const ctx: TransactionContext = { ...bankCtx, categoryIds: ids, categoryIndex: index };
+	const kindOf = (extra: Record<string, unknown>, c = ctx) => {
+		const mapped = mapPluggyTransaction(parse(extra), c);
+		return mapped.action === "upsert"
+			? `${mapped.input.kind}:${mapped.input.categoryId}`
+			: mapped.action === "skip"
+				? `skip:${mapped.reason}`
+				: "refund";
+	};
+
+	it("aplicação e resgate (categoria de investimento, folha ou pai) não são gasto nem receita", () => {
+		expect(kindOf({ category: "Fixed income", categoryId: "03020000", amount: -500 })).toBe(
+			"skip:investment",
+		);
+		expect(kindOf({ category: "Fixed income", categoryId: "03020000", type: "CREDIT", amount: 500 })).toBe(
+			"skip:investment",
+		);
+		// Sem o nome da folha conhecido, o pai da árvore decide.
+		expect(kindOf({ category: "Algo novo", categoryId: "03020000", amount: -1 })).toBe("skip:investment");
+		expect(
+			kindOf({ category: "Investimentos", amount: -1 }, { ...ctx, categoryIndex: undefined as never }),
+		).toBe("skip:investment");
+	});
+
+	it("rendimento de investimento entra como receita", () => {
+		expect(kindOf({ category: "Interests on investments", type: "CREDIT", amount: 3.2 })).toBe("income:null");
+		expect(kindOf({ description: "Rendimentos caixinha", category: null, type: "CREDIT", amount: 3.2 })).toBe(
+			"income:null",
+		);
+	});
+
+	it("plano B pela descrição só com categoria ausente ou genérica", () => {
+		expect(kindOf({ description: "Aplicação CDB", category: null, amount: -100 })).toBe("skip:investment");
+		expect(kindOf({ description: "RESGATE CAIXINHA", category: "Other", type: "CREDIT", amount: 100 })).toBe(
+			"skip:investment",
+		);
+		expect(kindOf({ description: "Poupança do Zé", category: "Eating out", amount: -100 })).toBe(
+			"expense:cat-delivery",
+		);
+		// Palavra dentro de outra não conta.
+		expect(kindOf({ description: "Resgatei meu cachorro", category: null, amount: -10 })).toBe(
+			"expense:cat-outros",
+		);
+	});
+
+	it("despesa vai para a categoria do Órbita pela folha, pelo pai ou cai em Outros", () => {
+		expect(kindOf({ category: "Supermarkets", amount: -10 })).toBe("expense:cat-mercado");
+		expect(kindOf({ category: "Eating out", amount: -10 })).toBe("expense:cat-delivery");
+		expect(kindOf({ category: "Pharmacy", categoryId: "10020000", amount: -10 })).toBe("expense:cat-saude");
+		// Folha desconhecida, pai conhecido pela árvore.
+		expect(kindOf({ category: "Coisa nova", categoryId: "10020000", amount: -10 })).toBe("expense:cat-saude");
+		expect(kindOf({ category: "Online shopping", amount: -10 })).toBe("expense:cat-outros");
+		expect(kindOf({ category: null, amount: -10 })).toBe("expense:cat-outros");
+		// Sem categorias carregadas, sem categoria.
+		expect(kindOf({ category: "Eating out", amount: -10 }, bankCtx)).toBe("expense:null");
+	});
+
+	it("compra no cartão também é categorizada; a receita não leva categoria", () => {
+		const c = { ...cardCtx, categoryIds: ids };
+		expect(kindOf({ category: "Groceries", amount: 10 }, c)).toBe("expense:cat-mercado");
+		expect(kindOf({ category: "Salary", type: "CREDIT", amount: 10 })).toBe("income:null");
+	});
+
+	it("pagamento de fatura e mesma titularidade pela árvore", () => {
+		const tree = buildCategoryIndex([
+			{ id: "05000000", description: "Transfers" },
+			{ id: "05090000", description: "Same person transfer", parentId: "05000000" },
+		]);
+		expect(
+			kindOf({ category: "Transfers", categoryId: "05090000", amount: -5 }, { ...ctx, categoryIndex: tree }),
+		).toBe("skip:own_transfer");
 	});
 });

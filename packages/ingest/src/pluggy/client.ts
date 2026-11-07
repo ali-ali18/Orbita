@@ -4,11 +4,13 @@ import {
 	accountSchema,
 	authResponse,
 	billSchema,
+	categorySchema,
 	connectTokenResponse,
 	cursorPage,
 	itemResponse,
 	type PluggyAccount,
 	type PluggyBill,
+	type PluggyCategory,
 	type PluggyItem,
 	type PluggyTransaction,
 	page,
@@ -49,6 +51,8 @@ export interface PluggyClient {
 	accounts(itemId: string): Promise<PluggyAccount[]>;
 	/** `GET /bills?accountId=` (cartão): todas as páginas. Quem não é Open Finance pode não ter faturas. */
 	bills(accountId: string): Promise<PluggyBill[]>;
+	/** `GET /categories`: a árvore de categorias do Pluggy (todas as páginas). Não depende da conexão. */
+	categories(): Promise<PluggyCategory[]>;
 	/**
 	 * `GET /v2/transactions?accountId=&dateFrom=&dateTo=` (paginação por cursor; o `GET /transactions` por página está
 	 * marcado como obsoleto no SDK): todas as páginas. Datas "AAAA-MM-DD".
@@ -274,6 +278,9 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 		},
 		async bills(accountId) {
 			return allPages("/bills", { accountId: needSafeId(accountId) }, billSchema);
+		},
+		async categories() {
+			return allPages("/categories", {}, categorySchema);
 		},
 		async transactions({ accountId, from, to }) {
 			if (!DATE.test(from) || !DATE.test(to)) throw new RangeError("datas devem ser AAAA-MM-DD");

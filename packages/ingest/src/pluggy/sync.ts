@@ -9,6 +9,7 @@ import {
 } from "@orbita/db";
 import type { PluggySyncStatus, SecretName } from "@orbita/shared";
 import { hasMeuPluggyPrefix } from "./bank-name.ts";
+import { buildCategoryIndex, type CategoryIndex } from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
 import { chooseConnectionLabel } from "./connection-label.ts";
 import { PluggyError, safeErrorMessage } from "./errors.ts";
@@ -16,6 +17,7 @@ import {
 	assignBillPayments,
 	type BillPayment,
 	type BillTotal,
+	isEstimatedCardDates,
 	mapPluggyAccount,
 	mapPluggyTransaction,
 	type PaymentCandidate,
@@ -25,7 +27,7 @@ import {
 	type TransactionContext,
 	transactionFacts,
 } from "./mapping.ts";
-import type { PluggyAccount, PluggyTransaction } from "./schemas.ts";
+import type { PluggyAccount, PluggyBill, PluggyTransaction } from "./schemas.ts";
 
 export const PLUGGY_SYNC_QUEUE = "sincronizacao";
 /** Job agendado (todo dia, 06:00 em São Paulo). */
@@ -45,7 +47,7 @@ export const OVERLAP_DAYS = 40;
 const REFUND_LOOKBACK_MONTHS = 3;
 
 export interface SyncPluggyDeps {
-	stores: Pick<Stores, "accounts" | "cards" | "transactions" | "pluggyConnections">;
+	stores: Pick<Stores, "accounts" | "cards" | "categories" | "transactions" | "pluggyConnections">;
 	/** Lê uma chave do cofre (`vault.read`). Devolve `null` se não cadastrada; pode lançar se não abre. */
 	readSecret: (
 		name: Extract<SecretName, "pluggy_client_id" | "pluggy_client_secret">,
@@ -125,9 +127,10 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 		now,
 	});
 	const startedAt = now();
+	const lookups = createLookups(deps, client);
 	const results: ConnectionSyncResult[] = [];
 	for (const connection of connections) {
-		const result = await syncConnection(deps, client, connection, startedAt);
+		const result = await syncConnection(deps, client, connection, startedAt, lookups);
 		results.push(await finish(deps, connection, result, startedAt));
 		log(
 			`pluggy: ${result.status} contas=${result.accounts} novos=${result.created} existentes=${result.existing}`,
@@ -142,6 +145,45 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 			? "partial"
 			: "ok";
 	return { status, connections: results };
+}
+
+/** Categorias que valem para a rodada inteira: buscadas uma vez, só se algum lançamento chegar a precisar delas. */
+interface Lookups {
+	/** A árvore do Pluggy; `null` se não carregou (vale o nome da categoria do lançamento). */
+	categoryIndex(): Promise<CategoryIndex | null>;
+	/** slug → id das categorias do Órbita (cria as padrão que faltam; as arquivadas não entram). */
+	categoryIds(): Promise<Map<string, string>>;
+}
+
+function createLookups(deps: SyncPluggyDeps, client: PluggyClient): Lookups {
+	let index: Promise<CategoryIndex | null> | undefined;
+	let ids: Promise<Map<string, string>> | undefined;
+	return {
+		categoryIndex() {
+			index ??= client.categories().then(
+				(list) => buildCategoryIndex(list),
+				(e) => {
+					// Chave ruim ou limite: a conexão acusa o erro como em qualquer chamada. O resto não impede a rodada.
+					if (e instanceof PluggyError && (e.code === "auth" || e.code === "rate_limit")) throw e;
+					return null;
+				},
+			);
+			return index;
+		},
+		categoryIds() {
+			ids ??= (async () => {
+				await deps.stores.categories.ensureDefaults();
+				return new Map((await deps.stores.categories.list()).map((c) => [c.slug, c.id]));
+			})();
+			return ids;
+		},
+	};
+}
+
+/** Resultado de `/bills` de um cartão: as faturas, ou `failed` se o Pluggy falhou de verdade (404/403 = sem faturas). */
+interface BillsOf {
+	bills: PluggyBill[];
+	failed: boolean;
 }
 
 function blank(id: string, status: PluggySyncStatus, error: string | null): ConnectionSyncResult {
@@ -168,6 +210,7 @@ async function syncConnection(
 	client: PluggyClient,
 	connection: PluggyConnectionRecord,
 	startedAt: Date,
+	lookups: Lookups,
 ): Promise<ConnectionSyncResult> {
 	const result = blank(connection.id, "ok", null);
 	// Motivos para a conexão terminar `partial`: não avança `lastSyncAt`, então a próxima rodada refaz a janela.
@@ -192,7 +235,28 @@ async function syncConnection(
 			partial.push("o banco não atualizou os dados no Pluggy ainda");
 		}
 		const pluggyAccounts = await client.accounts(connection.id);
-		const linked = await linkAccounts(deps, pluggyAccounts, item.connector?.name, result);
+		// Faturas de cada cartão, antes de ligar: elas dão o fechamento e o vencimento quando o `creditData` não traz.
+		// Conector sem faturas (404/403) vale como "sem faturas". Falha de verdade impede classificar os débitos e
+		// créditos que poderiam ser pagamento (o upsert nunca corrige depois): ficam de fora e a conexão fica `partial`.
+		const billsOf = new Map<string, BillsOf>();
+		for (const pa of pluggyAccounts) {
+			if (pa.type !== "CREDIT") continue;
+			try {
+				billsOf.set(pa.id, { bills: await client.bills(pa.id), failed: false });
+			} catch (e) {
+				if (!(e instanceof PluggyError)) throw e;
+				if (e.code === "auth" || e.code === "rate_limit") throw e;
+				billsOf.set(pa.id, { bills: [], failed: e.code !== "not_found" && e.code !== "forbidden" });
+			}
+		}
+		const { linked, deferredCards } = await linkAccounts(
+			deps,
+			pluggyAccounts,
+			item.connector?.name,
+			billsOf,
+			result,
+		);
+		if (deferredCards > 0) partial.push(`${deferredCards} cartão(ões) esperam as faturas para ter as datas`);
 		result.counts = {
 			accounts: linked.filter((l) => l.account !== null && l.account.archivedAt === null).length,
 			cards: linked.filter((l) => l.card !== null && l.card.archivedAt === null).length,
@@ -200,34 +264,26 @@ async function syncConnection(
 		await suggestLabel(deps, connection, item.connector?.name, pluggyAccounts);
 		const liveCards = linked.filter((l) => l.card !== null && l.card.archivedAt === null);
 
-		// Faturas dos cartões: pagamentos (casam débito da conta com cartão), totais (plano B) e mês de cada fatura.
-		// Conector sem faturas (404/403) vale como "sem faturas". Falha de verdade impede classificar os débitos e
-		// créditos que poderiam ser pagamento (o upsert nunca corrige depois): ficam de fora e a conexão fica `partial`.
+		// Pagamentos (casam débito da conta com cartão), totais (plano B) e mês de cada fatura.
 		const billPayments: BillPayment[] = [];
 		const billTotals: BillTotal[] = [];
 		const billMonths = new Map<string, string>();
 		let billsUnavailable = false;
 		for (const target of liveCards) {
 			const cardId = target.card?.id as string;
-			try {
-				for (const bill of await client.bills(target.pluggyId)) {
-					const due = bill.dueDate ? pluggyDateToLocal(bill.dueDate) : null;
-					if (due !== null) billMonths.set(bill.id, due.slice(0, 7));
-					const total = centsOrNull(bill.totalAmount);
-					if (total !== null) billTotals.push({ cardId, amountCents: total });
-					for (const p of bill.payments) {
-						const date = pluggyDateToLocal(p.paymentDate);
-						const amountCents = centsOrNull(p.amount);
-						if (date === null || amountCents === null || (p.currencyCode && p.currencyCode !== "BRL"))
-							continue;
-						billPayments.push({ cardId, amountCents, date });
-					}
+			const fetchedBills = billsOf.get(target.pluggyId);
+			if (fetchedBills?.failed) billsUnavailable = true;
+			for (const bill of fetchedBills?.bills ?? []) {
+				const due = bill.dueDate ? pluggyDateToLocal(bill.dueDate) : null;
+				if (due !== null) billMonths.set(bill.id, due.slice(0, 7));
+				const total = centsOrNull(bill.totalAmount);
+				if (total !== null) billTotals.push({ cardId, amountCents: total });
+				for (const p of bill.payments) {
+					const date = pluggyDateToLocal(p.paymentDate);
+					const amountCents = centsOrNull(p.amount);
+					if (date === null || amountCents === null || (p.currencyCode && p.currencyCode !== "BRL")) continue;
+					billPayments.push({ cardId, amountCents, date });
 				}
-			} catch (e) {
-				if (!(e instanceof PluggyError)) throw e;
-				if (e.code === "auth" || e.code === "rate_limit") throw e;
-				if (e.code === "not_found" || e.code === "forbidden") continue;
-				billsUnavailable = true;
 			}
 		}
 		if (billsUnavailable) {
@@ -236,6 +292,14 @@ async function syncConnection(
 			);
 			partial.push("as faturas do cartão não carregaram");
 		}
+
+		const categoryIndex = (await lookups.categoryIndex()) ?? undefined;
+		if (!categoryIndex) {
+			result.notes.push(
+				"As categorias do Pluggy não carregaram: usei só o nome da categoria de cada lançamento.",
+			);
+		}
+		const categoryIds = await lookups.categoryIds();
 
 		// 1) Baixa os lançamentos de todas as contas.
 		const fetched: Array<{ target: Linked; txs: PluggyTransaction[] }> = [];
@@ -291,8 +355,16 @@ async function syncConnection(
 				billTotals,
 				billMonths,
 				billsUnavailable,
+				...(categoryIndex ? { categoryIndex } : {}),
+				categoryIds,
 			};
 			await storeTransactions(deps, txs, ctx, result);
+		}
+		const investments = result.skipped.investment ?? 0;
+		if (investments > 0) {
+			result.notes.push(
+				`${investments} movimento(s) de investimento (aplicação, resgate, caixinha) ficaram de fora: não são gasto nem receita.`,
+			);
 		}
 		const unlinked = result.skipped.card_payment_unlinked ?? 0;
 		if (unlinked > 0) {
@@ -358,12 +430,14 @@ async function linkAccounts(
 	deps: SyncPluggyDeps,
 	pluggyAccounts: readonly PluggyAccount[],
 	connectorName: string | null | undefined,
+	billsOf: ReadonlyMap<string, BillsOf>,
 	result: ConnectionSyncResult,
-): Promise<Linked[]> {
+): Promise<{ linked: Linked[]; deferredCards: number }> {
 	const { accounts, cards } = deps.stores;
 	const out: Linked[] = [];
+	let deferredCards = 0;
 	for (const pa of pluggyAccounts) {
-		const mapped = mapPluggyAccount(pa, connectorName);
+		const mapped = mapPluggyAccount(pa, connectorName, billsOf.get(pa.id)?.bills);
 		if (mapped.kind === "ignored") {
 			// Tipos que o Órbita não usa (investimento) são normais; o resto merece aviso.
 			if (pa.type === "BANK" || pa.type === "CREDIT") result.notes.push(`Conta ignorada: ${mapped.reason}.`);
@@ -389,6 +463,22 @@ async function linkAccounts(
 		}
 		let card = await cards.findByExternal(PLUGGY_SOURCE, mapped.externalId);
 		if (!card) {
+			// As faturas falharam e o `creditData` não tem as datas: criar agora fixaria dias inventados (o sync nunca
+			// os corrige depois). Espera a próxima rodada, que já volta `partial`.
+			if (billsOf.get(pa.id)?.failed && isEstimatedCardDates(mapped.dates.origin)) {
+				deferredCards += 1;
+				result.notes.push(
+					`O cartão "${mapped.input.name}" ainda não foi criado: as faturas não carregaram e sem elas as datas seriam chute.`,
+				);
+				continue;
+			}
+			if (isEstimatedCardDates(mapped.dates.origin)) {
+				result.notes.push(
+					mapped.dates.origin === "due_date_only"
+						? `Cartão "${mapped.input.name}": o Pluggy só informou o vencimento (dia ${mapped.dates.dueDay}); o fechamento (dia ${mapped.dates.closingDay}) é estimado em 7 dias antes. Confira em Cartões.`
+						: `Cartão "${mapped.input.name}": o Pluggy não informou fechamento nem vencimento; usei dia ${mapped.dates.closingDay} e dia ${mapped.dates.dueDay} (datas estimadas). Ajuste em Cartões.`,
+				);
+			}
 			try {
 				card = await cards.create(mapped.input);
 			} catch (e) {
@@ -408,7 +498,7 @@ async function linkAccounts(
 		}
 		out.push({ pluggyId: pa.id, taxNumber: pa.taxNumber ?? null, account: null, card });
 	}
-	return out;
+	return { linked: out, deferredCards };
 }
 
 const bump = (counts: ConnectionSyncResult["skipped"], key: SkipReason | "archived_account") => {

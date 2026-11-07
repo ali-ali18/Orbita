@@ -18,13 +18,14 @@ import {
 	isSyncActive,
 	KEYS_MISSING_MESSAGE,
 	KEYS_MISSING_TITLE,
+	REIMPORT_BUTTON,
 	type SyncState,
 	syncAnnouncement,
 	syncButtonLabel,
 	syncCardText,
 	syncErrorMessage,
 } from "./banks-model.ts";
-import { AddConnectionSheet, ConnectionSheet } from "./ConnectionSheets.tsx";
+import { AddConnectionSheet, ConnectionSheet, ReimportSheet } from "./ConnectionSheets.tsx";
 import {
 	CONNECT_BUTTON,
 	CONNECT_OPEN_FAILED,
@@ -60,9 +61,10 @@ export function BanksScreen() {
 	const router = useRouter();
 	const now = useNow();
 	const statusQ = usePluggyStatus();
-	const { sync, add, rename, remove, connect } = usePluggyActions();
+	const { sync, reimport, add, rename, remove, connect } = usePluggyActions();
 	const { baseUrl } = useSession();
 	const [adding, setAdding] = useState(false);
+	const [reimporting, setReimporting] = useState(false);
 	const [openId, setOpenId] = useState<string | null>(null);
 	const [syncMessage, setSyncMessage] = useState<string | null>(null);
 	const syncLocked = useRef(false);
@@ -283,6 +285,14 @@ export function BanksScreen() {
 							onPress={() => void startConnect()}
 						/>
 						<Button label={MANUAL_BUTTON} variant="secondary" onPress={() => setAdding(true)} />
+						{data.connections.length > 0 ? (
+							<Button
+								label={REIMPORT_BUTTON}
+								variant="secondary"
+								disabled={!canSync(data)}
+								onPress={() => setReimporting(true)}
+							/>
+						) : null}
 					</>
 				) : null}
 			</ScrollView>
@@ -299,6 +309,13 @@ export function BanksScreen() {
 					await add.mutateAsync(body);
 				}}
 				onClose={() => setAdding(false)}
+			/>
+			<ReimportSheet
+				visible={reimporting}
+				reimport={async () => {
+					await reimport.mutateAsync();
+				}}
+				onClose={() => setReimporting(false)}
 			/>
 			<ConnectionSheet
 				connection={opened}

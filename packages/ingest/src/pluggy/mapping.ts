@@ -1,4 +1,5 @@
 import {
+	addDays,
 	type CardConfig,
 	daysBetween,
 	decimalToCents,
@@ -10,7 +11,8 @@ import {
 import type { AccountInput, CardInput, UpsertByExternalInput } from "@orbita/db";
 import { DESCRIPTION_MAX, isCents, MAX_CENTS } from "@orbita/shared";
 import { cleanBankName, isMeuPluggyConnector } from "./bank-name.ts";
-import type { PluggyAccount, PluggyTransaction } from "./schemas.ts";
+import { type CategoryIndex, categoryChain, classifyFamily, plain, spendingSlugFor } from "./classify.ts";
+import type { PluggyAccount, PluggyBill, PluggyTransaction } from "./schemas.ts";
 
 /*
  * Do formato do Pluggy para o do Órbita. Tudo aqui é função pura (sem rede, sem banco, sem relógio).
@@ -42,9 +44,30 @@ export function pluggyDateToLocal(value: string): LocalDate | null {
 
 // ------------------------------------------------------ contas e cartões
 
+/** De onde saíram o fechamento e o vencimento de um cartão (do mais para o menos confiável). */
+export type CardDatesOrigin =
+	| "credit_data" // `creditData.balanceCloseDate` e `balanceDueDate`
+	| "bill" // a fatura mais recente de `/bills` (`billClosingDate` e `dueDate`)
+	| "due_date_only" // só o vencimento: fechamento = vencimento − 7 dias (estimado)
+	| "default"; // nada veio: dias padrão (estimado)
+
+export interface CardDates {
+	closingDay: number;
+	dueDay: number;
+	origin: CardDatesOrigin;
+}
+
+/** Sem nenhuma data do banco: fecha dia 20 e vence dia 27 (mesma folga de 7 dias). O dono ajusta depois. */
+export const DEFAULT_CARD_DATES = { closingDay: 20, dueDay: 27 } as const;
+/** Dias entre fechamento e vencimento quando só o vencimento é conhecido (o usual no Brasil é 6 a 10). */
+export const CLOSING_BEFORE_DUE_DAYS = 7;
+
+export const isEstimatedCardDates = (origin: CardDatesOrigin) =>
+	origin === "due_date_only" || origin === "default";
+
 export type MappedAccount =
 	| { kind: "account"; externalId: string; input: AccountInput }
-	| { kind: "card"; externalId: string; input: CardInput }
+	| { kind: "card"; externalId: string; input: CardInput; dates: CardDates }
 	| { kind: "ignored"; reason: string };
 
 const NAME_MAX = 60;
@@ -73,8 +96,49 @@ function limitCentsOf(value: number | string | null | undefined): number | null 
 	}
 }
 
-/** Conta BANK vira `Account`; conta CREDIT vira `Card` (se o Pluggy disse quando fecha e vence). */
-export function mapPluggyAccount(account: PluggyAccount, connectorName?: string | null): MappedAccount {
+/**
+ * Fechamento e vencimento do cartão, em ordem: `creditData` (datas da fatura atual) → fatura mais recente de `/bills`
+ * com as duas datas → só o vencimento (de `creditData` ou da fatura mais recente), com fechamento 7 dias antes →
+ * dias padrão. Nunca devolve `null`: um cartão sem datas ainda tem de entrar (as compras dependem dele); quem usa
+ * avisa o dono quando `isEstimatedCardDates(origin)`.
+ */
+export function resolveCardDates(account: PluggyAccount, bills: readonly PluggyBill[] = []): CardDates {
+	const closeNow = dayOf(account.creditData?.balanceCloseDate);
+	const dueNow = dayOf(account.creditData?.balanceDueDate);
+	if (closeNow !== null && dueNow !== null)
+		return { closingDay: closeNow, dueDay: dueNow, origin: "credit_data" };
+
+	const dated = bills
+		.flatMap((bill) => {
+			const due = bill.dueDate ? pluggyDateToLocal(bill.dueDate) : null;
+			const closing = bill.billClosingDate ? pluggyDateToLocal(bill.billClosingDate) : null;
+			return due === null ? [] : [{ due, closing }];
+		})
+		.sort((a, b) => b.due.localeCompare(a.due));
+	const full = dated.find((b) => b.closing !== null);
+	if (full?.closing) {
+		return { closingDay: Number(full.closing.slice(8)), dueDay: Number(full.due.slice(8)), origin: "bill" };
+	}
+
+	const due = account.creditData?.balanceDueDate
+		? pluggyDateToLocal(account.creditData.balanceDueDate)
+		: (dated[0]?.due ?? null);
+	if (due !== null) {
+		return {
+			closingDay: Number(addDays(due, -CLOSING_BEFORE_DUE_DAYS).slice(8)),
+			dueDay: Number(due.slice(8)),
+			origin: "due_date_only",
+		};
+	}
+	return { ...DEFAULT_CARD_DATES, origin: "default" };
+}
+
+/** Conta BANK vira `Account`; conta CREDIT vira `Card` (datas por `resolveCardDates`; `bills` são as faturas dela). */
+export function mapPluggyAccount(
+	account: PluggyAccount,
+	connectorName?: string | null,
+	bills: readonly PluggyBill[] = [],
+): MappedAccount {
 	if (account.currencyCode && account.currencyCode !== "BRL") {
 		return { kind: "ignored", reason: `moeda ${account.currencyCode} não é suportada` };
 	}
@@ -92,11 +156,7 @@ export function mapPluggyAccount(account: PluggyAccount, connectorName?: string 
 		};
 	}
 	if (account.type === "CREDIT") {
-		const closingDay = dayOf(account.creditData?.balanceCloseDate);
-		const dueDay = dayOf(account.creditData?.balanceDueDate);
-		if (closingDay === null || dueDay === null) {
-			return { kind: "ignored", reason: "o Pluggy não informou o fechamento e o vencimento da fatura" };
-		}
+		const dates = resolveCardDates(account, bills);
 		const digits = (account.number ?? "").replace(/\D/g, "");
 		return {
 			kind: "card",
@@ -104,12 +164,13 @@ export function mapPluggyAccount(account: PluggyAccount, connectorName?: string 
 			input: {
 				name,
 				last4: digits.length >= 4 ? digits.slice(-4) : null,
-				closingDay,
-				dueDay,
+				closingDay: dates.closingDay,
+				dueDay: dates.dueDay,
 				limitCents: limitCentsOf(account.creditData?.creditLimit),
 				source: PLUGGY_SOURCE,
 				externalId: account.id,
 			},
+			dates,
 		};
 	}
 	return { kind: "ignored", reason: `tipo de conta ${account.type} não é suportado` };
@@ -122,6 +183,7 @@ export type SkipReason =
 	| "invalid" // valor, data ou tipo que o Órbita não aceita
 	| "foreign_currency"
 	| "own_transfer" // entre contas do próprio dono: não é gasto nem receita
+	| "investment" // aplicação, resgate, caixinha, poupança: o dinheiro só mudou de bolso (o Órbita não tem conta de investimento)
 	| "card_payment" // o lado do cartão do pagamento da fatura (o lado do banco é quem conta)
 	| "card_payment_unlinked" // pagamento de fatura que não dá para ligar a um cartão (o Órbita não tem pagamento "sem cartão")
 	| "bills_unavailable" // as faturas não carregaram: não dá para saber se o débito/crédito é pagamento de fatura
@@ -215,6 +277,10 @@ export interface TransactionContext {
 	billMonths?: ReadonlyMap<string, string>;
 	/** As faturas não carregaram: débito da conta e crédito do cartão ficam de fora até carregarem. */
 	billsUnavailable?: boolean;
+	/** A árvore de categorias do Pluggy (`GET /categories`); sem ela vale só o nome da categoria do lançamento. */
+	categoryIndex?: CategoryIndex;
+	/** Categorias do Órbita por slug → id. Sem ela, o lançamento fica sem categoria. */
+	categoryIds?: ReadonlyMap<string, string>;
 }
 
 const digits = (value: string | null | undefined) => (value ?? "").replace(/\D/g, "");
@@ -239,17 +305,6 @@ export function transactionFacts(tx: PluggyTransaction): { amountCents: number; 
 	return typeof amount === "number" && date !== null ? { amountCents: amount, date } : null;
 }
 
-/** Minúsculo e sem acento, para comparar texto de categoria. */
-const plain = (value: string | null | undefined) =>
-	(value ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
-
-// Categorias do Pluggy (nome em inglês ou português). Suposição conferida só contra fixtures: ver docs/pluggy.md.
-const CARD_PAYMENT_CATEGORIES = [
-	"credit card payment",
-	"pagamento de cartao de credito",
-	"pagamento de fatura",
-];
-const OWN_TRANSFER_CATEGORIES = ["same ownership", "same person", "mesma titularidade", "mesmo titular"];
 // O lado do cartão do pagamento costuma vir sem categoria própria.
 const CARD_SIDE_PAYMENT_DESCRIPTIONS = [
 	"pagamento recebido",
@@ -259,6 +314,13 @@ const CARD_SIDE_PAYMENT_DESCRIPTIONS = [
 ];
 
 const includesAny = (text: string, needles: readonly string[]) => needles.some((n) => text.includes(n));
+
+/** Categoria de consumo do Órbita para o lançamento (`outros` se nada bate; `null` sem as categorias carregadas). */
+function categoryIdOf(chain: readonly string[], ctx: TransactionContext): string | null {
+	if (!ctx.categoryIds) return null;
+	const slug = spendingSlugFor(chain);
+	return ctx.categoryIds.get(slug) ?? ctx.categoryIds.get("outros") ?? null;
+}
 
 function describe(tx: PluggyTransaction): string {
 	const text = (tx.description?.trim() || tx.descriptionRaw?.trim() || "Sem descrição").replace(/\s+/g, " ");
@@ -291,14 +353,18 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 	if (amount === null || date === null) return { action: "skip", reason: "invalid" };
 
 	const description = describe(tx);
-	const category = plain(tx.category);
-	const isCardPayment = includesAny(category, CARD_PAYMENT_CATEGORIES);
+	const chain = categoryChain(tx, ctx.categoryIndex);
+	const family = classifyFamily({
+		chain,
+		description,
+		direction: tx.type === "DEBIT" ? "out" : "in",
+		allowDescriptionFallback: ctx.accountType === "BANK",
+	});
+	const isCardPayment = family === "card_payment";
 	const base = { amountCents: amount, date, description, categoryId: null, status: "confirmed" as const };
 
 	if (ctx.accountType === "BANK") {
 		if (ctx.accountId === null) return { action: "skip", reason: "invalid" };
-		// Sem as faturas não dá para distinguir pagamento de fatura de gasto, e o upsert nunca corrige depois.
-		if (tx.type === "DEBIT" && ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
 		// 1) Pagamento que o próprio Pluggy registrou na fatura (valor + dia, um débito por pagamento): sabe o cartão.
 		const billPayment = tx.type === "DEBIT" ? ctx.billPaymentMatches?.get(tx.id) : undefined;
 		if (billPayment) {
@@ -308,7 +374,12 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 				input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: billPayment.cardId },
 			};
 		}
-		// 2) Sem pagamento para casar: o nome da categoria (suposição). Só liga a um cartão se o valor bate com o total
+		// 2) Aplicação, resgate, caixinha, poupança: o dinheiro só mudou de bolso. O Órbita não tem conta de
+		// investimento, e "transferência" exige duas contas dele; contar como gasto/receita dobraria o mês.
+		if (family === "investment") return { action: "skip", reason: "investment" };
+		// Sem as faturas não dá para distinguir pagamento de fatura de gasto, e o upsert nunca corrige depois.
+		if (tx.type === "DEBIT" && ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
+		// 3) Sem pagamento para casar: o nome da categoria (suposição). Só liga a um cartão se o valor bate com o total
 		// de uma fatura de um único cartão; senão fica de fora (o Órbita não tem pagamento de fatura "sem cartão").
 		if (isCardPayment) {
 			if (tx.type === "CREDIT") return { action: "skip", reason: "card_payment" };
@@ -323,13 +394,21 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 				input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: only },
 			};
 		}
-		if (isOwnTransferByDocument(tx, ctx.ownerTaxNumber) || includesAny(category, OWN_TRANSFER_CATEGORIES)) {
+		if (isOwnTransferByDocument(tx, ctx.ownerTaxNumber) || family === "own_transfer") {
 			return { action: "skip", reason: "own_transfer" };
+		}
+		// Rendimento de investimento é receita de verdade (o principal que volta, não: ver acima).
+		if (tx.type === "CREDIT") {
+			return {
+				action: "upsert",
+				externalId: tx.id,
+				input: { ...base, kind: "income", accountId: ctx.accountId },
+			};
 		}
 		return {
 			action: "upsert",
 			externalId: tx.id,
-			input: { ...base, kind: tx.type === "DEBIT" ? "expense" : "income", accountId: ctx.accountId },
+			input: { ...base, kind: "expense", accountId: ctx.accountId, categoryId: categoryIdOf(chain, ctx) },
 		};
 	}
 
@@ -351,7 +430,14 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 		return {
 			action: "upsert",
 			externalId: tx.id,
-			input: { ...base, kind: "expense", cardId: ctx.card.id, invoiceMonth, note },
+			input: {
+				...base,
+				kind: "expense",
+				cardId: ctx.card.id,
+				invoiceMonth,
+				note,
+				categoryId: categoryIdOf(chain, ctx),
+			},
 		};
 	}
 	if (ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
@@ -366,7 +452,14 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 	return {
 		action: "refund",
 		externalId: tx.id,
-		input: { ...base, kind: "refund", cardId: ctx.card.id, invoiceMonth, note },
+		input: {
+			...base,
+			kind: "refund",
+			cardId: ctx.card.id,
+			invoiceMonth,
+			note,
+			categoryId: categoryIdOf(chain, ctx),
+		},
 		original: { amountCents: amount, description, date },
 	};
 }

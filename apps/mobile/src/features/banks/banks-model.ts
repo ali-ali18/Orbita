@@ -247,6 +247,19 @@ export function syncErrorMessage(error: unknown): string {
 	return errorMessage(error);
 }
 
+export const REIMPORT_BUTTON = "Reimportar do zero";
+export const REIMPORT_TITLE = "Reimportar do zero?";
+export const REIMPORT_WARNING =
+	"Apaga só o que veio do Meu Pluggy (lançamentos importados) e busca tudo de novo. O que você lançou à mão, as contas e os cartões ficam como estão. Os lançamentos que você tinha apagado voltam.";
+
+/** Mensagem de erro de "Reimportar do zero". */
+export function reimportErrorMessage(error: unknown): string {
+	if (error instanceof ApiError && error.code === "sincronizando") {
+		return "Há uma sincronização em andamento. Tente de novo quando ela terminar.";
+	}
+	return syncErrorMessage(error);
+}
+
 export type ValidatedConnection =
 	| { ok: true; itemId: string; label?: string }
 	| { ok: false; message: string };

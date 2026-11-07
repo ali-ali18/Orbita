@@ -442,6 +442,90 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect(await tx.existsByExternal("pluggy", "e-1")).toBe(true);
 		});
 
+		it("hardDeleteBySource apaga só a origem pedida, de verdade, com estornos e ligações", async () => {
+			const manual = await tx.create(expense({ description: "Manual" }));
+			const bought = await tx.upsertByExternal(
+				"pluggy",
+				"compra",
+				incoming({ accountId: null, cardId: b.card.id, invoiceMonth: "2026-11" }),
+			);
+			const boughtId = bought.transaction?.id ?? "";
+			const refund = await tx.upsertByExternal("pluggy", "estorno", {
+				...incoming({ accountId: null, cardId: b.card.id, invoiceMonth: "2026-11" }),
+				kind: "refund",
+				refundOfId: boughtId,
+			});
+			// Estorno manual de uma compra do Pluggy: sai junto (não vive sem a compra).
+			const manualRefund = await tx.create({
+				...cardPurchase(),
+				kind: "refund",
+				refundOfId: boughtId,
+			});
+			const apagado = await tx.upsertByExternal("pluggy", "apagado", incoming());
+			await tx.softDelete(apagado.transaction?.id ?? "");
+			const other = await tx.upsertByExternal("notification", "n1", incoming());
+			const rule = await stores.recurrences.create({
+				kind: "expense",
+				name: "Aluguel",
+				amountCents: 1990,
+				dayOfMonth: 5,
+				startDate: "2026-01-01",
+				accountId: b.checking.id,
+			});
+			await stores.recurrences.postWithTransaction({
+				recurrenceId: rule.id,
+				month: "2026-11",
+				transaction: expense({ description: "Aluguel", budgetMonth: "2026-11" }),
+			});
+
+			expect(await tx.hardDeleteBySource("pluggy")).toBe(4);
+
+			expect(await tx.get(boughtId)).toBeNull();
+			expect(await tx.get(refund.transaction?.id ?? "")).toBeNull();
+			expect(await tx.get(manualRefund.id)).toBeNull();
+			expect(await tx.get(manual.id)).not.toBeNull();
+			expect(await tx.get(other.transaction?.id ?? "")).not.toBeNull();
+			// De verdade: o identificador fica livre, inclusive o do que o dono tinha apagado.
+			expect(await tx.existsByExternal("pluggy", "compra")).toBe(false);
+			expect(await tx.existsByExternal("pluggy", "apagado")).toBe(false);
+			expect((await tx.upsertByExternal("pluggy", "apagado", incoming())).created).toBe(true);
+			// A recorrência e o lançamento dela continuam.
+			expect(await stores.recurrences.get(rule.id)).not.toBeNull();
+			expect(await stores.recurrences.listPostings("2026-11")).toHaveLength(1);
+			expect(await tx.hardDeleteBySource("pluggy")).toBe(1);
+			expect(await tx.hardDeleteBySource("pluggy")).toBe(0);
+		});
+
+		it("hardDeleteBySource solta a ligação com recorrência de um lançamento da origem", async () => {
+			const rule = await stores.recurrences.create({
+				kind: "expense",
+				name: "Aluguel",
+				amountCents: 1990,
+				dayOfMonth: 5,
+				startDate: "2026-01-01",
+				accountId: b.checking.id,
+			});
+			const posted = await stores.recurrences.postWithTransaction({
+				recurrenceId: rule.id,
+				month: "2026-11",
+				transaction: expense({
+					description: "Aluguel",
+					budgetMonth: "2026-11",
+					source: "pluggy",
+					externalId: "r1",
+				}),
+			});
+			expect(await tx.hardDeleteBySource("pluggy")).toBe(1);
+			expect(await tx.get(posted.transaction.id)).toBeNull();
+			expect(await stores.recurrences.listPostings("2026-11")).toEqual([]);
+		});
+
+		it("hardDeleteBySource recusa a origem manual", async () => {
+			await tx.create(expense());
+			await expect(tx.hardDeleteBySource("manual")).rejects.toMatchObject({ code: "invalid" });
+			expect(await tx.listRecent({ limit: 10 })).toHaveLength(1);
+		});
+
 		it("valida mesmo quando já existe, e o id externo não pode ser vazio", async () => {
 			await tx.upsertByExternal("pluggy", "abc-3", incoming());
 			await expect(

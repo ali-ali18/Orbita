@@ -142,6 +142,19 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 			return ids.length;
 		},
 
+		async hardDeleteBySource(source) {
+			if (source === "manual") throw invalid("Só dá para apagar lançamentos de uma origem de fora.");
+			const doomed = new Set<string>();
+			for (const t of state.transactions.values()) if (t.source === source) doomed.add(t.id);
+			// Estorno de qualquer origem que aponta para um lançamento apagado também sai.
+			for (const t of state.transactions.values()) {
+				if (t.refundOfId !== null && doomed.has(t.refundOfId)) doomed.add(t.id);
+			}
+			state.postings = state.postings.filter((p) => !doomed.has(p.transactionId));
+			for (const id of doomed) state.transactions.delete(id);
+			return doomed.size;
+		},
+
 		async get(id) {
 			const found = state.transactions.get(id);
 			return found && found.deletedAt === null ? view(found) : null;

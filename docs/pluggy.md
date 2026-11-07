@@ -59,7 +59,7 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 | Pluggy                              | Órbita                                                                                                                                                                            |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | conta `BANK`                        | `Account` (`checking`, ou `savings` se `SAVINGS_ACCOUNT`)                                                                                                                         |
-| conta `CREDIT`                      | `Card` com fechamento/vencimento (dia de `balanceCloseDate`/`balanceDueDate`) e limite; o dono pode ajustar os dias depois, o sync só mantém o limite em dia                      |
+| conta `CREDIT`                      | `Card` com fechamento/vencimento (ver "Datas do cartão") e limite; o dono pode ajustar os dias depois, o sync só mantém o limite em dia                                           |
 | `DEBIT` na conta                    | `expense`                                                                                                                                                                         |
 | `CREDIT` na conta                   | `income`                                                                                                                                                                          |
 | `DEBIT` no cartão                   | `expense`; `invoiceMonth` = mês do vencimento da fatura indicada por `creditCardMetadata.billId` (quando `/bills` a traz); sem isso, `invoiceFor` (engine) pelo dia de fechamento |
@@ -83,10 +83,53 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 - **Falha em `/bills`** (que não seja 404/403 = conector sem faturas) deixa a conexão `partial` e tira da rodada os débitos da conta e os créditos do cartão (`bills_unavailable`): como o `upsertByExternal` nunca corrige um lançamento já gravado, gravar agora um pagamento de fatura como gasto o deixaria errado para sempre. Entram na rodada seguinte.
 - **Reclassificar lançamento já importado** (ex.: `expense` → `card_payment` quando as faturas passam a casar) **não foi feito**: o store não guarda "editado pelo dono" (só `updatedAt`, que também muda por automação), então não dá para saber com segurança se o dono mexeu. Fica como pendência; o caminho seguro é o descrito acima (não gravar na dúvida).
 - **Linha fora do formato** em `/v2/transactions` é descartada e contada nas notas ("N lançamento(s) vieram fora do formato"), sem derrubar a página nem logar o conteúdo; a conexão segue `ok` (se virasse `partial`, uma linha ruim permanente travaria a janela).
-- Sem categorização (`categoryId` nulo): vem das regras da Fase 6.
+- Categoria do Órbita vem de uma tabela por nome (suposição); regras do dono (Fase 6) ainda não existem.
 - Remover uma conexão só para de sincronizar; contas e lançamentos importados ficam.
-- Cartão sem datas de fatura no `creditData` é ignorado, com aviso nas notas do resultado.
+- Cartão sem datas no `creditData` **não é mais ignorado** (ver "Datas do cartão"). Limitação: a marca "datas estimadas" vive só nas notas do resultado da sincronização (não há coluna no cartão nem aviso no app); o dono confere os dias em Cartões. Um cartão criado com datas estimadas não é corrigido sozinho depois (o dono pode ter ajustado à mão).
+- Investimento fica de fora (não há conta de investimento no Órbita); ver "Classificação".
 - Lançamentos de moeda estrangeira sem valor convertido são ignorados.
+
+## Datas do cartão
+
+O `creditData.balanceCloseDate`/`balanceDueDate` costuma vir nulo no MeuPluggy; antes o cartão era descartado e nenhuma compra entrava. Agora `resolveCardDates` (função pura em `mapping.ts`) escolhe, nesta ordem:
+
+1. `creditData` com as duas datas (dia de cada uma);
+2. a fatura mais recente de `GET /bills` que tem `billClosingDate` e `dueDate`;
+3. só o vencimento (do `creditData` ou da fatura mais recente): **fechamento = vencimento − 7 dias** (o usual no Brasil é 6 a 10; estimado);
+4. nada: cartão criado mesmo assim, fecha dia **20** e vence dia **27** (estimado).
+
+Os casos 3 e 4 geram uma nota no resultado da sincronização ("datas estimadas... Confira em Cartões"). Se `/bills` **falhou de verdade** (não 404/403) e as datas viriam estimadas, o cartão **não é criado** nessa rodada (nota + conexão `partial`): criar fixaria dias chutados, e o sync nunca os corrige. Os lançamentos do cartão continuam usando `creditCardMetadata.billId` → mês do vencimento da fatura quando `/bills` a traz, e `invoiceFor` caso contrário.
+
+## Classificação (investimento, transferência, categoria)
+
+`classify.ts` (puro). A árvore vem de `GET /categories` (uma vez por rodada, validada por Zod; se falhar, a rodada segue só com o nome da categoria do lançamento e anota). A "cadeia" de um lançamento é o nome da categoria dele e dos ancestrais (`parentId`/`parentDescription`), sem acento e minúsculo. Decisão por trechos do nome, nunca por id fixo.
+
+| Família                                                                                                  | O que o Órbita faz                                                                 |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Pagamento de fatura (`credit card payment`, `pagamento de fatura`…)                                      | Como antes: casa com `/bills`; plano B pelo total                                  |
+| Mesma titularidade (`same person`, `mesma titularidade`…)                                                | Ignorada (`own_transfer`), junto da detecção por CPF/CNPJ que já existia           |
+| Investimento (`investment`, `renda fixa`, `fixed income`, `previdência`, `poupança`, `caixinha`, `cdb`…) | **Ignorado** (`investment`): aplicação e resgate só mudam o dinheiro de bolso      |
+| Rendimento (`rendimento`, `dividend`, `interests on investments`…), só entrada                           | **Receita** (`income`, sem categoria)                                              |
+| Demais                                                                                                   | Despesa na categoria do Órbita pela tabela abaixo; sem correspondência, **Outros** |
+
+**Por que "ignorar" e não "transferência":** o tipo `transfer` do engine exige conta de origem **e** de destino do próprio dono, e o Órbita não tem conta de investimento. Gravar uma ponta só quebra a invariante; inventar a conta de destino criaria saldo falso. Ignorar é igual ao que já se faz com a transferência própria. **Por que rendimento é receita:** é dinheiro novo (o principal que volta num resgate não é), e entra no "Receita do mês" sem tocar o gasto. Um rendimento que o banco descreve como "resgate" fica de fora (conservador).
+
+**Plano B pela descrição** (só em conta corrente e só com categoria ausente ou genérica "other/outros"): palavras inteiras `aplicação`, `resgate`, `caixinha`, `cdb`, `rdb`, `lci`, `lca`, `poupança`, `tesouro direto`, `dinheiro guardado` → investimento; `rendimento(s)` em entrada → rendimento.
+
+**Tabela de categorias** (primeira que bate, folha antes do pai; ordem: Mercado, Delivery, Transporte, Assinaturas, Saúde, Moradia, Lazer): Mercado (`grocer`, `supermarket`, `mercado`…), Delivery (`eating out`, `restaurant`, `delivery`, `bakery`…), Transporte (`transport`, `taxi`, `fuel`, `gas station`, `parking`, `toll`, `vehicle`…), Assinaturas (`digital service`, `subscription`, `streaming`, `software`…), Saúde (`health`, `pharmac`, `medic`, `dental`…), Moradia (`housing`, `rent`, `utilities`, `electric`, `water`, `internet`, `telecom`…), Lazer (`entertainment`, `leisure`, `travel`, `hotel`, `game`, `sport`…). Vale também para compra e estorno no cartão.
+
+**Suposição:** os nomes das categorias do Pluggy não vêm no SDK (só `id`, `description`, `parentId`, `parentDescription`). A tabela foi escrita de memória em inglês e português e deve ser revisada contra o `GET /categories` real do dono; o `categoryId` só serve para subir pela árvore. Lançamento classificado errado é corrigido com "Reimportar do zero" depois de ajustar a tabela.
+
+## Reimportar do zero
+
+`POST /v1/pluggy/reimport` (Bearer) → 202 `{ deleted, sync }`. Serve para limpar o que entrou errado antes da classificação.
+
+1. Antes de qualquer efeito, recusa: 503 sem fila, 400 `sem_conexoes`/`sem_chaves`, 409 `sincronizando` (uma sincronização em curso gravaria a data de agora por cima do zero).
+2. `pluggyConnections.resetSyncWindow()`: `lastSyncAt` de todas as conexões volta a `null` (a próxima rodada busca os 90 dias).
+3. `transactions.hardDeleteBySource("pluggy")`, numa transação: apaga **de verdade** todos os lançamentos com `source "pluggy"`, os já apagados pelo dono inclusive (voltam, porque o `externalId` fica livre), os estornos deles (de qualquer origem) e as ligações com recorrências (as recorrências em si ficam).
+4. Enfileira a sincronização.
+
+Contas e cartões do Pluggy ficam e são reaproveitados pelo `externalId`; lançamentos manuais ficam. A ordem 2 → 3 é de propósito: se algo falhar no meio, o pior caso é buscar de novo (idempotente). No app: Bancos e cartões → "Reimportar do zero", com confirmação na gaveta explicando o que some.
 
 ## Conectar banco (Pluggy Connect)
 
@@ -145,6 +188,7 @@ Todas as de `/v1/pluggy/*` exigem `Authorization: Bearer`; as de `/pluggy/*` sã
 - `POST /v1/pluggy/connect-sessions` → 201 `{ path, expiresAt }` (409 `sem_chaves` se as chaves não estão cadastradas)
 - `POST /pluggy/connect-token`, `POST /pluggy/connect-complete` (públicos; 30 pedidos por IP a cada 10 min, corpo até 1 KB, mensagens fixas; 401 `sessao_invalida`, 409 `sem_chaves`, 422 `conexao_invalida`, 502 falha do Pluggy)
 - `GET /pluggy/conectar`, `GET /pluggy/conectar/app.<hash>.js` e `GET /pluggy/conectar/limpar.js` (públicos; 60 por IP a cada 10 min)
+- `POST /v1/pluggy/reimport` → 202 `{ deleted, sync }` (ver "Reimportar do zero")
 - `POST /v1/pluggy/sync` → 202 `{ sync: "queued" | "running" }` (400 `sem_conexoes`/`sem_chaves`; 503 sem Redis). Enfileira no worker com `jobId` fixo: pedidos repetidos viram um só e nunca rodam em paralelo com o diário.
 - `GET /v1/pluggy/status` → `{ keysConfigured, sync, lastSyncAt, connections }`
 
