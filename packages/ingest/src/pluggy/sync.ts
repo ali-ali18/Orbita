@@ -8,7 +8,9 @@ import {
 	toCardConfig,
 } from "@orbita/db";
 import type { PluggySyncStatus, SecretName } from "@orbita/shared";
+import { hasMeuPluggyPrefix } from "./bank-name.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
+import { chooseConnectionLabel } from "./connection-label.ts";
 import { PluggyError, safeErrorMessage } from "./errors.ts";
 import {
 	assignBillPayments,
@@ -61,6 +63,8 @@ export interface ConnectionSyncResult {
 	status: PluggySyncStatus;
 	error: string | null;
 	accounts: number;
+	/** Contas e cartões (não arquivados) ligados à conexão; ausente se a sincronização parou antes de ligar. */
+	counts?: { accounts: number; cards: number };
 	created: number;
 	existing: number;
 	failed: number;
@@ -154,6 +158,7 @@ async function finish(
 		status: result.status,
 		error: result.error,
 		...(result.status === "ok" && startedAt ? { syncedAt: startedAt } : {}),
+		...(result.counts ? { counts: result.counts } : {}),
 	});
 	return result;
 }
@@ -188,6 +193,11 @@ async function syncConnection(
 		}
 		const pluggyAccounts = await client.accounts(connection.id);
 		const linked = await linkAccounts(deps, pluggyAccounts, item.connector?.name, result);
+		result.counts = {
+			accounts: linked.filter((l) => l.account !== null && l.account.archivedAt === null).length,
+			cards: linked.filter((l) => l.card !== null && l.card.archivedAt === null).length,
+		};
+		await suggestLabel(deps, connection, item.connector?.name, pluggyAccounts);
 		const liveCards = linked.filter((l) => l.card !== null && l.card.archivedAt === null);
 
 		// Faturas dos cartões: pagamentos (casam débito da conta com cartão), totais (plano B) e mês de cada fatura.
@@ -305,6 +315,24 @@ async function syncConnection(
 	}
 }
 
+/** Nome da conexão a partir das contas dela, se o dono não deu um. Falha aqui nunca derruba a sincronização. */
+async function suggestLabel(
+	deps: SyncPluggyDeps,
+	connection: PluggyConnectionRecord,
+	connectorName: string | null | undefined,
+	pluggyAccounts: readonly PluggyAccount[],
+): Promise<void> {
+	// Relê a conexão: o dono pode ter renomeado desde o início da rodada.
+	const current = (await deps.stores.pluggyConnections.get(connection.id)) ?? connection;
+	const label = chooseConnectionLabel({
+		current: current.label,
+		connectorName,
+		editedByOwner: current.labelEditedByOwner,
+		accounts: pluggyAccounts,
+	});
+	if (label !== null) await deps.stores.pluggyConnections.setAutoLabel(connection.id, label);
+}
+
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** Centavos positivos de um valor do Pluggy, ou `null` se zero/fora do que o Órbita aceita. */
@@ -351,6 +379,10 @@ async function linkAccounts(
 					if (!(e instanceof DataError && e.code === "duplicate")) throw e;
 					account = await accounts.findByExternal(PLUGGY_SOURCE, mapped.externalId);
 				}
+			} else if (account.archivedAt === null && hasMeuPluggyPrefix(account.name)) {
+				// Importada antes da limpeza do nome ("MeuPluggy Inter"): o prefixo é a marca de que o dono ainda não
+				// mexeu no nome, então troca uma vez; depois do nome novo isto não roda de novo.
+				account = await accounts.update(account.id, { name: mapped.input.name });
 			}
 			out.push({ pluggyId: pa.id, taxNumber: pa.taxNumber ?? null, account, card: null });
 			continue;
@@ -370,6 +402,9 @@ async function linkAccounts(
 		) {
 			// Fechamento e vencimento o dono pode ter ajustado à mão; só o limite acompanha o banco.
 			card = await cards.update(card.id, { limitCents: mapped.input.limitCents });
+		}
+		if (card && card.archivedAt === null && hasMeuPluggyPrefix(card.name)) {
+			card = await cards.update(card.id, { name: mapped.input.name });
 		}
 		out.push({ pluggyId: pa.id, taxNumber: pa.taxNumber ?? null, account: null, card });
 	}

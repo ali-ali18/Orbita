@@ -6,6 +6,7 @@ import {
 	addErrorMessage,
 	bankColorByName,
 	canSync,
+	connectionCaption,
 	connectionName,
 	connectionStatusLine,
 	formatAgo,
@@ -14,6 +15,7 @@ import {
 	isSlowSync,
 	nextPollDelay,
 	parseConnectionInput,
+	parseRenameInput,
 	syncAnnouncement,
 	syncButtonLabel,
 	syncCardText,
@@ -24,6 +26,7 @@ import {
 	addFormReducer,
 	initialAddForm,
 	removeConnection,
+	renameConnection,
 	submitConnection,
 } from "./connection-form-model.ts";
 
@@ -37,6 +40,7 @@ const conn = (over: Partial<PluggyConnectionDto> = {}): PluggyConnectionDto => (
 	lastSyncAt: null,
 	lastStatus: null,
 	lastError: null,
+	summary: { accounts: 0, cards: 0 },
 	...over,
 });
 const status = (over: Partial<PluggyStatusResponse> = {}): PluggyStatusResponse => ({
@@ -314,5 +318,59 @@ describe("addFormReducer", () => {
 		const before = { ...initialAddForm };
 		addFormReducer(initialAddForm, { type: "id", text: "abc" });
 		expect(initialAddForm).toEqual(before);
+	});
+});
+
+describe("legenda da conexão", () => {
+	const synced = { lastStatus: "ok", lastSyncAt: NOW.toISOString() } as const;
+	it("junta contas, cartões e a situação", () => {
+		expect(connectionCaption(conn({ ...synced, summary: { accounts: 1, cards: 1 } }), NOW)).toBe(
+			"1 conta · 1 cartão · Sincronizado agora",
+		);
+		expect(connectionCaption(conn({ ...synced, summary: { accounts: 2, cards: 0 } }), NOW)).toBe(
+			"2 contas · Sincronizado agora",
+		);
+		expect(connectionCaption(conn({ ...synced, summary: { accounts: 0, cards: 3 } }), NOW)).toBe(
+			"3 cartões · Sincronizado agora",
+		);
+	});
+	it("sem nada trazido mostra só a situação", () => {
+		expect(connectionCaption(conn(), NOW)).toBe("Nunca sincronizou");
+	});
+});
+
+describe("renomear", () => {
+	it("valida como o servidor e apara", () => {
+		expect(parseRenameInput("  Inter ")).toEqual({ ok: true, label: "Inter" });
+		expect(parseRenameInput("   ")).toMatchObject({ ok: false, message: "Informe um nome." });
+		expect(parseRenameInput("x".repeat(61))).toMatchObject({
+			ok: false,
+			message: "O nome passa de 60 letras.",
+		});
+		expect(parseRenameInput("a\nb").ok).toBe(false);
+	});
+	it("inválido não chama a API; salvo manda o nome aparado", async () => {
+		let seen: string[] = [];
+		const rename = async (l: string) => {
+			seen.push(l);
+		};
+		expect((await renameConnection(" ", rename)).status).toBe("invalid");
+		expect(seen).toEqual([]);
+		expect(await renameConnection(" Inter ", rename)).toEqual({ status: "saved" });
+		expect(seen).toEqual(["Inter"]);
+		seen = [];
+	});
+	it("erros viram mensagem em pt-BR", async () => {
+		const gone = await renameConnection("A", async () => {
+			throw new ApiError("x", 404, "nao_encontrado");
+		});
+		expect(gone).toEqual({
+			status: "failed",
+			message: "Esta conexão não existe mais. Volte e atualize a lista.",
+		});
+		const down = await renameConnection("A", async () => {
+			throw new ApiError("Sem resposta do servidor.", 500, "erro");
+		});
+		expect(down).toEqual({ status: "failed", message: "Sem resposta do servidor." });
 	});
 });

@@ -114,6 +114,11 @@ export function usePluggyActions() {
 			call(() => api.v1.pluggy.connections.$post({ json })),
 		onSettled: refresh,
 	});
+	const rename = useMutation({
+		mutationFn: ({ id, label }: { id: string; label: string }) =>
+			call(() => api.v1.pluggy.connections[":id"].$patch({ param: { id }, json: { label } })),
+		onSettled: refresh,
+	});
 	const remove = useMutation({
 		mutationFn: (id: string) => call(() => api.v1.pluggy.connections[":id"].$delete({ param: { id } })),
 		onSettled: refresh,
@@ -122,5 +127,5 @@ export function usePluggyActions() {
 	const connect = useMutation({
 		mutationFn: () => call(() => api.v1.pluggy["connect-sessions"].$post()),
 	});
-	return { sync, add, remove, connect };
+	return { sync, add, rename, remove, connect };
 }

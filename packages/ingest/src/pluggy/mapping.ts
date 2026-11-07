@@ -9,6 +9,7 @@ import {
 } from "@orbita/core";
 import type { AccountInput, CardInput, UpsertByExternalInput } from "@orbita/db";
 import { DESCRIPTION_MAX, isCents, MAX_CENTS } from "@orbita/shared";
+import { cleanBankName, isMeuPluggyConnector } from "./bank-name.ts";
 import type { PluggyAccount, PluggyTransaction } from "./schemas.ts";
 
 /*
@@ -49,8 +50,9 @@ export type MappedAccount =
 const NAME_MAX = 60;
 
 function displayName(account: PluggyAccount, connectorName: string | null | undefined): string {
-	const own = (account.marketingName?.trim() || account.name.trim() || "Conta").replace(/\s+/g, " ");
-	const bank = connectorName?.trim();
+	const own = cleanBankName(account.marketingName?.trim() || account.name.trim()) || "Conta";
+	// "MeuPluggy" não é banco: o banco já vem no nome da conta, sem prefixo.
+	const bank = isMeuPluggyConnector(connectorName) ? undefined : connectorName?.trim();
 	const full = bank && !own.toLowerCase().includes(bank.toLowerCase()) ? `${bank} ${own}` : own;
 	return full.slice(0, NAME_MAX).trim();
 }

@@ -10,11 +10,18 @@ export interface PluggyConnectionRecord {
 	lastStatus: PluggySyncStatus | null;
 	/** Mensagem sanitizada (sem segredo). */
 	lastError: string | null;
+	/** `true` quando o dono deu o nome: a sincronização nunca mais o troca. */
+	labelEditedByOwner: boolean;
+	/** Contas e cartões (não arquivados) que a última sincronização ligou a esta conexão. */
+	accountCount: number;
+	cardCount: number;
 }
 
 export interface PluggyConnectionInput {
 	id: string;
 	label?: string | null;
+	/** O nome veio do dono (digitado), não do Pluggy. Padrão `false`. */
+	byOwner?: boolean;
 }
 
 export interface PluggySyncResult {
@@ -22,6 +29,8 @@ export interface PluggySyncResult {
 	error?: string | null;
 	/** Só quando a sincronização terminou "ok": avança a janela da próxima. */
 	syncedAt?: Date;
+	/** Quantas contas e cartões a sincronização ligou à conexão. Ausente (erro antes de ligar) = não mexe. */
+	counts?: { accounts: number; cards: number };
 }
 
 /**
@@ -38,4 +47,10 @@ export interface PluggyConnectionStore {
 	list(): Promise<PluggyConnectionRecord[]>;
 	/** Grava o resultado da sincronização. `null` se a conexão sumiu no meio (removida pelo dono). */
 	recordSync(id: string, result: PluggySyncResult): Promise<PluggyConnectionRecord | null>;
+	/** O dono renomeia (`invalid` se vazio, grande ou com controle). `null` se a conexão não existe. */
+	rename(id: string, label: string): Promise<PluggyConnectionRecord | null>;
+	/**
+	 * Nome sugerido pela sincronização: só vale se o dono ainda não renomeou (a checagem é atômica). `true` se gravou.
+	 */
+	setAutoLabel(id: string, label: string): Promise<boolean>;
 }

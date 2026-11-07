@@ -9,6 +9,7 @@ import { SettingsRow, SettingsSection } from "../settings/SettingsRows.tsx";
 import {
 	bankColorByName,
 	canSync,
+	connectionCaption,
 	connectionName,
 	connectionStatusLine,
 	EMPTY_MESSAGE,
@@ -59,7 +60,7 @@ export function BanksScreen() {
 	const router = useRouter();
 	const now = useNow();
 	const statusQ = usePluggyStatus();
-	const { sync, add, remove, connect } = usePluggyActions();
+	const { sync, add, rename, remove, connect } = usePluggyActions();
 	const { baseUrl } = useSession();
 	const [adding, setAdding] = useState(false);
 	const [openId, setOpenId] = useState<string | null>(null);
@@ -251,7 +252,7 @@ export function BanksScreen() {
 												/>
 											}
 											title={name}
-											caption={connectionStatusLine(c, now)}
+											caption={connectionCaption(c, now)}
 											onPress={() => setOpenId(c.id)}
 											last={i === data.connections.length - 1}
 										/>
@@ -302,6 +303,9 @@ export function BanksScreen() {
 			<ConnectionSheet
 				connection={opened}
 				statusLine={opened ? connectionStatusLine(opened, now) : ""}
+				rename={async (id, label) => {
+					await rename.mutateAsync({ id, label });
+				}}
 				remove={async (id) => {
 					await remove.mutateAsync(id);
 				}}
