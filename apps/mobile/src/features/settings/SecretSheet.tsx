@@ -1,41 +1,35 @@
-import { parseSecretValue, SECRET_LABELS, type SecretName } from "@orbita/shared";
+import { SECRET_LABELS, type SecretName } from "@orbita/shared";
 import { colors, radius, spacing, text as typography } from "@orbita/tokens";
-import { useRef, useState } from "react";
+import { useReducer, useRef } from "react";
 import { TextInput, View } from "react-native";
-import { errorMessage } from "../../lib/loadable.ts";
 import { Button, familyByWeight, Sheet, Text } from "../../ui/index.ts";
-import { pasteHint } from "./settings-model.ts";
+import { initialSecretForm, removeSecret, secretFormReducer, submitSecret } from "./secret-form-model.ts";
+import { pasteHint, removeConfirmMessage, removeConfirmTitle } from "./settings-model.ts";
 
 /**
- * Gaveta para colar o valor de uma chave. O valor vive só neste estado: é limpo ao fechar e ao salvar,
- * não aparece na tela (campo protegido), não vai para log nem para cache, e as mensagens de erro nunca o citam.
+ * Gaveta para colar o valor de uma chave. O valor vive só no estado do formulário: é zerado ao salvar,
+ * a gaveta desmonta ao fechar, o campo é protegido e nada vai para log nem para cache.
+ * "Remover" pede confirmação aqui dentro (um único Modal aberto, como o iOS exige).
  */
 export function SecretSheet({
 	name,
 	configured,
-	onSave,
-	onAskRemove,
+	actions,
 	onClose,
 }: {
 	/** `null` = fechada. */
 	name: SecretName | null;
 	configured: boolean;
-	onSave: (name: SecretName, value: string) => Promise<void>;
-	onAskRemove: (name: SecretName) => void;
+	actions: {
+		save: (name: SecretName, value: string) => Promise<void>;
+		remove: (name: SecretName) => Promise<void>;
+	};
 	onClose: () => void;
 }) {
 	return (
 		<Sheet visible={name !== null} title={name ? SECRET_LABELS[name] : ""} onClose={onClose}>
-			{/* O formulário só existe com a gaveta aberta: fechar desmonta e o valor digitado some. */}
 			{name ? (
-				<SecretForm
-					key={name}
-					name={name}
-					configured={configured}
-					onSave={onSave}
-					onAskRemove={onAskRemove}
-					onClose={onClose}
-				/>
+				<SecretForm key={name} name={name} configured={configured} actions={actions} onClose={onClose} />
 			) : null}
 		</Sheet>
 	);
@@ -44,54 +38,77 @@ export function SecretSheet({
 function SecretForm({
 	name,
 	configured,
-	onSave,
-	onAskRemove,
+	actions,
 	onClose,
 }: {
 	name: SecretName;
 	configured: boolean;
-	onSave: (name: SecretName, value: string) => Promise<void>;
-	onAskRemove: (name: SecretName) => void;
+	actions: {
+		save: (name: SecretName, value: string) => Promise<void>;
+		remove: (name: SecretName) => Promise<void>;
+	};
 	onClose: () => void;
 }) {
-	const [value, setValue] = useState("");
-	const [message, setMessage] = useState<string | null>(null);
-	const [saving, setSaving] = useState(false);
-	const busy = useRef(false);
+	const [form, dispatch] = useReducer(secretFormReducer, initialSecretForm);
+	// `busy` do estado só muda no próximo render; a trava em ref barra o segundo toque no mesmo instante.
+	const locked = useRef(false);
+	const label = SECRET_LABELS[name];
 
-	const submit = async () => {
-		if (busy.current) return;
-		const parsed = parseSecretValue(name, value);
-		if (!parsed.ok) {
-			setMessage(parsed.message);
+	const run = async (work: () => ReturnType<typeof submitSecret>) => {
+		if (locked.current) return;
+		locked.current = true;
+		dispatch({ type: "started" });
+		const outcome = await work();
+		if (outcome.status === "saved") {
+			dispatch({ type: "saved" });
+			onClose();
 			return;
 		}
-		busy.current = true;
-		setSaving(true);
-		setMessage(null);
-		try {
-			await onSave(name, parsed.value);
-			setValue("");
-			onClose();
-		} catch (error) {
-			setMessage(errorMessage(error));
-			busy.current = false;
-			setSaving(false);
-		}
+		locked.current = false;
+		dispatch({ type: outcome.status === "invalid" ? "invalid" : "failed", message: outcome.message });
 	};
 
-	const label = SECRET_LABELS[name];
+	const submit = () => void run(() => submitSecret(name, form.value, actions.save));
+
+	if (form.confirmingRemove) {
+		return (
+			<View style={{ gap: spacing.md, paddingVertical: spacing.md }}>
+				<Text variant="bodyStrong" accessibilityRole="header">
+					{removeConfirmTitle(name)}
+				</Text>
+				<Text variant="caption" tone="secondary">
+					{removeConfirmMessage(name)}
+				</Text>
+				{form.message ? (
+					<View accessibilityRole="alert" accessibilityLiveRegion="polite">
+						<Text variant="caption" tone="secondary">
+							{form.message}
+						</Text>
+					</View>
+				) : null}
+				<Button
+					label="Remover"
+					loading={form.busy}
+					onPress={() => void run(() => removeSecret(name, actions.remove))}
+				/>
+				<Button
+					label="Cancelar"
+					variant="secondary"
+					disabled={form.busy}
+					onPress={() => dispatch({ type: "cancel-remove" })}
+				/>
+			</View>
+		);
+	}
+
 	return (
 		<View style={{ gap: spacing.md, paddingVertical: spacing.md }}>
 			<Text variant="caption" tone="secondary">
 				{pasteHint(name)}
 			</Text>
 			<TextInput
-				value={value}
-				onChangeText={(t) => {
-					setValue(t);
-					setMessage(null);
-				}}
+				value={form.value}
+				onChangeText={(text) => dispatch({ type: "typed", text })}
 				secureTextEntry
 				autoCorrect={false}
 				autoCapitalize="none"
@@ -99,11 +116,10 @@ function SecretForm({
 				spellCheck={false}
 				textContentType="none"
 				importantForAutofill="no"
-				contextMenuHidden
 				placeholder={configured ? "Cole o novo valor" : "Cole o valor"}
 				placeholderTextColor={colors.textTertiary}
 				accessibilityLabel={`Valor de ${label}`}
-				onSubmitEditing={() => void submit()}
+				onSubmitEditing={submit}
 				returnKeyType="done"
 				style={{
 					height: 52,
@@ -116,16 +132,21 @@ function SecretForm({
 					lineHeight: typography.body.lineHeight,
 				}}
 			/>
-			{message ? (
+			{form.message ? (
 				<View accessibilityRole="alert" accessibilityLiveRegion="polite">
 					<Text variant="caption" tone="secondary">
-						{message}
+						{form.message}
 					</Text>
 				</View>
 			) : null}
-			<Button label="Salvar" loading={saving} disabled={value.trim() === ""} onPress={() => void submit()} />
+			<Button label="Salvar" loading={form.busy} disabled={form.value.trim() === ""} onPress={submit} />
 			{configured ? (
-				<Button label="Remover" variant="secondary" disabled={saving} onPress={() => onAskRemove(name)} />
+				<Button
+					label="Remover"
+					variant="secondary"
+					disabled={form.busy}
+					onPress={() => dispatch({ type: "ask-remove" })}
+				/>
 			) : null}
 		</View>
 	);

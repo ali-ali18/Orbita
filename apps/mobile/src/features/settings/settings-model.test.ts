@@ -13,7 +13,7 @@ import {
 	yearOf,
 } from "./settings-model.ts";
 
-// Meio-dia UTC: o mesmo dia de calendário em qualquer fuso do Brasil.
+// 15h UTC (meio-dia em Brasília): cai no mesmo dia de calendário em qualquer fuso do Brasil.
 const NOV7 = "2026-11-07T15:00:00.000Z";
 
 describe("estado da chave", () => {

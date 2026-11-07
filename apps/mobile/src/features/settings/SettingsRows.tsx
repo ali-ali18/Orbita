@@ -1,19 +1,19 @@
-import { colors, radius, spacing } from "@orbita/tokens";
+import { colors, layout, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { Icon, type IconName, Text } from "../../ui/index.ts";
 
-/** Seção do Figma: legenda em `textSecondary` e, embaixo, um bloco `surface` com as linhas (raio `card`: o 20 do Figma não é token). */
+/** Seção do Figma: legenda em `textSecondary` e, embaixo, um bloco `surface` com as linhas (raio `group`). */
 export function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
 	return (
-		<View style={{ gap: spacing.sm, paddingTop: 6 }}>
+		<View style={{ gap: spacing.sm, paddingTop: spacing.sm }}>
 			<Text variant="caption" tone="secondary" accessibilityRole="header">
 				{title}
 			</Text>
 			<View
 				style={{
 					backgroundColor: colors.surface,
-					borderRadius: radius.card,
+					borderRadius: radius.group,
 					overflow: "hidden",
 				}}
 			>
@@ -56,10 +56,10 @@ export function SettingsRow({
 	const rowStyle = {
 		flexDirection: "row" as const,
 		alignItems: "center" as const,
-		gap: 14,
-		minHeight: 51,
+		gap: spacing.lg,
+		minHeight: layout.touchTarget,
 		paddingHorizontal: spacing.lg,
-		paddingVertical: caption ? 12 : 15,
+		paddingVertical: caption ? spacing.md : spacing.lg,
 		borderBottomWidth: last ? 0 : 1,
 		borderBottomColor: colors.border,
 	};
@@ -116,18 +116,18 @@ export function StaticSwitch({ on }: { on: boolean }) {
 	return (
 		<View
 			style={{
-				width: 46,
-				height: 28,
+				width: spacing.xxxl + spacing.lg,
+				height: spacing.xxl + spacing.xs,
 				borderRadius: radius.pill,
 				backgroundColor: on ? colors.accent : colors.surface3,
-				padding: 3,
+				padding: spacing.xs,
 				alignItems: on ? "flex-end" : "flex-start",
 			}}
 		>
 			<View
 				style={{
-					width: 22,
-					height: 22,
+					width: spacing.xl,
+					height: spacing.xl,
 					borderRadius: radius.pill,
 					backgroundColor: on ? colors.onAccent : colors.textSecondary,
 				}}

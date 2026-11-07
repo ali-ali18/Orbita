@@ -1,5 +1,5 @@
 import { toLocalDate } from "@orbita/core";
-import type { SecretName, SecretStatusDto } from "@orbita/shared";
+import { SECRET_LABELS, type SecretName, type SecretStatusDto } from "@orbita/shared";
 
 /*
  * Lógica pura da tela "Servidor e chaves". Regra do dono: nenhum pedaço do valor de uma chave aparece
@@ -114,9 +114,9 @@ export function pasteHint(name: SecretName): string {
 	}
 }
 
-export const REMOVE_TITLE = "Remover esta chave?";
-export const REMOVE_MESSAGE =
-	"O servidor apaga a chave. O que depende dela (como o assistente ou a conexão com o banco) para de funcionar até você colar uma nova.";
+export const removeConfirmTitle = (name: SecretName): string => `Remover a chave ${SECRET_LABELS[name]}?`;
+export const removeConfirmMessage = (name: SecretName): string =>
+	`O servidor apaga ${SECRET_LABELS[name]}. O que depende dela para de funcionar até você colar uma nova.`;
 
 export const SWITCH_SERVER_TITLE = "Trocar de servidor?";
 export const SWITCH_SERVER_MESSAGE =

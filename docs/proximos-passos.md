@@ -50,6 +50,8 @@ Feito no PR #18. O app consome (todas exigem `Authorization: Bearer <token do ap
 
 **Novo lançamento (PR seguinte ao #21):** rota `novo` (modal) aberta pelo "+" da barra; Saída/Entrada, à vista em conta ou cartão, parcelado 2..72 no cartão; prévia "N× de ~R$ X" (o servidor divide). Ler comprovante, Ditar, Transferir e "+ Nova" categoria aparecem desativados.
 
+**Servidor e chaves (PR desta etapa):** `/v1/settings/secrets` (GET/PUT/DELETE) e `/v1/server`; chaves cifradas com AAD = nome, `readable` avisa quando o `APP_SECRET` mudou, `updatedBy` guarda o aparelho que trocou. **Regra do dono: nenhum pedaço do valor aparece**, nem mascarado. O worker/agentes leem com `vault.read(name)`. No app, tocar no avatar abre Configurações.
+
 **Ordem combinada com o dono (para ele testar com dados reais):** Configurações → **Servidor e chaves** (`44:817`: Client ID/Secret do Pluggy, IDs das conexões, chave da Anthropic; cifrados com `@orbita/security`, a API nunca devolve o valor, só "configurado") → **sincronização do Meu Pluggy** (fase 7) → demais telas.
 
 **Depois:** Atividades (`24:142`) → Cartão (Faturas `33:501`, Parcelas `28:306`, Limites `36:636`) → Assinaturas (`28:450`) → Configurações (`41:605`). Sempre gerar prévias e mandar link.

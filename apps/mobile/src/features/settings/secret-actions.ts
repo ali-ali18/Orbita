@@ -1,27 +1,21 @@
-import type { SecretName } from "@orbita/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { call } from "../../lib/api.ts";
 import { useSession } from "../../lib/session.tsx";
+import { createSecretActions, type SecretActions } from "./secret-requests.ts";
 
-/**
- * Grava e remove chaves. De propósito NÃO usa `useMutation`: ele guarda as variáveis (o valor da chave)
- * no cache do Query. Aqui o valor só passa pela chamada e é descartado; só o estado das chaves é recarregado.
- */
-export function useSecretActions() {
-	const { api, baseUrl } = useSession();
+export function useSecretActions(): SecretActions {
+	const { api, baseUrl, handleQueryError } = useSession();
 	const queryClient = useQueryClient();
-	const refresh = () => queryClient.invalidateQueries({ queryKey: [baseUrl, "settings", "secrets"] });
-
-	return {
-		async save(name: SecretName, value: string): Promise<void> {
+	return createSecretActions({
+		put: (name, value) => {
 			if (!api) throw new Error("Sem sessão");
-			await call(() => api.v1.settings.secrets[":name"].$put({ param: { name }, json: { value } }));
-			await refresh();
+			return call(() => api.v1.settings.secrets[":name"].$put({ param: { name }, json: { value } }));
 		},
-		async remove(name: SecretName): Promise<void> {
+		del: (name) => {
 			if (!api) throw new Error("Sem sessão");
-			await call(() => api.v1.settings.secrets[":name"].$delete({ param: { name } }));
-			await refresh();
+			return call(() => api.v1.settings.secrets[":name"].$delete({ param: { name } }));
 		},
-	};
+		onError: handleQueryError,
+		refresh: () => queryClient.invalidateQueries({ queryKey: [baseUrl, "settings", "secrets"] }),
+	});
 }

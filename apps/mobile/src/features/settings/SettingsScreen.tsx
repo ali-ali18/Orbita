@@ -1,4 +1,4 @@
-import { colors, spacing } from "@orbita/tokens";
+import { colors, layout, spacing } from "@orbita/tokens";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useState } from "react";
@@ -28,9 +28,13 @@ export function SettingsScreen() {
 	return (
 		<Screen>
 			<ScrollView
-				contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 48, gap: spacing.md }}
+				contentContainerStyle={{
+					paddingHorizontal: spacing.lg,
+					paddingBottom: spacing.xxxl,
+					gap: spacing.md,
+				}}
 			>
-				<View style={{ height: 44, justifyContent: "center", alignItems: "flex-start" }}>
+				<View style={{ height: layout.touchTarget, justifyContent: "center", alignItems: "flex-start" }}>
 					<IconButton
 						icon="voltar"
 						label="Voltar"
@@ -39,7 +43,7 @@ export function SettingsScreen() {
 				</View>
 
 				<View style={{ alignItems: "center", gap: spacing.md, paddingBottom: spacing.sm }}>
-					<LetterAvatar letter="V" size={96} />
+					<LetterAvatar letter="V" size={spacing.xxxl * 3} />
 					<Text variant="numberMedium" accessibilityRole="header">
 						Configurações
 					</Text>
@@ -102,8 +106,8 @@ export function SettingsScreen() {
 					style={({ pressed }) => ({
 						flexDirection: "row",
 						alignItems: "center",
-						gap: 10,
-						minHeight: 44,
+						gap: spacing.md,
+						minHeight: layout.touchTarget,
 						paddingLeft: spacing.xs,
 						marginTop: spacing.sm,
 						opacity: pressed ? 0.8 : 1,
