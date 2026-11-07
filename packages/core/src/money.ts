@@ -63,3 +63,27 @@ export function parseBRL(text: string): Cents {
 	// `cents === 0` evita devolver -0 ("-0", "-0,00").
 	return cents !== 0 && (sign === "-" || sign === "−") ? -cents : cents;
 }
+
+/**
+ * Converte um valor decimal em reais (número do JSON de uma API ou texto "12.34") em centavos inteiros.
+ * Não multiplica por 100: `1.15 * 100` dá 114.99999999999999. Passa por texto com 6 casas
+ * (`0.1 + 0.2` vira "0.300000") e arredonda meio centavo para longe do zero. Mantém o sinal.
+ */
+export function decimalToCents(value: number | string): Cents {
+	let text: string;
+	if (typeof value === "number") {
+		if (!Number.isFinite(value) || Math.abs(value) >= 1e12) throw new RangeError("valor decimal inválido");
+		text = value.toFixed(6);
+	} else if (typeof value === "string" && /^[-+]?\d{1,12}(\.\d+)?$/.test(value.trim())) {
+		text = value.trim();
+	} else {
+		throw new RangeError("valor decimal inválido");
+	}
+	const negative = text.startsWith("-");
+	const [whole = "0", fraction = ""] = text.replace(/^[-+]/, "").split(".");
+	const digits = `${fraction}00`.slice(0, 2);
+	let cents = Number(whole) * 100 + Number(digits);
+	if (Number(`${fraction}00`.charAt(2)) >= 5) cents += 1;
+	// `cents === 0` evita devolver -0.
+	return negative && cents !== 0 ? -cents : cents;
+}

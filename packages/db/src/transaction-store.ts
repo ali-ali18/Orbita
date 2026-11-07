@@ -130,6 +130,11 @@ export interface TransactionStore {
 		input: UpsertByExternalInput,
 	): Promise<UpsertResult>;
 	/**
+	 * Já existe lançamento com esta identidade externa? Conta também o apagado: o identificador continua
+	 * reservado (a ingestão não recria o que o dono apagou). Serve para decidir antes de montar o lançamento.
+	 */
+	existsByExternal(source: TransactionSource, externalId: string): Promise<boolean>;
+	/**
 	 * Valida o lançamento inteiro depois do patch e grava só o que mudou. `not_found` se não existe ou
 	 * foi apagado. Mudar o tipo de uma despesa que tem estornos vivos é `invalid`; apontar para conta,
 	 * cartão ou categoria arquivada (se a referência mudou) é `bad_reference`.

@@ -14,16 +14,18 @@ packages/
   tokens/     Design system: cores, raios, espaços, tipografia.
   security/   Derivação de chaves, criptografia de segredos, limite de requisições.
   ota/        Atualização OTA do app: layout do diretório, manifesto, assinatura e o CLI que roda no CI.
-  db/         Prisma e as implementações das "stores".
+  db/         Prisma e as implementações das "stores" e o cofre das chaves.
+  ingest/     Fontes de lançamentos: cliente e sincronização do Meu Pluggy (ver pluggy.md).
   core/       Engine financeiro: funções puras (próxima fase).
 ```
 
 ### Quem pode importar quem
 
 ```
-apps/*  ──►  packages/core, db, security, shared, ota   (ota: só a API)
+apps/*  ──►  packages/core, db, ingest, security, shared, ota   (ota: só a API)
 mobile  ──►  packages/shared, tokens
-db      ──►  core, shared
+ingest  ──►  core, db, shared
+db      ──►  core, security, shared
 core    ──►  shared            (sem banco, sem rede, sem relógio)
 tokens, shared, security, ota: não importam nada do projeto
 ```
@@ -71,12 +73,12 @@ Se algum passo não se aplica, pule. Se a feature não tem regra de dinheiro, n�
 
 ## Tarefas em segundo plano
 
-O worker tem filas por assunto (`manutencao`, depois `sincronizacao`, `alertas`). Cada processador é uma função pura testável (`cleanPairingCodes({ store, now })`); o arquivo `index.ts` só liga fila → função. Decidir **se** algo deve acontecer (avisar, sincronizar) é código determinístico; a IA só escreve o texto.
+O worker tem filas por assunto (`manutencao`, `sincronizacao`, depois `alertas`). Cada processador é uma função pura testável (`cleanPairingCodes({ store, now })`); o arquivo `index.ts` só liga fila → função. Decidir **se** algo deve acontecer (avisar, sincronizar) é código determinístico; a IA só escreve o texto.
 
 ## Configuração
 
 - Variáveis de ambiente são lidas e validadas **uma vez**, no `env.ts` de cada app, e falham cedo com a lista do que falta.
-- Um só segredo mestre (`APP_SECRET`); cada uso deriva a própria chave (ver [segurança](seguranca.md)).
+- Um só segredo mestre (`APP_SECRET`); cada uso deriva a própria chave (ver [segurança](seguranca.md)). A API e o worker precisam do mesmo `APP_SECRET`: os dois abrem o mesmo cofre (`createSecretVault`, em `packages/db`).
 - Valores com padrão sensato não precisam aparecer no `.env`.
 
 ## Build e deploy

@@ -1,8 +1,10 @@
 import type { AccountStore } from "./account-store.ts";
 import type { Db } from "./client.ts";
-import { notFound } from "./errors.ts";
+import { DataError, notFound } from "./errors.ts";
 import type { Clock } from "./memory-state.ts";
-import { applyPatch, normalizeAccount } from "./rules.ts";
+import { EXTERNAL_TAKEN_MESSAGE } from "./messages.ts";
+import { translate } from "./prisma-errors.ts";
+import { applyPatch, normalizeAccount, normalizeIdentity } from "./rules.ts";
 
 export function createPrismaAccountStore(db: Db, now: Clock): AccountStore {
 	const need = async (id: string) => {
@@ -13,7 +15,12 @@ export function createPrismaAccountStore(db: Db, now: Clock): AccountStore {
 	return {
 		async create(input) {
 			const at = now();
-			return db.account.create({ data: { ...normalizeAccount(input), createdAt: at, updatedAt: at } });
+			const data = { ...normalizeAccount(input), ...normalizeIdentity(input), createdAt: at, updatedAt: at };
+			try {
+				return await db.account.create({ data });
+			} catch (e) {
+				throw translate(e, () => new DataError("duplicate", EXTERNAL_TAKEN_MESSAGE));
+			}
 		},
 		async update(id, patch) {
 			const { name, kind, bankCode } = applyPatch(await need(id), patch);
@@ -36,6 +43,9 @@ export function createPrismaAccountStore(db: Db, now: Clock): AccountStore {
 		},
 		get(id) {
 			return db.account.findUnique({ where: { id } });
+		},
+		findByExternal(source, externalId) {
+			return db.account.findUnique({ where: { source_externalId: { source, externalId } } });
 		},
 	};
 }

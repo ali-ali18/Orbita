@@ -15,7 +15,7 @@ function hostOf(baseUrl: string | null): string | undefined {
 }
 
 /**
- * Tela "Configurações" (Figma 41:605). Só "Servidor e chaves" tem tela; os outros itens aparecem como no
+ * Tela "Configurações" (Figma 41:605). "Bancos e cartões" e "Servidor e chaves" têm tela; os outros itens aparecem como no
  * Figma, esmaecidos e sem toque, até existirem. O que o Figma mostra com número de exemplo (4 bancos,
  * 3 apps…) não aparece: o app ainda não tem esses dados.
  */
@@ -50,7 +50,11 @@ export function SettingsScreen() {
 				</View>
 
 				<SettingsSection title="Fontes de dados">
-					<SettingsRow icon="banco" title="Bancos e cartões" />
+					<SettingsRow
+						icon="banco"
+						title="Bancos e cartões"
+						onPress={() => router.push("/configuracoes/bancos")}
+					/>
 					<SettingsRow icon="notificacao" title="Notificações do celular" />
 					<SettingsRow icon="escanear" title="Comprovantes e arquivos" last />
 				</SettingsSection>

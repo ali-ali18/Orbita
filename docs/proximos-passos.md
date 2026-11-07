@@ -71,6 +71,8 @@ Feito no PR #18. O app consome (todas exigem `Authorization: Bearer <token do ap
 
 ## Fase 7 — Meu Pluggy
 
+**Estado (servidor pronto, falta o app):** `packages/ingest` (cliente + mapeamento + `syncPluggy`), fila `sincronizacao` no worker (06:00 São Paulo + sob demanda), rotas `/v1/pluggy/*`. Detalhes, o que foi conferido na API e o que é suposição em [pluggy.md](pluggy.md). Falta: tela no app (cadastrar IDs, "Sincronizar agora", status) e o casamento `pending` ↔ Pluggy (Fase 6).
+
 Worker sincroniza 1x/dia (contas, cartões, faturas, lançamentos) usando `upsertByExternal(source "pluggy", id do Pluggy)`; Pluggy confirma o que a notificação criou como `pending`. Credenciais guardadas com o cofre AES-GCM de `@orbita/security` (AAD por campo). O plano pessoal não lista conexões pela API: o ID de cada conexão é cadastrado uma vez.
 
 ## Fase 8 — Agentes de IA

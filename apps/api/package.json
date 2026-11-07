@@ -16,8 +16,10 @@
 		"@orbita/core": "workspace:*",
 		"@orbita/db": "workspace:*",
 		"@orbita/ota": "workspace:*",
+		"@orbita/ingest": "workspace:*",
 		"@orbita/security": "workspace:*",
 		"@orbita/shared": "workspace:*",
+		"bullmq": "6.7.1",
 		"hono": "4.13.16",
 		"tsx": "4.23.15",
 		"zod": "4.6.7"

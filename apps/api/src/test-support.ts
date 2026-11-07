@@ -1,9 +1,8 @@
-import { createMemoryStores, type Stores } from "@orbita/db";
+import { createMemoryStores, createSecretVault, type Stores } from "@orbita/db";
 import { deriveKey } from "@orbita/security";
-import { createApp } from "./app.ts";
+import { type AppDeps, createApp } from "./app.ts";
 import { createPairingGuard } from "./modules/pairing/guard.ts";
 import { createPairingCode, type PairingDeps } from "./modules/pairing/service.ts";
-import { createSecretVault } from "./modules/settings/service.ts";
 import { createMemoryOtaStore } from "./modules/updates/store.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: corpo JSON de resposta, lido de forma solta nos testes
@@ -16,6 +15,7 @@ export const NOW = "2026-11-15T15:00:00Z";
 export async function setupFinance(
 	nowIso = NOW,
 	makeStores: (now: () => Date) => Stores = (now) => createMemoryStores({ now }),
+	extraDeps: Partial<Pick<AppDeps, "pluggySyncQueue" | "pluggyFetch">> = {},
 ) {
 	const now = () => new Date(nowIso);
 	const stores = makeStores(now);
@@ -35,6 +35,7 @@ export async function setupFinance(
 		version: "0.0.0-test",
 		trustedProxyHops: 0,
 		ota: createMemoryOtaStore(),
+		...extraDeps,
 	});
 
 	const { code } = await createPairingCode(deps);

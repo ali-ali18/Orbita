@@ -8,6 +8,8 @@ import {
 	isLocalDate,
 	isMonthKey,
 	MAX_CENTS,
+	TRANSACTION_SOURCES,
+	type TransactionSource,
 } from "@orbita/shared";
 import type { AccountInput } from "./account-store.ts";
 import type { CardInput } from "./card-store.ts";
@@ -57,6 +59,31 @@ export const cleanMonth = (value: unknown, label = "O mês"): string => {
 	if (!isMonthKey(value)) throw invalid(`${label} é inválido (use AAAA-MM).`);
 	return value;
 };
+
+/**
+ * Origem do cadastro (conta ou cartão). Só `create` grava; `update` nunca mexe, então não entra
+ * em `normalizeAccount`/`normalizeCard`.
+ */
+export function normalizeIdentity(input: {
+	source?: TransactionSource | undefined;
+	externalId?: string | null | undefined;
+}): {
+	source: TransactionSource;
+	externalId: string | null;
+} {
+	const source = input.source ?? "manual";
+	if (!TRANSACTION_SOURCES.includes(source)) throw invalid("Origem do cadastro inválida.");
+	if (source === "manual") {
+		if (hasValue(input.externalId)) throw invalid("Cadastro manual não tem identificador externo.");
+		return { source, externalId: null };
+	}
+	if (typeof input.externalId !== "string") throw invalid("Informe o identificador externo.");
+	const externalId = input.externalId.trim();
+	if (externalId.length === 0 || externalId.length > 200) {
+		throw invalid("O identificador externo deve ter de 1 a 200 letras.");
+	}
+	return { source, externalId };
+}
 
 export function normalizeAccount(input: AccountInput) {
 	if (!ACCOUNT_KINDS.includes(input.kind as AccountKind)) throw invalid("Tipo de conta inválido.");

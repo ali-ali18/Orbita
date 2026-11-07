@@ -1,7 +1,7 @@
+import { createSecretVault } from "@orbita/db";
 import { createSecretBox } from "@orbita/security";
 import { describe, expect, it } from "vitest";
 import { type Json, setupFinance } from "../../test-support.ts";
-import { createSecretVault } from "./service.ts";
 
 const ANTHROPIC = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
 const PLUGGY_ID = "123e4567-e89b-42d3-a456-426614174000";

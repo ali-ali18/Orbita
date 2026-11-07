@@ -63,6 +63,14 @@ O app aceita atualizações de JavaScript do próprio servidor, o que é uma via
 - **O que não cobre:** o servidor pode deixar de entregar atualizações ou entregar uma antiga (também assinada por você); não pode criar uma nova. As proteções anti-bricking do `expo-updates` ficam ligadas (o endereço é fixo no APK, vindo de `ORBITA_PUBLIC_URL`), então o app tem volta automática depois de uma atualização ruim (veja [servidor](servidor.md#riscos-e-como-o-app-se-protege)).
 - **Chave comprometida ou certificado perto de vencer:** gere outro par, troque o segredo e o certificado e publique um APK novo. **APKs já instalados continuam confiando na chave antiga até serem reinstalados**: reinstale em todos os aparelhos e, até lá, considere servir a imagem sem `ota/` (veja [servidor](servidor.md#riscos-e-como-o-app-se-protege)).
 
+## Meu Pluggy
+
+- Client ID e Client Secret ficam só no cofre (AES-GCM, AAD = nome). O worker os abre com `vault.read`; nenhuma rota devolve valor, nem parte dele. A `apiKey` do Pluggy (2 h) vive só na memória do processo.
+- O cliente fala só com `https://api.pluggy.ai` (host fixo no código), sem seguir redirecionamento, com timeout (20 s) e limite de 5 MB por resposta. Os IDs que entram no caminho da URL são validados (UUID / `[A-Za-z0-9_-]`).
+- Toda resposta do Pluggy passa por Zod. Formato inesperado vira erro claro; o texto do erro vem de uma lista fixa em pt-BR e **nunca** cita o corpo da resposta, a URL, a chave ou o segredo. É isso que vai para `lastError` e para o app.
+- Nome, descrição e categoria que vêm do banco são **dados**, nunca instrução (mesma regra das notificações).
+- A tela só vê estado (`ok`, `partial`, `error`, `no_keys`), datas e a mensagem sanitizada.
+
 ## Containers
 
 - Imagem roda como usuário `node`, nunca root.
