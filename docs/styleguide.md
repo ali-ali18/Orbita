@@ -109,6 +109,7 @@ Regra de aninhamento: elemento dentro de card usa raio **menor** que o card (`in
 
 | Token           | Valor | Uso                                                      |
 | --------------- | ----- | -------------------------------------------------------- |
+| `statusBar`     | 56    | Reserva mínima no topo de toda tela (barra de status)    |
 | `homeIndicator` | 28    | Folga mínima embaixo (barra de gestos do sistema)        |
 | `touchTarget`   | 44    | Alvo de toque mínimo; botão menor completa com `hitSlop` |
 

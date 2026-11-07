@@ -1,6 +1,9 @@
-import { colors, radius, spacing } from "@orbita/tokens";
+import { colors, radius } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
 import { Icon, LetterAvatar } from "../../ui/index.ts";
+
+/** O topo tem 100 de altura no Figma ("topo"), com os botões de 44 centralizados. */
+const HEADER_HEIGHT = 100;
 
 export function HomeHeader({
 	initial,
@@ -17,7 +20,7 @@ export function HomeHeader({
 	return (
 		<View
 			style={{
-				paddingVertical: spacing.sm,
+				height: HEADER_HEIGHT,
 				flexDirection: "row",
 				alignItems: "center",
 				justifyContent: "space-between",
