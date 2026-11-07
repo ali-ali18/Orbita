@@ -119,6 +119,7 @@ export function HomeScreen() {
 					today={today}
 					hidden={hidden}
 					onSeeAll={() => router.push("/atividades")}
+					onOpen={(id) => router.push({ pathname: "/lancamento/[id]", params: { id } })}
 				/>
 			</ScrollView>
 		</Screen>
