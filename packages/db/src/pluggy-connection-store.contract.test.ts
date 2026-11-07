@@ -46,6 +46,48 @@ describe.each(contractSuites())("PluggyConnectionStore (%s)", (_name, make) => {
 		});
 	});
 
+	it("renomear marca como do dono e o nome automático não o sobrescreve", async () => {
+		await stores.pluggyConnections.add({ id: ITEM, label: "MeuPluggy" });
+		expect(await stores.pluggyConnections.setAutoLabel(ITEM, "Conta Inter")).toBe(true);
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({
+			label: "Conta Inter",
+			labelEditedByOwner: false,
+		});
+		const renamed = await stores.pluggyConnections.rename(ITEM.toUpperCase(), "  Inter  ");
+		expect(renamed).toMatchObject({ label: "Inter", labelEditedByOwner: true });
+		expect(await stores.pluggyConnections.setAutoLabel(ITEM, "Outro")).toBe(false);
+		expect((await stores.pluggyConnections.get(ITEM))?.label).toBe("Inter");
+		await expect(stores.pluggyConnections.rename(ITEM, " ")).rejects.toMatchObject({ code: "invalid" });
+		await expect(stores.pluggyConnections.rename(ITEM, "a\nb")).rejects.toMatchObject({ code: "invalid" });
+		expect(await stores.pluggyConnections.rename(OTHER, "X")).toBeNull();
+		expect(await stores.pluggyConnections.setAutoLabel(OTHER, "X")).toBe(false);
+	});
+
+	it("nome dado ao cadastrar por um dono já nasce protegido", async () => {
+		const owned = await stores.pluggyConnections.add({ id: ITEM, label: "Meu", byOwner: true });
+		expect(owned.labelEditedByOwner).toBe(true);
+		const suggested = await stores.pluggyConnections.add({ id: OTHER, label: "Nubank" });
+		expect(suggested.labelEditedByOwner).toBe(false);
+		expect(await stores.pluggyConnections.setAutoLabel(ITEM, "Outro")).toBe(false);
+	});
+
+	it("guarda quantas contas e cartões a sincronização ligou; sem contagem não mexe", async () => {
+		await stores.pluggyConnections.add({ id: ITEM });
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ accountCount: 0, cardCount: 0 });
+		const at = new Date("2026-11-07T09:00:00Z");
+		await stores.pluggyConnections.recordSync(ITEM, {
+			status: "ok",
+			syncedAt: at,
+			counts: { accounts: 1, cards: 1 },
+		});
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ accountCount: 1, cardCount: 1 });
+		await stores.pluggyConnections.recordSync(ITEM, { status: "error", error: "x" });
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ accountCount: 1, cardCount: 1 });
+		await expect(
+			stores.pluggyConnections.recordSync(ITEM, { status: "ok", counts: { accounts: -1, cards: 0 } }),
+		).rejects.toMatchObject({ code: "invalid" });
+	});
+
 	it("remove e informa se existia", async () => {
 		await stores.pluggyConnections.add({ id: ITEM });
 		expect(await stores.pluggyConnections.remove(ITEM)).toBe(true);

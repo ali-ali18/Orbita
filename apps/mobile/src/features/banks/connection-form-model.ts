@@ -1,6 +1,6 @@
 import { ApiError } from "../../lib/api.ts";
 import { errorMessage } from "../../lib/loadable.ts";
-import { addErrorMessage, parseConnectionInput } from "./banks-model.ts";
+import { addErrorMessage, parseConnectionInput, parseRenameInput } from "./banks-model.ts";
 
 /** Estado da gaveta "Adicionar conexão" e da confirmação de remover, como função pura. */
 
@@ -58,6 +58,24 @@ export async function removeConnection(
 	} catch (error) {
 		// 404: a conexão já não existe (removida em outro aparelho); o objetivo foi atingido.
 		if (error instanceof ApiError && error.status === 404) return { status: "saved" };
+		return { status: "failed", message: errorMessage(error) };
+	}
+}
+
+/** Salva o novo nome. 404: a conexão sumiu (removida em outro aparelho). */
+export async function renameConnection(
+	text: string,
+	rename: (label: string) => Promise<void>,
+): Promise<ConnectionOutcome> {
+	const parsed = parseRenameInput(text);
+	if (!parsed.ok) return { status: "invalid", message: parsed.message };
+	try {
+		await rename(parsed.label);
+		return { status: "saved" };
+	} catch (error) {
+		if (error instanceof ApiError && error.status === 404) {
+			return { status: "failed", message: "Esta conexão não existe mais. Volte e atualize a lista." };
+		}
 		return { status: "failed", message: errorMessage(error) };
 	}
 }

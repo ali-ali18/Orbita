@@ -5,6 +5,7 @@ import {
 	type PluggyStatusResponse,
 	pluggyConnectionCreateBody,
 	pluggyConnectionIdParam,
+	pluggyConnectionRenameBody,
 } from "@orbita/shared";
 import { Hono } from "hono";
 import { apiError, defined, orNotFound } from "../../http/errors.ts";
@@ -74,9 +75,23 @@ export function routes({
 					}
 				}
 			}
-			const connection = await pluggyConnections.add(defined({ id: itemId, label: label ?? suggested }));
+			const connection = await pluggyConnections.add(
+				defined({ id: itemId, label: label ?? suggested, byOwner: label != null }),
+			);
 			return c.json({ connection: toPluggyConnectionDto(connection) }, 201);
 		})
+		.patch(
+			"/v1/pluggy/connections/:id",
+			validate("param", pluggyConnectionIdParam),
+			validate("json", pluggyConnectionRenameBody),
+			async (c) => {
+				// O nome é do dono daqui em diante: a sincronização não o troca mais.
+				const { id } = c.req.valid("param");
+				const { label } = c.req.valid("json");
+				const connection = orNotFound(await pluggyConnections.rename(id, label), "Conexão");
+				return c.json({ connection: toPluggyConnectionDto(connection) });
+			},
+		)
 		.delete("/v1/pluggy/connections/:id", validate("param", pluggyConnectionIdParam), async (c) => {
 			// Só para de sincronizar: contas e lançamentos que já vieram ficam.
 			const { id } = c.req.valid("param");

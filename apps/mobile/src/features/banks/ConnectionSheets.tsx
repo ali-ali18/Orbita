@@ -9,11 +9,13 @@ import {
 	type ConnectionOutcome,
 	initialAddForm,
 	removeConnection,
+	renameConnection,
 	submitConnection,
 } from "./connection-form-model.ts";
 
 type Add = (body: { itemId: string; label?: string }) => Promise<void>;
 type Remove = (id: string) => Promise<void>;
+type Rename = (id: string, label: string) => Promise<void>;
 
 /**
  * Número que sobe a cada abertura da gaveta. Serve de `key` do conteúdo: o formulário nasce limpo
@@ -170,12 +172,14 @@ function AddForm({ add, onClose }: { add: Add; onClose: () => void }) {
 export function ConnectionSheet({
 	connection,
 	statusLine,
+	rename,
 	remove,
 	onClose,
 }: {
 	/** `null` = fechada. */
 	connection: PluggyConnectionDto | null;
 	statusLine: string;
+	rename: Rename;
 	remove: Remove;
 	onClose: () => void;
 }) {
@@ -193,6 +197,7 @@ export function ConnectionSheet({
 					key={`${seq}:${content.id}`}
 					connection={content}
 					statusLine={shown.statusLine}
+					rename={rename}
 					remove={remove}
 					onClose={onClose}
 				/>
@@ -204,11 +209,13 @@ export function ConnectionSheet({
 function ConnectionDetail({
 	connection,
 	statusLine,
+	rename,
 	remove,
 	onClose,
 }: {
 	connection: PluggyConnectionDto;
 	statusLine: string;
+	rename: Rename;
 	remove: Remove;
 	onClose: () => void;
 }) {
@@ -217,6 +224,24 @@ function ConnectionDetail({
 	const [message, setMessage] = useState<string | null>(null);
 	const locked = useRef(false);
 	const name = connectionName(connection);
+	const [labelText, setLabelText] = useState(connection.label ?? "");
+	const [saving, setSaving] = useState(false);
+	const [saveMessage, setSaveMessage] = useState<string | null>(null);
+	const saveLocked = useRef(false);
+
+	const nameChanged = labelText.trim() !== "" && labelText.trim() !== (connection.label ?? "");
+
+	const saveName = async () => {
+		if (saveLocked.current || !nameChanged) return;
+		saveLocked.current = true;
+		setSaving(true);
+		setSaveMessage(null);
+		const outcome = await renameConnection(labelText, (label) => rename(connection.id, label));
+		saveLocked.current = false;
+		setSaving(false);
+		if (outcome.status === "saved") onClose();
+		else setSaveMessage(outcome.message);
+	};
 
 	const confirmRemove = async () => {
 		if (locked.current) return;
@@ -264,7 +289,31 @@ function ConnectionDetail({
 			<Text variant="caption" tone="secondary" selectable>
 				{`ID da conexão: ${connection.id}`}
 			</Text>
-			<Button label="Remover conexão" variant="secondary" onPress={() => setConfirming(true)} />
+			<Field
+				label="Nome da conexão"
+				value={labelText}
+				onChangeText={(text) => {
+					setLabelText(text);
+					setSaveMessage(null);
+				}}
+				placeholder="Nome da conexão"
+				maxLength={PLUGGY_LABEL_MAX}
+				onSubmit={() => void saveName()}
+			/>
+			{saveMessage ? <Message>{saveMessage}</Message> : null}
+			<Button
+				label="Salvar nome"
+				variant="secondary"
+				loading={saving}
+				disabled={!nameChanged}
+				onPress={() => void saveName()}
+			/>
+			<Button
+				label="Remover conexão"
+				variant="secondary"
+				disabled={saving}
+				onPress={() => setConfirming(true)}
+			/>
 		</View>
 	);
 }

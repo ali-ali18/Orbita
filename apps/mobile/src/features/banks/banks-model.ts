@@ -3,6 +3,7 @@ import {
 	type PluggyConnectionDto,
 	type PluggyStatusResponse,
 	pluggyConnectionCreateBody,
+	pluggyLabelSchema,
 } from "@orbita/shared";
 import { banks } from "@orbita/tokens";
 import { ApiError } from "../../lib/api.ts";
@@ -69,6 +70,30 @@ export function connectionStatusLine(c: PluggyConnectionDto, now: Date): string 
 		case null:
 			return "Nunca sincronizou";
 	}
+}
+
+/** "1 conta", "2 contas · 1 cartão"; `null` se a conexão ainda não trouxe nada. */
+export function connectionSummaryText(summary: PluggyConnectionDto["summary"]): string | null {
+	const parts: string[] = [];
+	if (summary.accounts > 0) parts.push(`${summary.accounts} ${summary.accounts === 1 ? "conta" : "contas"}`);
+	if (summary.cards > 0) parts.push(`${summary.cards} ${summary.cards === 1 ? "cartão" : "cartões"}`);
+	return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Legenda da linha: "1 conta · 1 cartão · Sincronizado agora" (sem resumo, só a situação). */
+export function connectionCaption(c: PluggyConnectionDto, now: Date): string {
+	const summary = connectionSummaryText(c.summary);
+	const status = connectionStatusLine(c, now);
+	return summary ? `${summary} · ${status}` : status;
+}
+
+export type ValidatedLabel = { ok: true; label: string } | { ok: false; message: string };
+
+/** Valida o novo nome com o mesmo schema do servidor. */
+export function parseRenameInput(text: string): ValidatedLabel {
+	const parsed = pluggyLabelSchema.safeParse(text);
+	if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Nome inválido." };
+	return { ok: true, label: parsed.data };
 }
 
 /** Título e legenda do cartão de sincronização do topo. */
