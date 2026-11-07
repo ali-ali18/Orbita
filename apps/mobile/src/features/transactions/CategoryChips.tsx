@@ -60,10 +60,13 @@ export function CategoryChips({
 	categories,
 	selectedId,
 	onSelect,
+	allowNew = true,
 }: {
 	categories: readonly CategoryOption[];
 	selectedId: string | null;
 	onSelect: (id: string | null) => void;
+	/** Mostra o "+ Nova" (desativado por enquanto). */
+	allowNew?: boolean;
 }) {
 	return (
 		<View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
@@ -75,23 +78,25 @@ export function CategoryChips({
 					onPress={() => onSelect(c.id === selectedId ? null : c.id)}
 				/>
 			))}
-			<Pressable
-				accessibilityRole="button"
-				accessibilityLabel="Nova categoria"
-				accessibilityState={{ disabled: true }}
-				disabled
-				style={{
-					paddingHorizontal: spacing.md,
-					paddingVertical: spacing.sm,
-					borderRadius: radius.pill,
-					backgroundColor: colors.surface,
-					borderWidth: 1,
-					borderColor: colors.border,
-					opacity: 0.5,
-				}}
-			>
-				<Text variant="caption">+ Nova</Text>
-			</Pressable>
+			{allowNew ? (
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel="Nova categoria"
+					accessibilityState={{ disabled: true }}
+					disabled
+					style={{
+						paddingHorizontal: spacing.md,
+						paddingVertical: spacing.sm,
+						borderRadius: radius.pill,
+						backgroundColor: colors.surface,
+						borderWidth: 1,
+						borderColor: colors.border,
+						opacity: 0.5,
+					}}
+				>
+					<Text variant="caption">+ Nova</Text>
+				</Pressable>
+			) : null}
 		</View>
 	);
 }

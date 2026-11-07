@@ -1,6 +1,6 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { Text } from "./Text.tsx";
 
 /** Linha de lista: ícone/avatar à esquerda, título + legenda, valor à direita (com legenda opcional). */
@@ -11,6 +11,7 @@ export function ListRow({
 	value,
 	valueCaption,
 	badge,
+	onPress,
 }: {
 	leading?: ReactNode;
 	title: string;
@@ -19,8 +20,10 @@ export function ListRow({
 	valueCaption?: string;
 	/** Selo pequeno embaixo do valor (ex.: "Pendente"). */
 	badge?: string;
+	/** Torna a linha um botão (abre o detalhe). */
+	onPress?: () => void;
 }) {
-	return (
+	const row = (
 		<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 64 }}>
 			{leading}
 			<View style={{ flex: 1 }}>
@@ -59,5 +62,17 @@ export function ListRow({
 				</View>
 			) : null}
 		</View>
+	);
+	if (!onPress) return row;
+	const spoken = [title, caption, value, badge, valueCaption].filter(Boolean).join(", ");
+	return (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={spoken}
+			onPress={onPress}
+			style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
+		>
+			{row}
+		</Pressable>
 	);
 }

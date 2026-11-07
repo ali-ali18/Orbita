@@ -23,6 +23,7 @@ export function RecentCard({
 	today,
 	hidden,
 	onSeeAll,
+	onOpen,
 }: {
 	state: Loadable<RecentTransactions>;
 	/** Só dão nome às linhas; se falharem, as linhas aparecem sem o nome da conta. */
@@ -33,6 +34,8 @@ export function RecentCard({
 	hidden: boolean;
 	/** "Ver tudo" abre a tela Atividades. */
 	onSeeAll: () => void;
+	/** Tocar numa linha abre o detalhe do lançamento. */
+	onOpen: (id: string) => void;
 }) {
 	const accountById = new Map(accounts.map((a) => [a.id, a]));
 	const cardById = new Map(cards.map((c) => [c.id, c]));
@@ -62,6 +65,7 @@ export function RecentCard({
 							return (
 								<ListRow
 									key={t.id}
+									onPress={() => onOpen(t.id)}
 									leading={
 										<TransactionDisc
 											icon={transactionIcon(t.kind, t.categoryId ? slugById.get(t.categoryId) : undefined)}

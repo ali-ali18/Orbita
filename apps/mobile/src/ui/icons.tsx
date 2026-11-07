@@ -197,6 +197,26 @@ const bodies = {
 			<Path d="m16 17 5-5-5-5M21 12H9" />
 		</>
 	),
+	/** Do detalhe do lançamento (Figma 50:785): mesmo traço do conjunto, no viewBox 24. */
+	reticencias: (
+		<>
+			<Circle cx="12" cy="12" r="1" />
+			<Circle cx="19" cy="12" r="1" />
+			<Circle cx="5" cy="12" r="1" />
+		</>
+	),
+	lapis: (
+		<>
+			<Path d="M21.2 5.9a2.1 2.1 0 0 0-3-3L3.7 17.4a2 2 0 0 0-.5.9L2 22l3.7-1.2a2 2 0 0 0 .9-.5z" />
+			<Path d="m15 5 4 4" />
+		</>
+	),
+	lixeira: (
+		<>
+			<Path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+			<Path d="M10 11v6M14 11v6" />
+		</>
+	),
 	/** Não existe no Figma: o olho com um risco, só para o estado "valores escondidos". */
 	"olho-cortado": (
 		<>

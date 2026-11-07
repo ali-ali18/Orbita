@@ -61,7 +61,12 @@ export function SettingsScreen() {
 
 				<SettingsSection title="Organização">
 					<SettingsRow leading={<OrbitaAvatar size={20} />} title="Agentes" />
-					<SettingsRow icon="alvo" title="Orçamento do mês" />
+					<SettingsRow icon="assinatura" title="Assinaturas" onPress={() => router.push("/assinaturas")} />
+					<SettingsRow
+						icon="alvo"
+						title="Orçamento do mês"
+						onPress={() => router.push("/configuracoes/orcamento")}
+					/>
 					<SettingsRow icon="etiqueta" title="Categorias e regras" last />
 				</SettingsSection>
 

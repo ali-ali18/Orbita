@@ -119,6 +119,7 @@ export function ActivityScreen() {
 		const category = t.categoryId ? sources.categories.get(t.categoryId) : undefined;
 		return (
 			<ListRow
+				onPress={() => router.push({ pathname: "/lancamento/[id]", params: { id: t.id } })}
 				leading={
 					<TransactionDisc
 						icon={transactionIcon(t.kind, category?.slug)}
