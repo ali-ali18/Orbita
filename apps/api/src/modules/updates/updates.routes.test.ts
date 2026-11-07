@@ -2,7 +2,7 @@ import { createHash, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createMemoryStores } from "@orbita/db";
+import { createMemoryStores, createSecretVault } from "@orbita/db";
 import {
 	buildManifest,
 	formatSignatureHeader,
@@ -14,7 +14,6 @@ import { deriveKey } from "@orbita/security";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../app.ts";
 import { createPairingGuard } from "../pairing/guard.ts";
-import { createSecretVault } from "../settings/service.ts";
 import { routes } from "./routes.ts";
 import { createFsOtaStore, createMemoryOtaStore } from "./store.ts";
 
