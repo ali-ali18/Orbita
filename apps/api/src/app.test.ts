@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
 import { createPairingGuard, PAIRING_FAILED_CLAIMS_LIMIT } from "./modules/pairing/guard.ts";
 import { createPairingCode, hashPairingCode, type PairingDeps } from "./modules/pairing/service.ts";
+import { createSecretVault } from "./modules/settings/service.ts";
 
 function setup() {
 	const stores = createMemoryStores();
@@ -13,7 +14,12 @@ function setup() {
 		now: () => new Date(),
 	};
 	const guard = createPairingGuard(() => deps.now().getTime());
-	return { deps, guard, app: createApp({ ...deps, stores, guard, trustedProxyHops: 1 }) };
+	const vault = createSecretVault({ store: stores.secrets, key: deriveKey("s".repeat(48), "secret-box") });
+	return {
+		deps,
+		guard,
+		app: createApp({ ...deps, stores, guard, vault, version: "0.0.0-test", trustedProxyHops: 1 }),
+	};
 }
 
 const json = (body: unknown) => ({

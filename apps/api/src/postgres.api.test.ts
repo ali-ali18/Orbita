@@ -16,6 +16,7 @@ async function clean(client: Db) {
 	await client.card.deleteMany();
 	await client.account.deleteMany();
 	await client.category.deleteMany();
+	await client.serverSecret.deleteMany();
 	await client.device.deleteMany();
 	await client.pairingCode.deleteMany();
 }

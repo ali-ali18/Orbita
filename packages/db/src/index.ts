@@ -28,6 +28,7 @@ export {
 	type RecurrenceStore,
 	toMonthlyRecurrence,
 } from "./recurrence-store.ts";
+export type { SecretStore, StoredSecret } from "./secret-store.ts";
 export { createMemoryStores, createPrismaStores, type Stores, type StoresOptions } from "./stores.ts";
 export {
 	type InstallmentGroupRecord,
