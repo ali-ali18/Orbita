@@ -11,12 +11,18 @@ import * as categories from "./modules/categories/routes.ts";
 import * as devices from "./modules/devices/routes.ts";
 import * as pairing from "./modules/pairing/routes.ts";
 import * as recurrences from "./modules/recurrences/routes.ts";
+import * as settings from "./modules/settings/routes.ts";
+import type { SecretVault } from "./modules/settings/service.ts";
 import * as summary from "./modules/summary/routes.ts";
 import * as transactions from "./modules/transactions/routes.ts";
 
 export type AppDeps = pairing.PairingRoutesDeps & {
 	/** Todas as stores de dados (Prisma em produção, memória nos testes). */
 	stores: Stores;
+	/** Cofre das chaves do servidor (cifra com a chave derivada do APP_SECRET). */
+	vault: SecretVault;
+	/** Versão do servidor, mostrada em "Servidor e chaves". */
+	version: string;
 };
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -46,7 +52,8 @@ export function createApp(deps: AppDeps) {
 		.route("/", budgets.routes(finance))
 		.route("/", recurrences.routes(finance))
 		.route("/", transactions.routes(finance))
-		.route("/", summary.routes(finance));
+		.route("/", summary.routes(finance))
+		.route("/", settings.routes({ ...finance, vault: deps.vault, version: deps.version }));
 
 	app.notFound(notFoundHandler);
 	app.onError(errorHandler);

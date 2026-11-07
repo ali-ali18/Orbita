@@ -235,3 +235,15 @@ model Budget {
 
   @@map("budgets")
 }
+
+/// Chave de API ou credencial colada no app, guardada cifrada (AES-GCM, AAD = nome). O valor nunca sai em claro nem em parte.
+model ServerSecret {
+  name       String   @id
+  ciphertext String
+  /// Nome do aparelho que gravou por último (cópia do nome na hora, não o id).
+  updatedBy  String?  @map("updated_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("server_secrets")
+}

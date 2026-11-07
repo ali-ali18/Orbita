@@ -5,6 +5,7 @@ import type { CategoryRecord } from "./category-store.ts";
 import { badReference } from "./errors.ts";
 import type { RecurrencePostingRecord, RecurrenceRecord } from "./recurrence-store.ts";
 import { archivedAccount, archivedCard, archivedCategory, type Refs } from "./references.ts";
+import type { StoredSecret } from "./secret-store.ts";
 import type { TransactionRecord } from "./transaction-store.ts";
 
 export type Clock = () => Date;
@@ -21,6 +22,7 @@ export interface MemoryState {
 	recurrences: Map<string, RecurrenceRecord>;
 	postings: RecurrencePostingRecord[];
 	budgets: Map<string, BudgetRecord & { createdAt: Date }>;
+	secrets: Map<string, StoredSecret & { createdAt: Date }>;
 }
 
 export function createMemoryState(now: Clock = () => new Date()): MemoryState {
@@ -33,6 +35,7 @@ export function createMemoryState(now: Clock = () => new Date()): MemoryState {
 		recurrences: new Map(),
 		postings: [],
 		budgets: new Map(),
+		secrets: new Map(),
 	};
 }
 

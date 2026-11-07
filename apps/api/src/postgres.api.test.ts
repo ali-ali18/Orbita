@@ -16,6 +16,7 @@ async function clean(client: Db) {
 	await client.card.deleteMany();
 	await client.account.deleteMany();
 	await client.category.deleteMany();
+	await client.serverSecret.deleteMany();
 	await client.device.deleteMany();
 	await client.pairingCode.deleteMany();
 }
@@ -27,6 +28,26 @@ describe.skipIf(!url)("API sobre Postgres", () => {
 		const client = db;
 		return setupFinance(undefined, (now) => createPrismaStores(client, { now }));
 	}
+
+	it("chaves do servidor: no banco só fica o texto cifrado", async () => {
+		const { api } = await setup();
+		const value = "sk-ant-api03-ZzYyXxWwVvUuTtSsRrQqPp9876543210";
+		const put = await api.put("/v1/settings/secrets/anthropic_api_key", { value });
+		expect(put.status).toBe(200);
+		expect(JSON.stringify(put.body)).not.toContain(value.slice(-4));
+
+		const rows = await (db as Db).serverSecret.findMany();
+		expect(rows).toHaveLength(1);
+		const row = rows[0];
+		expect(row).toMatchObject({ name: "anthropic_api_key", updatedBy: "Teste" });
+		expect(row?.ciphertext).toMatch(/^v1\./);
+		expect(row?.ciphertext).not.toContain(value);
+		expect(row?.ciphertext).not.toContain(value.slice(-4));
+		expect(JSON.stringify(row)).not.toContain(value);
+
+		const list = await api.get("/v1/settings/secrets");
+		expect(list.body.secrets[0]).toMatchObject({ configured: true, readable: true, updatedBy: "Teste" });
+	});
 
 	it("dá pra gastar com aluguel lançado e salário", async () => {
 		const { api, basics } = await setup();

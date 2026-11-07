@@ -7,8 +7,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import { useSession } from "../../lib/session.tsx";
-import { BottomBar, ConfirmDialog, Screen, Text, useBottomBarHeight } from "../../ui/index.ts";
+import { BottomBar, Screen, Text, useBottomBarHeight } from "../../ui/index.ts";
 import { CategoriesCard } from "./CategoriesCard.tsx";
 import { HeroCard } from "./HeroCard.tsx";
 import { HomeHeader } from "./HomeHeader.tsx";
@@ -28,17 +27,11 @@ import { currentInvoiceMonth } from "./summary-model.ts";
 /** Ainda não há perfil/nome no servidor; o avatar usa "V" de "Você" e a saudação vai sem nome. */
 const PROFILE_INITIAL = "V";
 
-export const SIGN_OUT_TITLE = "Desconectar este aparelho?";
-export const SIGN_OUT_MESSAGE =
-	"O servidor deixa de reconhecer este aparelho. Se ele for o único conectado, um código novo aparece nos logs do servidor para você conectar de novo.";
-
 export function HomeScreen() {
-	const { signOut } = useSession();
 	const { hidden, toggle } = usePrivacy();
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const [refreshing, setRefreshing] = useState(false);
-	const [confirmingSignOut, setConfirmingSignOut] = useState(false);
 	const bottomBarHeight = useBottomBarHeight();
 
 	// Uma única fonte de "hoje" e "mês": todas as consultas usam os mesmos.
@@ -89,7 +82,7 @@ export function HomeScreen() {
 					initial={PROFILE_INITIAL}
 					hidden={hidden}
 					onToggleHidden={toggle}
-					onAvatarLongPress={() => setConfirmingSignOut(true)}
+					onAvatarPress={() => router.push("/configuracoes")}
 				/>
 
 				<View style={{ paddingTop: spacing.md, paddingBottom: spacing.sm, gap: spacing.xs }}>
@@ -124,18 +117,6 @@ export function HomeScreen() {
 					hidden={hidden}
 				/>
 			</ScrollView>
-
-			<ConfirmDialog
-				visible={confirmingSignOut}
-				title={SIGN_OUT_TITLE}
-				message={SIGN_OUT_MESSAGE}
-				confirmLabel="Desconectar"
-				onCancel={() => setConfirmingSignOut(false)}
-				onConfirm={() => {
-					setConfirmingSignOut(false);
-					void signOut();
-				}}
-			/>
 		</Screen>
 	);
 }

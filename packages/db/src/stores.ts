@@ -10,6 +10,7 @@ import { createMemoryBudgetStore } from "./memory-budget-store.ts";
 import { createMemoryCardStore } from "./memory-card-store.ts";
 import { createMemoryCategoryStore } from "./memory-category-store.ts";
 import { createMemoryRecurrenceStore } from "./memory-recurrence-store.ts";
+import { createMemorySecretStore } from "./memory-secret-store.ts";
 import { type Clock, createMemoryState } from "./memory-state.ts";
 import { createMemoryTransactionStore } from "./memory-transaction-store.ts";
 import { createPrismaAccountStore } from "./prisma-account-store.ts";
@@ -18,8 +19,10 @@ import { createPrismaBudgetStore } from "./prisma-budget-store.ts";
 import { createPrismaCardStore } from "./prisma-card-store.ts";
 import { createPrismaCategoryStore } from "./prisma-category-store.ts";
 import { createPrismaRecurrenceStore } from "./prisma-recurrence-store.ts";
+import { createPrismaSecretStore } from "./prisma-secret-store.ts";
 import { createPrismaTransactionStore } from "./prisma-transaction-store.ts";
 import type { RecurrenceStore } from "./recurrence-store.ts";
+import type { SecretStore } from "./secret-store.ts";
 import type { TransactionStore } from "./transaction-store.ts";
 
 export interface Stores {
@@ -30,6 +33,7 @@ export interface Stores {
 	transactions: TransactionStore;
 	recurrences: RecurrenceStore;
 	budgets: BudgetStore;
+	secrets: SecretStore;
 }
 
 export interface StoresOptions {
@@ -48,6 +52,7 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		transactions: createPrismaTransactionStore(db, now),
 		recurrences: createPrismaRecurrenceStore(db, now),
 		budgets: createPrismaBudgetStore(db, now),
+		secrets: createPrismaSecretStore(db, now),
 	};
 }
 
@@ -62,5 +67,6 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		transactions: createMemoryTransactionStore(state),
 		recurrences: createMemoryRecurrenceStore(state),
 		budgets: createMemoryBudgetStore(state),
+		secrets: createMemorySecretStore(state),
 	};
 }
