@@ -16,8 +16,11 @@ import * as recurrences from "./modules/recurrences/routes.ts";
 import * as settings from "./modules/settings/routes.ts";
 import * as summary from "./modules/summary/routes.ts";
 import * as transactions from "./modules/transactions/routes.ts";
+import * as updates from "./modules/updates/routes.ts";
 
 export type AppDeps = pairing.PairingRoutesDeps & {
+	/** De onde vêm as atualizações OTA do app (disco em produção, memória nos testes). */
+	ota: updates.UpdatesRoutesDeps["ota"];
 	/** Todas as stores de dados (Prisma em produção, memória nos testes). */
 	stores: Stores;
 	/** Cofre das chaves do servidor (cifra com a chave derivada do APP_SECRET). */
@@ -59,6 +62,7 @@ export function createApp(deps: AppDeps) {
 		.route("/", transactions.routes(finance))
 		.route("/", summary.routes(finance))
 		.route("/", settings.routes({ ...finance, vault: deps.vault, version: deps.version }))
+		.route("/", updates.routes(deps))
 		.route(
 			"/",
 			pluggy.routes({

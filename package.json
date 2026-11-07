@@ -16,7 +16,8 @@
 		"db:generate": "pnpm --filter @orbita/db generate",
 		"db:migrate": "pnpm --filter @orbita/db migrate:dev",
 		"db:deploy": "pnpm --filter @orbita/db migrate:deploy",
-		"parear": "pnpm --filter @orbita/api parear"
+		"parear": "pnpm --filter @orbita/api parear",
+		"ota": "node packages/ota/src/cli.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.6",

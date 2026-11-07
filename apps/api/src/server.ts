@@ -7,6 +7,7 @@ import { loadEnv } from "./env.ts";
 import { startAutoPairing } from "./modules/pairing/auto.ts";
 import { createPairingGuard } from "./modules/pairing/guard.ts";
 import { createBullSyncQueue } from "./modules/pluggy/queue.ts";
+import { createFsOtaStore } from "./modules/updates/store.ts";
 
 const env = loadEnv();
 const db = createDb(env.DATABASE_URL);
@@ -31,6 +32,7 @@ const app = createApp({
 	vault,
 	version,
 	trustedProxyHops: env.TRUSTED_PROXY_HOPS,
+	ota: createFsOtaStore(env.OTA_DIR),
 	pluggySyncQueue,
 });
 

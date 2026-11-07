@@ -3,6 +3,7 @@ import { deriveKey } from "@orbita/security";
 import { type AppDeps, createApp } from "./app.ts";
 import { createPairingGuard } from "./modules/pairing/guard.ts";
 import { createPairingCode, type PairingDeps } from "./modules/pairing/service.ts";
+import { createMemoryOtaStore } from "./modules/updates/store.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: corpo JSON de resposta, lido de forma solta nos testes
 export type Json = any;
@@ -33,6 +34,7 @@ export async function setupFinance(
 		vault,
 		version: "0.0.0-test",
 		trustedProxyHops: 0,
+		ota: createMemoryOtaStore(),
 		...extraDeps,
 	});
 

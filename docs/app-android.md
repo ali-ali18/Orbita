@@ -28,6 +28,17 @@ Depois de instalar, pareie o app com o servidor como em [`servidor.md`](servidor
 - **Assinatura:** o plugin `apps/mobile/plugins/with-release-signing.js` faz o release do projeto gerado assinar **só** com o que o workflow entrega nas variáveis `ORBITA_KEYSTORE_FILE`, `ORBITA_KEYSTORE_PASSWORD`, `ORBITA_KEY_ALIAS` e `ORBITA_KEY_PASSWORD`. Sem elas o `assembleRelease` falha; não existe fallback silencioso para o keystore de debug.
 - Ícone e splash: `apps/mobile/assets/*.png`, gerados por `python3 apps/mobile/assets/gerar-icones.py` (precisa do Pillow) a partir do avatar da Órbita.
 
+## Atualização OTA dentro do APK
+
+O APK carrega duas coisas para receber atualizações de JavaScript do servidor pareado (veja [Atualizar o app sem APK](servidor.md#atualizar-o-app-sem-apk)):
+
+- **O certificado público** `apps/mobile/certs/ota-certificate.pem`, que confere a assinatura de cada atualização, e o **endereço das atualizações** (`updates.url` = `${ORBITA_PUBLIC_URL}/updates/manifest`, da variável do repositório `ORBITA_PUBLIC_URL`, que o workflow passa ao build). Sem o certificado no repositório ou sem a variável, o `app.config.ts` desliga o OTA (`updates.enabled: false`) e o APK sai como antes.
+- **O `runtimeVersion`**, a impressão digital do projeto nativo (`runtimeVersion: { policy: "fingerprint" }`). O passo "Fixar o runtimeVersion do OTA" do workflow calcula o valor com o mesmo comando do `release.yml` (`node packages/ota/src/cli.ts runtime-version`) e o passa ao Gradle em `EXPO_UPDATES_FINGERPRINT_OVERRIDE`, para APK e atualização nunca divergirem.
+
+O app só checa atualização se o servidor pareado for o mesmo host de `ORBITA_PUBLIC_URL` (`apps/mobile/src/lib/updates.ts`). Sem servidor pareado, com outro servidor, em dev ou na web, nada é checado.
+
+**Precisa de APK novo** quando muda algo nativo (dependência nativa, versão do Expo/React Native, permissões, ícone, plugin, certificado OTA): o `runtimeVersion` muda e o APK antigo para de receber o JS novo, mas continua funcionando. Mudou só JS? Basta o merge na `main`.
+
 ## Chave de assinatura
 
 O Android só atualiza um app por cima se o APK novo for assinado com a mesma chave do instalado. A chave é o que impede que outra pessoa distribua uma "atualização" falsa, então ela é **privada** e fica nos segredos do repositório.

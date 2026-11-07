@@ -13,12 +13,14 @@ const envSchema = z.object({
 	PORT: z.coerce.number().int().positive().default(3000),
 	/** Gera e mostra no log um código de pareamento enquanto não houver aparelho. */
 	PAIRING_AUTO: booleanString(true),
+	/** Pasta com a atualização OTA assinada do app (gerada no CI e embutida na imagem). Ausente = sem atualização. */
+	OTA_DIR: z.string().min(1).default("/app/ota"),
+	/** Fila do Meu Pluggy (a mesma do worker). Sem isto, `POST /v1/pluggy/sync` responde 503. */
+	REDIS_URL: z.string().min(1).optional(),
 	/**
 	 * Quantos proxies confiáveis há na frente: 0 = nenhum (usa o IP do socket),
 	 * 1 = Traefik/Dokploy, 2 = Cloudflare + Traefik. Valor errado deixa forjar o IP.
 	 */
-	/** Fila do Meu Pluggy (a mesma do worker). Sem isto, `POST /v1/pluggy/sync` responde 503. */
-	REDIS_URL: z.string().min(1).optional(),
 	TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0, "Use um inteiro maior ou igual a 0.").default(0),
 });
 export type Env = z.infer<typeof envSchema>;

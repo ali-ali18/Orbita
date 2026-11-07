@@ -1,6 +1,19 @@
 name: Release
 
 # Publica a imagem no GHCR só depois que o CI passou na main, e avisa o Dokploy.
+#
+# A atualização OTA do app (JS exportado + manifesto ASSINADO, embutida em /app/ota) é gerada em jobs separados,
+# para que a chave de assinatura nunca esteja num job que roda código de terceiros:
+#
+#   decidir      -> só decide (chave? URL? certificado? commit ainda é a ponta da main?). Não lê o segredo.
+#   ota-prepare  -> SEM segredos. pnpm install + Metro/plugins (código de terceiros) exportam o app e entregam
+#                   um artefato de dados (JS exportado, runtimeVersion, config).
+#   ota-sign     -> único job com OTA_SIGNING_KEY. Só checkout + node, SEM cache e SEM pnpm install: roda o
+#                   packages/ota (sem dependências) sobre o artefato e entrega o ota/ assinado.
+#   imagem       -> baixa o ota/ assinado e constrói a imagem. Nunca vê a chave nem roda o build do app.
+#
+# Qualquer falha do OTA (exportar ou assinar) vira ::error:: visível, mas a imagem do servidor sai mesmo
+# assim, sem ota/ (o servidor responde "sem atualização"). Veja docs/servidor.md, "Atualizar o app sem APK".
 
 on:
   workflow_run:
@@ -16,15 +29,19 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  # Só publica em dois casos:
+  # (a) CI concluído com sucesso (conclusion), disparado por push (event) e não por
+  #     pull_request, no branch main (head_branch) do PRÓPRIO repositório
+  #     (head_repository). `branches: [main]` sozinho também casa um PR de fork cujo
+  #     branch se chama "main", e o job faria checkout e publicaria o código do atacante.
+  # (b) disparo manual, mas só a partir da main (ref), para ninguém publicar outro branch.
+  # (O contexto `env` não existe em `jobs.<id>.if`; por isso a condição é repetida em cada job.)
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
 jobs:
-  imagem:
-    name: Construir e publicar imagem
-    # Só publica em dois casos:
-    # (a) CI concluído com sucesso (conclusion), disparado por push (event) e não por
-    #     pull_request, no branch main (head_branch) do PRÓPRIO repositório
-    #     (head_repository). `branches: [main]` sozinho também casa um PR de fork cujo
-    #     branch se chama "main", e o job faria checkout e publicaria o código do atacante.
-    # (b) disparo manual, mas só a partir da main (ref), para ninguém publicar outro branch.
+  decidir:
+    name: Decidir o que publicar
     if: >-
       (github.event_name == 'workflow_run'
       && github.event.workflow_run.conclusion == 'success'
@@ -35,16 +52,166 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-    env:
-      DOKPLOY_WEBHOOK_URL: ${{ secrets.DOKPLOY_WEBHOOK_URL }}
+    outputs:
+      short: ${{ steps.sha.outputs.short }}
+      # O commit ainda é a ponta da main? Re-execução de uma release antiga não vira "latest" nem assina OTA.
+      tip: ${{ steps.tip.outputs.tip }}
+      ota: ${{ steps.ota.outputs.enabled }}
     steps:
       - uses: actions/checkout@v4
         with:
           # O commit exato que o CI aprovou, não o que estiver na ponta da main agora.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ env.SHA }}
+          persist-credentials: false
       - id: sha
         run: echo "short=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+      - id: tip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tip="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [ "$tip" = "$SHA" ]; then
+            echo "tip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tip=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::O commit $SHA não é mais a ponta da main ($tip): publico a imagem só com a tag do commit (sem latest) e sem atualização OTA."
+          fi
+      # Aqui o segredo só é testado (vazio ou não), nunca lido.
+      - id: ota
+        env:
+          HAS_KEY: ${{ secrets.OTA_SIGNING_KEY != '' }}
+          PUBLIC_URL: ${{ vars.ORBITA_PUBLIC_URL }}
+          TIP: ${{ steps.tip.outputs.tip }}
+        run: |
+          if [ "$TIP" != "true" ]; then
+            :
+          elif [ "$HAS_KEY" != "true" ]; then
+            echo "::notice::Segredo OTA_SIGNING_KEY ausente: a imagem sai sem atualização OTA do app."
+          elif [ -z "$PUBLIC_URL" ]; then
+            echo "::warning::Variável ORBITA_PUBLIC_URL ausente (endereço público do servidor): a imagem sai sem atualização OTA do app."
+          elif [ "${PUBLIC_URL#https://}" = "$PUBLIC_URL" ]; then
+            echo "::warning::ORBITA_PUBLIC_URL precisa começar com https://: a imagem sai sem atualização OTA do app."
+          elif [ ! -f apps/mobile/certs/ota-certificate.pem ]; then
+            echo "::warning::apps/mobile/certs/ota-certificate.pem não está no repositório: a imagem sai sem atualização OTA do app."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # SEM segredos: executa código de terceiros (dependências, Metro, plugins).
+  ota-prepare:
+    name: OTA - exportar o app (sem segredos)
+    needs: decidir
+    if: needs.decidir.outputs.ota == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      ok: ${{ steps.final.outputs.ok }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - id: prepare
+        continue-on-error: true
+        env:
+          ORBITA_VERSION_SUFFIX: +${{ needs.decidir.outputs.short }}
+          # Entra no app.config.ts (updates.url) e, por isso, no runtimeVersion: tem de ser igual à do APK.
+          ORBITA_PUBLIC_URL: ${{ vars.ORBITA_PUBLIC_URL }}
+        run: |
+          pnpm install --frozen-lockfile
+          node packages/ota/src/cli.ts prepare --work "$RUNNER_TEMP/ota-work"
+      - id: final
+        run: |
+          if [ "${{ steps.prepare.outcome }}" = "success" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Falha ao exportar o app para a atualização OTA. A imagem do servidor sai SEM atualização OTA; corrija e publique de novo."
+          fi
+      - if: steps.final.outputs.ok == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: ota-work
+          path: ${{ runner.temp }}/ota-work
+          if-no-files-found: error
+          retention-days: 1
+
+  # ÚNICO job com a chave. Sem pnpm install, sem cache do setup-node e sem código de terceiros: só o
+  # packages/ota do commit (zero dependências) lendo o artefato de dados do job anterior.
+  ota-sign:
+    name: OTA - assinar
+    needs: [decidir, ota-prepare]
+    if: needs.ota-prepare.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      ok: ${{ steps.final.outputs.ok }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v7
+        with:
+          name: ota-work
+          path: ${{ runner.temp }}/ota-work
+      - id: sign
+        continue-on-error: true
+        env:
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+          PUBLIC_URL: ${{ vars.ORBITA_PUBLIC_URL }}
+        run: node packages/ota/src/cli.ts sign --work "$RUNNER_TEMP/ota-work" --base-url "$PUBLIC_URL" --out ota
+      - id: final
+        run: |
+          if [ "${{ steps.sign.outcome }}" = "success" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Falha ao assinar a atualização OTA (veja o passo anterior). A imagem do servidor sai SEM atualização OTA; corrija e publique de novo."
+          fi
+      - if: steps.final.outputs.ok == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: ota-signed
+          path: ota
+          if-no-files-found: error
+          retention-days: 1
+
+  imagem:
+    name: Construir e publicar imagem
+    needs: [decidir, ota-prepare, ota-sign]
+    # `always()`: falha ou ausência do OTA nunca impede a imagem do servidor.
+    if: >-
+      ${{ !cancelled() && needs.decidir.result == 'success' && (
+      (github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.head_repository.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          persist-credentials: false
+      - name: Baixar a atualização OTA assinada
+        if: needs.ota-sign.outputs.ok == 'true'
+        uses: actions/download-artifact@v7
+        with:
+          name: ota-signed
+          path: ota
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -57,8 +224,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=latest
-            type=raw,value=sha-${{ steps.sha.outputs.short }}
+            type=raw,value=latest,enable=${{ needs.decidir.outputs.tip == 'true' }}
+            type=raw,value=sha-${{ needs.decidir.outputs.short }}
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -71,10 +238,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Avisar o Dokploy
-        if: env.DOKPLOY_WEBHOOK_URL != ''
+        if: needs.decidir.outputs.tip == 'true'
+        env:
+          DOKPLOY_WEBHOOK_URL: ${{ secrets.DOKPLOY_WEBHOOK_URL }}
         # Imagem já publicada: falha do aviso não derruba a release. Não imprime a URL.
         continue-on-error: true
         run: |
+          if [ -z "$DOKPLOY_WEBHOOK_URL" ]; then exit 0; fi
           if ! curl -fsS -o /dev/null --max-time 30 -X POST \
             -H "Content-Type: application/json" \
             --data '{"ref":"refs/heads/main"}' \

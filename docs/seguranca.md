@@ -13,7 +13,7 @@ Só **uma porta**: a da API (3000), e mesmo ela não é publicada pelo compose. 
 | Redis    | Não. Sem porta publicada, e com senha                   |
 | Worker   | Não recebe conexões                                     |
 
-Rotas sem autenticação: `GET /health` e `POST /v1/pairing/claim` (trocar código por token). Todo o resto exige o token do aparelho.
+Rotas sem autenticação: `GET /health`, `POST /v1/pairing/claim` (trocar código por token) e `GET /updates/manifest` / `GET /updates/assets/:nome` (atualização do app, protegida por assinatura: veja abaixo). Todo o resto exige o token do aparelho.
 
 ## Pareamento
 
@@ -50,6 +50,18 @@ Trocar invalida o código de pareamento ativo e torna ilegíveis os segredos cif
   - `1`: Dokploy/Traefik (padrão do compose).
   - `2`: Cloudflare (ou outro CDN) na frente do Traefik. Só funciona se o Traefik estiver configurado para confiar nos IPs da Cloudflare (`forwardedHeaders.trustedIPs`); senão ele descarta o cabeçalho e a API usa o endereço da conexão, e todos dividiriam o mesmo limite.
   - `0`: API exposta direto, ou desenvolvimento local (padrão fora do compose). Usa o endereço da conexão e ignora o cabeçalho.
+
+## Atualização OTA do app
+
+O app aceita atualizações de JavaScript do próprio servidor, o que é uma via para executar código no celular. Por isso:
+
+- **Assinatura fora do servidor.** O manifesto é assinado (RSA-SHA256) no GitHub Actions com a chave privada `OTA_SIGNING_KEY`. O servidor só guarda e repassa os bytes assinados. O app confere a assinatura contra o certificado embutido no APK **antes** de baixar qualquer arquivo e confere o hash SHA-256 de cada arquivo contra o manifesto. Servidor invadido, proxy ou CDN não conseguem fazer o app rodar código novo.
+- **A chave** existe só no job `ota-sign` do `release.yml`, que faz checkout e usa o Node **sem** `pnpm install` e **sem** cache e roda o `packages/ota` (zero dependências). O job que executa `pnpm install`, Metro e plugins de terceiros (`ota-prepare`) não tem nenhum segredo, e o que constrói a imagem só recebe o `ota/` já assinado. A chave nunca está no repositório, na imagem nem no servidor. O CLI trata o artefato do build como dado não confiável (caminhos confinados, campos validados), recusa assinar se a chave não corresponde ao certificado do app ou se o certificado venceu, e a assinatura de uma release antiga (commit que já não é a ponta da `main`) é pulada.
+- **Cada publicação tem id próprio** e o bundle tem como `key` o seu hash, para o celular nunca manter uma versão defeituosa por id repetido nem reaproveitar o arquivo de outra publicação.
+- **Rotas públicas, de leitura e limitadas** (60 manifestos e 600 arquivos por IP a cada 10 minutos). Nome de arquivo só no formato `<sha256 em base64url>.<ext>`: qualquer outra coisa é 400 e nunca chega ao disco; o diretório é somente leitura dentro da imagem.
+- **Cabeçalho `expo-signature`** só é repassado se tiver o formato esperado (uma linha, sem aspas soltas).
+- **O que não cobre:** o servidor pode deixar de entregar atualizações ou entregar uma antiga (também assinada por você); não pode criar uma nova. As proteções anti-bricking do `expo-updates` ficam ligadas (o endereço é fixo no APK, vindo de `ORBITA_PUBLIC_URL`), então o app tem volta automática depois de uma atualização ruim (veja [servidor](servidor.md#riscos-e-como-o-app-se-protege)).
+- **Chave comprometida ou certificado perto de vencer:** gere outro par, troque o segredo e o certificado e publique um APK novo. **APKs já instalados continuam confiando na chave antiga até serem reinstalados**: reinstale em todos os aparelhos e, até lá, considere servir a imagem sem `ota/` (veja [servidor](servidor.md#riscos-e-como-o-app-se-protege)).
 
 ## Meu Pluggy
 

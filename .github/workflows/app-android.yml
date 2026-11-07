@@ -16,6 +16,7 @@ on:
       - "packages/tokens/**"
       - "packages/core/**"
       - "packages/shared/**"
+      - "packages/ota/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/app-android.yml"
   workflow_run:
@@ -78,6 +79,8 @@ jobs:
       # Soma ao run_number para o versionCode nunca regredir se este workflow for renomeado/recriado.
       ORBITA_VERSION_CODE_OFFSET: "1000"
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      # Endereço público do servidor (variável, não segredo): vira o updates.url do APK. Sem ele, APK sem OTA.
+      ORBITA_PUBLIC_URL: ${{ vars.ORBITA_PUBLIC_URL }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -134,6 +137,19 @@ jobs:
             echo "code=$code"
           } >> "$GITHUB_OUTPUT"
           echo "Versão $base+$short (versionCode $code)"
+
+      # O APK e a atualização OTA precisam do MESMO runtimeVersion (senão o app recusa o JS novo). O valor sai do
+      # mesmo comando do release.yml, antes do prebuild, e é fixado para o Gradle em vez de recalculado lá.
+      # Sem o certificado em apps/mobile/certs ou sem a variável ORBITA_PUBLIC_URL o OTA fica desligado e não há o que fixar.
+      - name: Fixar o runtimeVersion do OTA
+        run: |
+          if [ -f apps/mobile/certs/ota-certificate.pem ] && [ -n "$ORBITA_PUBLIC_URL" ]; then
+            rt="$(node packages/ota/src/cli.ts runtime-version)"
+            echo "EXPO_UPDATES_FINGERPRINT_OVERRIDE=$rt" >> "$GITHUB_ENV"
+            echo "runtimeVersion do APK (igual ao do OTA): $rt"
+          else
+            echo "::notice::Sem apps/mobile/certs/ota-certificate.pem ou sem a variável ORBITA_PUBLIC_URL: APK sem atualização OTA."
+          fi
 
       # PR: chave descartável, nova a cada build. O APK de PR não instala por cima do app do dono.
       - name: Criar chave descartável (PR)
