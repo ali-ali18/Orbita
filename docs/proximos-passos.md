@@ -6,17 +6,17 @@ Onde o projeto está e como continuar, em ordem. Escrito para uma sessão nova (
 
 ## Status
 
-| Fase                                                                  | Situação      |
-| --------------------------------------------------------------------- | ------------- |
-| 1. Fundação (monorepo, pareamento, segurança, Docker, CI/CD)          | ✅ PR #1      |
-| 2. Engine financeiro (`packages/core`)                                | ✅ PR #16     |
-| 3. Dados no banco (modelos + stores)                                  | ✅ PR #17     |
-| 4. API das finanças                                                   | ✅ PR #18     |
-| 5. App mobile (Expo)                                                  | 🚧 `feat/app` |
-| 6. Ingestão (notificação, comprovante, extrato, conciliação, Revisão) | ⏳            |
-| 7. Meu Pluggy                                                         | ⏳            |
-| 8. Agentes de IA                                                      | ⏳            |
-| 9. Metas, assinaturas e demais agentes                                | ⏳            |
+| Fase                                                                  | Situação       |
+| --------------------------------------------------------------------- | -------------- |
+| 1. Fundação (monorepo, pareamento, segurança, Docker, CI/CD)          | ✅ PR #1       |
+| 2. Engine financeiro (`packages/core`)                                | ✅ PR #16      |
+| 3. Dados no banco (modelos + stores)                                  | ✅ PR #17      |
+| 4. API das finanças                                                   | ✅ PR #18      |
+| 5. App mobile (Expo)                                                  | 🚧 PRs #19–#21 |
+| 6. Ingestão (notificação, comprovante, extrato, conciliação, Revisão) | ⏳             |
+| 7. Meu Pluggy                                                         | ⏳             |
+| 8. Agentes de IA                                                      | ⏳             |
+| 9. Metas, assinaturas e demais agentes                                | ⏳             |
 
 ## Fase 3 — Dados no banco ✅
 
@@ -44,7 +44,15 @@ Feito no PR #18. O app consome (todas exigem `Authorization: Bearer <token do ap
 
 **Etapa 1 pronta (PR #19):** `apps/mobile` com Expo SDK 58 (pnpm sem hoisting), telas **Conectar** e **Início**, sair revogando no servidor, estados de carregando/erro por card, reserva das contas a vencer na barra do orçamento. Prévias em `docs/previews/app/` (geradas com a API real + Playwright no navegador, 390×844). Ainda não testado em Android de verdade.
 
-**Próximas etapas do app:** Novo lançamento (à vista e parcelado) → Atividades → Cartão (Faturas, Parcelas, Limites) → Assinaturas → Configurações → build do APK no GitHub Actions. Sempre gerar prévias e mandar link.
+**APK pronto (PR #20):** `app-android.yml` publica a cada push no `main` (depois do CI) um Release `latest` com `orbita.apk`, assinado com a chave dos segredos `ANDROID_*` (já cadastrados). Link fixo: https://github.com/ali-ali18/Orbita/releases/latest/download/orbita.apk. Detalhes em `docs/app-android.md`.
+
+**Fidelidade ao Figma (PR #21):** ícones exatos em `ui/icons.tsx`, barra de baixo, avatar, medidas; tokens `layout` (barra de status, barra de gestos, alvo de toque). Comparações em `docs/previews/app/figma/`.
+
+**Novo lançamento (PR seguinte ao #21):** rota `novo` (modal) aberta pelo "+" da barra; Saída/Entrada, à vista em conta ou cartão, parcelado 2..72 no cartão; prévia "N× de ~R$ X" (o servidor divide). Ler comprovante, Ditar, Transferir e "+ Nova" categoria aparecem desativados.
+
+**Ordem combinada com o dono (para ele testar com dados reais):** Configurações → **Servidor e chaves** (`44:817`: Client ID/Secret do Pluggy, IDs das conexões, chave da Anthropic; cifrados com `@orbita/security`, a API nunca devolve o valor, só "configurado") → **sincronização do Meu Pluggy** (fase 7) → demais telas.
+
+**Depois:** Atividades (`24:142`) → Cartão (Faturas `33:501`, Parcelas `28:306`, Limites `36:636`) → Assinaturas (`28:450`) → Configurações (`41:605`). Sempre gerar prévias e mandar link.
 
 - `apps/mobile` com Expo Router, TanStack Query e cliente tipado do Hono (`hono/client` com o `AppType` da API).
 - Camadas: `ui/` (primitivos só com tokens de `@orbita/tokens`), `features/` (por assunto), `app/` (telas). Ver `docs/styleguide.md`.
@@ -72,3 +80,4 @@ SDK da Anthropic (Tool Runner), modelo barato por padrão, limite mensal de gast
 - Dependabot npm falhou na primeira execução (provavelmente pnpm 10 / workspace): investigar.
 - Vencimento em fim de semana/feriado não é empurrado para dia útil (documentado no engine).
 - Limite de requisições em memória (uma instância da API).
+- Criar lançamento não tem chave de idempotência: se a resposta se perder na rede e o usuário tocar de novo, grava duas vezes. Acrescentar `Idempotency-Key` no POST (o app gera um id por formulário).

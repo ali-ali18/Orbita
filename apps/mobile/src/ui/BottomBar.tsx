@@ -42,10 +42,10 @@ function Backdrop() {
 
 /**
  * Barra de baixo: início, campo "Pergunte à Órbita" com o "+" dentro e o avatar do agente. O campo e
- * o "+" ainda não têm tela (ficam desativados); o início é a tela atual. Flutua sobre o conteúdo,
+ * o "+" abre o Novo lançamento (`onNew`); o campo ainda não tem tela (fica desativado); o início é a tela atual. Flutua sobre o conteúdo,
  * com o degradê do Figma por trás.
  */
-export function BottomBar({ onHome }: { onHome?: () => void }) {
+export function BottomBar({ onHome, onNew }: { onHome?: () => void; onNew?: () => void }) {
 	const insets = useSafeAreaInsets();
 	return (
 		<View
@@ -89,7 +89,14 @@ export function BottomBar({ onHome }: { onHome?: () => void }) {
 					<Text variant="body" tone="secondary" style={{ flex: 1 }} numberOfLines={1}>
 						Pergunte à Órbita
 					</Text>
-					<IconButton icon="mais" label="Novo lançamento" size={40} iconSize={22} filled disabled />
+					<IconButton
+						icon="mais"
+						label="Novo lançamento"
+						size={40}
+						iconSize={22}
+						filled
+						{...(onNew ? { onPress: onNew } : { disabled: true })}
+					/>
 				</View>
 				<View
 					style={{
