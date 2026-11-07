@@ -25,6 +25,12 @@ export interface TransactionData {
 	source: TransactionSource;
 	externalId: string | null;
 	note: string | null;
+	/** Categoria que o banco mandou (só importados). Informativa: não decide nada sozinha. */
+	sourceCategory: string | null;
+	/** Nome do estabelecimento que o banco informou. */
+	merchantName: string | null;
+	/** O dono trocou a categoria à mão (PATCH): regras novas não reclassificam. */
+	categoryEditedByOwner: boolean;
 }
 
 export interface TransactionRecord extends TransactionData {
@@ -52,6 +58,9 @@ export interface TransactionInput {
 	source?: TransactionSource;
 	externalId?: string | null;
 	note?: string | null;
+	/** Só importados. Saneado e limitado a 120 letras pelo store. */
+	sourceCategory?: string | null;
+	merchantName?: string | null;
 }
 
 /**
@@ -75,9 +84,22 @@ export type InstallmentInput = TransactionInput & {
 export type TransactionPatch = Partial<
 	Omit<
 		TransactionData,
-		"source" | "externalId" | "installmentGroupId" | "installmentNumber" | "installmentCount"
+		| "source"
+		| "externalId"
+		| "installmentGroupId"
+		| "installmentNumber"
+		| "installmentCount"
+		| "sourceCategory"
+		| "merchantName"
 	>
 >;
+
+/** Posição de um lançamento importado num parcelamento. O `groupId` é decidido por quem importa (determinístico). */
+export interface ExternalInstallment {
+	groupId: string;
+	number: number;
+	count: number;
+}
 
 export type UpsertByExternalInput = Omit<TransactionInput, "source" | "externalId">;
 
@@ -130,6 +152,17 @@ export interface TransactionStore {
 		input: UpsertByExternalInput,
 	): Promise<UpsertResult>;
 	/**
+	 * Como `upsertByExternal`, para uma parcela importada de um grupo que cresce com o tempo (o banco manda uma
+	 * parcela por fatura). O grupo nasce com a primeira parcela vista e as seguintes entram nele; não exige as N
+	 * parcelas. `duplicate` se o grupo já tem outra parcela com esse número (compras iguais confundidas).
+	 */
+	upsertInstallmentByExternal(
+		source: TransactionSource,
+		externalId: string,
+		input: UpsertByExternalInput,
+		installment: ExternalInstallment,
+	): Promise<UpsertResult>;
+	/**
 	 * Já existe lançamento com esta identidade externa? Conta também o apagado: o identificador continua
 	 * reservado (a ingestão não recria o que o dono apagou). Serve para decidir antes de montar o lançamento.
 	 */
@@ -166,6 +199,8 @@ export interface TransactionStore {
 	 * Aceita de 0 a 500 ids; ids repetidos contam uma vez.
 	 */
 	getMany(ids: readonly string[]): Promise<TransactionRecord[]>;
+	/** Todos os lançamentos vivos cuja categoria o dono não trocou à mão (para reclassificar por regra). */
+	listCategoryNotEditedByOwner(): Promise<TransactionRecord[]>;
 	/** Do mais recente para o mais antigo (data, id). `before` é o último item da página anterior. */
 	listRecent(options: { limit: number; before?: TransactionCursor }): Promise<TransactionRecord[]>;
 	/**

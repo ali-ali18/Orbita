@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { monthOf } from "@orbita/core";
 import type { TransactionSource } from "@orbita/shared";
 import {
+	cleanMerchantName,
+	cleanSourceCategory,
 	isLocalDate,
 	MAX_INSTALLMENT_COUNT,
 	TRANSACTION_SOURCES,
@@ -40,6 +42,7 @@ export type TransactionDraft = TransactionInput & {
 	installmentGroupId?: string | null;
 	installmentNumber?: number | null;
 	installmentCount?: number | null;
+	categoryEditedByOwner?: boolean;
 };
 
 /** Lançamento avulso: campos de parcela que vierem (JS sem tipos) são descartados. */
@@ -79,8 +82,28 @@ function normalizeDraft(input: TransactionDraft): TransactionData {
 		source,
 		externalId: cleanExternal(source, input.externalId),
 		note: input.note ?? null,
+		sourceCategory: cleanSourceCategory(input.sourceCategory),
+		merchantName: cleanMerchantName(input.merchantName),
+		categoryEditedByOwner: input.categoryEditedByOwner === true,
 	};
 }
+
+/** Parcela importada: avulsa + posição no grupo informada por quem importa. */
+export function normalizeExternalInstallment(
+	input: TransactionInput,
+	installment: { groupId: string; number: number; count: number },
+): TransactionData {
+	if (installment.groupId.length === 0 || installment.groupId.length > 64)
+		throw invalid("O identificador do parcelamento deve ter de 1 a 64 letras.");
+	return normalizeDraft({
+		...input,
+		installmentGroupId: installment.groupId,
+		installmentNumber: installment.number,
+		installmentCount: installment.count,
+	});
+}
+
+export const DUPLICATE_INSTALLMENT_MESSAGE = "O parcelamento já tem uma parcela com este número.";
 
 const PATCHABLE = new Set([
 	"kind",
@@ -96,6 +119,7 @@ const PATCHABLE = new Set([
 	"invoiceMonth",
 	"status",
 	"note",
+	"categoryEditedByOwner",
 ]);
 
 /**

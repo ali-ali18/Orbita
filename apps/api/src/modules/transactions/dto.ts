@@ -22,6 +22,9 @@ export function toTransactionDto(t: TransactionRecord): TransactionDto {
 		source: t.source,
 		externalId: t.externalId,
 		note: t.note,
+		sourceCategory: t.sourceCategory,
+		merchantName: t.merchantName,
+		categoryEditedByOwner: t.categoryEditedByOwner,
 		createdAt: t.createdAt.toISOString(),
 		updatedAt: t.updatedAt.toISOString(),
 	};

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { invalid, notFound } from "./errors.ts";
+import { DataError, invalid, notFound } from "./errors.ts";
 import { assertRefs, type MemoryState, type StoredTransaction } from "./memory-state.ts";
 import { HAS_REFUNDS_MESSAGE } from "./messages.ts";
 import { cleanMonth } from "./rules.ts";
@@ -11,9 +11,11 @@ import {
 	cleanIds,
 	cleanLimit,
 	DEFAULT_PENDING_LIMIT,
+	DUPLICATE_INSTALLMENT_MESSAGE,
 	dataOf,
 	duplicateExternal,
 	mergeTransaction,
+	normalizeExternalInstallment,
 	normalizeInstallmentGroup,
 	normalizeTransaction,
 	refundTargetError,
@@ -108,6 +110,22 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 			return { created: true, transaction: view(insert(data)) };
 		},
 
+		async upsertInstallmentByExternal(source, externalId, input, installment) {
+			const data = normalizeExternalInstallment({ ...input, source, externalId }, installment);
+			const existing = findExternal(data);
+			if (existing)
+				return { created: false, transaction: existing.deletedAt === null ? view(existing) : null };
+			checkReferences(data);
+			// Mesma unicidade do banco: (grupo, número), contando também as apagadas.
+			if (
+				[...state.transactions.values()].some(
+					(t) => t.installmentGroupId === installment.groupId && t.installmentNumber === installment.number,
+				)
+			)
+				throw new DataError("duplicate", DUPLICATE_INSTALLMENT_MESSAGE);
+			return { created: true, transaction: view(insert(data)) };
+		},
+
 		async existsByExternal(source, externalId) {
 			return [...state.transactions.values()].some((t) => t.source === source && t.externalId === externalId);
 		},
@@ -189,6 +207,13 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 			const wanted = new Set(cleanIds(ids));
 			return live()
 				.filter((t) => wanted.has(t.id))
+				.map(view)
+				.sort(byDateAsc);
+		},
+
+		async listCategoryNotEditedByOwner() {
+			return live()
+				.filter((t) => !t.categoryEditedByOwner)
 				.map(view)
 				.sort(byDateAsc);
 		},

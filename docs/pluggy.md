@@ -77,13 +77,13 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 
 ## Limitações conhecidas (para a Fase 6 ou depois)
 
-- **Parcelas** entram como lançamentos simples ("Parcela 3/10" na observação). O Pluggy manda uma parcela por fatura, sem id de grupo; casar com `createInstallmentGroup` exigiria heurística (descrição + valor + total).
+- **Parcelas** viram parcelamento de verdade (ver "Parcelamentos"), desde que o Pluggy mande a data da compra; sem ela entram como lançamentos simples ("Parcela 3/10" na observação).
 - **`pending` ↔ Pluggy:** o Pluggy não casa com o lançamento que a notificação criou como `pending`; os dois coexistem até o conciliador da Fase 6.
 - **Pagamento de fatura** que não casa com `/bills` nem tem total de fatura igual é ignorado (`card_payment_unlinked`), com aviso nas notas.
 - **Falha em `/bills`** (que não seja 404/403 = conector sem faturas) deixa a conexão `partial` e tira da rodada os débitos da conta e os créditos do cartão (`bills_unavailable`): como o `upsertByExternal` nunca corrige um lançamento já gravado, gravar agora um pagamento de fatura como gasto o deixaria errado para sempre. Entram na rodada seguinte.
 - **Reclassificar lançamento já importado** (ex.: `expense` → `card_payment` quando as faturas passam a casar) **não foi feito**: o store não guarda "editado pelo dono" (só `updatedAt`, que também muda por automação), então não dá para saber com segurança se o dono mexeu. Fica como pendência; o caminho seguro é o descrito acima (não gravar na dúvida).
 - **Linha fora do formato** em `/v2/transactions` é descartada e contada nas notas ("N lançamento(s) vieram fora do formato"), sem derrubar a página nem logar o conteúdo; a conexão segue `ok` (se virasse `partial`, uma linha ruim permanente travaria a janela).
-- Categoria do Órbita vem de uma tabela por nome (suposição); regras do dono (Fase 6) ainda não existem.
+- A categoria do Órbita vem, nesta ordem, de regra do dono → MCC → CNAE → categoria do Pluggy → Outros (ver "Categoria do banco, MCC e regras do dono"). As tabelas de MCC, CNAE e nomes do Pluggy são conhecimento geral, **não** conferidas contra os dados reais do dono: a nota "Outros: …" do sync existe para ajustá-las.
 - Remover uma conexão só para de sincronizar; contas e lançamentos importados ficam.
 - Cartão sem datas no `creditData` **não é mais ignorado** (ver "Datas do cartão"). Limitação: a marca "datas estimadas" vive só nas notas do resultado da sincronização (não há coluna no cartão nem aviso no app); o dono confere os dias em Cartões. Um cartão criado com datas estimadas não é corrigido sozinho depois (o dono pode ter ajustado à mão).
 - Investimento fica de fora (não há conta de investimento no Órbita); ver "Classificação".
@@ -119,6 +119,48 @@ Os casos 3 e 4 geram uma nota no resultado da sincronização ("datas estimadas.
 **Tabela de categorias** (primeira que bate, folha antes do pai; ordem: Mercado, Delivery, Transporte, Assinaturas, Saúde, Moradia, Lazer): Mercado (`grocer`, `supermarket`, `mercado`…), Delivery (`eating out`, `restaurant`, `delivery`, `bakery`…), Transporte (`transport`, `taxi`, `fuel`, `gas station`, `parking`, `toll`, `vehicle`…), Assinaturas (`digital service`, `subscription`, `streaming`, `software`…), Saúde (`health`, `pharmac`, `medic`, `dental`…), Moradia (`housing`, `rent`, `utilities`, `electric`, `water`, `internet`, `telecom`…), Lazer (`entertainment`, `leisure`, `travel`, `hotel`, `game`, `sport`…). Vale também para compra e estorno no cartão.
 
 **Suposição:** os nomes das categorias do Pluggy não vêm no SDK (só `id`, `description`, `parentId`, `parentDescription`). A tabela foi escrita de memória em inglês e português e deve ser revisada contra o `GET /categories` real do dono; o `categoryId` só serve para subir pela árvore. Lançamento classificado errado é corrigido com "Reimportar do zero" depois de ajustar a tabela.
+
+## Categoria do banco, MCC e regras do dono
+
+**O que se guarda.** Todo lançamento importado grava `source_category` (a cadeia legível da categoria do Pluggy, da raiz para a folha: `Transfers › Transfer - PIX`; sem a árvore, só o texto do lançamento; no máximo 120 letras, sem caracteres de controle), `merchant_name` (`merchant.name`, senão `merchant.businessName`) e `category_edited_by_owner` (falso). O DTO do lançamento expõe `sourceCategory`, `merchantName` e `categoryEditedByOwner`. Servem para ver o que o banco disse e ajustar as tabelas; **não decidem nada sozinhas**.
+
+**Ordem da categoria de uma despesa/estorno** (`chooseCategory` em `mapping.ts`):
+
+1. **Regra do dono** (`category_rules`): o padrão aparece, como palavras inteiras, no nome do estabelecimento do banco ou na descrição normalizada. Com duas regras casando, vence a de padrão mais longo (mais específica).
+2. **MCC** (`creditCardMetadata.payeeMCC`, `mcc.ts`): 5411/5499 mercado; 5812/5814 restaurante e fast food; 4111/4121/5541/5542 transporte e combustível; 4899/5815/5817/5818 assinaturas e mídia digital; 7832/7922/7996 e as faixas 3000-3299 (aéreas) e 3500-3999 (hotéis) lazer e viagem; 5912/8011/8021/8062 saúde; 6513/4900 moradia. Códigos ambíguos (loja de departamento, "serviços diversos") ficam de fora.
+3. **CNAE** (`merchant.cnae`, 4 primeiros dígitos): supermercado 4711, restaurante 5611, farmácia 4771, posto 4731, hotel 5510…
+4. **Categoria do Pluggy** (tabela por nome da cadeia, ver "Classificação").
+5. **Outros**.
+
+Nenhuma dessas tabelas foi conferida contra dados reais. `Outros` é sempre a rede de segurança, nunca descarte.
+
+**Diagnóstico.** Cada conexão registra nas `notes` do resultado uma linha como `Outros: Transfer - PIX ×12, Shopping ×3` (até 8 categorias do banco, depois `, mais N`): só a categoria do banco e a contagem das despesas **novas** que caíram em Outros sem pista; nunca descrição, valor nem nome de estabelecimento.
+
+**Regras aprendidas.** `category_rules (id, pattern UNIQUE, category_id, created_at)`; `pattern` é o "nome do estabelecimento" normalizado por `normalizeMerchantName` (`packages/shared/src/category-rules.ts`): minúsculo, sem acento, sem data, sem parcela (`3/10`, `parcela 3 de 10`), sem prefixo de banco (`pix enviado -`, `compra no debito`, `pagamento`, `ted`, `qr code`…, empilhados também), sem número com 3+ dígitos nem código misto; 3 a 60 letras. `Pix enviado - Rei Dos Lanches 12/11` → `rei dos lanches`. No máximo 1000 regras.
+
+- `GET /v1/category-rules` → `{ rules: [{ id, pattern, categoryId, createdAt }] }`
+- `POST /v1/category-rules` `{ transactionId, categoryId, applyToExisting? }` → 201 `{ rule, updated }`. O padrão sai do `merchantName` (senão da descrição) do lançamento; padrão já existente troca a categoria da regra. O lançamento de origem recebe a categoria e a marca `categoryEditedByOwner`. Com `applyToExisting`, reclassifica os **outros** lançamentos de consumo (despesa/estorno) que casam **e** cuja categoria o dono não editou; a reclassificação por regra **não** liga a marca. `updated` = quantos mudaram (sem contar o de origem). Erros: 404 lançamento inexistente, 400 sem nome de estabelecimento aproveitável, 422 categoria inexistente/arquivada.
+- `DELETE /v1/category-rules/:id` → `{ deleted: true }` (404 se não existe). Apagar a regra **não** desfaz as categorias já aplicadas.
+
+**`categoryEditedByOwner`.** O `PATCH /v1/transactions/:id` com `categoryId` diferente do atual liga a marca. O sync nunca muda categoria de lançamento já gravado (`upsertByExternal` é idempotente). A regra é aplicada pelo sync aos lançamentos **novos** (depois da regra, vale o resto da ordem acima).
+
+**Reimportar.** O reimport apaga e recria os lançamentos do Pluggy: a categoria que o dono trocou à mão **se perde** (a marca vai junto), e as regras reaplicam sozinhas. Por isso o caminho recomendado ao corrigir uma categoria é criar a regra (POST), não só o PATCH.
+
+## Parcelamentos
+
+O Pluggy manda uma parcela por fatura, cada uma com id próprio, e **as parcelas futuras ainda não existem**. Cada parcela de cartão (`DEBIT`) com `creditCardMetadata.installmentNumber`, `totalInstallments` (2 a 72, número dentro do total) e `purchaseDate` entra num **grupo** do Órbita (`installment_group_id`):
+
+- **Id do grupo determinístico**: `pluggy-` + SHA-256 de `[cartão, data da compra, total de parcelas, descrição normalizada sem "3/10", "Parcela 3/10" nem "PARC"]`, 40 hex. Qualquer sincronização (e o reimport) chega ao mesmo id; nada de tabela auxiliar. O valor da parcela e o `totalAmount` do SDK ficam **fora** da chave (a primeira parcela leva o resto dos centavos; o SDK descreve `totalAmount` de forma ambígua).
+- `upsertInstallmentByExternal` (novo no `TransactionStore`): a primeira parcela vista cria o grupo, as seguintes entram nele, idempotente por `externalId`. **Grupo parcial**: o modelo passou a aceitar um grupo com menos de N parcelas existentes (a invariante de banco/shared só exige grupo + número + total coerentes; a unicidade `(grupo, número)` já existia). Escolhido em vez de criar as parcelas futuras como "previstas" porque isso exigiria um estado novo (parcela sem id externo trocada pela real), distorceria projeção e fatura, e a troca/duplicata seria frágil.
+- Cada parcela leva a **data da compra** e `budget_month` = mês da compra + (n − 1), como nas parcelas lançadas à mão: o gasto do mês é a parcela do mês, nunca a compra inteira. A fatura continua vindo do `billId` (ou do fechamento).
+- `GET /v1/installments`: para grupo parcial, as parcelas depois da última vista contam em `remainingCount`/`remainingCents` (e em `totalCents`) **pelo valor da última parcela vista** (estimativa; a real substitui quando chega). As anteriores à primeira vista (compra antes da janela de 90 dias) não são estimadas. Ex.: parcela 3 de 6 vista e 2 paga → "3 de 6, faltam 4 · R$ 1.000,00".
+- **Colisão**: duas compras idênticas (mesmo cartão, dia, loja e total de parcelas) têm o mesmo grupo; a segunda parcela de mesmo número viraria duplicata. Ela é gravada **avulsa** com a nota "Parcela n/N" (nenhum gasto se perde) e a conexão avisa na nota "Duas compras parceladas iguais… viraram parcelas avulsas".
+- **Sem `purchaseDate`**, parcela de 1x, número fora do total ou total acima de 72: lançamento simples, como antes.
+- Lançamentos de parcelas importados **antes** desta mudança continuam avulsos até o próximo reimport (o sync não corrige o que já gravou).
+
+## Nome do cartão
+
+O cartão do Pluggy muitas vezes chega só com "G" ou com bandeira/nível ("Mastercard Gold"). `detectBankName` acha o banco: conector (se não for "MeuPluggy"), senão o banco citado em alguma conta da conexão ("Conta Corrente Inter" → Inter; o banco citado no próprio cartão vale mais), senão o primeiro nome do rótulo da conexão (se não parecer nome de conta). `cardDisplayName`: nome **fraco** (≤ 2 letras ou só bandeira/nível) vira o nome do banco ("Nubank", o app mostra "Nubank •••• 9697"); nome bom que não cita o banco ganha o prefixo ("Nubank Ultravioleta"); sem banco detectado, fica como veio. O sync também troca o nome de um cartão **já existente** se o nome atual é fraco e o novo não é (nome bom que o dono escolheu nunca é mexido).
 
 ## Reimportar do zero
 
@@ -189,6 +231,7 @@ Todas as de `/v1/pluggy/*` exigem `Authorization: Bearer`; as de `/pluggy/*` sã
 - `POST /pluggy/connect-token`, `POST /pluggy/connect-complete` (públicos; 30 pedidos por IP a cada 10 min, corpo até 1 KB, mensagens fixas; 401 `sessao_invalida`, 409 `sem_chaves`, 422 `conexao_invalida`, 502 falha do Pluggy)
 - `GET /pluggy/conectar`, `GET /pluggy/conectar/app.<hash>.js` e `GET /pluggy/conectar/limpar.js` (públicos; 60 por IP a cada 10 min)
 - `POST /v1/pluggy/reimport` → 202 `{ deleted, sync }` (ver "Reimportar do zero")
+- `GET/POST/DELETE /v1/category-rules` (Bearer): regras de categoria, ver "Categoria do banco, MCC e regras do dono"
 - `POST /v1/pluggy/sync` → 202 `{ sync: "queued" | "running" }` (400 `sem_conexoes`/`sem_chaves`; 503 sem Redis). Enfileira no worker com `jobId` fixo: pedidos repetidos viram um só e nunca rodam em paralelo com o diário.
 - `GET /v1/pluggy/status` → `{ keysConfigured, sync, lastSyncAt, connections }`
 

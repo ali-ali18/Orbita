@@ -1,6 +1,7 @@
 import type { AccountRecord } from "./account-store.ts";
 import type { BudgetRecord } from "./budget-store.ts";
 import type { CardRecord } from "./card-store.ts";
+import type { CategoryRuleRecord } from "./category-rule-store.ts";
 import type { CategoryRecord } from "./category-store.ts";
 import { badReference } from "./errors.ts";
 import type { PluggyConnectionRecord } from "./pluggy-connection-store.ts";
@@ -19,6 +20,7 @@ export interface MemoryState {
 	accounts: Map<string, AccountRecord>;
 	cards: Map<string, CardRecord>;
 	categories: Map<string, CategoryRecord & { createdAt: Date }>;
+	categoryRules: Map<string, CategoryRuleRecord>;
 	transactions: Map<string, StoredTransaction>;
 	recurrences: Map<string, RecurrenceRecord>;
 	postings: RecurrencePostingRecord[];
@@ -33,6 +35,7 @@ export function createMemoryState(now: Clock = () => new Date()): MemoryState {
 		accounts: new Map(),
 		cards: new Map(),
 		categories: new Map(),
+		categoryRules: new Map(),
 		transactions: new Map(),
 		recurrences: new Map(),
 		postings: [],

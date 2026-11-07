@@ -8,7 +8,7 @@ import {
 	toCardConfig,
 } from "@orbita/db";
 import type { PluggySyncStatus, SecretName } from "@orbita/shared";
-import { hasMeuPluggyPrefix } from "./bank-name.ts";
+import { detectBankName, findKnownBank, hasMeuPluggyPrefix, isWeakCardName } from "./bank-name.ts";
 import { buildCategoryIndex, type CategoryIndex } from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
 import { chooseConnectionLabel } from "./connection-label.ts";
@@ -18,6 +18,7 @@ import {
 	type BillPayment,
 	type BillTotal,
 	isEstimatedCardDates,
+	type MappedTransaction,
 	mapPluggyAccount,
 	mapPluggyTransaction,
 	type PaymentCandidate,
@@ -47,7 +48,10 @@ export const OVERLAP_DAYS = 40;
 const REFUND_LOOKBACK_MONTHS = 3;
 
 export interface SyncPluggyDeps {
-	stores: Pick<Stores, "accounts" | "cards" | "categories" | "transactions" | "pluggyConnections">;
+	stores: Pick<
+		Stores,
+		"accounts" | "cards" | "categories" | "categoryRules" | "transactions" | "pluggyConnections"
+	>;
 	/** Lê uma chave do cofre (`vault.read`). Devolve `null` se não cadastrada; pode lançar se não abre. */
 	readSecret: (
 		name: Extract<SecretName, "pluggy_client_id" | "pluggy_client_secret">,
@@ -153,12 +157,19 @@ interface Lookups {
 	categoryIndex(): Promise<CategoryIndex | null>;
 	/** slug → id das categorias do Órbita (cria as padrão que faltam; as arquivadas não entram). */
 	categoryIds(): Promise<Map<string, string>>;
+	/** Regras do dono, lidas uma vez por rodada. */
+	categoryRules(): Promise<readonly { pattern: string; categoryId: string }[]>;
 }
 
 function createLookups(deps: SyncPluggyDeps, client: PluggyClient): Lookups {
 	let index: Promise<CategoryIndex | null> | undefined;
 	let ids: Promise<Map<string, string>> | undefined;
+	let rules: Promise<readonly { pattern: string; categoryId: string }[]> | undefined;
 	return {
+		categoryRules() {
+			rules ??= deps.stores.categoryRules.list();
+			return rules;
+		},
 		categoryIndex() {
 			index ??= client.categories().then(
 				(list) => buildCategoryIndex(list),
@@ -249,12 +260,19 @@ async function syncConnection(
 				billsOf.set(pa.id, { bills: [], failed: e.code !== "not_found" && e.code !== "forbidden" });
 			}
 		}
+		// O MeuPluggy não diz o banco: a pista é o nome das contas da conexão (ou o rótulo dela).
+		const bankName = detectBankName({
+			connectorName: item.connector?.name,
+			accountNames: pluggyAccounts.flatMap((a) => [a.marketingName, a.name]),
+			connectionLabel: connection.label,
+		});
 		const { linked, deferredCards } = await linkAccounts(
 			deps,
 			pluggyAccounts,
 			item.connector?.name,
 			billsOf,
 			result,
+			bankName,
 		);
 		if (deferredCards > 0) partial.push(`${deferredCards} cartão(ões) esperam as faturas para ter as datas`);
 		result.counts = {
@@ -305,6 +323,7 @@ async function syncConnection(
 			);
 		}
 		const categoryIds = await lookups.categoryIds();
+		const categoryRules = await lookups.categoryRules();
 
 		// 1) Baixa os lançamentos de todas as contas.
 		const fetched: Array<{ target: Linked; txs: PluggyTransaction[] }> = [];
@@ -349,7 +368,8 @@ async function syncConnection(
 		}
 		for (const [id, payment] of assignBillPayments(bankPool, billPayments)) matches.set(id, payment);
 
-		// 3) Grava.
+		// 3) Grava. `others` conta, por categoria do Pluggy, o que caiu em "Outros" (diagnóstico; sem descrição nem valor).
+		const others = new Map<string, number>();
 		for (const { target, txs } of fetched) {
 			const ctx: TransactionContext = {
 				accountType: target.account ? "BANK" : "CREDIT",
@@ -362,9 +382,12 @@ async function syncConnection(
 				billsUnavailable,
 				...(categoryIndex ? { categoryIndex } : {}),
 				categoryIds,
+				categoryRules,
 			};
-			await storeTransactions(deps, txs, ctx, result);
+			await storeTransactions(deps, txs, ctx, result, others);
 		}
+		const othersNote = describeOthers(others);
+		if (othersNote !== null) result.notes.push(othersNote);
 		const investments = result.skipped.investment ?? 0;
 		if (investments > 0) {
 			result.notes.push(
@@ -437,12 +460,19 @@ async function linkAccounts(
 	connectorName: string | null | undefined,
 	billsOf: ReadonlyMap<string, BillsOf>,
 	result: ConnectionSyncResult,
+	bankName: string | null,
 ): Promise<{ linked: Linked[]; deferredCards: number }> {
 	const { accounts, cards } = deps.stores;
 	const out: Linked[] = [];
 	let deferredCards = 0;
 	for (const pa of pluggyAccounts) {
-		const mapped = mapPluggyAccount(pa, connectorName, billsOf.get(pa.id)?.bills);
+		const mapped = mapPluggyAccount(
+			pa,
+			connectorName,
+			billsOf.get(pa.id)?.bills,
+			// O banco citado no próprio cartão vale mais que o da conexão.
+			findKnownBank(pa.marketingName) ?? findKnownBank(pa.name) ?? bankName,
+		);
 		if (mapped.kind === "ignored") {
 			// Tipos que o Órbita não usa (investimento) são normais; o resto merece aviso.
 			if (pa.type === "BANK" || pa.type === "CREDIT") result.notes.push(`Conta ignorada: ${mapped.reason}.`);
@@ -498,7 +528,14 @@ async function linkAccounts(
 			// Fechamento e vencimento o dono pode ter ajustado à mão; só o limite acompanha o banco.
 			card = await cards.update(card.id, { limitCents: mapped.input.limitCents });
 		}
-		if (card && card.archivedAt === null && hasMeuPluggyPrefix(card.name)) {
+		// Nome ruim ("G", "Mastercard Gold") ou com o prefixo "MeuPluggy": ganha o nome do banco. O dono que trocou o
+		// nome por um bom nome não é afetado (só nome fraco é trocado, e só por um que não é fraco).
+		if (
+			card &&
+			card.archivedAt === null &&
+			card.name !== mapped.input.name &&
+			(hasMeuPluggyPrefix(card.name) || (isWeakCardName(card.name) && !isWeakCardName(mapped.input.name)))
+		) {
 			card = await cards.update(card.id, { name: mapped.input.name });
 		}
 		out.push({ pluggyId: pa.id, taxNumber: pa.taxNumber ?? null, account: null, card });
@@ -515,6 +552,7 @@ async function storeTransactions(
 	txs: readonly PluggyTransaction[],
 	ctx: TransactionContext,
 	result: ConnectionSyncResult,
+	others: Map<string, number>,
 ): Promise<void> {
 	const { transactions } = deps.stores;
 	// Estornos por último: assim a compra original, se veio na mesma resposta, já está gravada.
@@ -534,9 +572,14 @@ async function storeTransactions(
 				continue;
 			}
 			if (mapped.action === "upsert") {
-				const res = await transactions.upsertByExternal(PLUGGY_SOURCE, mapped.externalId, mapped.input);
-				if (res.created) result.created += 1;
-				else result.existing += 1;
+				const res = await upsertTransaction(transactions, mapped, result);
+				if (res.created) {
+					result.created += 1;
+					if (mapped.categorySource === "none" && mapped.input.kind === "expense") {
+						const label = mapped.input.sourceCategory ?? NO_SOURCE_CATEGORY;
+						others.set(label, (others.get(label) ?? 0) + 1);
+					}
+				} else result.existing += 1;
 				continue;
 			}
 			// Estorno: só entra se a compra original está gravada. Sem ela, fica de fora e a próxima rodada tenta de novo.
@@ -567,6 +610,48 @@ async function storeTransactions(
 			if (e instanceof DataError || e instanceof RangeError) result.failed += 1;
 			else throw e;
 		}
+	}
+}
+
+const NO_SOURCE_CATEGORY = "sem categoria do banco";
+const OTHERS_SHOWN = 8;
+
+/** "Outros: Transfer - PIX ×12, Shopping ×3": só categorias do banco e contagens, para ajustar as tabelas. */
+export function describeOthers(others: ReadonlyMap<string, number>): string | null {
+	if (others.size === 0) return null;
+	const ordered = [...others].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+	const shown = ordered.slice(0, OTHERS_SHOWN).map(([name, n]) => `${name.slice(0, 60)} ×${n}`);
+	const rest = ordered.slice(OTHERS_SHOWN).reduce((sum, [, n]) => sum + n, 0);
+	return `Outros: ${shown.join(", ")}${rest > 0 ? `, mais ${rest}` : ""}`;
+}
+
+/**
+ * Grava a despesa. Parcela de compra parcelada entra no grupo da compra; se o grupo já tem OUTRA compra naquele número
+ * (duas compras iguais no mesmo dia, indistinguíveis), grava avulsa com a nota "Parcela n/N" para não perder o gasto.
+ */
+async function upsertTransaction(
+	transactions: SyncPluggyDeps["stores"]["transactions"],
+	mapped: Extract<MappedTransaction, { action: "upsert" }>,
+	result: ConnectionSyncResult,
+) {
+	if (!mapped.installment)
+		return transactions.upsertByExternal(PLUGGY_SOURCE, mapped.externalId, mapped.input);
+	try {
+		return await transactions.upsertInstallmentByExternal(
+			PLUGGY_SOURCE,
+			mapped.externalId,
+			mapped.input,
+			mapped.installment,
+		);
+	} catch (e) {
+		if (!(e instanceof DataError) || e.code !== "duplicate") throw e;
+		const collision = "Duas compras parceladas iguais (mesmo dia, mesmo valor) viraram parcelas avulsas.";
+		if (!result.notes.includes(collision)) result.notes.push(collision);
+		const { number, count } = mapped.installment;
+		return transactions.upsertByExternal(PLUGGY_SOURCE, mapped.externalId, {
+			...mapped.input,
+			note: mapped.input.note ?? `Parcela ${number}/${count}`,
+		});
 	}
 }
 

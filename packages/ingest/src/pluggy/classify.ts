@@ -142,10 +142,41 @@ const SPENDING_RULES: ReadonlyArray<readonly [SpendingSlug, RegExp]> = [
 	],
 ];
 
-/** Categoria de consumo do Órbita para a cadeia de nomes do Pluggy. Sem correspondência: `outros`. */
-export function spendingSlugFor(chain: readonly string[]): SpendingSlug {
+/** Categoria de consumo pelos nomes da cadeia do Pluggy, ou `null` se nenhum nome bate com a tabela. */
+export function matchSpendingSlug(chain: readonly string[]): SpendingSlug | null {
 	for (const name of chain) {
 		for (const [slug, pattern] of SPENDING_RULES) if (pattern.test(name)) return slug;
 	}
-	return "outros";
+	return null;
+}
+
+/** Categoria de consumo do Órbita para a cadeia de nomes do Pluggy. Sem correspondência: `outros`. */
+export function spendingSlugFor(chain: readonly string[]): SpendingSlug {
+	return matchSpendingSlug(chain) ?? "outros";
+}
+
+/**
+ * Cadeia de categorias do Pluggy para o dono ler, da raiz para a folha ("Pai › Filha"), com a caixa e os acentos
+ * originais. `null` se o lançamento não traz categoria. O resultado ainda passa por `cleanSourceCategory` no store.
+ */
+export function readableCategory(
+	tx: { category?: string | null | undefined; categoryId?: string | null | undefined },
+	index?: CategoryIndex,
+): string | null {
+	const leafToRoot: string[] = [];
+	const push = (value: string | null | undefined) => {
+		const text = (value ?? "").replace(/\s+/g, " ").trim();
+		if (text !== "" && !leafToRoot.some((t) => plain(t) === plain(text))) leafToRoot.push(text);
+	};
+	push(tx.category);
+	let node = tx.categoryId ? index?.get(tx.categoryId) : undefined;
+	const seen = new Set<string>();
+	for (let depth = 0; node && depth < MAX_DEPTH && !seen.has(node.id); depth++) {
+		seen.add(node.id);
+		push(node.description);
+		const parent: PluggyCategory | undefined = node.parentId ? index?.get(node.parentId) : undefined;
+		if (!parent) push(node.parentDescription);
+		node = parent;
+	}
+	return leafToRoot.length === 0 ? null : leafToRoot.reverse().join(" › ");
 }

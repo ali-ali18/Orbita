@@ -1,5 +1,5 @@
 import type { Db, DbClient } from "./client.ts";
-import { invalid, notFound } from "./errors.ts";
+import { DataError, invalid, notFound } from "./errors.ts";
 import { fromDbDate, toDbDate } from "./local-date.ts";
 import type { Clock } from "./memory-state.ts";
 import { byGroup, byInstallment } from "./memory-transaction-store.ts";
@@ -13,9 +13,11 @@ import {
 	cleanIds,
 	cleanLimit,
 	DEFAULT_PENDING_LIMIT,
+	DUPLICATE_INSTALLMENT_MESSAGE,
 	dataOf,
 	duplicateExternal,
 	mergeTransaction,
+	normalizeExternalInstallment,
 	normalizeInstallmentGroup,
 	normalizeTransaction,
 	refundTargetError,
@@ -133,6 +135,34 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			}
 		},
 
+		async upsertInstallmentByExternal(source, externalId, input, installment) {
+			const data = normalizeExternalInstallment({ ...input, source, externalId }, installment);
+			const find = async () => {
+				const row = await db.transaction.findUnique({
+					where: { source_externalId: { source: data.source, externalId: data.externalId as string } },
+				});
+				return {
+					transaction: row && row.deletedAt === null ? toRecord(row) : null,
+					found: row !== null,
+				};
+			};
+			const existing = await find();
+			if (existing.found) return { created: false, transaction: existing.transaction };
+			try {
+				await checkRefundTarget(db, data);
+				await checkReferences(db, refsOf(data));
+				const row = await db.transaction.create({
+					data: { ...toCreateColumns(data), createdAt: now(), updatedAt: now() },
+				});
+				return { created: true, transaction: toRecord(row) };
+			} catch (e) {
+				// Corrida no id externo, ou (grupo, número) já ocupado por outra compra.
+				const raced = await find();
+				if (raced.found) return { created: false, transaction: raced.transaction };
+				throw translate(e, () => new DataError("duplicate", DUPLICATE_INSTALLMENT_MESSAGE));
+			}
+		},
+
 		async existsByExternal(source, externalId) {
 			const row = await db.transaction.findUnique({
 				where: { source_externalId: { source, externalId } },
@@ -247,6 +277,15 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			return await many(
 				db.transaction.findMany({
 					where: { id: { in: wanted }, deletedAt: null },
+					orderBy: [...ORDER_BY_DATE],
+				}),
+			);
+		},
+
+		async listCategoryNotEditedByOwner() {
+			return await many(
+				db.transaction.findMany({
+					where: { deletedAt: null, categoryEditedByOwner: false },
 					orderBy: [...ORDER_BY_DATE],
 				}),
 			);
