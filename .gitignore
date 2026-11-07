@@ -24,3 +24,6 @@ ios/
 
 # Prisma Client gerado no install
 packages/db/src/generated/
+
+# Widget do Pluggy Connect empacotado no build (pnpm --filter @orbita/api build:connect)
+/apps/api/connect-dist/

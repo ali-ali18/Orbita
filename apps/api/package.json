@@ -4,10 +4,12 @@
 	"version": "0.1.0",
 	"type": "module",
 	"scripts": {
+		"predev": "pnpm run build:connect",
+		"build:connect": "tsx src/cli/build-connect.ts",
 		"dev": "tsx watch --env-file-if-exists=../../.env src/server.ts",
 		"start": "tsx src/server.ts",
 		"parear": "tsx --env-file-if-exists=../../.env src/cli/parear.ts",
-		"typecheck": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json && tsc -p src/modules/pluggy/connect/client/tsconfig.json",
 		"test": "vitest run"
 	},
 	"dependencies": {
@@ -15,13 +17,18 @@
 		"@hono/zod-validator": "0.9.1",
 		"@orbita/core": "workspace:*",
 		"@orbita/db": "workspace:*",
-		"@orbita/ota": "workspace:*",
 		"@orbita/ingest": "workspace:*",
+		"@orbita/ota": "workspace:*",
 		"@orbita/security": "workspace:*",
 		"@orbita/shared": "workspace:*",
+		"@orbita/tokens": "workspace:*",
 		"bullmq": "6.7.1",
 		"hono": "4.13.16",
 		"tsx": "4.23.15",
 		"zod": "4.6.7"
+	},
+	"devDependencies": {
+		"esbuild": "0.28.2",
+		"pluggy-connect-sdk": "2.15.0"
 	}
 }

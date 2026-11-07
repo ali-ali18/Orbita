@@ -15,7 +15,7 @@ export const NOW = "2026-11-15T15:00:00Z";
 export async function setupFinance(
 	nowIso = NOW,
 	makeStores: (now: () => Date) => Stores = (now) => createMemoryStores({ now }),
-	extraDeps: Partial<Pick<AppDeps, "pluggySyncQueue" | "pluggyFetch">> = {},
+	extraDeps: Partial<Pick<AppDeps, "pluggySyncQueue" | "pluggyFetch" | "pluggyConnectAsset">> = {},
 ) {
 	const now = () => new Date(nowIso);
 	const stores = makeStores(now);

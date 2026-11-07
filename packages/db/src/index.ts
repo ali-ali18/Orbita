@@ -20,6 +20,10 @@ export { DataError, type DataErrorCode } from "./errors.ts";
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
 export type {
+	PluggyConnectSessionRecord,
+	PluggyConnectSessionStore,
+} from "./pluggy-connect-session-store.ts";
+export type {
 	PluggyConnectionInput,
 	PluggyConnectionRecord,
 	PluggyConnectionStore,

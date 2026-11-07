@@ -7,6 +7,7 @@ import {
 	CARD_ACCOUNT_ID,
 	CLIENT_ID,
 	CLIENT_SECRET,
+	CONNECT_TOKEN,
 	fakePluggy,
 	ITEM_ID,
 	tx,
@@ -38,6 +39,24 @@ describe("createPluggyClient", () => {
 				.filter((r) => r.url.pathname !== "/auth")
 				.every((r) => r.headers["x-api-key"] === API_KEY),
 		).toBe(true);
+	});
+
+	it("pede o token do widget com clientUserId e devolve só o accessToken", async () => {
+		const fake = fakePluggy();
+		const token = await make(fake.fetch).connectToken("orbita");
+		expect(token).toBe(CONNECT_TOKEN);
+		const req = fake.requests.find((r) => r.url.pathname === "/connect_token");
+		expect(req?.method).toBe("POST");
+		expect(req?.headers["x-api-key"]).toBe(API_KEY);
+		expect(JSON.parse(req?.body ?? "{}")).toEqual({ options: { clientUserId: "orbita" } });
+		await expect(make(fake.fetch).connectToken("a/b")).rejects.toThrow(RangeError);
+	});
+
+	it("lê createdAt e connector.isSandbox do item", async () => {
+		const fake = fakePluggy({ item: { connector: { name: "Banco Teste", isSandbox: true } } });
+		const item = await make(fake.fetch).item(ITEM_ID);
+		expect(item.createdAt).toBe("2026-11-01T08:00:00.000Z");
+		expect(item.connector).toEqual({ name: "Banco Teste", isSandbox: true });
 	});
 
 	it("renova a apiKey depois de 100 min", async () => {

@@ -29,6 +29,7 @@ export async function cleanDatabase(client: Db): Promise<void> {
 	await client.category.deleteMany();
 	await client.serverSecret.deleteMany();
 	await client.pluggyConnection.deleteMany();
+	await client.pluggyConnectSession.deleteMany();
 }
 
 export type StoresFactory = () => Promise<Stores>;
