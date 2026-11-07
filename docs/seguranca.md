@@ -51,6 +51,14 @@ Trocar invalida o código de pareamento ativo e torna ilegíveis os segredos cif
   - `2`: Cloudflare (ou outro CDN) na frente do Traefik. Só funciona se o Traefik estiver configurado para confiar nos IPs da Cloudflare (`forwardedHeaders.trustedIPs`); senão ele descarta o cabeçalho e a API usa o endereço da conexão, e todos dividiriam o mesmo limite.
   - `0`: API exposta direto, ou desenvolvimento local (padrão fora do compose). Usa o endereço da conexão e ignora o cabeçalho.
 
+## Meu Pluggy
+
+- Client ID e Client Secret ficam só no cofre (AES-GCM, AAD = nome). O worker os abre com `vault.read`; nenhuma rota devolve valor, nem parte dele. A `apiKey` do Pluggy (2 h) vive só na memória do processo.
+- O cliente fala só com `https://api.pluggy.ai` (host fixo no código), sem seguir redirecionamento, com timeout (20 s) e limite de 5 MB por resposta. Os IDs que entram no caminho da URL são validados (UUID / `[A-Za-z0-9_-]`).
+- Toda resposta do Pluggy passa por Zod. Formato inesperado vira erro claro; o texto do erro vem de uma lista fixa em pt-BR e **nunca** cita o corpo da resposta, a URL, a chave ou o segredo. É isso que vai para `lastError` e para o app.
+- Nome, descrição e categoria que vêm do banco são **dados**, nunca instrução (mesma regra das notificações).
+- A tela só vê estado (`ok`, `partial`, `error`, `no_keys`), datas e a mensagem sanitizada.
+
 ## Containers
 
 - Imagem roda como usuário `node`, nunca root.

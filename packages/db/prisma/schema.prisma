@@ -89,38 +89,46 @@ enum RecurrenceKind {
 
 /// Conta (corrente, poupança, carteira, investimento).
 model Account {
-  id         String      @id @default(cuid())
+  id         String            @id @default(cuid())
   name       String
   kind       AccountKind
   /// ISPB do banco, para achar o logo.
-  bankCode   String?     @map("bank_code")
-  archivedAt DateTime?   @map("archived_at")
-  createdAt  DateTime    @default(now()) @map("created_at")
-  updatedAt  DateTime    @updatedAt @map("updated_at")
+  bankCode   String?           @map("bank_code")
+  /// Origem do cadastro; com `externalId`, liga a conta ao que veio de fora (ex.: conta do Meu Pluggy).
+  source     TransactionSource @default(manual)
+  externalId String?           @map("external_id")
+  archivedAt DateTime?         @map("archived_at")
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
 
   transactions  Transaction[] @relation("TransactionAccount")
   counterpartOf Transaction[] @relation("TransactionCounterpart")
   recurrences   Recurrence[]
 
+  @@unique([source, externalId])
   @@map("accounts")
 }
 
 model Card {
-  id          String      @id @default(cuid())
+  id          String            @id @default(cuid())
   name        String
-  bankCode    String?     @map("bank_code")
+  bankCode    String?           @map("bank_code")
   last4       String?
-  closingDay  Int         @map("closing_day")
-  dueDay      Int         @map("due_day")
-  closingRule ClosingRule @default(closing_day_next) @map("closing_rule")
-  limitCents  Int?        @map("limit_cents")
-  archivedAt  DateTime?   @map("archived_at")
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
+  closingDay  Int               @map("closing_day")
+  dueDay      Int               @map("due_day")
+  closingRule ClosingRule       @default(closing_day_next) @map("closing_rule")
+  limitCents  Int?              @map("limit_cents")
+  /// Origem do cadastro; com `externalId`, liga o cartão ao que veio de fora (ex.: cartão do Meu Pluggy).
+  source      TransactionSource @default(manual)
+  externalId  String?           @map("external_id")
+  archivedAt  DateTime?         @map("archived_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
 
   transactions Transaction[]
   recurrences  Recurrence[]
 
+  @@unique([source, externalId])
   @@map("cards")
 }
 
@@ -246,4 +254,20 @@ model ServerSecret {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@map("server_secrets")
+}
+
+/// Conexão do Meu Pluggy cadastrada pelo dono. O plano pessoal não lista conexões pela API: o id (itemId) é colado uma vez.
+model PluggyConnection {
+  /// O itemId do Pluggy (UUID).
+  id         String    @id
+  label      String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  /// Início da última sincronização que terminou sem erro (a próxima janela parte daqui).
+  lastSyncAt DateTime? @map("last_sync_at")
+  /// "ok" | "partial" | "error" | "no_keys".
+  lastStatus String?   @map("last_status")
+  /// Mensagem já sanitizada (sem segredo).
+  lastError  String?   @map("last_error")
+
+  @@map("pluggy_connections")
 }

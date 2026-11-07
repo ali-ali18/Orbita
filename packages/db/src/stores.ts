@@ -9,15 +9,18 @@ import { createMemoryAuthStore } from "./memory-auth-store.ts";
 import { createMemoryBudgetStore } from "./memory-budget-store.ts";
 import { createMemoryCardStore } from "./memory-card-store.ts";
 import { createMemoryCategoryStore } from "./memory-category-store.ts";
+import { createMemoryPluggyConnectionStore } from "./memory-pluggy-connection-store.ts";
 import { createMemoryRecurrenceStore } from "./memory-recurrence-store.ts";
 import { createMemorySecretStore } from "./memory-secret-store.ts";
 import { type Clock, createMemoryState } from "./memory-state.ts";
 import { createMemoryTransactionStore } from "./memory-transaction-store.ts";
+import type { PluggyConnectionStore } from "./pluggy-connection-store.ts";
 import { createPrismaAccountStore } from "./prisma-account-store.ts";
 import { createPrismaAuthStore } from "./prisma-auth-store.ts";
 import { createPrismaBudgetStore } from "./prisma-budget-store.ts";
 import { createPrismaCardStore } from "./prisma-card-store.ts";
 import { createPrismaCategoryStore } from "./prisma-category-store.ts";
+import { createPrismaPluggyConnectionStore } from "./prisma-pluggy-connection-store.ts";
 import { createPrismaRecurrenceStore } from "./prisma-recurrence-store.ts";
 import { createPrismaSecretStore } from "./prisma-secret-store.ts";
 import { createPrismaTransactionStore } from "./prisma-transaction-store.ts";
@@ -34,6 +37,7 @@ export interface Stores {
 	recurrences: RecurrenceStore;
 	budgets: BudgetStore;
 	secrets: SecretStore;
+	pluggyConnections: PluggyConnectionStore;
 }
 
 export interface StoresOptions {
@@ -53,6 +57,7 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		recurrences: createPrismaRecurrenceStore(db, now),
 		budgets: createPrismaBudgetStore(db, now),
 		secrets: createPrismaSecretStore(db, now),
+		pluggyConnections: createPrismaPluggyConnectionStore(db, now),
 	};
 }
 
@@ -68,5 +73,6 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		recurrences: createMemoryRecurrenceStore(state),
 		budgets: createMemoryBudgetStore(state),
 		secrets: createMemorySecretStore(state),
+		pluggyConnections: createMemoryPluggyConnectionStore(state),
 	};
 }

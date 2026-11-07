@@ -108,6 +108,10 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 			return { created: true, transaction: view(insert(data)) };
 		},
 
+		async existsByExternal(source, externalId) {
+			return [...state.transactions.values()].some((t) => t.source === source && t.externalId === externalId);
+		},
+
 		async update(id, patch) {
 			const current = state.transactions.get(id);
 			if (!current || current.deletedAt !== null) throw notFound("Lançamento", "o");

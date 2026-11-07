@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { type CardStore, toCardConfig } from "./card-store.ts";
-import { notFound } from "./errors.ts";
+import { DataError, notFound } from "./errors.ts";
 import { byCreated, type MemoryState } from "./memory-state.ts";
-import { applyPatch, normalizeCard } from "./rules.ts";
+import { EXTERNAL_TAKEN_MESSAGE } from "./messages.ts";
+import { applyPatch, normalizeCard, normalizeIdentity } from "./rules.ts";
 
 export function createMemoryCardStore(state: MemoryState): CardStore {
 	const need = (id: string) => {
@@ -13,9 +14,19 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 	return {
 		async create(input) {
 			const now = state.now();
+			const identity = normalizeIdentity(input);
+			if (
+				identity.externalId !== null &&
+				[...state.cards.values()].some(
+					(x) => x.source === identity.source && x.externalId === identity.externalId,
+				)
+			) {
+				throw new DataError("duplicate", EXTERNAL_TAKEN_MESSAGE);
+			}
 			const record = {
 				id: randomUUID(),
 				...normalizeCard(input),
+				...identity,
 				archivedAt: null,
 				createdAt: now,
 				updatedAt: now,
@@ -45,6 +56,10 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 		},
 		async get(id) {
 			const found = state.cards.get(id);
+			return found ? { ...found } : null;
+		},
+		async findByExternal(source, externalId) {
+			const found = [...state.cards.values()].find((c) => c.source === source && c.externalId === externalId);
 			return found ? { ...found } : null;
 		},
 		async getConfig(id) {

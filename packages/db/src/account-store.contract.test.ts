@@ -55,3 +55,53 @@ describe.each(contractSuites())("AccountStore (%s)", (_name, make) => {
 		expect(await stores.accounts.get("nada")).toBeNull();
 	});
 });
+
+describe.each(contractSuites())("AccountStore: cadastro de fora (%s)", (_name, make) => {
+	let stores: Stores;
+	beforeEach(async () => {
+		stores = await make();
+	});
+
+	it("liga a conta ao id externo e acha de novo, mesmo arquivada", async () => {
+		const manual = await stores.accounts.create({ name: "Manual", kind: "checking" });
+		expect(manual).toMatchObject({ source: "manual", externalId: null });
+		const a = await stores.accounts.create({
+			name: "Nubank",
+			kind: "checking",
+			source: "pluggy",
+			externalId: " acc-1 ",
+		});
+		expect(a).toMatchObject({ source: "pluggy", externalId: "acc-1" });
+		expect(await stores.accounts.findByExternal("pluggy", "acc-1")).toEqual(a);
+		expect(await stores.accounts.findByExternal("pluggy", "outra")).toBeNull();
+		expect(await stores.accounts.findByExternal("import", "acc-1")).toBeNull();
+		await stores.accounts.archive(a.id);
+		expect((await stores.accounts.findByExternal("pluggy", "acc-1"))?.id).toBe(a.id);
+	});
+
+	it("não repete o id externo da mesma origem e a identidade não muda no update", async () => {
+		const a = await stores.accounts.create({
+			name: "A",
+			kind: "checking",
+			source: "pluggy",
+			externalId: "x",
+		});
+		await expect(
+			stores.accounts.create({ name: "B", kind: "checking", source: "pluggy", externalId: "x" }),
+		).rejects.toMatchObject({ code: "duplicate" });
+		const renamed = await stores.accounts.update(a.id, { name: "A2" });
+		expect(renamed).toMatchObject({ source: "pluggy", externalId: "x" });
+	});
+
+	it("origem de fora exige id externo e cadastro manual não aceita", async () => {
+		await expect(
+			stores.accounts.create({ name: "A", kind: "checking", source: "pluggy" }),
+		).rejects.toMatchObject({
+			code: "invalid",
+			message: "Informe o identificador externo.",
+		});
+		await expect(
+			stores.accounts.create({ name: "A", kind: "checking", externalId: "x" }),
+		).rejects.toMatchObject({ code: "invalid" });
+	});
+});

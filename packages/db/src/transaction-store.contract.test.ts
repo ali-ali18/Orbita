@@ -433,6 +433,15 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect(await tx.listRecent({ limit: 10 })).toEqual([]);
 		});
 
+		it("existsByExternal enxerga o vivo e o apagado, por origem", async () => {
+			expect(await tx.existsByExternal("pluggy", "e-1")).toBe(false);
+			const first = await tx.upsertByExternal("pluggy", "e-1", incoming());
+			expect(await tx.existsByExternal("pluggy", "e-1")).toBe(true);
+			expect(await tx.existsByExternal("notification", "e-1")).toBe(false);
+			await tx.softDelete(first.transaction?.id ?? "");
+			expect(await tx.existsByExternal("pluggy", "e-1")).toBe(true);
+		});
+
 		it("valida mesmo quando já existe, e o id externo não pode ser vazio", async () => {
 			await tx.upsertByExternal("pluggy", "abc-3", incoming());
 			await expect(

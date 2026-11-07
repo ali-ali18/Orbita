@@ -1,3 +1,4 @@
+import type { SecretVault } from "@orbita/db";
 import { isSecretName, parseSecretValue, type SecretName, secretPutBody } from "@orbita/shared";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
@@ -5,7 +6,6 @@ import { apiError } from "../../http/errors.ts";
 import type { ModuleDeps } from "../../http/module-deps.ts";
 import type { AppEnv } from "../../http/require-device.ts";
 import { validate } from "../../http/validate.ts";
-import type { SecretVault } from "./service.ts";
 
 export type SettingsRoutesDeps = ModuleDeps & {
 	vault: SecretVault;

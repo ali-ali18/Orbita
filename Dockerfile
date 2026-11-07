@@ -9,7 +9,10 @@ FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
+COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
+COPY packages/ingest/package.json packages/ingest/
+COPY packages/security/package.json packages/security/
 COPY packages/shared/package.json packages/shared/
 COPY packages/db/prisma packages/db/prisma
 COPY packages/db/prisma.config.ts packages/db/
