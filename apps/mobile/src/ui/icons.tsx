@@ -15,6 +15,13 @@ const bodies = {
 		</>
 	),
 	mais: <Path d="M12 5v14M5 12h14" />,
+	/** Lupa do campo de busca (Figma "Frame" 20×20 na busca de Atividades). */
+	buscar: (
+		<>
+			<Circle cx="11" cy="11" r="7" />
+			<Path d="m20 20-3.5-3.5" />
+		</>
+	),
 	"seta-direita": <Path d="m9 18 6-6-6-6" />,
 	"seta-baixo": <Path d="m6 9 6 6 6-6" />,
 	voltar: <Path d="m15 18-6-6 6-6" />,

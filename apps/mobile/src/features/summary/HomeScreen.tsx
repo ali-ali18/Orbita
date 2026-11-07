@@ -118,6 +118,7 @@ export function HomeScreen() {
 					cards={cardsQ.data?.cards ?? []}
 					today={today}
 					hidden={hidden}
+					onSeeAll={() => router.push("/atividades")}
 				/>
 			</ScrollView>
 		</Screen>
