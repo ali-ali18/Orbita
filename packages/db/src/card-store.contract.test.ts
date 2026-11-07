@@ -90,3 +90,47 @@ describe.each(contractSuites())("CardStore (%s)", (_name, make) => {
 		});
 	});
 });
+
+describe.each(contractSuites())("CardStore: cadastro de fora (%s)", (_name, make) => {
+	let stores: Stores;
+	beforeEach(async () => {
+		stores = await make();
+	});
+
+	it("liga o cartão ao id externo, não repete e preserva a identidade no update", async () => {
+		const card = await stores.cards.create({
+			name: "Nubank",
+			closingDay: 10,
+			dueDay: 17,
+			source: "pluggy",
+			externalId: "card-1",
+		});
+		expect(card).toMatchObject({ source: "pluggy", externalId: "card-1" });
+		expect(await stores.cards.findByExternal("pluggy", "card-1")).toEqual(card);
+		expect(await stores.cards.findByExternal("pluggy", "nada")).toBeNull();
+		await expect(
+			stores.cards.create({
+				name: "Outro",
+				closingDay: 1,
+				dueDay: 8,
+				source: "pluggy",
+				externalId: "card-1",
+			}),
+		).rejects.toMatchObject({ code: "duplicate" });
+		expect(await stores.cards.update(card.id, { limitCents: 500_000 })).toMatchObject({
+			source: "pluggy",
+			externalId: "card-1",
+			limitCents: 500_000,
+		});
+		await stores.cards.archive(card.id);
+		expect((await stores.cards.findByExternal("pluggy", "card-1"))?.id).toBe(card.id);
+	});
+
+	it("cartão manual não tem id externo", async () => {
+		const manual = await stores.cards.create({ name: "M", closingDay: 1, dueDay: 8 });
+		expect(manual).toMatchObject({ source: "manual", externalId: null });
+		await expect(
+			stores.cards.create({ name: "M", closingDay: 1, dueDay: 8, externalId: "x" }),
+		).rejects.toMatchObject({ code: "invalid" });
+	});
+});

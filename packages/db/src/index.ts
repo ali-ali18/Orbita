@@ -19,6 +19,12 @@ export { createDb, type Db } from "./client.ts";
 export { DataError, type DataErrorCode } from "./errors.ts";
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
+export type {
+	PluggyConnectionInput,
+	PluggyConnectionRecord,
+	PluggyConnectionStore,
+	PluggySyncResult,
+} from "./pluggy-connection-store.ts";
 export { createPrismaAuthStore } from "./prisma-auth-store.ts";
 export {
 	type RecurrenceInput,
@@ -29,6 +35,7 @@ export {
 	toMonthlyRecurrence,
 } from "./recurrence-store.ts";
 export type { SecretStore, StoredSecret } from "./secret-store.ts";
+export { createSecretVault, type SecretVault, type SecretVaultDeps } from "./secret-vault.ts";
 export { createMemoryStores, createPrismaStores, type Stores, type StoresOptions } from "./stores.ts";
 export {
 	type InstallmentGroupRecord,

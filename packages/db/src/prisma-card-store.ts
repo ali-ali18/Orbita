@@ -1,10 +1,12 @@
 import type { ClosingRule } from "@orbita/core";
 import { type CardRecord, type CardStore, toCardConfig } from "./card-store.ts";
 import type { Db } from "./client.ts";
-import { notFound } from "./errors.ts";
+import { DataError, notFound } from "./errors.ts";
 import type { ClosingRule as DbClosingRule } from "./generated/prisma/enums.ts";
 import type { Clock } from "./memory-state.ts";
-import { applyPatch, normalizeCard } from "./rules.ts";
+import { EXTERNAL_TAKEN_MESSAGE } from "./messages.ts";
+import { translate } from "./prisma-errors.ts";
+import { applyPatch, normalizeCard, normalizeIdentity } from "./rules.ts";
 
 const toDbRule = (rule: ClosingRule): DbClosingRule =>
 	rule === "closing-day-included" ? "closing_day_included" : "closing_day_next";
@@ -27,9 +29,17 @@ export function createPrismaCardStore(db: Db, now: Clock): CardStore {
 	return {
 		async create(input) {
 			const at = now();
-			return toRecord(
-				await db.card.create({ data: { ...toData(normalizeCard(input)), createdAt: at, updatedAt: at } }),
-			);
+			const data = {
+				...toData(normalizeCard(input)),
+				...normalizeIdentity(input),
+				createdAt: at,
+				updatedAt: at,
+			};
+			try {
+				return toRecord(await db.card.create({ data }));
+			} catch (e) {
+				throw translate(e, () => new DataError("duplicate", EXTERNAL_TAKEN_MESSAGE));
+			}
 		},
 		async update(id, patch) {
 			const data = normalizeCard(applyPatch(await need(id), patch));
@@ -50,6 +60,10 @@ export function createPrismaCardStore(db: Db, now: Clock): CardStore {
 		},
 		async get(id) {
 			const row = await db.card.findUnique({ where: { id } });
+			return row ? toRecord(row) : null;
+		},
+		async findByExternal(source, externalId) {
+			const row = await db.card.findUnique({ where: { source_externalId: { source, externalId } } });
 			return row ? toRecord(row) : null;
 		},
 		async getConfig(id) {

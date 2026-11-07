@@ -1,5 +1,6 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import { ActivityIndicator, Pressable, type StyleProp, type ViewStyle } from "react-native";
+import { Icon, type IconName } from "./icons.tsx";
 import { Text } from "./Text.tsx";
 
 export interface ButtonProps {
@@ -10,6 +11,8 @@ export interface ButtonProps {
 	loading?: boolean;
 	/** Versão baixa (44) para dentro de cards. */
 	compact?: boolean;
+	/** Ícone de 18 antes do rótulo (o "+" de adicionar). */
+	icon?: IconName;
 	style?: StyleProp<ViewStyle>;
 }
 
@@ -21,6 +24,7 @@ export function Button({
 	disabled = false,
 	loading = false,
 	compact = false,
+	icon,
 	style,
 }: ButtonProps) {
 	const primary = variant === "primary";
@@ -39,6 +43,8 @@ export function Button({
 					paddingHorizontal: compact ? spacing.xl : spacing.xxl,
 					alignItems: "center",
 					justifyContent: "center",
+					flexDirection: "row",
+					gap: spacing.sm,
 					backgroundColor: primary ? colors.accent : colors.surface2,
 					opacity: inactive && !loading ? 0.4 : pressed ? 0.8 : 1,
 				},
@@ -48,9 +54,12 @@ export function Button({
 			{loading ? (
 				<ActivityIndicator color={primary ? colors.onAccent : colors.text} />
 			) : (
-				<Text variant="bodyStrong" tone={primary ? "onAccent" : "primary"}>
-					{label}
-				</Text>
+				<>
+					{icon ? <Icon name={icon} size={18} color={primary ? colors.onAccent : colors.text} /> : null}
+					<Text variant="bodyStrong" tone={primary ? "onAccent" : "primary"}>
+						{label}
+					</Text>
+				</>
 			)}
 		</Pressable>
 	);

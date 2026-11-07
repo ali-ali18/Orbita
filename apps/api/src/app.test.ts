@@ -1,10 +1,9 @@
-import { createMemoryStores } from "@orbita/db";
+import { createMemoryStores, createSecretVault } from "@orbita/db";
 import { deriveKey } from "@orbita/security";
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
 import { createPairingGuard, PAIRING_FAILED_CLAIMS_LIMIT } from "./modules/pairing/guard.ts";
 import { createPairingCode, hashPairingCode, type PairingDeps } from "./modules/pairing/service.ts";
-import { createSecretVault } from "./modules/settings/service.ts";
 
 function setup() {
 	const stores = createMemoryStores();

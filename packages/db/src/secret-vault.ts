@@ -1,7 +1,7 @@
-import type { SecretStore } from "@orbita/db";
 import { createSecretBox } from "@orbita/security";
 import type { SecretName, SecretStatusDto } from "@orbita/shared";
 import { SECRET_NAMES } from "@orbita/shared";
+import type { SecretStore } from "./secret-store.ts";
 
 export type SecretVaultDeps = {
 	store: SecretStore;
@@ -10,6 +10,7 @@ export type SecretVaultDeps = {
 };
 
 /**
+ * Mora no db (e não na API) porque a API e o worker abrem o mesmo cofre: apps não importam apps.
  * Cofre das chaves do servidor. Cifra com AES-GCM e amarra o texto ao nome da chave (AAD): copiar o
  * texto cifrado de uma chave para outra faz a abertura falhar.
  */

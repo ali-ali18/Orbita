@@ -27,6 +27,7 @@ function Routes() {
 				/>
 				<Stack.Screen name="configuracoes/index" />
 				<Stack.Screen name="configuracoes/servidor" />
+				<Stack.Screen name="configuracoes/bancos" />
 			</Stack.Protected>
 			<Stack.Protected guard={state.status === "out"}>
 				<Stack.Screen name="conectar" />

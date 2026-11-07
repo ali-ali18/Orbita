@@ -1,4 +1,4 @@
-import type { Stores } from "@orbita/db";
+import type { SecretVault, Stores } from "@orbita/db";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
@@ -10,9 +10,10 @@ import * as cards from "./modules/cards/routes.ts";
 import * as categories from "./modules/categories/routes.ts";
 import * as devices from "./modules/devices/routes.ts";
 import * as pairing from "./modules/pairing/routes.ts";
+import type { PluggySyncQueue } from "./modules/pluggy/queue.ts";
+import * as pluggy from "./modules/pluggy/routes.ts";
 import * as recurrences from "./modules/recurrences/routes.ts";
 import * as settings from "./modules/settings/routes.ts";
-import type { SecretVault } from "./modules/settings/service.ts";
 import * as summary from "./modules/summary/routes.ts";
 import * as transactions from "./modules/transactions/routes.ts";
 
@@ -23,6 +24,10 @@ export type AppDeps = pairing.PairingRoutesDeps & {
 	vault: SecretVault;
 	/** Versão do servidor, mostrada em "Servidor e chaves". */
 	version: string;
+	/** Fila do Meu Pluggy (Redis). Ausente = o app cadastra conexões mas não dispara sincronização. */
+	pluggySyncQueue?: PluggySyncQueue | null;
+	/** `fetch` com que a API confere uma conexão nova no Pluggy (os testes injetam um falso). */
+	pluggyFetch?: pluggy.PluggyRoutesDeps["fetch"];
 };
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -53,7 +58,16 @@ export function createApp(deps: AppDeps) {
 		.route("/", recurrences.routes(finance))
 		.route("/", transactions.routes(finance))
 		.route("/", summary.routes(finance))
-		.route("/", settings.routes({ ...finance, vault: deps.vault, version: deps.version }));
+		.route("/", settings.routes({ ...finance, vault: deps.vault, version: deps.version }))
+		.route(
+			"/",
+			pluggy.routes({
+				...finance,
+				vault: deps.vault,
+				syncQueue: deps.pluggySyncQueue ?? null,
+				...(deps.pluggyFetch ? { fetch: deps.pluggyFetch } : {}),
+			}),
+		);
 
 	app.notFound(notFoundHandler);
 	app.onError(errorHandler);

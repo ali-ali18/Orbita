@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertCents, formatBRL, parseBRL, sumCents } from "./money.ts";
+import { assertCents, decimalToCents, formatBRL, parseBRL, sumCents } from "./money.ts";
 
 describe("assertCents", () => {
 	it("aceita inteiros seguros", () => {
@@ -109,6 +109,35 @@ describe("parseBRL", () => {
 	it("é inverso de formatBRL", () => {
 		for (const c of [0, 1, 99, 100, 123456, -987654321, 100000000]) {
 			expect(parseBRL(formatBRL(c))).toBe(c);
+		}
+	});
+});
+
+describe("decimalToCents", () => {
+	it("não deixa o float estragar o centavo", () => {
+		expect(decimalToCents(0.1 + 0.2)).toBe(30);
+		expect(decimalToCents(1.15)).toBe(115);
+		expect(decimalToCents(4.35)).toBe(435);
+		expect(decimalToCents(19.99)).toBe(1999);
+		expect(decimalToCents(0.07)).toBe(7);
+		expect(decimalToCents(1234567.89)).toBe(123456789);
+	});
+	it("mantém o sinal e não devolve -0", () => {
+		expect(decimalToCents(-45.9)).toBe(-4590);
+		expect(decimalToCents(-0)).toBe(0);
+		expect(decimalToCents(-0.001)).toBe(0);
+		expect(Object.is(decimalToCents(-0.001), -0)).toBe(false);
+	});
+	it("lê texto e arredonda meio centavo para longe do zero", () => {
+		expect(decimalToCents("12.34")).toBe(1234);
+		expect(decimalToCents("12")).toBe(1200);
+		expect(decimalToCents("1.005")).toBe(101);
+		expect(decimalToCents("-1.005")).toBe(-101);
+		expect(decimalToCents("1.004")).toBe(100);
+	});
+	it("rejeita o que não é número decimal", () => {
+		for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, 1e15, "", "abc", "1,5", "1e3", "12."]) {
+			expect(() => decimalToCents(bad)).toThrow(RangeError);
 		}
 	});
 });

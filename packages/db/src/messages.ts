@@ -14,3 +14,5 @@ export const POSTING_KIND_MESSAGE =
 	"O tipo do lançamento (gasto ou receita) não combina com o da recorrência.";
 export const POSTING_MONTH_MESSAGE =
 	"O mês do orçamento do lançamento não é o mês que a recorrência está cumprindo.";
+export const EXTERNAL_TAKEN_MESSAGE = "Já existe um cadastro desta origem com o mesmo identificador externo.";
+export const PLUGGY_CONNECTION_TAKEN_MESSAGE = "Esta conexão do Meu Pluggy já está cadastrada.";

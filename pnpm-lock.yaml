@@ -35,12 +35,18 @@ importers:
       '@orbita/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@orbita/ingest':
+        specifier: workspace:*
+        version: link:../../packages/ingest
       '@orbita/security':
         specifier: workspace:*
         version: link:../../packages/security
       '@orbita/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      bullmq:
+        specifier: 6.7.1
+        version: 6.7.1(ioredis@5.11.1)(pg@8.23.1)
       hono:
         specifier: 4.13.16
         version: 4.13.16
@@ -132,6 +138,12 @@ importers:
       '@orbita/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@orbita/ingest':
+        specifier: workspace:*
+        version: link:../../packages/ingest
+      '@orbita/security':
+        specifier: workspace:*
+        version: link:../../packages/security
       bullmq:
         specifier: 6.7.1
         version: 6.7.1(ioredis@5.11.1)(pg@8.23.1)
@@ -152,6 +164,9 @@ importers:
       '@orbita/core':
         specifier: workspace:*
         version: link:../core
+      '@orbita/security':
+        specifier: workspace:*
+        version: link:../security
       '@orbita/shared':
         specifier: workspace:*
         version: link:../shared
@@ -165,6 +180,21 @@ importers:
       prisma:
         specifier: 7.10.1
         version: 7.10.1(@types/node@26.6.6)(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(typescript@7.0.2)
+
+  packages/ingest:
+    dependencies:
+      '@orbita/core':
+        specifier: workspace:*
+        version: link:../core
+      '@orbita/db':
+        specifier: workspace:*
+        version: link:../db
+      '@orbita/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
   packages/security: {}
 
