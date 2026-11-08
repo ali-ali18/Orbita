@@ -793,3 +793,46 @@ describe("mapPluggyAccount: nome do cartão", () => {
 		expect(noBank).toMatchObject({ kind: "card", input: { name: "G" } });
 	});
 });
+
+describe("mapPluggyTransaction: Pix para si mesmo pelo nome do titular", () => {
+	const withOwner: TransactionContext = { ...bankCtx, ownerName: "Maria de Souza Silva" };
+	const pix = (extra: Record<string, unknown>) => parse({ category: "Transfer - PIX", ...extra });
+
+	it("o nome do titular na descrição ou em paymentData é transferência própria (entrada e saída)", () => {
+		expect(
+			mapPluggyTransaction(pix({ description: "Pix enviado - MARIA DE SOUZA SILVA" }), withOwner),
+		).toEqual({
+			action: "skip",
+			reason: "own_transfer",
+		});
+		const received = pix({
+			type: "CREDIT",
+			amount: 80,
+			description: "Pix recebido",
+			paymentData: { payer: { name: "Maria de Souza Silva" } },
+		});
+		expect(mapPluggyTransaction(received, withOwner)).toEqual({ action: "skip", reason: "own_transfer" });
+	});
+
+	it("Pix para outra pessoa, ou para um homônimo parcial, continua sendo gasto", () => {
+		for (const description of [
+			"Pix enviado - Rei Dos Coins",
+			"Pix enviado - Maria Silva",
+			"Pix enviado - Maria",
+		]) {
+			expect(mapPluggyTransaction(pix({ description }), withOwner)).toMatchObject({
+				action: "upsert",
+				input: { kind: "expense" },
+			});
+		}
+	});
+
+	it("sem o nome do titular, nada é presumido", () => {
+		expect(
+			mapPluggyTransaction(pix({ description: "Pix enviado - Maria de Souza Silva" }), bankCtx),
+		).toMatchObject({
+			action: "upsert",
+			input: { kind: "expense" },
+		});
+	});
+});

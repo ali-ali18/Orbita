@@ -305,6 +305,8 @@ export interface TransactionContext {
 	card: { id: string; config: CardConfig } | null;
 	/** CPF/CNPJ do titular da conta (`taxNumber`), para reconhecer transferência para si mesmo. */
 	ownerTaxNumber?: string | null;
+	/** Nome do titular da conta (`owner`), para reconhecer Pix para si mesmo quando o banco não manda o CPF. */
+	ownerName?: string | null;
 	/**
 	 * Quais lançamentos são pagamento de fatura, já casados um a um (`assignBillPayments`), por id do lançamento.
 	 * Mais confiável que o nome da categoria.
@@ -337,6 +339,37 @@ function isOwnTransferByDocument(tx: PluggyTransaction, ownerTaxNumber: string |
 	const owner = digits(ownerTaxNumber);
 	const other = tx.type === "DEBIT" ? receiver : payer;
 	return owner !== "" && other === owner;
+}
+
+/** Nome só com letras, minúsculo e sem acento; vazio se tiver menos de duas palavras (um primeiro nome não prova nada). */
+function personName(value: string | null | undefined): string {
+	const name = plain(value)
+		.replace(/[^a-z\s]/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	return name.split(" ").length >= 2 ? name : "";
+}
+
+/** "Pix enviado - Fulano de Tal" → "Fulano de Tal": a ponta que o banco escreveu na descrição. */
+const COUNTERPART_IN_DESCRIPTION = /^(?:pix|ted|doc|transfer[^-–]*)[^-–]*[-–]\s*(.+)$/i;
+
+/**
+ * Transferência para si mesmo pelo NOME: a outra ponta (`paymentData`, ou o que vem depois do hífen em "Pix enviado -
+ * Nome") é igual ao titular da conta, palavra por palavra. É mais fraco que o CPF, por isso só vale com igualdade exata
+ * de um nome com pelo menos duas palavras: homônimo parcial ("Maria Silva" x "Maria Souza Silva") continua sendo gasto.
+ */
+function isOwnTransferByName(
+	tx: PluggyTransaction,
+	description: string,
+	ownerName: string | null | undefined,
+): boolean {
+	const owner = personName(ownerName);
+	if (owner === "") return false;
+	const names = [
+		tx.type === "DEBIT" ? tx.paymentData?.receiver?.name : tx.paymentData?.payer?.name,
+		COUNTERPART_IN_DESCRIPTION.exec(description.trim())?.[1],
+	];
+	return names.some((name) => personName(name) === owner);
 }
 
 /** Valor (centavos) e dia de um lançamento, ou `null` se o Órbita não aceita. Base do casamento com as faturas. */
@@ -520,7 +553,11 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 				input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: only },
 			};
 		}
-		if (isOwnTransferByDocument(tx, ctx.ownerTaxNumber) || family === "own_transfer") {
+		if (
+			isOwnTransferByDocument(tx, ctx.ownerTaxNumber) ||
+			isOwnTransferByName(tx, description, ctx.ownerName) ||
+			family === "own_transfer"
+		) {
 			return { action: "skip", reason: "own_transfer" };
 		}
 		// Rendimento de investimento é receita de verdade (o principal que volta, não: ver acima).

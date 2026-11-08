@@ -78,6 +78,8 @@ export interface ConnectionSyncResult {
 	created: number;
 	existing: number;
 	failed: number;
+	/** Lançamentos antigos corrigidos nesta rodada (receita gravada como despesa, transferência própria que contava como gasto). */
+	reclassified?: number;
 	skipped: Partial<Record<SkipReason | "archived_account", number>>;
 	/** Avisos que não são erro (conta ignorada, por exemplo). Sem segredo. */
 	notes: string[];
@@ -378,6 +380,7 @@ async function syncConnection(
 				accountId: target.account?.id ?? null,
 				card: target.card ? { id: target.card.id, config: toCardConfig(target.card) } : null,
 				ownerTaxNumber: target.taxNumber,
+				ownerName: target.ownerName,
 				billPaymentMatches: matches,
 				billTotals,
 				billMonths,
@@ -387,6 +390,11 @@ async function syncConnection(
 				categoryRules,
 			};
 			await storeTransactions(deps, txs, ctx, result, others);
+		}
+		if ((result.reclassified ?? 0) > 0) {
+			result.notes.push(
+				`${result.reclassified} lançamento(s) antigo(s) foram corrigidos (receita ou transferência entre contas suas que estavam como gasto).`,
+			);
 		}
 		const othersNote = describeOthers(others);
 		if (othersNote !== null) result.notes.push(othersNote);
@@ -445,6 +453,7 @@ function centsOrNull(value: number | string | null | undefined): number | null {
 interface Linked {
 	pluggyId: string;
 	taxNumber: string | null;
+	ownerName: string | null;
 	account: AccountRecord | null;
 	card: CardRecord | null;
 }
@@ -489,7 +498,13 @@ async function linkAccounts(
 				// mexeu no nome, então troca uma vez; depois do nome novo isto não roda de novo.
 				account = await accounts.update(account.id, { name: mapped.input.name });
 			}
-			out.push({ pluggyId: pa.id, taxNumber: pa.taxNumber ?? null, account, card: null });
+			out.push({
+				pluggyId: pa.id,
+				taxNumber: pa.taxNumber ?? null,
+				ownerName: pa.owner ?? null,
+				account,
+				card: null,
+			});
 			continue;
 		}
 		let card = await cards.findByExternal(PLUGGY_SOURCE, mapped.externalId);
@@ -534,7 +549,13 @@ async function linkAccounts(
 		) {
 			card = await cards.update(card.id, { name: mapped.input.name });
 		}
-		out.push({ pluggyId: pa.id, taxNumber: pa.taxNumber ?? null, account: null, card });
+		out.push({
+			pluggyId: pa.id,
+			taxNumber: pa.taxNumber ?? null,
+			ownerName: pa.owner ?? null,
+			account: null,
+			card,
+		});
 	}
 	return { linked: out, deferredCards };
 }
@@ -565,7 +586,7 @@ async function storeTransactions(
 		...mappedAll.filter((m) => m.mapped?.action !== "refund"),
 		...mappedAll.filter((m) => m.mapped?.action === "refund"),
 	];
-	for (const { mapped } of ordered) {
+	for (const { tx, mapped } of ordered) {
 		try {
 			if (mapped === null) {
 				result.failed += 1;
@@ -573,6 +594,9 @@ async function storeTransactions(
 			}
 			if (mapped.action === "skip") {
 				bump(result.skipped, mapped.reason);
+				if (mapped.reason === "own_transfer" && (await dropStaleOwnTransfer(transactions, tx.id))) {
+					result.reclassified = (result.reclassified ?? 0) + 1;
+				}
 				continue;
 			}
 			if (mapped.action === "upsert") {
@@ -584,6 +608,9 @@ async function storeTransactions(
 						others.set(label, (others.get(label) ?? 0) + 1);
 					}
 				} else {
+					if (res.transaction && (await fixKind(transactions, res.transaction, mapped.input))) {
+						result.reclassified = (result.reclassified ?? 0) + 1;
+					}
 					const nextCategoryId = mapped.input.categoryId ?? null;
 					if (
 						res.transaction &&
@@ -624,6 +651,32 @@ async function storeTransactions(
 			else throw e;
 		}
 	}
+}
+
+/**
+ * Recálculo do que já foi gravado errado (a sincronização é idempotente e nunca mexia no tipo). Só dois casos, ambos
+ * sem ambiguidade e nunca sobre lançamento que o dono mexeu na categoria:
+ * - entrou dinheiro (o Pluggy diz CREDIT, o mapeamento diz `income`) e está gravado como despesa → vira receita;
+ * - hoje o mapeamento reconhece transferência para si mesmo e o lançamento está como despesa → é apagado (o
+ *   identificador fica reservado, então a próxima sincronização não o recria).
+ */
+async function fixKind(
+	transactions: SyncPluggyDeps["stores"]["transactions"],
+	current: { id: string; kind: string; categoryEditedByOwner: boolean },
+	next: { kind: string; categoryId?: string | null | undefined },
+): Promise<boolean> {
+	if (current.categoryEditedByOwner || current.kind !== "expense" || next.kind !== "income") return false;
+	await transactions.update(current.id, { kind: "income", categoryId: next.categoryId ?? null });
+	return true;
+}
+
+async function dropStaleOwnTransfer(
+	transactions: SyncPluggyDeps["stores"]["transactions"],
+	externalId: string,
+): Promise<boolean> {
+	const current = await transactions.findByExternal(PLUGGY_SOURCE, externalId);
+	if (!current || current.kind !== "expense" || current.categoryEditedByOwner) return false;
+	return transactions.softDelete(current.id);
 }
 
 const NO_SOURCE_CATEGORY = "sem categoria do banco";

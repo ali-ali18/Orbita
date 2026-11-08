@@ -1081,3 +1081,67 @@ describe("syncPluggy", () => {
 		});
 	});
 });
+
+describe("syncPluggy: corrige o que foi gravado errado antes", () => {
+	const pixToSelf = tx("p-self", {
+		description: "Pix enviado - Maria de Souza Silva",
+		amount: -400,
+		category: "Transfer - PIX",
+	});
+	const pixToThird = tx("p-third", {
+		description: "Pix enviado - Rei Dos Coins",
+		amount: -90,
+		category: "Transfer - PIX",
+	});
+
+	it("transferência para si mesma que já contava como gasto sai; Pix para terceiro fica", async () => {
+		// 1ª rodada: o Pluggy ainda não dizia o titular da conta, então o Pix para si entrou como despesa.
+		const before = setup({
+			transactions: { [BANK_ACCOUNT_ID]: [pixToSelf, pixToThird], [CARD_ACCOUNT_ID]: [] },
+		});
+		await before.stores.pluggyConnections.add({ id: ITEM_ID, label: "Mercado Pago" });
+		await before.run();
+		expect((await everything(before.stores)).map((r) => r.externalId).sort()).toEqual(["p-self", "p-third"]);
+
+		// 2ª rodada, mesmo banco: agora a conta traz o titular.
+		const fake = fakePluggy({
+			accounts: [{ ...bankAccount, owner: "MARIA DE SOUZA SILVA" }, cardAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [pixToSelf, pixToThird], [CARD_ACCOUNT_ID]: [] },
+		});
+		const again = () =>
+			syncPluggy({
+				stores: before.stores,
+				readSecret: async (name) => SECRETS[name] ?? null,
+				fetch: fake.fetch,
+				now: () => NOW,
+			});
+		const result = await again();
+		expect(result.connections[0]?.reclassified).toBe(1);
+		expect((await everything(before.stores)).map((r) => [r.externalId, r.kind])).toEqual([
+			["p-third", "expense"],
+		]);
+
+		// 3ª rodada: nada muda e a transferência apagada não volta.
+		expect((await again()).connections[0]?.reclassified).toBeUndefined();
+		expect(await everything(before.stores)).toHaveLength(1);
+	});
+
+	it("receita gravada como despesa volta a ser receita", async () => {
+		const yieldTx = tx("y-1", {
+			description: "Rendimentos",
+			type: "CREDIT",
+			amount: 3.2,
+			category: "Interests on investments",
+		});
+		const t = setup({ transactions: { [BANK_ACCOUNT_ID]: [yieldTx], [CARD_ACCOUNT_ID]: [] } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "Mercado Pago" });
+		await t.run();
+		const [row] = await everything(t.stores);
+		expect(row).toMatchObject({ kind: "income", amountCents: 320 });
+		// Simula a gravação antiga errada.
+		await t.stores.transactions.update(row?.id ?? "", { kind: "expense" });
+		const result = await t.run();
+		expect(result.connections[0]?.reclassified).toBe(1);
+		expect((await everything(t.stores))[0]).toMatchObject({ kind: "income" });
+	});
+});
