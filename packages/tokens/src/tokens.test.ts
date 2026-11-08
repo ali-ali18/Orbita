@@ -6,9 +6,14 @@ import {
 	chart,
 	chartSeries,
 	colors,
+	contrastRatio,
 	defaultCategoryColor,
+	issuerBand,
+	issuerFallback,
+	issuers,
 	layout,
 	radius,
+	readableTextOn,
 	spacing,
 	text,
 } from "./index.ts";
@@ -103,5 +108,25 @@ describe("tokens", () => {
 				expect(Math.abs(channel(tint, i) - expected)).toBeLessThanOrEqual(1);
 			}
 		}
+	});
+});
+
+describe("issuers", () => {
+	it("toda faixa é hex e o texto passa AA (4,5:1) sobre ela", () => {
+		for (const { band, text: ink } of [...Object.values(issuers), issuerFallback]) {
+			expect(band).toMatch(HEX);
+			expect(ink).toMatch(HEX);
+			expect(contrastRatio(band, ink)).toBeGreaterThanOrEqual(4.5);
+		}
+	});
+	it("busca pelo ISPB e cai no cinza neutro", () => {
+		expect(issuerBand("90400888").band).toBe("#EC0000");
+		expect(issuerBand("10573521")).toEqual({ band: "#FFE600", text: "#111111" });
+		expect(issuerBand("99999999")).toEqual(issuerFallback);
+		expect(issuerBand(null)).toEqual(issuerFallback);
+	});
+	it("escolhe texto preto no amarelo e branco no roxo", () => {
+		expect(readableTextOn("#FFE600")).toBe("#111111");
+		expect(readableTextOn("#820AD1")).toBe("#FFFFFF");
 	});
 });

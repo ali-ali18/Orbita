@@ -2,14 +2,13 @@ import { categoryColor, chartSeries } from "@orbita/tokens";
 import { describe, expect, it } from "vitest";
 import {
 	budgetAlertNotice,
-	cardTileInvoices,
 	categoryShares,
-	currentInvoiceMonth,
 	FREE_KEY,
 	heroBarParts,
 	heroModel,
 	installmentsOverview,
 	invoiceCaption,
+	paidSuffix,
 	RESERVED_KEY,
 } from "./summary-model.ts";
 import { amountSignMode, initialOf, signedAmount, transactionCaption } from "./transaction-model.ts";
@@ -68,11 +67,6 @@ describe("parcelamentos", () => {
 });
 
 describe("fatura", () => {
-	const card = { closingDay: 10, dueDay: 20, closingRule: "closing-day-next" } as const;
-	it("a fatura aberta é a do mês do vencimento", () => {
-		expect(currentInvoiceMonth(card, "2026-11-06")).toBe("2026-11");
-		expect(currentInvoiceMonth(card, "2026-11-10")).toBe("2026-12");
-	});
 	it("legenda por situação", () => {
 		const base = { closingDate: "2026-11-10", dueDate: "2026-11-20" };
 		expect(invoiceCaption({ ...base, status: "open" }, "2026-11-07")).toBe("Fecha em 3 dias");
@@ -233,12 +227,24 @@ describe("budgetAlertNotice", () => {
 	});
 });
 
-describe("cardTileInvoices", () => {
-	const card = { closingDay: 10, dueDay: 20, closingRule: "closing-day-next" } as const;
-	it("fatura fechada que vence neste mês e a aberta (que vence no próximo)", () => {
-		expect(cardTileInvoices(card, "2026-11-15")).toEqual({ open: "2026-12", dueThisMonth: "2026-11" });
+describe("paga / falta na fatura que vence neste mês", () => {
+	const reais = (c: number) => `R$ ${(c / 100).toFixed(2)}`;
+	const inv = (
+		totalCents: number,
+		paidCents: number,
+		paymentStatus: "paid" | "partial" | "unpaid" | "open",
+	) => ({
+		totalCents,
+		paidCents,
+		paymentStatus,
+		status: paymentStatus === "open" ? ("open" as const) : ("closed" as const),
+		closingDate: "2026-11-05",
+		dueDate: "2026-11-12",
 	});
-	it("a aberta que já vence neste mês é a única", () => {
-		expect(cardTileInvoices(card, "2026-11-06")).toEqual({ open: "2026-11", dueThisMonth: null });
+	it("paga por inteiro, em parte, sem pagamento e aberta", () => {
+		expect(paidSuffix(inv(69_194, 69_194, "paid"), reais)).toBe("paga");
+		expect(paidSuffix(inv(69_194, 20_000, "partial"), reais)).toBe("falta R$ 491.94");
+		expect(paidSuffix(inv(69_194, 0, "unpaid"), reais)).toBeNull();
+		expect(paidSuffix(inv(5_150, 0, "open"), reais)).toBeNull();
 	});
 });

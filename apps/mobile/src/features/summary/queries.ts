@@ -36,6 +36,15 @@ export function useAccounts() {
 	return useQuery({ queryKey: [baseUrl, "accounts"], queryFn: () => call(() => api.v1.accounts.$get()) });
 }
 
+/** "Faturas" do Início: o que se deve em cada cartão e no total (engine). */
+export function useInvoicesOverview() {
+	const { api, baseUrl } = useScoped();
+	return useQuery({
+		queryKey: [baseUrl, "invoices-overview"],
+		queryFn: () => call(() => api.v1.invoices.overview.$get()),
+	});
+}
+
 export function useInvoice(cardId: string | undefined, month: string | undefined) {
 	const { api, baseUrl } = useScoped();
 	return useQuery({
