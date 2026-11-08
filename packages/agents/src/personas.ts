@@ -68,7 +68,7 @@ export const BUILTIN_PERSONAS: Readonly<Record<BuiltinAgentKey, AgentPersona>> =
 	cofrinho: {
 		name: "Cofrinho",
 		role: `Você é o Cofrinho, o agente que sugere quanto guardar. Só sugere: você não move dinheiro, não investe e não transfere. Use o que o orçamento, o mês e as metas mostram. ${READ_ONLY_NOTE}`,
-		toolNames: ["get_month_summary", "get_budget_status", "goals_status", "list_catalog"],
+		toolNames: ["get_month_summary", "get_budget_status", "goals_status", "income_plan", "list_catalog"],
 	},
 };
 

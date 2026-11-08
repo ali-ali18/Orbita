@@ -1,4 +1,11 @@
-import type { GoalsListResponse, MonthSummaryResponse, RecurrenceDto, TransactionDto } from "@orbita/shared";
+import type {
+	BudgetBefore,
+	GoalsListResponse,
+	MonthSummaryResponse,
+	PlanDto,
+	RecurrenceDto,
+	TransactionDto,
+} from "@orbita/shared";
 import type { AgentReader, AgentWriter, Catalog, InvoiceData, TransactionQuery } from "./backend.ts";
 import type { ModelClient, ModelRequest, ModelResponse, TurnHandlers } from "./model.ts";
 import type { ToolContext } from "./tool.ts";
@@ -87,12 +94,51 @@ export function summary(overrides: Partial<MonthSummaryResponse> = {}): MonthSum
 	};
 }
 
+/** O dono do caso real: renda R$ 2.300, histórico R$ 2.775 reduzido para caber (renda − 10%). */
+export function plan(overrides: Partial<PlanDto> = {}): PlanDto {
+	return {
+		month: MONTH,
+		incomeCents: 230000,
+		reservePercent: 10,
+		feasible: true,
+		buckets: { commitmentsCents: 5000, dailyCents: 202000, goalsCents: 0, reserveCents: 23000, leftCents: 0 },
+		commitments: [
+			{ id: "rec:1", name: "Netflix", categoryId: "cat-out", amountCents: 5000, source: "recurrence" },
+		],
+		goals: [],
+		categories: [
+			{ categoryId: "cat-mer", name: "Mercado", commitmentsCents: 0, dailyCents: 111892, totalCents: 111892 },
+			{ categoryId: "cat-del", name: "Delivery", commitmentsCents: 0, dailyCents: 90108, totalCents: 90108 },
+			{ categoryId: "cat-out", name: "Outros", commitmentsCents: 5000, dailyCents: 0, totalCents: 5000 },
+		],
+		budget: { totalCents: 207000, byCategory: { "cat-mer": 111892, "cat-del": 90108, "cat-out": 5000 } },
+		cut: { wantedCents: 277500, capCents: 207000 },
+		monthsUsed: 3,
+		warnings: [
+			{
+				code: "scaled_to_fit",
+				message:
+					"Seu histórico de gastos é R$ 2.775,00, acima do que cabe na renda; ajustei os limites para caber em R$ 2.070,00.",
+				amountCents: 70500,
+			},
+		],
+		replacesCount: 0,
+		...overrides,
+	};
+}
+
+export const PLAN_PREVIOUS: BudgetBefore[] = [
+	{ scope: "total", limitCents: 230000 },
+	{ scope: "cat-mer", limitCents: null },
+];
+
 export interface FakeReaderData {
 	transactions: TransactionDto[];
 	summaries: Record<string, MonthSummaryResponse>;
 	invoice: InvoiceData | null;
 	recurrences: RecurrenceDto[];
 	goals: GoalsListResponse;
+	plan: PlanDto;
 	catalog: Catalog;
 }
 
@@ -103,10 +149,12 @@ export function fakeReader(data: Partial<FakeReaderData> = {}) {
 		invoice: null,
 		recurrences: [],
 		goals: { goals: [], totals: { savedCents: 0, targetCents: 0 } },
+		plan: plan(),
 		catalog: CATALOG,
 		...data,
 	};
 	const queries: TransactionQuery[] = [];
+	const planCalls: Array<[string, number | undefined]> = [];
 	const reader: AgentReader = {
 		async catalog() {
 			return state.catalog;
@@ -153,8 +201,12 @@ export function fakeReader(data: Partial<FakeReaderData> = {}) {
 		async goals() {
 			return state.goals;
 		},
+		async incomePlan(month, reservePercent) {
+			planCalls.push([month, reservePercent]);
+			return { ...state.plan, month };
+		},
 	};
-	return { reader, state, queries };
+	return { reader, state, queries, planCalls };
 }
 
 export function toolContext(reader: AgentReader, catalog: Catalog = CATALOG): ToolContext {
@@ -185,6 +237,13 @@ export function fakeWriter() {
 		async deleteTransaction(id) {
 			calls.push(["deleteTransaction", id]);
 			return true;
+		},
+		async applyPlan(month, reservePercent) {
+			calls.push(["applyPlan", month, reservePercent]);
+			return { previous: PLAN_PREVIOUS };
+		},
+		async restoreBudgets(previous) {
+			calls.push(["restoreBudgets", previous]);
 		},
 	};
 	return { writer, calls };
