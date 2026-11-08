@@ -50,8 +50,10 @@ describe("preferências", () => {
 	it("guarda a conta padrão e recusa conta que não existe ou está arquivada", async () => {
 		const { api, basics } = await setupFinance();
 		const { account } = await basics();
-		expect((await api.get("/v1/preferences")).body).toEqual({ preferences: { defaultAccountId: null } });
-		expect((await api.patch("/v1/preferences", { defaultAccountId: account.id })).body).toEqual({
+		expect((await api.get("/v1/preferences")).body).toEqual({
+			preferences: { defaultAccountId: null, budgetAlertPercent: 80, leftoverAccountId: null },
+		});
+		expect((await api.patch("/v1/preferences", { defaultAccountId: account.id })).body).toMatchObject({
 			preferences: { defaultAccountId: account.id },
 		});
 		expect((await api.patch("/v1/preferences", { defaultAccountId: "fantasma" })).status).toBe(422);
@@ -59,7 +61,7 @@ describe("preferências", () => {
 		await api.delete(`/v1/accounts/${old.id}`);
 		expect((await api.patch("/v1/preferences", { defaultAccountId: old.id })).status).toBe(422);
 		expect((await api.get("/v1/preferences")).body.preferences.defaultAccountId).toBe(account.id);
-		expect((await api.patch("/v1/preferences", { defaultAccountId: null })).body.preferences).toEqual({
+		expect((await api.patch("/v1/preferences", { defaultAccountId: null })).body.preferences).toMatchObject({
 			defaultAccountId: null,
 		});
 		expect((await api.patch("/v1/preferences", {})).status).toBe(400);

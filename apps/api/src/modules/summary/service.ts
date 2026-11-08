@@ -9,6 +9,7 @@ import {
 	type MonthKey,
 	monthOf,
 	paidForInvoice,
+	passedThreshold,
 	paymentStatus,
 	paymentWindow,
 	pendingInMonth,
@@ -101,12 +102,13 @@ export async function monthSummary(
 	month: MonthKey,
 	today: LocalDate,
 ): Promise<MonthSummaryResponse> {
-	const [txs, recurrences, postings, budgets, categories] = await Promise.all([
+	const [txs, recurrences, postings, budgets, categories, preferences] = await Promise.all([
 		stores.transactions.listByBudgetMonth(month),
 		stores.recurrences.list(),
 		stores.recurrences.listPostings(month),
 		stores.budgets.list(),
 		stores.categories.list(),
+		stores.preferences.get(),
 	]);
 	const active = categories.filter((c) => c.archivedAt === null);
 	const bySlug = new Map(active.map((c) => [c.slug, c.id]));
@@ -134,6 +136,11 @@ export async function monthSummary(
 			remainingCents: status.remainingCents,
 			ratio: Number.isFinite(status.ratio) ? status.ratio : null,
 			overBudget: status.overBudget,
+			alert: passedThreshold({
+				limitCents: b.limitCents,
+				spentCents,
+				thresholdPercent: preferences.budgetAlertPercent,
+			}),
 		};
 	});
 
@@ -168,6 +175,7 @@ export async function monthSummary(
 
 	return {
 		month,
+		budgetAlertPercent: preferences.budgetAlertPercent,
 		summary: {
 			spentCents: raw.spentCents,
 			incomeCents: raw.incomeCents,

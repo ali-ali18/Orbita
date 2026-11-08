@@ -180,6 +180,18 @@ export type RecurrencePostBody = z.infer<typeof recurrencePostBody>;
 
 // ---------------------------------------------------------------- resumo
 
+/** `GET /v1/budgets/suggestion`: sugestão da Órbita, calculada pelo engine com o gasto dos últimos meses fechados. */
+export const budgetSuggestionResponse = z.object({
+	/** Quantos meses fechados foram olhados. */
+	months: z.number().int(),
+	/** Quantos deles tinham gasto e entraram na conta; 0 = sem histórico para sugerir. */
+	monthsUsed: z.number().int(),
+	totalCents: z.number().int(),
+	/** Por id de categoria, em reais inteiros. */
+	byCategory: z.record(z.string(), z.number().int()),
+});
+export type BudgetSuggestionResponse = z.infer<typeof budgetSuggestionResponse>;
+
 export const installmentsQuery = z.object({ from: monthKeySchema.optional() });
 
 const cents = z.number().int();
@@ -202,8 +214,12 @@ export const monthSummaryResponse = z.object({
 			/** `null` quando o limite é zero e há gasto (a razão seria infinita). */
 			ratio: z.number().nullable(),
 			overBudget: z.boolean(),
+			/** Passou do percentual de aviso das preferências (calculado pelo engine). */
+			alert: z.boolean(),
 		}),
 	),
+	/** O percentual de aviso usado em `budgets[].alert`. */
+	budgetAlertPercent: z.number().int(),
 	/** `null` fora do mês atual ou sem orçamento total. */
 	safeToSpend: z
 		.object({ availableCents: cents, perDayCents: cents, remainingDays: z.number().int() })

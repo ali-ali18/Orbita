@@ -43,13 +43,25 @@ export type ProfilePatchBody = z.infer<typeof profilePatchBody>;
 export const preferencesSchema = z.object({
 	/** Conta que já vem marcada em "Novo lançamento"; `null` = sem preferência. */
 	defaultAccountId: z.string().nullable(),
+	/** Avisar quando o gasto passar deste percentual do limite (1 a 100). O push ainda não existe: vale para o indicador no app. */
+	budgetAlertPercent: z.number().int().min(1).max(100),
+	/** Conta que recebe a sobra do mês; `null` = nenhuma. Só a escolha é guardada, nenhum dinheiro é movido. */
+	leftoverAccountId: z.string().nullable(),
 });
 export type PreferencesDto = z.infer<typeof preferencesSchema>;
 export const preferencesResponse = z.object({ preferences: preferencesSchema });
 export type PreferencesResponse = z.infer<typeof preferencesResponse>;
 
 export const preferencesPatchBody = z
-	.object({ defaultAccountId: idSchema.nullable() })
+	.object({
+		defaultAccountId: idSchema.nullable(),
+		budgetAlertPercent: z
+			.number({ error: "Informe o percentual do aviso." })
+			.int("O aviso vai de 1% a 100%.")
+			.min(1, "O aviso vai de 1% a 100%.")
+			.max(100, "O aviso vai de 1% a 100%."),
+		leftoverAccountId: idSchema.nullable(),
+	})
 	.partial()
 	.strict()
 	.refine((v) => Object.keys(v).length > 0, "Envie o que mudar.");
