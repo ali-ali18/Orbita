@@ -138,6 +138,8 @@ apps/mobile/src/
 - **`features/`** junta `ui/` + dados (TanStack Query) de um assunto: `TransactionRow`, `InvoiceSummary`, `AgentCard`.
 - **`app/`** é fina: escolhe quais blocos aparecem e em que ordem.
 
+**Gaveta (`Sheet`)**: toda gaveta usa o mesmo primitivo. Ancorada embaixo, sobre tudo (inclusive teclado e barra do chat), até a borda da tela (conteúdo com folga da área segura); cantos de cima `card`, fundo `surface`, fundo da tela escurecido. Barrinha no topo, sem botão X (título, se houver, é só texto). Fecha tocando fora, arrastando a barrinha para baixo ou no voltar do Android. Linhas de lista ficam em `SheetGroup` (`surface2`, raio `group`, divisória fina recuada) com `SheetRow`; campos usam `TextField` (foco por borda, sem contorno do navegador).
+
 Para criar algo novo:
 
 1. Já existe um primitivo 80% igual? Adicione uma variante ou prop em vez de copiar.
