@@ -107,6 +107,12 @@ Telas de Configurações com módulos próprios na API:
 - **Backup:** não há job no app nem na API. O backup do Postgres é do Dokploy (ver [servidor](servidor.md#backup)); a tela só explica e aponta para as instruções. O app não sabe se um backup rodou, e por isso não mostra "último backup".
 - **Reportar problema:** monta uma issue pré-preenchida (`ali-ali18/Orbita`) e abre no navegador; nada sai do app sozinho. Só versão, plataforma, sistema e modelo do aparelho, sem valores, nomes, nome do aparelho dado pelo dono nem endereço do servidor.
 
+## Orçamento: sugestão, aviso e sobra
+
+- **Sugestão da Órbita** (`GET /v1/budgets/suggestion`): `suggestBudget` (`packages/core`) pega a **mediana** do gasto de cada categoria nos 3 últimos meses **fechados** (o mês corrente fica de fora), em reais inteiros; mês sem gasto é ignorado. O gasto de cada mês vem do mesmo `monthSummary` do Início. Determinístico, sem IA. "Usar sugestão" grava o total e um limite por categoria (um PUT por limite) e pede confirmação se for trocar limites existentes.
+- **Avisar quando passar de X%:** `budgetAlertPercent` (1 a 100, padrão 80) fica em `AppPreferences`. `passedThreshold` (core, só inteiros) decide, e o resumo do mês devolve `alert` por limite. **O push não existe ainda**: o aviso aparece só dentro do app (linha no card do Início e na tela Orçamento).
+- **Sobra do mês vai para:** `leftoverAccountId` (conta ativa ou nenhuma) em `AppPreferences`. Só a escolha é guardada; nenhum dinheiro é movido. Metas ainda não existem ("Metas: em breve").
+
 ## Tarefas em segundo plano
 
 O worker tem filas por assunto (`manutencao`, `sincronizacao`, depois `alertas`). Cada processador é uma função pura testável (`cleanPairingCodes({ store, now })`, `cleanIdempotencyKeys`); o arquivo `index.ts` só liga fila → função. Decidir **se** algo deve acontecer (avisar, sincronizar) é código determinístico; a IA só escreve o texto.
