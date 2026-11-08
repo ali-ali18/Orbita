@@ -532,7 +532,11 @@ describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () =>
 		expect(kindOf({ category: "Pharmacy", categoryId: "10020000", amount: -10 })).toBe("expense:cat-saude");
 		// Folha desconhecida, pai conhecido pela árvore.
 		expect(kindOf({ category: "Coisa nova", categoryId: "10020000", amount: -10 })).toBe("expense:cat-saude");
-		expect(kindOf({ category: "Online shopping", amount: -10 })).toBe("expense:cat-outros");
+		expect(kindOf({ category: "Online shopping", description: "Compra online", amount: -10 })).toBe(
+			"expense:cat-outros",
+		);
+		expect(kindOf({ category: "Food and drinks", amount: -10 })).toBe("expense:cat-delivery");
+		expect(kindOf({ category: "Shopping", description: "iFood", amount: -10 })).toBe("expense:cat-delivery");
 		expect(kindOf({ category: null, description: "Cobrança avulsa", amount: -10 })).toBe(
 			"expense:cat-outros",
 		);

@@ -1,3 +1,4 @@
+export { suggestSpendingSlug } from "./pluggy/classify.ts";
 export {
 	createPluggyClient,
 	PLUGGY_BASE_URL,

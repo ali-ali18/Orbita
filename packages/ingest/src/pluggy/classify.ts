@@ -65,6 +65,25 @@ const GENERIC = /^(other|others|outros|outras|uncategorized|sem categoria|not ca
 /** Transferência não diz o que foi comprado: a descrição ainda pode dizer. */
 const VAGUE = /\b(transfers?|transferencias?|pix|ted|doc|wire)\b/;
 
+/**
+ * Categoria que a frase do banco já permite, sem chute. `null` quando o texto não diz
+ * (um PIX "Rei Dos" continua sem categoria).
+ */
+export function suggestSpendingSlug(input: {
+	sourceCategory?: string | null;
+	description?: string | null;
+	merchantName?: string | null;
+}): SpendingSlug | null {
+	const chain = (input.sourceCategory ?? "")
+		.split("›")
+		.map((part) => plain(part))
+		.filter((part) => part !== "");
+	const fromChain = matchSpendingSlug(chain);
+	if (fromChain) return fromChain;
+	// "Shopping" e "Online shopping" não nomeiam Mercado nem Delivery: a descrição ainda pode.
+	return matchSpendingSlug([plain(input.merchantName), plain(input.description)]);
+}
+
 /** A cadeia não escolheu um consumo: vazia, genérica ("Outros") ou só transferência. */
 export function chainLeavesSpendingOpen(chain: readonly string[]): boolean {
 	return chain.length === 0 || chain.every((name) => GENERIC.test(name) || VAGUE.test(name));
@@ -131,7 +150,7 @@ const SPENDING_RULES: ReadonlyArray<readonly [SpendingSlug, RegExp]> = [
 	],
 	[
 		"delivery",
-		/\b(eating out|restaurant|food delivery|delivery|fast food|lanchonete|bakery|padaria|coffee|cafeteria|snack|lanche|alimentacao|refeicao|ifood|rappi|aiqfome)/,
+		/\b(eating out|restaurant|food and drinks|food delivery|delivery|fast food|lanchonete|bakery|padaria|coffee|cafeteria|snack|lanche|alimentacao|refeicao|ifood|rappi|aiqfome|bars?|bebida)/,
 	],
 	[
 		"transporte",

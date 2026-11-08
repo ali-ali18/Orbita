@@ -29,28 +29,34 @@ const inter: CardLike = {
 const categories = [
 	{ id: "mer", name: "Mercado", slug: "mercado", chartSlot: 0, isSystem: true, archivedAt: null },
 	{ id: "del", name: "Delivery", slug: "delivery", chartSlot: 1, isSystem: true, archivedAt: null },
+	{ id: "tra", name: "Transporte", slug: "transporte", chartSlot: 2, isSystem: true, archivedAt: null },
+	{ id: "ass", name: "Assinaturas", slug: "assinaturas", chartSlot: 3, isSystem: true, archivedAt: null },
 	{ id: "out", name: "Outros", slug: "outros", chartSlot: null, isSystem: true, archivedAt: null },
 ];
 
+/**
+ * O que o classificador faz com o texto do banco: Carrefour, iFood, Uber e Netflix saem de Outros.
+ * "Pix enviado - Rei Dos" não tem palavra conhecida e continua em Outros (R$ 15,00).
+ */
 const summary = {
 	month: "2026-11",
 	summary: {
-		spentCents: 33678,
+		spentCents: 29567,
 		incomeCents: 13,
 		refundCreditCents: 0,
-		byCategory: { out: 33678 },
+		byCategory: { mer: 15237, del: 4890, tra: 2350, ass: 5590, out: 1500 },
 	},
 	budgets: [
 		{
 			scope: "total",
 			limitCents: 230000,
-			spentCents: 33678,
-			remainingCents: 196322,
-			ratio: 0.15,
+			spentCents: 29567,
+			remainingCents: 200433,
+			ratio: 0.13,
 			overBudget: false,
 		},
 	],
-	safeToSpend: { availableCents: 196322, perDayCents: 8923, remainingDays: 22 },
+	safeToSpend: { availableCents: 200433, perDayCents: 9110, remainingDays: 22 },
 	pendingRecurring: { expenseCents: 0, incomeCents: 0 },
 	projection: null,
 	refundCreditCents: 0,

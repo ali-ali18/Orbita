@@ -26,11 +26,10 @@ import { cardDisplayName, cleanBankName, isMeuPluggyConnector } from "./bank-nam
 import {
 	type CategoryIndex,
 	categoryChain,
-	chainLeavesSpendingOpen,
 	classifyFamily,
-	matchSpendingSlug,
 	plain,
 	readableCategory,
+	suggestSpendingSlug,
 } from "./classify.ts";
 import { categoryForCnae, categoryForMcc } from "./mcc.ts";
 import type { PluggyAccount, PluggyBill, PluggyTransaction } from "./schemas.ts";
@@ -384,9 +383,11 @@ function chooseCategory(
 	if (cnae) return { categoryId: cnae, source: "cnae" };
 	// A categoria do banco decide. Pix e "Outros" do banco não dizem o consumo: aí vale a descrição e o
 	// estabelecimento, com a mesma tabela.
-	const fromNames =
-		matchSpendingSlug(chain) ??
-		(chainLeavesSpendingOpen(chain) ? matchSpendingSlug([plain(merchantName), plain(description)]) : null);
+	const fromNames = suggestSpendingSlug({
+		sourceCategory: chain.join(" › "),
+		description,
+		merchantName,
+	});
 	const pluggy = bySlug(fromNames);
 	if (pluggy) return { categoryId: pluggy, source: "pluggy" };
 	return { categoryId: ids.get("outros") ?? null, source: "none" };
