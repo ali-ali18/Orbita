@@ -7,6 +7,9 @@ import { useClock } from "../../lib/clock.tsx";
 import { errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { useSession } from "../../lib/session.tsx";
 import { Button, ErrorState, IconButton, Screen, Skeleton, Text } from "../../ui/index.ts";
+import { AiLimitSheet } from "./AiLimitSheet.tsx";
+import { aiCostCaption, aiCostLabel, limitValueLabel } from "./ai-model.ts";
+import { useAiSettings, useSaveAiLimit } from "./ai-queries.ts";
 import { useSecrets, useServerInfo } from "./queries.ts";
 import { SecretSheet } from "./SecretSheet.tsx";
 import { SettingsRow, SettingsSection } from "./SettingsRows.tsx";
@@ -109,6 +112,40 @@ function KeysSection({ onOpen }: { onOpen: (status: SecretStatusDto) => void }) 
 	);
 }
 
+/** Gasto do mês com a IA e o limite mensal. O servidor calcula o custo; aqui só se mostra e se troca o limite. */
+function AiSection({ onEditLimit }: { onEditLimit: () => void }) {
+	const q = useAiSettings();
+	if (q.isError) {
+		return (
+			<SettingsSection title="IA (Anthropic)">
+				<View style={{ padding: spacing.lg }}>
+					<ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />
+				</View>
+			</SettingsSection>
+		);
+	}
+	const data = q.data;
+	return (
+		<SettingsSection title="IA (Anthropic)">
+			<SettingsRow
+				info
+				icon="enviar"
+				title="Custo neste mês"
+				caption={data ? aiCostCaption(data) : null}
+				value={data ? aiCostLabel(data) : "—"}
+			/>
+			<SettingsRow
+				last
+				icon="relogio"
+				title="Limite mensal"
+				caption="Quando chega nele, o chat para"
+				value={data ? limitValueLabel(data.limitUsdCents) : "—"}
+				onPress={data ? onEditLimit : undefined}
+			/>
+		</SettingsSection>
+	);
+}
+
 /** Tela "Servidor e chaves" (Figma 44:817). O valor de uma chave nunca aparece: só o estado. */
 export function ServerScreen() {
 	const router = useRouter();
@@ -118,6 +155,9 @@ export function ServerScreen() {
 	const actions = useSecretActions();
 	const [editing, setEditing] = useState<SecretName | null>(null);
 	const [switching, setSwitching] = useState(false);
+	const [editingLimit, setEditingLimit] = useState(false);
+	const aiQ = useAiSettings();
+	const saveLimit = useSaveAiLimit();
 
 	const status = (name: SecretName | null) => secretsQ.data?.secrets.find((s) => s.name === name);
 	const device = serverQ.data?.device;
@@ -151,6 +191,8 @@ export function ServerScreen() {
 
 				<KeysSection onOpen={(s) => setEditing(s.name)} />
 
+				<AiSection onEditLimit={() => setEditingLimit(true)} />
+
 				<SettingsSection title="Este aparelho">
 					<SettingsRow info title="Aparelho" value={device?.name ?? "—"} />
 					<SettingsRow
@@ -183,6 +225,12 @@ export function ServerScreen() {
 				configured={status(editing)?.configured ?? false}
 				actions={actions}
 				onClose={() => setEditing(null)}
+			/>
+			<AiLimitSheet
+				visible={editingLimit}
+				currentUsdCents={aiQ.data?.limitUsdCents ?? null}
+				onSave={(cents) => saveLimit.mutateAsync(cents)}
+				onClose={() => setEditingLimit(false)}
 			/>
 			<SignOutDialog
 				visible={switching}
