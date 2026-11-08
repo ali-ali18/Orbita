@@ -17,7 +17,7 @@ function hostOf(baseUrl: string | null): string | undefined {
 }
 
 /**
- * Tela "Configurações" (Figma 41:605). "Bancos e cartões" e "Servidor e chaves" têm tela; os outros itens aparecem como no
+ * Tela "Configurações" (Figma 41:605). "Bancos e cartões", "Comprovantes e arquivos" (importar extrato) e "Servidor e chaves" têm tela; os outros itens aparecem como no
  * Figma, esmaecidos, com "Em breve" e sem toque, até existirem. Quem já usava o app e não fez a configuração inicial vê essa entrada;
  * depois de feita, ela some. O que o Figma mostra com número de exemplo (4 bancos, 3 apps…) não aparece.
  */
@@ -73,7 +73,13 @@ export function SettingsScreen() {
 						onPress={() => router.push("/configuracoes/bancos")}
 					/>
 					<SettingsRow icon="notificacao" title="Notificações do celular" soon />
-					<SettingsRow icon="escanear" title="Comprovantes e arquivos" soon last />
+					<SettingsRow
+						icon="escanear"
+						title="Comprovantes e arquivos"
+						caption="Importar extrato (CSV, OFX, PDF)"
+						onPress={() => router.push("/configuracoes/arquivos")}
+						last
+					/>
 				</SettingsSection>
 
 				<SettingsSection title="Organização">

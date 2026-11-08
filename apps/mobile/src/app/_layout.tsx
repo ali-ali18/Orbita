@@ -39,6 +39,8 @@ function Routes() {
 				<Stack.Screen name="configuracoes/bancos" />
 				<Stack.Screen name="configuracoes/orcamento" />
 				<Stack.Screen name="configuracoes/categorias" />
+				<Stack.Screen name="configuracoes/arquivos" />
+				<Stack.Screen name="configuracoes/importar" />
 				<Stack.Screen name="configuracoes/primeira-vez" />
 			</Stack.Protected>
 			<Stack.Protected guard={state.status === "out"}>
