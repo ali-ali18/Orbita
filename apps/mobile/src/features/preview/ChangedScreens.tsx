@@ -2,7 +2,7 @@ import { spacing } from "@orbita/tokens";
 import { ScrollView, View } from "react-native";
 import type { CategoriesView, InvoiceView, MonthSummary } from "../../lib/api.ts";
 import type { Loadable } from "../../lib/loadable.ts";
-import { IconButton, Screen, Segmented, Text } from "../../ui/index.ts";
+import { IconButton, Screen, Segmented, Text, TOP_FADE } from "../../ui/index.ts";
 import { CARD_TABS, type CardLike } from "../card/card-model.ts";
 import { InvoiceComposition } from "../card/InvoiceComposition.tsx";
 import { InvoiceLines } from "../card/InvoiceLines.tsx";
@@ -141,7 +141,9 @@ const invoice = {
 export function HomePreview() {
 	return (
 		<Screen fadeTop>
-			<ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.md }}>
+			<ScrollView
+				contentContainerStyle={{ paddingTop: TOP_FADE, paddingHorizontal: spacing.lg, gap: spacing.md }}
+			>
 				<HomeHeader initial="V" hidden={false} onToggleHidden={noop} onAvatarPress={noop} />
 				<View style={{ paddingTop: spacing.md, paddingBottom: spacing.sm, gap: spacing.xs }}>
 					<Text variant="greeting">Boa noite</Text>
@@ -162,6 +164,7 @@ export function InvoicePreview() {
 		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
+					paddingTop: TOP_FADE,
 					paddingHorizontal: spacing.lg,
 					paddingBottom: spacing.xxxl,
 					gap: spacing.lg,

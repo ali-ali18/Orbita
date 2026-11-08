@@ -7,7 +7,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import { BottomBar, Screen, Text, useBottomBarHeight } from "../../ui/index.ts";
+import { BottomBar, Screen, Text, TOP_FADE, useBottomBarHeight } from "../../ui/index.ts";
 import { usePluggyHomeWatch } from "../banks/queries.ts";
 import { CategoriesCard } from "./CategoriesCard.tsx";
 import { HeroCard } from "./HeroCard.tsx";
@@ -71,6 +71,7 @@ export function HomeScreen() {
 		>
 			<ScrollView
 				contentContainerStyle={{
+					paddingTop: TOP_FADE,
 					paddingHorizontal: spacing.lg,
 					paddingBottom: bottomBarHeight + spacing.lg,
 					gap: spacing.md,

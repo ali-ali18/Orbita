@@ -4,7 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Linking, ScrollView, View } from "react-native";
 import { toLoadable } from "../../lib/loadable.ts";
 import { useSession } from "../../lib/session.tsx";
-import { BankLogo, Button, ErrorState, IconButton, Screen, Skeleton, Text } from "../../ui/index.ts";
+import {
+	BankLogo,
+	Button,
+	ErrorState,
+	IconButton,
+	Screen,
+	Skeleton,
+	Text,
+	TOP_FADE,
+} from "../../ui/index.ts";
 import { SettingsRow, SettingsSection } from "../settings/SettingsRows.tsx";
 import { bankBadge } from "../summary/summary-model.ts";
 import {
@@ -166,6 +175,7 @@ export function BanksScreen() {
 			<ScrollView
 				keyboardShouldPersistTaps="handled"
 				contentContainerStyle={{
+					paddingTop: TOP_FADE,
 					paddingHorizontal: spacing.lg,
 					paddingBottom: spacing.xxxl,
 					gap: spacing.md,
