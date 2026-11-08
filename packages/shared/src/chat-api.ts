@@ -54,7 +54,11 @@ export const chatRowsCardSchema = z.object({
 });
 export type ChatRowsCard = z.infer<typeof chatRowsCardSchema>;
 
-export const PROPOSAL_KINDS = ["create_transaction", "categorize_transaction", "confirm_transaction"] as const;
+export const PROPOSAL_KINDS = [
+	"create_transaction",
+	"categorize_transaction",
+	"confirm_transaction",
+] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 
 export const PROPOSAL_STATUSES = ["pending", "confirmed", "canceled", "undone"] as const;
