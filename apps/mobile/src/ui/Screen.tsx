@@ -4,8 +4,12 @@ import { type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
-/** Altura do esmaecimento logo abaixo do topo: o conteúdo some suave ao rolar para baixo da faixa. */
-const TOP_FADE = spacing.xxl;
+/**
+ * Altura do esmaecimento logo abaixo do topo: o conteúdo some suave ao rolar para baixo da faixa.
+ * Numa tela com `fadeTop`, a rolagem soma esta folga ao próprio `paddingTop` (o `Screen` tira a mesma da faixa do topo),
+ * então o cabeçalho fica no lugar de sempre e só o que rola passa por baixo do degradê.
+ */
+export const TOP_FADE = spacing.xxl;
 
 /** Degradê linear do fundo (opaco) para transparente, por cima do conteúdo e sem receber toques. */
 function TopFade() {
@@ -31,7 +35,8 @@ function TopFade() {
 
 /**
  * Fundo preto da tela, respeitando as áreas seguras. A faixa do topo fica fixa e o conteúdo que rola
- * para baixo dela esmaece num degradê linear, em vez de ser cortado seco. `footer` fica fixo embaixo (fora da rolagem);
+ * para baixo dela esmaece num degradê linear, em vez de ser cortado seco. Com `fadeTop`, a rolagem soma `TOP_FADE`
+ * ao próprio `paddingTop`; assim o degradê nunca cobre o cabeçalho em repouso. `footer` fica fixo embaixo (fora da rolagem);
  * com `floatingFooter` ele flutua sobre o conteúdo e cuida sozinho da área segura (a barra de baixo).
  */
 export function Screen({
@@ -49,10 +54,15 @@ export function Screen({
 	style?: StyleProp<ViewStyle>;
 }) {
 	const insets = useSafeAreaInsets();
+	const fade = fadeTop ? TOP_FADE : 0;
 	return (
 		<View
 			style={[
-				{ flex: 1, backgroundColor: colors.background, paddingTop: Math.max(insets.top, layout.statusBar) },
+				{
+					flex: 1,
+					backgroundColor: colors.background,
+					paddingTop: Math.max(insets.top, layout.statusBar) - fade,
+				},
 				style,
 			]}
 		>

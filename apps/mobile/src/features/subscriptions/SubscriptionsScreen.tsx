@@ -7,7 +7,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { money } from "../../lib/format.ts";
 import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import { Button, ErrorState, IconButton, Screen, Skeleton, Text } from "../../ui/index.ts";
+import { Button, ErrorState, IconButton, Screen, Skeleton, Text, TOP_FADE } from "../../ui/index.ts";
 import { useAccounts, useCards } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { useMonthTransactions, usePostSubscription, useRecurrences } from "./queries.ts";
@@ -175,6 +175,7 @@ export function SubscriptionsScreen() {
 		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
+					paddingTop: TOP_FADE,
 					paddingHorizontal: spacing.lg,
 					paddingBottom: spacing.xxxl,
 					gap: spacing.md,

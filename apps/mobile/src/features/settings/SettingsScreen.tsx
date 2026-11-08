@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSession } from "../../lib/session.tsx";
-import { Icon, IconButton, LetterAvatar, OrbitaAvatar, Screen, Text } from "../../ui/index.ts";
+import { Icon, IconButton, LetterAvatar, OrbitaAvatar, Screen, Text, TOP_FADE } from "../../ui/index.ts";
 import { useOnboardingPhase } from "../onboarding/flag.ts";
 import { showsSetupInSettings } from "../onboarding/model.ts";
 import { SettingsRow, SettingsSection, StaticSwitch } from "./SettingsRows.tsx";
@@ -33,6 +33,7 @@ export function SettingsScreen() {
 		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
+					paddingTop: TOP_FADE,
 					paddingHorizontal: spacing.lg,
 					paddingBottom: spacing.xxxl,
 					gap: spacing.md,
