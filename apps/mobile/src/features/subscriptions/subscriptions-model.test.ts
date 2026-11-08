@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	batchMessage,
 	buildRequest,
 	chargeCaption,
 	countLabel,
@@ -11,6 +12,8 @@ import {
 	nextSummary,
 	parseDay,
 	parseSourceKey,
+	pendingLabel,
+	pendingSummary,
 	type RecurrenceLike,
 	sortSubscriptions,
 	subscriptionsCategoryId,
@@ -230,5 +233,35 @@ describe("categoria e invalidação", () => {
 		expect(isAffectedBySubscription(["https://a", "summary", "2026-11"], "https://a")).toBe(true);
 		expect(isAffectedBySubscription(["https://b", "summary", "2026-11"], "https://a")).toBe(false);
 		expect(isAffectedBySubscription(["https://a", "categories"], "https://a")).toBe(false);
+	});
+});
+
+describe("pendingSummary", () => {
+	const month = "2026-11";
+	const netflix = rec({ id: "a", name: "Netflix", amountCents: 4490 });
+	const spotify = rec({ id: "b", name: "Spotify", amountCents: 3190 });
+	const salary = rec({ id: "c", name: "Salário", kind: "income", amountCents: 500000 });
+	const old = rec({ id: "d", name: "Velha", archivedAt: "2026-01-01T00:00:00Z" });
+	const posted = [{ kind: "expense", description: "spotify", accountId: null, cardId: "c1" }];
+
+	it("soma só as pendentes, em centavos inteiros", () => {
+		const s = pendingSummary([netflix, spotify, salary, old], month, posted);
+		expect(s).toEqual({ ids: ["a"], count: 1, totalCents: 4490 });
+		expect(pendingSummary([netflix, spotify], month, []).totalCents).toBe(7680);
+	});
+
+	it("sem pendentes", () => {
+		expect(pendingSummary([spotify], month, posted)).toEqual({ ids: [], count: 0, totalCents: 0 });
+	});
+
+	it("rótulos em pt-BR", () => {
+		expect(pendingLabel(3)).toBe("3 para lançar este mês");
+		expect(batchMessage({ transactionIds: ["x", "y"], already: 1, failed: 0 })).toBe(
+			"2 assinaturas lançadas. 1 já estava lançada.",
+		);
+		expect(batchMessage({ transactionIds: [], already: 0, failed: 2 })).toBe(
+			"Não consegui lançar 2. Tente de novo.",
+		);
+		expect(batchMessage({ transactionIds: ["x"], already: 0, failed: 0 })).toBe("1 assinatura lançada.");
 	});
 });

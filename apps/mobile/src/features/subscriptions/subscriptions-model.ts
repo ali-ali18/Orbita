@@ -97,6 +97,57 @@ export function monthStatus(
 	return wasPosted(r, monthTransactions) ? "posted" : "pending";
 }
 
+export interface PendingSummary {
+	ids: string[];
+	count: number;
+	totalCents: Cents;
+}
+
+/** O que falta lançar neste mês: quais assinaturas, quantas e a soma em centavos inteiros. */
+export function pendingSummary(
+	list: readonly RecurrenceLike[],
+	month: MonthKey,
+	monthTransactions: readonly MonthTransactionLike[],
+): PendingSummary {
+	const pending = list.filter(
+		(r) => isSubscription(r) && monthStatus(r, month, monthTransactions) === "pending",
+	);
+	return {
+		ids: pending.map((r) => r.id),
+		count: pending.length,
+		totalCents: pending.reduce((sum, r) => sum + r.amountCents, 0),
+	};
+}
+
+/** "3 para lançar este mês"; o valor entra à parte, formatado (e escondido pelo olho). */
+export function pendingLabel(count: number): string {
+	return `${count} para lançar este mês`;
+}
+
+export interface BatchPostResult {
+	/** Lançamentos criados agora (base do "Desfazer"). */
+	transactionIds: string[];
+	/** 409: já estavam lançadas. */
+	already: number;
+	failed: number;
+}
+
+/** Confirmação depois de "Lançar todas". */
+export function batchMessage(r: BatchPostResult): string {
+	const posted = r.transactionIds.length;
+	const parts: string[] = [];
+	if (posted > 0) parts.push(posted === 1 ? "1 assinatura lançada." : `${posted} assinaturas lançadas.`);
+	if (r.already > 0)
+		parts.push(r.already === 1 ? "1 já estava lançada." : `${r.already} já estavam lançadas.`);
+	if (r.failed > 0)
+		parts.push(
+			r.failed === 1
+				? "Não consegui lançar 1. Tente de novo."
+				: `Não consegui lançar ${r.failed}. Tente de novo.`,
+		);
+	return parts.join(" ") || "Nada para lançar.";
+}
+
 /** "Todo dia 12 · em 6 dias", "Todo dia 4 · lançada", "Todo dia 3 · pendente". */
 export function chargeCaption(
 	r: RecurrenceLike,
