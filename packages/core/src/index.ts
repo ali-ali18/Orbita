@@ -8,5 +8,6 @@ export * from "./invoice-composition.ts";
 export * from "./invoice-payment.ts";
 export * from "./money.ts";
 export * from "./recurrence.ts";
+export * from "./report.ts";
 export * from "./split.ts";
 export * from "./types.ts";
