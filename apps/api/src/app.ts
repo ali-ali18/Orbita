@@ -18,6 +18,7 @@ import type { PluggySyncQueue } from "./modules/pluggy/queue.ts";
 import * as pluggy from "./modules/pluggy/routes.ts";
 import * as preferences from "./modules/preferences/routes.ts";
 import * as recurrences from "./modules/recurrences/routes.ts";
+import * as reports from "./modules/reports/routes.ts";
 import * as settings from "./modules/settings/routes.ts";
 import * as summary from "./modules/summary/routes.ts";
 import * as transactions from "./modules/transactions/routes.ts";
@@ -75,6 +76,7 @@ export function createApp(deps: AppDeps) {
 		.route("/", exportData.routes(finance))
 		.route("/", preferences.routes(finance))
 		.route("/", summary.routes(finance))
+		.route("/", reports.routes(finance))
 		.route("/", settings.routes({ ...finance, vault: deps.vault, version: deps.version }))
 		.route("/", updates.routes(deps))
 		.route(
