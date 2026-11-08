@@ -38,6 +38,7 @@ export function SettingsRow({
 	chevron = true,
 	info = false,
 	trailing,
+	soon = false,
 }: {
 	icon?: IconName;
 	leading?: ReactNode;
@@ -51,6 +52,8 @@ export function SettingsRow({
 	info?: boolean;
 	/** Elemento no lugar do valor e da seta (o interruptor de Segurança). */
 	trailing?: ReactNode;
+	/** Ainda sem tela: mostra "Em breve", esmaecida e sem toque (sem seta). */
+	soon?: boolean;
 }) {
 	const enabled = onPress !== undefined;
 	const rowStyle = {
@@ -85,7 +88,7 @@ export function SettingsRow({
 	return (
 		<Pressable
 			accessibilityRole="button"
-			accessibilityLabel={[title, caption, value].filter(Boolean).join(", ")}
+			accessibilityLabel={[title, caption, value, soon ? "em breve" : undefined].filter(Boolean).join(", ")}
 			accessibilityState={{ disabled: !enabled }}
 			disabled={!enabled}
 			onPress={onPress}
@@ -105,8 +108,13 @@ export function SettingsRow({
 					{value}
 				</Text>
 			) : null}
+			{soon ? (
+				<Text variant="caption" tone="tertiary">
+					Em breve
+				</Text>
+			) : null}
 			{trailing}
-			{chevron ? <Icon name="seta-direita" size={16} color={colors.textSecondary} /> : null}
+			{chevron && !soon ? <Icon name="seta-direita" size={16} color={colors.textSecondary} /> : null}
 		</Pressable>
 	);
 }
