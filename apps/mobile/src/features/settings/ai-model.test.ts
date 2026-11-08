@@ -1,7 +1,46 @@
 import { describe, expect, it } from "vitest";
-import { aiCostCaption, aiCostLabel, limitFieldValue, limitValueLabel, parseUsdInput } from "./ai-model.ts";
+import {
+	aiCostCaption,
+	aiCostLabel,
+	fastModelChoices,
+	limitFieldValue,
+	limitValueLabel,
+	mainModelChoices,
+	modelLabel,
+	modelPriceLabel,
+	parseUsdInput,
+} from "./ai-model.ts";
+
+const sonnet = {
+	id: "claude-sonnet-5-5",
+	label: "Sonnet 5.5",
+	description: "Equilibrado.",
+	main: true,
+	fast: false,
+	inputMicroUsdPerMTok: 2_000_000,
+	outputMicroUsdPerMTok: 10_000_000,
+	priceToConfirm: false,
+};
+
+const haiku = {
+	id: "claude-haiku-5-5",
+	label: "Haiku 5.5",
+	description: "Rápido.",
+	main: true,
+	fast: true,
+	inputMicroUsdPerMTok: 100_000,
+	outputMicroUsdPerMTok: 500_000,
+	priceToConfirm: true,
+};
+
+const options = [sonnet, haiku];
 
 const settings = {
+	chatModel: "claude-sonnet-5-5",
+	chatModelFast: "claude-haiku-5-5" as string | null,
+	chatModelCustom: false,
+	chatModelFastCustom: false,
+	modelOptions: options,
 	month: "2026-11",
 	costMicroUsd: 123_456,
 	requests: 3,
@@ -60,5 +99,26 @@ describe("custo do mês", () => {
 		expect(aiCostCaption({ ...settings, blocked: true })).toBe(
 			"Limite atingido: o chat está pausado · 3 chamadas",
 		);
+	});
+});
+
+describe("modelo do chat", () => {
+	it("mostra o nome do modelo e cai no id quando ele não está na lista; null é desligado", () => {
+		expect(modelLabel(options, "claude-haiku-5-5")).toBe("Haiku 5.5");
+		expect(modelLabel(options, "claude-novo")).toBe("claude-novo");
+		expect(modelLabel(options, null)).toBe("Desligado");
+	});
+
+	it("o preço sai do servidor em dólar por milhão de tokens, com aviso se não conferido", () => {
+		expect(modelPriceLabel(sonnet)).toBe("US$ 2,00 entrada · US$ 10,00 saída por 1 mi de tokens");
+		expect(modelPriceLabel(haiku)).toBe(
+			"US$ 0,10 entrada · US$ 0,50 saída por 1 mi de tokens (preço a conferir)",
+		);
+	});
+
+	it("o modelo rápido oferece só os rápidos e Desligado; o principal, todos os principais", () => {
+		expect(mainModelChoices(options).map((c) => c.id)).toEqual(["claude-sonnet-5-5", "claude-haiku-5-5"]);
+		expect(fastModelChoices(options).map((c) => c.id)).toEqual(["claude-haiku-5-5", "off"]);
+		expect(fastModelChoices(options).at(-1)?.price).toBeNull();
 	});
 });

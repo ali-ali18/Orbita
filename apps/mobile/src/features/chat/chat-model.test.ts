@@ -159,3 +159,16 @@ describe("apoio", () => {
 		expect(conversationLabel("Quanto gastei?")).toBe("Quanto gastei?");
 	});
 });
+
+describe("modelo que respondeu", () => {
+	it("o meta guarda o modelo do turno; um meta sem modelo mantém o anterior; nova conversa zera", () => {
+		let state = chatReducer(initialChatState, {
+			type: "event",
+			event: { type: "meta", conversationId: "c1", model: "claude-opus-5-5" },
+		});
+		expect(state.model).toBe("claude-opus-5-5");
+		state = chatReducer(state, { type: "event", event: { type: "meta", conversationId: "c1" } });
+		expect(state.model).toBe("claude-opus-5-5");
+		expect(chatReducer(state, { type: "reset" }).model).toBeNull();
+	});
+});

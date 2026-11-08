@@ -28,9 +28,11 @@ export interface ChatState {
 	bubbles: ChatBubble[];
 	/** Há uma resposta chegando: o campo de envio espera. */
 	busy: boolean;
+	/** Modelo que respondeu (ou está respondendo) o último turno; `null` antes da primeira resposta. */
+	model: string | null;
 }
 
-export const initialChatState: ChatState = { conversationId: null, bubbles: [], busy: false };
+export const initialChatState: ChatState = { conversationId: null, bubbles: [], busy: false, model: null };
 
 export type ChatAction =
 	| { type: "sent"; text: string; userId: string; assistantId: string }
@@ -93,7 +95,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 			};
 		case "event": {
 			const event = action.event;
-			if (event.type === "meta") return { ...state, conversationId: event.conversationId };
+			if (event.type === "meta") {
+				return { ...state, conversationId: event.conversationId, model: event.model ?? state.model };
+			}
 			if (event.type === "text") {
 				return {
 					...state,
@@ -139,6 +143,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 			return {
 				conversationId: action.conversationId,
 				busy: false,
+				model: null,
 				bubbles: action.messages.map(
 					(m): ChatBubble =>
 						m.role === "user"

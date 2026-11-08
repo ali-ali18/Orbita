@@ -8,8 +8,22 @@ import { errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { useSession } from "../../lib/session.tsx";
 import { Button, ErrorState, IconButton, Screen, Skeleton, Text } from "../../ui/index.ts";
 import { AiLimitSheet } from "./AiLimitSheet.tsx";
-import { aiCostCaption, aiCostLabel, limitValueLabel } from "./ai-model.ts";
-import { useAiSettings, useSaveAiLimit } from "./ai-queries.ts";
+import { AiModelSheet } from "./AiModelSheet.tsx";
+import {
+	aiCostCaption,
+	aiCostLabel,
+	FAST_MODEL_HINT,
+	FAST_MODEL_SHEET_TITLE,
+	FAST_OFF_ID,
+	fastModelChoices,
+	fastModelRowValue,
+	limitValueLabel,
+	MODEL_HINT,
+	MODEL_SHEET_TITLE,
+	mainModelChoices,
+	modelRowValue,
+} from "./ai-model.ts";
+import { useAiSettings, useSaveAiLimit, useSaveAiModels } from "./ai-queries.ts";
 import { useSecrets, useServerInfo } from "./queries.ts";
 import { SecretSheet } from "./SecretSheet.tsx";
 import { SettingsRow, SettingsSection } from "./SettingsRows.tsx";
@@ -113,7 +127,15 @@ function KeysSection({ onOpen }: { onOpen: (status: SecretStatusDto) => void }) 
 }
 
 /** Gasto do mês com a IA e o limite mensal. O servidor calcula o custo; aqui só se mostra e se troca o limite. */
-function AiSection({ onEditLimit }: { onEditLimit: () => void }) {
+function AiSection({
+	onEditLimit,
+	onEditModel,
+	onEditFast,
+}: {
+	onEditLimit: () => void;
+	onEditModel: () => void;
+	onEditFast: () => void;
+}) {
 	const q = useAiSettings();
 	if (q.isError) {
 		return (
@@ -133,6 +155,20 @@ function AiSection({ onEditLimit }: { onEditLimit: () => void }) {
 				title="Custo neste mês"
 				caption={data ? aiCostCaption(data) : null}
 				value={data ? aiCostLabel(data) : "—"}
+			/>
+			<SettingsRow
+				icon="enviar"
+				title="Modelo"
+				caption={data?.chatModelCustom ? "Escolhido por você" : "Padrão do servidor"}
+				value={data ? modelRowValue(data) : "—"}
+				onPress={data ? onEditModel : undefined}
+			/>
+			<SettingsRow
+				icon="enviar"
+				title="Modelo rápido para perguntas simples"
+				caption={data?.chatModelFastCustom ? "Escolhido por você" : "Padrão do servidor"}
+				value={data ? fastModelRowValue(data) : "—"}
+				onPress={data ? onEditFast : undefined}
 			/>
 			<SettingsRow
 				last
@@ -158,6 +194,9 @@ export function ServerScreen() {
 	const [editingLimit, setEditingLimit] = useState(false);
 	const aiQ = useAiSettings();
 	const saveLimit = useSaveAiLimit();
+	const saveModels = useSaveAiModels();
+	const [editingModel, setEditingModel] = useState(false);
+	const [editingFast, setEditingFast] = useState(false);
 
 	const status = (name: SecretName | null) => secretsQ.data?.secrets.find((s) => s.name === name);
 	const device = serverQ.data?.device;
@@ -191,7 +230,11 @@ export function ServerScreen() {
 
 				<KeysSection onOpen={(s) => setEditing(s.name)} />
 
-				<AiSection onEditLimit={() => setEditingLimit(true)} />
+				<AiSection
+					onEditLimit={() => setEditingLimit(true)}
+					onEditModel={() => setEditingModel(true)}
+					onEditFast={() => setEditingFast(true)}
+				/>
 
 				<SettingsSection title="Este aparelho">
 					<SettingsRow info title="Aparelho" value={device?.name ?? "—"} />
@@ -231,6 +274,26 @@ export function ServerScreen() {
 				currentUsdCents={aiQ.data?.limitUsdCents ?? null}
 				onSave={(cents) => saveLimit.mutateAsync(cents)}
 				onClose={() => setEditingLimit(false)}
+			/>
+			<AiModelSheet
+				visible={editingModel}
+				title={MODEL_SHEET_TITLE}
+				hint={MODEL_HINT}
+				choices={mainModelChoices(aiQ.data?.modelOptions ?? [])}
+				currentId={aiQ.data?.chatModel ?? ""}
+				isCustom={aiQ.data?.chatModelCustom ?? false}
+				onPick={(id) => saveModels.mutateAsync({ chatModel: id })}
+				onClose={() => setEditingModel(false)}
+			/>
+			<AiModelSheet
+				visible={editingFast}
+				title={FAST_MODEL_SHEET_TITLE}
+				hint={FAST_MODEL_HINT}
+				choices={fastModelChoices(aiQ.data?.modelOptions ?? [])}
+				currentId={aiQ.data?.chatModelFast ?? FAST_OFF_ID}
+				isCustom={aiQ.data?.chatModelFastCustom ?? false}
+				onPick={(id) => saveModels.mutateAsync({ chatModelFast: id })}
+				onClose={() => setEditingFast(false)}
 			/>
 			<SignOutDialog
 				visible={switching}

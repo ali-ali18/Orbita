@@ -48,3 +48,62 @@ export function aiCostCaption(settings: AiSettingsResponse): string {
 	if (settings.blocked) return `Limite atingido: o chat está pausado · ${calls}`;
 	return calls;
 }
+
+// ------------------------------------------------------------------ modelo
+
+export type ModelOption = AiSettingsResponse["modelOptions"][number];
+
+export const MODEL_SHEET_TITLE = "Modelo do chat";
+export const MODEL_HINT =
+	"Qual modelo da Anthropic responde no chat. Os mais capazes custam mais por mensagem; o gasto entra no limite mensal.";
+export const FAST_MODEL_SHEET_TITLE = "Modelo rápido";
+export const FAST_MODEL_HINT =
+	"Perguntas curtas, só de consulta, vão neste modelo, que é mais barato. Escrever (lançar, trocar categoria) sempre usa o modelo do chat.";
+export const FAST_OFF_ID = "off";
+export const FAST_OFF_LABEL = "Desligado";
+export const FAST_OFF_DESCRIPTION = "Tudo é respondido pelo modelo do chat.";
+
+/** "Sonnet 5.5"; id que não está na lista (padrão do servidor mais novo) aparece como veio. */
+export function modelLabel(options: readonly ModelOption[], id: string | null): string {
+	if (id === null) return FAST_OFF_LABEL;
+	return options.find((o) => o.id === id)?.label ?? id;
+}
+
+/** "US$ 2,00 entrada · US$ 10,00 saída por 1 mi de tokens". `conferir` quando o preço não foi confirmado. */
+export function modelPriceLabel(option: ModelOption): string {
+	const usd = (micro: number) => formatUsdCents(microUsdToUsdCents(micro));
+	const base = `${usd(option.inputMicroUsdPerMTok)} entrada · ${usd(option.outputMicroUsdPerMTok)} saída por 1 mi de tokens`;
+	return option.priceToConfirm ? `${base} (preço a conferir)` : base;
+}
+
+export interface ModelChoice {
+	id: string;
+	label: string;
+	description: string;
+	/** Linha de preço; `null` para "Desligado". */
+	price: string | null;
+}
+
+export function mainModelChoices(options: readonly ModelOption[]): ModelChoice[] {
+	return options
+		.filter((o) => o.main)
+		.map((o) => ({ id: o.id, label: o.label, description: o.description, price: modelPriceLabel(o) }));
+}
+
+export function fastModelChoices(options: readonly ModelOption[]): ModelChoice[] {
+	return [
+		...options
+			.filter((o) => o.fast)
+			.map((o) => ({ id: o.id, label: o.label, description: o.description, price: modelPriceLabel(o) })),
+		{ id: FAST_OFF_ID, label: FAST_OFF_LABEL, description: FAST_OFF_DESCRIPTION, price: null },
+	];
+}
+
+/** Valor da linha "Modelo" em Configurações: o nome, e "padrão" quando vem do servidor. */
+export function modelRowValue(settings: AiSettingsResponse): string {
+	return modelLabel(settings.modelOptions, settings.chatModel);
+}
+
+export function fastModelRowValue(settings: AiSettingsResponse): string {
+	return modelLabel(settings.modelOptions, settings.chatModelFast);
+}

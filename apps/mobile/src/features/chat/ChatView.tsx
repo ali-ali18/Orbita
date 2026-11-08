@@ -299,6 +299,7 @@ export function ChatView({
 	onOpenTransaction,
 	onOpenServer,
 	displayName = null,
+	modelName = null,
 }: {
 	messages: readonly ChatBubble[];
 	/** Uma resposta está chegando: o envio espera. */
@@ -316,6 +317,8 @@ export function ChatView({
 	onOpenServer?: () => void;
 	/** Como a Órbita chama o dono ("Olá, Alisson"); sem nome, só "Olá". */
 	displayName?: string | null;
+	/** Nome do modelo que respondeu o último turno (ex.: "Sonnet 5.5"). */
+	modelName?: string | null;
 }) {
 	const [draft, setDraft] = useState("");
 	const [attachOpen, setAttachOpen] = useState(false);
@@ -341,7 +344,14 @@ export function ChatView({
 						}}
 					>
 						<OrbitaAvatar size={24} />
-						<Text variant="bodyStrong">Órbita</Text>
+						<View>
+							<Text variant="bodyStrong">Órbita</Text>
+							{modelName ? (
+								<Text variant="caption" tone="secondary" accessibilityLabel={`Respondendo com ${modelName}`}>
+									{modelName}
+								</Text>
+							) : null}
+						</View>
 					</View>
 					<IconButton icon="relogio" label="Conversas" onPress={onHistory} />
 				</View>

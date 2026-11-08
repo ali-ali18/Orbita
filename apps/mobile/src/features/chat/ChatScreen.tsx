@@ -3,6 +3,8 @@ import { useRouter } from "expo-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { call } from "../../lib/api.ts";
 import { useSession } from "../../lib/session.tsx";
+import { modelLabel } from "../settings/ai-model.ts";
+import { useAiSettings } from "../settings/ai-queries.ts";
 import { useProfile } from "../settings/preferences-queries.ts";
 import { isAffectedByNewTransaction } from "../transactions/new-transaction-model.ts";
 import { ChatHistorySheet } from "./ChatHistorySheet.tsx";
@@ -21,6 +23,7 @@ export function ChatScreen() {
 	const router = useRouter();
 	const { api, baseUrl, state: session, handleQueryError } = useSession();
 	const queryClient = useQueryClient();
+	const aiQ = useAiSettings();
 	const [state, dispatch] = useReducer(chatReducer, initialChatState);
 	const [historyOpen, setHistoryOpen] = useState(false);
 	const [busyProposalId, setBusyProposalId] = useState<string | null>(null);
@@ -153,6 +156,7 @@ export function ChatScreen() {
 				onOpenTransaction={(id) => router.push(`/lancamento/${id}`)}
 				onOpenServer={() => router.push("/configuracoes/servidor")}
 				displayName={profileQ.data?.displayName ?? null}
+				modelName={state.model ? modelLabel(aiQ.data?.modelOptions ?? [], state.model) : null}
 			/>
 			<ChatHistorySheet
 				visible={historyOpen}
