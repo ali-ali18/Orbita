@@ -610,3 +610,88 @@ describe("modelo do chat escolhido no app", () => {
 		});
 	});
 });
+
+describe("lista de conversas", () => {
+	it("pagina por cursor (padrão 20, máximo 50), mais recente primeiro, sem repetir", async () => {
+		const ctx = await setup([]);
+		const ids: string[] = [];
+		for (let i = 1; i <= 25; i += 1) ids.push((await ctx.stores.chat.createConversation(`Conversa ${i}`)).id);
+
+		const first = (await ctx.api.get("/v1/chat/conversations")).body;
+		expect(first.conversations).toHaveLength(20);
+		expect(first.nextCursor).toEqual(expect.any(String));
+		expect(first.conversations[0]).toMatchObject({ agentId: null, updatedAt: expect.any(String) });
+		const second = (await ctx.api.get(`/v1/chat/conversations?cursor=${first.nextCursor}`)).body;
+		expect(second.conversations).toHaveLength(5);
+		expect(second.nextCursor).toBeNull();
+		const seen = [...first.conversations, ...second.conversations].map((c: Json) => c.id);
+		expect(new Set(seen).size).toBe(25);
+		expect([...seen].sort()).toEqual([...ids].sort());
+
+		// Limite 3 é a gaveta do chat: três conversas e "há mais" no cursor.
+		const recent = (await ctx.api.get("/v1/chat/conversations?limit=3")).body;
+		expect(recent.conversations).toHaveLength(3);
+		expect(recent.nextCursor).not.toBeNull();
+		// Sem mais nada além do limite, não há cursor.
+		expect((await ctx.api.get("/v1/chat/conversations?limit=50")).body.nextCursor).toBeNull();
+	});
+
+	it("recusa limite fora de 1..50 e cursor inválido", async () => {
+		const ctx = await setup([]);
+		for (const query of ["limit=0", "limit=51", "limit=abc", "cursor=lixo", `q=${"a".repeat(101)}`]) {
+			expect((await ctx.api.get(`/v1/chat/conversations?${query}`)).status).toBe(400);
+		}
+	});
+
+	it("busca pelo título no servidor e mantém o filtro nas páginas seguintes", async () => {
+		const ctx = await setup([]);
+		for (const title of ["Mercado 1", "Viagem", "Mercado 2", "mercado 3"]) {
+			await ctx.stores.chat.createConversation(title);
+		}
+		const page = (await ctx.api.get("/v1/chat/conversations?q=Mercado&limit=2")).body;
+		expect(page.conversations).toHaveLength(2);
+		expect(page.nextCursor).not.toBeNull();
+		const rest = (await ctx.api.get(`/v1/chat/conversations?q=Mercado&limit=2&cursor=${page.nextCursor}`))
+			.body;
+		expect(rest.conversations).toHaveLength(1);
+		const titles = [...page.conversations, ...rest.conversations].map((c: Json) => c.title).sort();
+		expect(titles).toEqual(["Mercado 1", "Mercado 2", "mercado 3"]);
+		expect((await ctx.api.get("/v1/chat/conversations?q=zzz")).body.conversations).toEqual([]);
+	});
+
+	it("traz o agente da conversa", async () => {
+		const ctx = await setup([]);
+		const agent = (await ctx.api.get("/v1/agents")).body.agents[0];
+		const made = await ctx.stores.chat.createConversation("Com agente", { agentId: agent.id });
+		const listed = (await ctx.api.get("/v1/chat/conversations")).body.conversations;
+		expect(listed.find((c: Json) => c.id === made.id).agentId).toBe(agent.id);
+	});
+
+	it("renomeia (PATCH), recusa nome vazio ou grande e dá 404 se não existe", async () => {
+		const ctx = await setup([]);
+		const made = await ctx.stores.chat.createConversation("Original");
+		const ok = await ctx.api.patch(`/v1/chat/conversations/${made.id}`, { title: "  Viagem de dezembro " });
+		expect(ok.status).toBe(200);
+		expect(ok.body.conversation).toMatchObject({ id: made.id, title: "Viagem de dezembro" });
+		expect((await ctx.api.get(`/v1/chat/conversations/${made.id}`)).body.conversation.title).toBe(
+			"Viagem de dezembro",
+		);
+		expect((await ctx.api.patch(`/v1/chat/conversations/${made.id}`, { title: "   " })).status).toBe(400);
+		expect((await ctx.api.patch(`/v1/chat/conversations/${made.id}`, { title: "a".repeat(61) })).status).toBe(
+			400,
+		);
+		expect((await ctx.api.patch(`/v1/chat/conversations/${made.id}`, { title: "x", extra: 1 })).status).toBe(
+			400,
+		);
+		expect((await ctx.api.patch("/v1/chat/conversations/fantasma", { title: "Nome" })).status).toBe(404);
+	});
+
+	it("o título da conversa nova sai da primeira mensagem, curto e cortado numa palavra", async () => {
+		const ctx = await setup([say("Oi.")]);
+		await ctx.vault.put("anthropic_api_key", KEY, "Teste");
+		await chat(ctx, "Quanto eu gastei com delivery e mercado nos últimos três meses?");
+		expect((await ctx.api.get("/v1/chat/conversations")).body.conversations[0].title).toBe(
+			"Quanto eu gastei com delivery e mercado…",
+		);
+	});
+});
