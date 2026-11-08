@@ -7,7 +7,7 @@ import {
 	type Stores,
 	toCardConfig,
 } from "@orbita/db";
-import type { PluggySyncStatus, SecretName } from "@orbita/shared";
+import { PLUGGY_RECONNECT_MESSAGE, type PluggySyncStatus, type SecretName } from "@orbita/shared";
 import { detectBankName, findKnownBank, hasMeuPluggyPrefix, isWeakCardName } from "./bank-name.ts";
 import { buildCategoryIndex, type CategoryIndex } from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
@@ -238,8 +238,7 @@ async function syncConnection(
 		const item = await client.item(connection.id);
 		if (NEEDS_USER.has(item.status)) {
 			result.status = "error";
-			result.error =
-				"O banco pediu para você reconectar. Abra o Meu Pluggy, atualize a conexão e sincronize de novo.";
+			result.error = PLUGGY_RECONNECT_MESSAGE;
 			return result;
 		}
 		// O Pluggy só tem o dado novo quando o item está atualizado. Com o banco atrasado (UPDATING, OUTDATED…) o

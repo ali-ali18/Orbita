@@ -1,9 +1,8 @@
 import { colors, layout, radius, spacing } from "@orbita/tokens";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Linking, ScrollView, View } from "react-native";
+import { AppState, ScrollView, View } from "react-native";
 import { toLoadable } from "../../lib/loadable.ts";
-import { useSession } from "../../lib/session.tsx";
 import {
 	BankLogo,
 	Button,
@@ -14,6 +13,7 @@ import {
 	Text,
 	TOP_FADE,
 } from "../../ui/index.ts";
+import { usePendingTransactions } from "../review/queries.ts";
 import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
 import { isUnreachableQuery } from "../server/server-model.ts";
 import { SettingsRow, SettingsSection } from "../settings/SettingsRows.tsx";
@@ -24,6 +24,7 @@ import {
 	connectionCaption,
 	connectionName,
 	connectionStatusLine,
+	disconnectedConnections,
 	EMPTY_MESSAGE,
 	EMPTY_TITLE,
 	isSlowSync,
@@ -37,20 +38,20 @@ import {
 	syncCardText,
 	syncErrorMessage,
 } from "./banks-model.ts";
+import { ConnectedScreen } from "./ConnectedScreen.tsx";
 import { AddConnectionSheet, ConnectionSheet, ReimportSheet } from "./ConnectionSheets.tsx";
 import {
 	CONNECT_BUTTON,
-	CONNECT_OPEN_FAILED,
-	CONNECT_PENDING_HINT,
 	canConnect,
-	connectErrorMessage,
 	connectionArrived,
-	connectUrl,
 	isWaitingForConnect,
 	MANUAL_BUTTON,
 	returnedToApp,
 } from "./connect-model.ts";
-import { usePluggyActions, usePluggyStatus } from "./queries.ts";
+import { isReadyToCelebrate, newConnection } from "./connected-model.ts";
+import { usePluggyActions, usePluggyImportedCount, usePluggyStatus } from "./queries.ts";
+import { ReconnectBanner } from "./ReconnectBanner.tsx";
+import { useConnectLauncher } from "./use-connect.ts";
 import { useNow } from "./use-now.ts";
 
 function Panel({ children }: { children: React.ReactNode }) {
@@ -73,8 +74,7 @@ export function BanksScreen() {
 	const router = useRouter();
 	const now = useNow();
 	const statusQ = usePluggyStatus();
-	const { sync, reimport, add, rename, remove, connect } = usePluggyActions();
-	const { baseUrl } = useSession();
+	const { sync, reimport, add, rename, remove } = usePluggyActions();
 	const [adding, setAdding] = useState(false);
 	const [reimporting, setReimporting] = useState(false);
 	const [openId, setOpenId] = useState<string | null>(null);
@@ -83,10 +83,6 @@ export function BanksScreen() {
 	const [announcement, setAnnouncement] = useState("");
 	const previousSync = useRef<SyncState | undefined>(undefined);
 	const [activeSince, setActiveSince] = useState<number | null>(null);
-	const [connectMessage, setConnectMessage] = useState<string | null>(null);
-	const connectLocked = useRef(false);
-	// Quando a página do Pluggy foi aberta e quantas conexões havia: ao voltar ao app, confere se apareceu uma.
-	const connectOpened = useRef<{ at: number; count: number } | null>(null);
 
 	const status = toLoadable(statusQ);
 	const data = status.phase === "ready" ? status.data : null;
@@ -113,7 +109,16 @@ export function BanksScreen() {
 	}, [sinceData]);
 	const slow = isSlowSync(activeSince, now.getTime());
 
-	const connectionCount = data?.connections.length;
+	const connectionIds = (data?.connections ?? []).map((c) => c.id);
+	const {
+		start: startConnect,
+		pending: connectPending,
+		message: connectMessage,
+		setMessage: setConnectMessage,
+		opened: connectOpened,
+	} = useConnectLauncher(connectionIds);
+	// Conexão nova que acabou de chegar do Pluggy Connect: vira a tela "Pronto" quando a sincronização termina.
+	const [justConnectedId, setJustConnectedId] = useState<string | null>(null);
 	const { refetch } = statusQ;
 	useEffect(() => {
 		let prev: string = AppState.currentState ?? "active";
@@ -124,37 +129,23 @@ export function BanksScreen() {
 			if (back && opened && isWaitingForConnect(opened.at, Date.now())) void refetch();
 		});
 		return () => sub.remove();
-	}, [refetch]);
+	}, [refetch, connectOpened]);
+	const connections = data?.connections;
 	useEffect(() => {
 		const opened = connectOpened.current;
-		if (opened && connectionCount !== undefined && connectionArrived(opened.count, connectionCount)) {
+		if (opened && connections && connectionArrived(opened.ids.length, connections.length)) {
+			const fresh = newConnection(opened.ids, connections);
 			connectOpened.current = null;
 			setConnectMessage(null);
+			if (fresh) setJustConnectedId(fresh.id);
 		}
-	}, [connectionCount]);
+	}, [connections, connectOpened, setConnectMessage]);
 
-	const startConnect = async () => {
-		if (connectLocked.current || baseUrl === null) return;
-		connectLocked.current = true;
-		setConnectMessage(null);
-		try {
-			const { path } = await connect.mutateAsync();
-			const url = connectUrl(baseUrl, path);
-			if (!url) throw new Error(CONNECT_OPEN_FAILED);
-			connectOpened.current = { at: Date.now(), count: connectionCount ?? 0 };
-			await Linking.openURL(url);
-			setConnectMessage(CONNECT_PENDING_HINT);
-		} catch (error) {
-			connectOpened.current = null;
-			setConnectMessage(
-				error instanceof Error && error.message === CONNECT_OPEN_FAILED
-					? CONNECT_OPEN_FAILED
-					: connectErrorMessage(error),
-			);
-		} finally {
-			connectLocked.current = false;
-		}
-	};
+	const justConnected = data?.connections.find((c) => c.id === justConnectedId) ?? null;
+	const celebrating = justConnected !== null && data !== null && isReadyToCelebrate(justConnected, data.sync);
+	const importedQ = usePluggyImportedCount(celebrating);
+	const pendingQ = usePendingTransactions();
+	const disconnected = data ? disconnectedConnections(data.connections) : [];
 
 	const card = data ? syncCardText(data, now, slow) : null;
 	const opened = data?.connections.find((c) => c.id === openId) ?? null;
@@ -173,6 +164,19 @@ export function BanksScreen() {
 	};
 
 	if (isUnreachableQuery(statusQ)) return <ServerDownScreen onRetry={() => statusQ.refetch()} />;
+
+	if (justConnected && data && isReadyToCelebrate(justConnected, data.sync)) {
+		return (
+			<ConnectedScreen
+				connection={justConnected}
+				imported={importedQ.data?.count ?? null}
+				pending={pendingQ.data ? pendingQ.data.transactions.length : null}
+				onReview={() => router.replace("/revisao")}
+				onHome={() => router.replace("/")}
+				onLater={() => setJustConnectedId(null)}
+			/>
+		);
+	}
 
 	return (
 		<Screen fadeTop>
@@ -211,6 +215,15 @@ export function BanksScreen() {
 
 				{data ? (
 					<>
+						{disconnected.map((c) => (
+							<ReconnectBanner
+								key={c.id}
+								connection={c}
+								now={now}
+								loading={connectPending}
+								onReconnect={() => void startConnect()}
+							/>
+						))}
 						{!data.keysConfigured ? (
 							<Panel>
 								<Text variant="bodyStrong" accessibilityRole="header">
@@ -289,7 +302,7 @@ export function BanksScreen() {
 						<Button
 							label={CONNECT_BUTTON}
 							icon="mais"
-							loading={connect.isPending}
+							loading={connectPending}
 							disabled={!canConnect(data)}
 							onPress={() => void startConnect()}
 						/>

@@ -8,7 +8,11 @@ import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { BottomBar, Screen, Text, TOP_FADE, useBottomBarHeight } from "../../ui/index.ts";
-import { usePluggyHomeWatch } from "../banks/queries.ts";
+import { disconnectedConnections } from "../banks/banks-model.ts";
+import { usePluggyHomeWatch, usePluggyStatusSnapshot } from "../banks/queries.ts";
+import { ReconnectBanner } from "../banks/ReconnectBanner.tsx";
+import { useConnectLauncher } from "../banks/use-connect.ts";
+import { useNow } from "../banks/use-now.ts";
 import { usePendingTransactions } from "../review/queries.ts";
 import { ReviewBanner } from "../review/ReviewScreen.tsx";
 import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
@@ -51,6 +55,12 @@ export function HomeScreen() {
 	const installmentsQ = useInstallments();
 	const recentQ = useRecentTransactions(4);
 	const pendingQ = usePendingTransactions();
+	const pluggyQ = usePluggyStatusSnapshot();
+	const now = useNow();
+	const disconnected = disconnectedConnections(pluggyQ.data?.connections ?? []);
+	const { start: reconnect, pending: reconnecting } = useConnectLauncher(
+		(pluggyQ.data?.connections ?? []).map((c) => c.id),
+	);
 
 	const cards = toLoadable(cardsQ);
 	const firstCard = cards.phase === "ready" ? cards.data.cards.find((c) => c.archivedAt === null) : undefined;
@@ -115,6 +125,15 @@ export function HomeScreen() {
 					</Text>
 				</View>
 
+				{disconnected.map((c) => (
+					<ReconnectBanner
+						key={c.id}
+						connection={c}
+						now={now}
+						loading={reconnecting}
+						onReconnect={() => void reconnect()}
+					/>
+				))}
 				<HeroCard state={summaryWithCategories} hidden={hidden} />
 				{pendingQ.data && pendingQ.data.transactions.length > 0 ? (
 					<ReviewBanner

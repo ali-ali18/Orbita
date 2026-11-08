@@ -21,6 +21,21 @@ export const PLUGGY_LABEL_MAX = 60;
 export const PLUGGY_SYNC_STATUSES = ["ok", "partial", "error", "no_keys"] as const;
 export type PluggySyncStatus = (typeof PLUGGY_SYNC_STATUSES)[number];
 
+/**
+ * `lastError` de uma conexão cujo banco pediu login de novo (`LOGIN_ERROR`, `WAITING_USER_INPUT`, `WAITING_USER_ACTION`).
+ * O servidor grava; o app reconhece pelo começo da frase (conexões antigas têm o final diferente).
+ */
+export const PLUGGY_RECONNECT_PREFIX = "O banco pediu para você reconectar.";
+export const PLUGGY_RECONNECT_MESSAGE = `${PLUGGY_RECONNECT_PREFIX} Toque em Reconectar no app e sincronize de novo.`;
+
+/** A conexão precisa de login novo no banco (não é falha do Pluggy nem das chaves). */
+export function needsReconnect(c: {
+	lastStatus: PluggySyncStatus | null;
+	lastError: string | null;
+}): boolean {
+	return c.lastStatus === "error" && (c.lastError?.startsWith(PLUGGY_RECONNECT_PREFIX) ?? false);
+}
+
 /** Sem caractere de controle (quebra de linha, tabulação, etc.): o nome vai para uma linha só. */
 const noControlChars = (v: string) => !/[\p{Cc}\p{Cf}]/u.test(v);
 

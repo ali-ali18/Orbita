@@ -1,0 +1,61 @@
+import type { PluggyConnectionDto, PluggyStatusResponse } from "@orbita/shared";
+import { connectionName } from "./banks-model.ts";
+
+/*
+ * "Conectar banco · Pronto" (Figma 53:1254): a tela de sucesso depois do Pluggy Connect. Aparece quando a conexão
+ * nova chega e a primeira sincronização termina. Só mostra números que o servidor sabe.
+ */
+
+export const CONNECTED_LATER = "Ver depois";
+
+/** A primeira conexão que não existia quando a página do Pluggy foi aberta. */
+export function newConnection(
+	before: readonly string[],
+	connections: readonly PluggyConnectionDto[],
+): PluggyConnectionDto | null {
+	const known = new Set(before);
+	return connections.find((c) => !known.has(c.id)) ?? null;
+}
+
+/** Hora de mostrar os números: nada em andamento e a conexão trouxe dado (ok ou parcial). */
+export function isReadyToCelebrate(
+	connection: Pick<PluggyConnectionDto, "lastStatus">,
+	sync: PluggyStatusResponse["sync"],
+): boolean {
+	return sync === "idle" && (connection.lastStatus === "ok" || connection.lastStatus === "partial");
+}
+
+export function connectedTitle(connection: Pick<PluggyConnectionDto, "label">): string {
+	return `${connectionName(connection)} conectado`;
+}
+
+export const CONNECTED_SUBTITLE = "Trouxe os últimos 90 dias. Já separei em categorias.";
+
+export interface ConnectedRow {
+	label: string;
+	value: number;
+}
+
+/** Linhas da tabela. Contas e cartões só aparecem se vieram; lançamentos e pendentes sempre (zero também é resposta). */
+export function connectedRows(input: {
+	summary: PluggyConnectionDto["summary"];
+	imported: number | null;
+	pending: number | null;
+}): ConnectedRow[] {
+	const rows: ConnectedRow[] = [];
+	if (input.summary.accounts > 0) {
+		rows.push({ label: input.summary.accounts === 1 ? "Conta" : "Contas", value: input.summary.accounts });
+	}
+	if (input.summary.cards > 0) {
+		rows.push({ label: input.summary.cards === 1 ? "Cartão" : "Cartões", value: input.summary.cards });
+	}
+	if (input.imported !== null) rows.push({ label: "Lançamentos importados", value: input.imported });
+	if (input.pending !== null) rows.push({ label: "Para você revisar", value: input.pending });
+	return rows;
+}
+
+/** "Revisar os 3"; sem nada para revisar o botão principal é "Ver o Início". */
+export function connectedPrimary(pending: number | null): { label: string; target: "review" | "home" } {
+	if (pending === null || pending === 0) return { label: "Ver o Início", target: "home" };
+	return { label: pending === 1 ? "Revisar 1" : `Revisar os ${pending}`, target: "review" };
+}
