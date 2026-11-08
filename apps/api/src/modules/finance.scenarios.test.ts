@@ -543,6 +543,7 @@ describe("segurança e erros", () => {
 			["GET", "/v1/summary/2026-11"],
 			["GET", "/v1/cards/x/invoices/2026-11"],
 			["GET", "/v1/installments"],
+			["GET", "/v1/summary/2026-11/breakdown"],
 		];
 		for (const [method, path] of routes) {
 			const body = method === "GET" || method === "DELETE" ? undefined : {};
@@ -753,6 +754,95 @@ describe("gasto por fatura e investido (caso do dono)", () => {
 		expect(nov.summary.spentCents - 20000).toBe(77301);
 	});
 
+	it("a abertura do Gasto lista cada linha por ramo e fecha com o Início", async () => {
+		const { api, card, account } = await ownerCase();
+		const home = (await api.get("/v1/summary/2026-11")).body.summary;
+		const res = (await api.get("/v1/summary/2026-11/breakdown")).body;
+		expect(res.spentCents).toBe(home.spentCents);
+		expect(res.rowsCents).toBe(home.spentCents);
+		expect(res.branches).toEqual([
+			{ branch: "account", count: 1, subtotalCents: 20000 },
+			{ branch: "card", count: 3, subtotalCents: 8687 + 12464 + 51000 },
+			{ branch: "projected", count: 0, subtotalCents: 0 },
+		]);
+		// A aplicação, a receita e a fatura aberta (dezembro) não entram.
+		expect(res.rows.map((r: { description: string }) => r.description).sort()).toEqual([
+			"Farmácia",
+			"Mercado",
+			"Notebook",
+			"Tênis",
+		]);
+		const tenis = res.rows.find((r: { description: string }) => r.description === "Tênis");
+		expect(tenis).toMatchObject({
+			branch: "card",
+			date: "2026-10-30",
+			invoiceMonth: "2026-11",
+			kind: "expense",
+			amountCents: 51000,
+			deltaCents: 51000,
+			cardId: card.id,
+			accountId: null,
+			estimated: false,
+		});
+		expect(res.rows.find((r: { description: string }) => r.description === "Mercado")).toMatchObject({
+			branch: "account",
+			invoiceMonth: null,
+			accountId: account.id,
+		});
+	});
+
+	it("o detalhamento marca a parcela estimada e o estorno soma negativo", async () => {
+		const ctx = await withRent();
+		const { api, card, category } = ctx;
+		await ctx.stores.transactions.upsertInstallmentByExternal(
+			"pluggy",
+			"k-1",
+			{
+				kind: "expense",
+				amountCents: 5150,
+				description: "Kabum",
+				cardId: card.id,
+				date: "2026-10-02",
+				invoiceMonth: "2026-11",
+				budgetMonth: "2026-11",
+			},
+			{ groupId: "kabum", number: 1, count: 10 },
+		);
+		const bought = (
+			await api.post("/v1/transactions", {
+				kind: "expense",
+				amountCents: 3000,
+				date: "2026-11-02",
+				description: "Loja",
+				cardId: card.id,
+				categoryId: category("lazer"),
+			})
+		).body.transaction;
+		await api.post("/v1/transactions", {
+			kind: "refund",
+			amountCents: 1000,
+			date: "2026-11-03",
+			description: "Estorno Loja",
+			cardId: card.id,
+			refundOfId: bought.id,
+			categoryId: category("lazer"),
+		});
+		const dec = (await api.get("/v1/summary/2026-12/breakdown")).body;
+		expect(dec.branches.find((b: { branch: string }) => b.branch === "projected")).toMatchObject({
+			count: 1,
+			subtotalCents: 5150,
+		});
+		expect(dec.rows.find((r: { estimated: boolean }) => r.estimated)).toMatchObject({
+			branch: "projected",
+			description: "Kabum",
+			invoiceMonth: "2026-12",
+		});
+		const nov = (await api.get("/v1/summary/2026-11/breakdown")).body;
+		const refund = nov.rows.find((r: { kind: string }) => r.kind === "refund");
+		expect(refund).toMatchObject({ amountCents: 1000, deltaCents: -1000, branch: "card" });
+		expect(nov.rowsCents).toBe(nov.spentCents);
+	});
+
 	it("parcela que o banco ainda não lançou entra na fatura do mês, marcada como estimada", async () => {
 		const { api, stores, card } = await withRent();
 		const base = {
@@ -781,6 +871,66 @@ describe("gasto por fatura e investido (caso do dono)", () => {
 		expect((await api.get("/v1/summary/2026-09")).body.summary.projectedCents).toBe(0);
 		// Novembro já tem a parcela 2 lançada: nada estimado.
 		expect((await api.get("/v1/summary/2026-11")).body.summary.projectedCents).toBe(0);
+	});
+});
+
+describe("gasto inflado: a mesma parcela não conta duas vezes", () => {
+	/** Parcela como o Pluggy grava: avulsa por fatura, com o grupo que o mapeamento achou. */
+	async function parcel(
+		ctx: Awaited<ReturnType<typeof withRent>>,
+		groupId: string,
+		number: number,
+		invoiceMonth: string,
+		description = "Kabum",
+	) {
+		await ctx.stores.transactions.upsertInstallmentByExternal(
+			"pluggy",
+			`${groupId}-${number}`,
+			{
+				kind: "expense",
+				amountCents: 5150,
+				description,
+				cardId: ctx.card.id,
+				date: "2026-09-02",
+				invoiceMonth,
+				budgetMonth: invoiceMonth,
+			},
+			{ groupId, number, count: 10 },
+		);
+	}
+
+	it("a descrição muda a cada fatura ('04/10', '05/10'): a parcela real de outro grupo não é estimada de novo", async () => {
+		const ctx = await withRent();
+		await parcel(ctx, "kabum-03", 3, "2026-11", "Kabum 03/10");
+		await parcel(ctx, "kabum-04", 4, "2026-12", "Kabum 04/10");
+		// O grupo "03" estimaria a parcela 4 em dezembro, mas ela já está lançada no grupo "04".
+		const dec = (await ctx.api.get("/v1/summary/2026-12")).body.summary;
+		expect(dec.spentCents).toBe(5150);
+		expect(dec.projectedCents).toBe(0);
+		const invoice = (await ctx.api.get(`/v1/cards/${ctx.card.id}/invoices/2026-12`)).body;
+		expect(invoice.composition.totalCents).toBe(5150);
+	});
+
+	it("fragmentos do mesmo parcelamento estimam a parcela do mês uma vez só", async () => {
+		const ctx = await withRent();
+		await parcel(ctx, "kabum-01", 1, "2026-10", "Kabum 01/10");
+		await parcel(ctx, "kabum-02", 2, "2026-11", "Kabum 02/10");
+		const dec = (await ctx.api.get("/v1/summary/2026-12")).body.summary;
+		expect(dec.spentCents).toBe(5150);
+		expect(dec.projectedCents).toBe(5150);
+	});
+
+	it("fatura já fechada não ganha parcela estimada (novembro fechou dia 10)", async () => {
+		const ctx = await withRent();
+		await parcel(ctx, "kabum", 1, "2026-10");
+		// A parcela 2 deveria cair em novembro, mas a fatura de novembro fechou e o banco não a lançou: não vem mais.
+		const nov = (await ctx.api.get("/v1/summary/2026-11")).body.summary;
+		expect(nov.spentCents).toBe(20000);
+		expect(nov.projectedCents).toBe(0);
+		// A aberta (dezembro) continua estimando a parcela 3.
+		expect((await ctx.api.get("/v1/summary/2026-12")).body.summary.projectedCents).toBe(5150);
+		const closed = (await ctx.api.get(`/v1/cards/${ctx.card.id}/invoices/2026-11`)).body;
+		expect(closed.composition.totalCents).toBe(0);
 	});
 });
 

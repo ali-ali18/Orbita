@@ -228,6 +228,8 @@ export type MappedTransaction =
 			categorySource?: CategorySource;
 			/** Parcela de compra parcelada no cartão: entra num grupo que cresce a cada fatura. */
 			installment?: { groupId: string; number: number; count: number };
+			/** O `invoiceMonth` veio da fatura do banco (`billId`), não do cálculo pelo fechamento: vale corrigir o já gravado. */
+			invoiceFromBill?: true;
 	  }
 	/** Estorno no cartão: o sync procura a compra original antes de gravar. */
 	| {
@@ -452,8 +454,12 @@ export function pluggyInstallmentGroupId(input: {
 	count: number;
 	description: string;
 }): string {
+	// O banco escreve o número da parcela no nome ("04/10", "4 de 10", "4-10"): ele muda a cada fatura e não pode
+	// entrar no id, senão cada parcela vira um grupo de uma só (e cada grupo estima as seguintes, contando em dobro).
+	const ofCount = new RegExp(`\\b\\d{1,2}\\s*(?:de|/|-)\\s*${input.count}\\b`, "gi");
 	const name =
-		normalizeMerchantName(input.description.replace(/\bparc(ela)?\b/gi, " ")) || plain(input.description);
+		normalizeMerchantName(input.description.replace(ofCount, " ").replace(/\bparc(ela)?\b/gi, " ")) ||
+		plain(input.description);
 	const hash = createHash("sha256")
 		.update(JSON.stringify([input.cardId, input.purchaseDate, input.count, name]))
 		.digest("hex");
@@ -597,8 +603,8 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 	if (ctx.card === null) return { action: "skip", reason: "invalid" };
 	const meta = tx.creditCardMetadata;
 	// A fatura que o próprio Pluggy indica (billId → mês do vencimento) vale mais que o cálculo pelo fechamento.
-	const invoiceMonth =
-		(meta?.billId ? ctx.billMonths?.get(meta.billId) : undefined) ?? invoiceFor(date, ctx.card.config).month;
+	const billMonth = meta?.billId ? ctx.billMonths?.get(meta.billId) : undefined;
+	const invoiceMonth = billMonth ?? invoiceFor(date, ctx.card.config).month;
 	const installment =
 		meta?.installmentNumber && meta.totalInstallments && meta.totalInstallments > 1
 			? `Parcela ${meta.installmentNumber}/${meta.totalInstallments}`
@@ -653,6 +659,7 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 			},
 			categorySource: choice.source,
 			...(groupInput ? { installment: groupInput.installment } : {}),
+			...(billMonth === undefined ? {} : { invoiceFromBill: true as const }),
 		};
 	}
 	if (ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };

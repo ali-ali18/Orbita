@@ -94,9 +94,24 @@ export interface ProjectedInstallment {
 	categoryId: string | null;
 }
 
+/** O que identifica uma parcela além do grupo: o mesmo cartão, fatura, número, total e valor. */
+const installmentKey = (
+	cardId: string | null,
+	month: MonthKey,
+	number: number,
+	count: number,
+	cents: Cents,
+) => `${cardId}|${month}|${number}/${count}|${cents}`;
+
 /**
  * Parcela que o banco ainda não lançou, mas que cai neste mês da fatura. Só depois da última parcela já
  * vista: o que veio antes e não está gravado o Órbita não inventa.
+ *
+ * Duas travas contra contar a mesma parcela duas vezes:
+ * - `existing` são os lançamentos REAIS do cartão que já estão na fatura de `month`. O grupo costuma não ser confiável
+ *   (o banco repete a descrição com "03/10", "04/10" e cada parcela vira um grupo de uma só): se a fatura já tem uma
+ *   parcela com o mesmo número, total e valor, a estimada de outro grupo é a mesma compra e não entra;
+ * - duas estimadas iguais (mesmo número, total e valor) viram uma só, pelo mesmo motivo.
  */
 export function projectMissingInstallments(
 	groups: readonly {
@@ -113,8 +128,23 @@ export function projectMissingInstallments(
 	}[],
 	cardId: string,
 	month: MonthKey,
+	existing: readonly {
+		cardId: string | null;
+		installmentNumber: number | null;
+		installmentCount: number | null;
+		amountCents: Cents;
+		invoiceMonth: MonthKey | null;
+	}[] = [],
 ): ProjectedInstallment[] {
 	const projected: ProjectedInstallment[] = [];
+	const seen = new Set<string>();
+	for (const item of existing) {
+		if (item.installmentNumber === null || item.installmentCount === null) continue;
+		if (item.invoiceMonth !== month) continue;
+		seen.add(
+			installmentKey(item.cardId, month, item.installmentNumber, item.installmentCount, item.amountCents),
+		);
+	}
 	for (const group of groups) {
 		if (group.installments.length === 0 || group.installments[0]?.cardId !== cardId) continue;
 		const count = group.installments[0]?.installmentCount ?? group.installments.length;
@@ -129,6 +159,9 @@ export function projectMissingInstallments(
 		);
 		for (let number = anchor.installmentNumber + 1; number <= count; number += 1) {
 			if (addMonths(anchor.invoiceMonth, number - anchor.installmentNumber) !== month) continue;
+			const key = installmentKey(cardId, month, number, count, anchor.amountCents);
+			if (seen.has(key)) continue;
+			seen.add(key);
 			projected.push({
 				groupId: group.groupId,
 				description: anchor.description || group.installments[0]?.description || "Parcela",

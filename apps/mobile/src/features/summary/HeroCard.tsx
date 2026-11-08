@@ -1,5 +1,6 @@
 import { spacing } from "@orbita/tokens";
-import { View } from "react-native";
+import { useRouter } from "expo-router";
+import { Pressable, View } from "react-native";
 import type { CategoriesView, MonthSummary } from "../../lib/api.ts";
 import { formatWholeReais, money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
@@ -10,6 +11,24 @@ import { budgetAlertNotice, categoryShares, heroBarParts, heroModel } from "./su
 const TOTAL_BUDGET_SCOPE = "total";
 
 const TITLE = "Dá pra gastar até o fim do mês";
+
+/** "Gasto R$ X" que abre "Como chegamos nesse número" (cada lançamento que somou, por ramo). */
+function SpentLine({ month, cents, hidden }: { month: string; cents: number; hidden: boolean }) {
+	const router = useRouter();
+	return (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={`Gasto ${hidden ? "escondido" : money(cents, false, { sign: "never" })}, ver como chegamos nesse número`}
+			hitSlop={8}
+			onPress={() => router.push({ pathname: "/gasto", params: { mes: month } })}
+			style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+		>
+			<Text variant="caption" tone="secondary" style={{ textDecorationLine: "underline" }}>
+				Gasto {money(cents, hidden, { sign: "never" })}
+			</Text>
+		</Pressable>
+	);
+}
 
 function Shell({ title = TITLE, children }: { title?: string; children: React.ReactNode }) {
 	return (
@@ -64,9 +83,9 @@ export function HeroCard({
 				<Text variant="body" tone="secondary" style={{ marginTop: spacing.md }}>
 					Ainda não há orçamento para este mês. Defina um limite para ver quanto ainda dá pra gastar.
 				</Text>
-				<Text variant="caption" tone="secondary" style={{ marginTop: spacing.lg }}>
-					Gasto {money(spent, hidden, { sign: "never" })}
-				</Text>
+				<View style={{ marginTop: spacing.lg }}>
+					<SpentLine month={summary.month} cents={spent} hidden={hidden} />
+				</View>
 				{invested > 0 ? (
 					<Text variant="caption" tone="secondary">
 						Investido {money(invested, hidden, { sign: "never" })}
@@ -115,9 +134,7 @@ export function HeroCard({
 				<ProgressBar parts={bar} />
 			</View>
 			<View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: spacing.xs }}>
-				<Text variant="caption" tone="secondary">
-					Gasto {money(spent, hidden, { sign: "never" })}
-				</Text>
+				<SpentLine month={summary.month} cents={spent} hidden={hidden} />
 				<Text variant="caption" tone="secondary">
 					{hero.percent}% do orçamento
 				</Text>

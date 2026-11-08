@@ -705,6 +705,33 @@ describe("syncPluggy", () => {
 			expect(by).toEqual({ "with-bill": "2026-12", "no-bill": "2026-11", "unknown-bill": "2026-11" });
 		});
 
+		it("compra gravada na fatura errada (antes do billId) é corrigida pela fatura que o banco indica", async () => {
+			const t2 = setup({
+				transactions: {
+					[BANK_ACCOUNT_ID]: [],
+					[CARD_ACCOUNT_ID]: [
+						tx("with-bill", {
+							amount: 10,
+							date: "2026-11-09T00:00:00.000Z",
+							creditCardMetadata: { billId: "bill-dez" },
+						}),
+						tx("no-bill", { amount: 11, date: "2026-11-09T00:00:00.000Z" }),
+					],
+				},
+				bills: { [CARD_ACCOUNT_ID]: [bill("bill-dez", "2026-12-17T00:00:00.000Z", 10)] },
+			});
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			// Como estava gravado por uma versão que ainda calculava só pelo fechamento (a compra pesava em novembro).
+			for (const row of await everything(t2.stores)) {
+				await t2.stores.transactions.update(row.id, { invoiceMonth: "2026-11", budgetMonth: "2026-11" });
+			}
+			await t2.run();
+			const by = Object.fromEntries((await everything(t2.stores)).map((r) => [r.externalId, r.invoiceMonth]));
+			// Só a que tem fatura do banco muda; a calculada pelo engine continua como está.
+			expect(by).toEqual({ "with-bill": "2026-12", "no-bill": "2026-11" });
+		});
+
 		it("o pagamento da fatura consome um débito só: aluguel de mesmo valor 2 dias depois continua gasto", async () => {
 			const t2 = setup({
 				transactions: {

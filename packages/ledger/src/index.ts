@@ -41,6 +41,7 @@ export {
 	categoryForSummary,
 	monthSummary,
 	refundOriginalsOutside,
+	spendingBreakdown,
 	toCoreTransaction,
 } from "./summary.ts";
 export { decodeCursor, encodeCursor, listRecentPage } from "./transaction-list.ts";

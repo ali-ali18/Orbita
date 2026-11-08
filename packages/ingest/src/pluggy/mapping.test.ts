@@ -7,6 +7,7 @@ import {
 	mapPluggyAccount,
 	mapPluggyTransaction,
 	pluggyDateToLocal,
+	pluggyInstallmentGroupId,
 	resolveCardDates,
 	type TransactionContext,
 } from "./mapping.ts";
@@ -846,5 +847,35 @@ describe("mapPluggyTransaction: Pix para si mesmo pelo nome do titular", () => {
 			action: "upsert",
 			input: { kind: "expense" },
 		});
+	});
+});
+
+describe("pluggyInstallmentGroupId", () => {
+	const base = { cardId: "c1", purchaseDate: "2026-06-02", count: 10 };
+	const id = (description: string) => pluggyInstallmentGroupId({ ...base, description });
+
+	// O banco escreve o número da parcela no nome; se ele entrasse no id, cada fatura criaria um grupo de uma parcela só
+	// e cada um estimaria as parcelas seguintes de novo (gasto inflado).
+	it.each([
+		"KABUM 04/10",
+		"KABUM 4/10",
+		"KABUM 04 DE 10",
+		"KABUM PARC 04/10",
+		"Kabum Parcela 4 de 10",
+		"KABUM - PARCELA 04/10",
+		"KABUM (04/10)",
+		"KABUM 4-10",
+	])("%s é o mesmo parcelamento de KABUM 03/10", (description) => {
+		expect(id(description)).toBe(id("KABUM 03/10"));
+	});
+
+	it("outra compra, outra data ou outro total são grupos diferentes", () => {
+		expect(id("OUTRA LOJA 03/10")).not.toBe(id("KABUM 03/10"));
+		expect(pluggyInstallmentGroupId({ ...base, count: 12, description: "KABUM 03/12" })).not.toBe(
+			id("KABUM 03/10"),
+		);
+		expect(
+			pluggyInstallmentGroupId({ ...base, purchaseDate: "2026-06-03", description: "KABUM 03/10" }),
+		).not.toBe(id("KABUM 03/10"));
 	});
 });

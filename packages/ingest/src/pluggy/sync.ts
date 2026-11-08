@@ -638,6 +638,17 @@ async function storeTransactions(
 					if (res.transaction && (await fixKind(transactions, res.transaction, mapped.input))) {
 						result.reclassified = (result.reclassified ?? 0) + 1;
 					}
+					// A fatura que o banco indica vale mais que a gravada por quem só calculava pelo fechamento: a
+					// compra pesa no mês dela (o upsert por si só nunca corrigia). O que o engine calculou não mexe.
+					if (
+						mapped.invoiceFromBill &&
+						res.transaction?.cardId != null &&
+						mapped.input.invoiceMonth != null &&
+						res.transaction.invoiceMonth !== mapped.input.invoiceMonth
+					) {
+						await transactions.update(res.transaction.id, { invoiceMonth: mapped.input.invoiceMonth });
+						result.reclassified = (result.reclassified ?? 0) + 1;
+					}
 					const nextCategoryId = mapped.input.categoryId ?? null;
 					if (
 						res.transaction &&
