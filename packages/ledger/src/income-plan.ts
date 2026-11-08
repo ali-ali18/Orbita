@@ -9,7 +9,6 @@ import {
 	monthOf,
 	occurrencesInMonth,
 	type PlanCommitment,
-	projectMissingInstallments,
 	SUGGESTION_MONTHS,
 	scaleDownToFit,
 	toLocalDate,
@@ -18,7 +17,7 @@ import { DataError, type Stores, TOTAL_BUDGET_SCOPE, toMonthlyRecurrence } from 
 import type { BudgetBefore, BudgetSuggestionResponse, BudgetsChangeResponse, PlanDto } from "@orbita/shared";
 import { listGoals } from "./goals.ts";
 import { toCoreIncome } from "./income.ts";
-import { monthSummary } from "./summary.ts";
+import { isProjectedRow, loadSpendingMonth, monthSummary } from "./summary.ts";
 
 /*
  * O plano da renda do mês. Aqui só se JUNTA o que o engine pede (renda, recorrências, parcelas da fatura, histórico,
@@ -28,19 +27,28 @@ import { monthSummary } from "./summary.ts";
 
 /** Categorias cujo limite, quando já definido no orçamento, vale como compromisso fixo. */
 export const FIXED_CATEGORY_SLUGS = ["moradia", "saude"] as const;
-/** Investimento não é gasto: fica fora do dia a dia e dos limites. */
+/**
+ * Aplicação (`kind: "investment"`) já fica fora do gasto e de `byCategory` no engine, então o histórico nunca a conta.
+ * Esta lista é só o resto: a categoria Investimentos não ganha limite nem entra no dia a dia (despesa que o dono
+ * recategorizou à mão para lá, p.ex.).
+ */
 export const NON_SPENDING_SLUGS = ["investimentos"] as const;
 
 const PAST_PLAN_MESSAGE = "Só dá para aplicar o plano do mês atual ou de um mês futuro.";
 
 /**
- * Compromissos do mês: recorrências de despesa que caem nele e parcelas que vencem na fatura dele (as já lançadas e
- * as que o banco ainda não lançou). Sem categoria (ou categoria arquivada) cai em Outros.
+ * Compromissos do mês: recorrências de despesa que caem nele e parcelas que vencem na fatura dele. As parcelas vêm do
+ * MESMO conjunto do "Gasto do mês" (`loadSpendingMonth`: cartão pela fatura que vence no mês, mais as parcelas que o
+ * banco ainda não lançou), então plano, Início e relatório nunca discordam. Sem categoria (ou arquivada) cai em Outros.
  */
-async function collectCommitments(stores: Stores, month: MonthKey): Promise<PlanCommitment[]> {
-	const [recurrences, groups, categories] = await Promise.all([
+async function collectCommitments(
+	stores: Stores,
+	month: MonthKey,
+	today: LocalDate,
+): Promise<PlanCommitment[]> {
+	const [recurrences, rows, categories] = await Promise.all([
 		stores.recurrences.list(),
-		stores.transactions.listInstallmentGroups(addMonths(month, -71)),
+		loadSpendingMonth(stores, month, today),
 		stores.categories.list(),
 	]);
 	const active = new Set(categories.filter((c) => c.archivedAt === null).map((c) => c.id));
@@ -58,32 +66,18 @@ async function collectCommitments(stores: Stores, month: MonthKey): Promise<Plan
 			source: "recurrence",
 		});
 	}
-	const cardIds = new Set<string>();
-	for (const group of groups) {
-		for (const t of group.installments) {
-			if (t.cardId === null) continue;
-			cardIds.add(t.cardId);
-			if (t.invoiceMonth !== month || t.installmentCount === null || t.installmentCount < 2) continue;
-			commitments.push({
-				id: `inst:${t.id}`,
-				name: t.description,
-				categoryId: category(t.categoryId),
-				amountCents: t.amountCents,
-				source: "installment",
-			});
+	for (const t of rows) {
+		if (t.kind !== "expense" || t.cardId === null || t.installmentCount === null || t.installmentCount < 2) {
+			continue;
 		}
-	}
-	for (const cardId of [...cardIds].sort()) {
-		for (const p of projectMissingInstallments(groups, cardId, month)) {
-			const first = groups.find((g) => g.groupId === p.groupId)?.installments[0];
-			commitments.push({
-				id: `est:${p.groupId}:${p.number}`,
-				name: p.description,
-				categoryId: category(first?.categoryId ?? null),
-				amountCents: p.amountCents,
-				source: "installment",
-			});
-		}
+		const projected = isProjectedRow(t);
+		commitments.push({
+			id: projected ? `est:${t.installmentGroupId}:${t.installmentNumber}` : `inst:${t.id}`,
+			name: t.description,
+			categoryId: category(t.categoryId),
+			amountCents: t.amountCents,
+			source: "installment",
+		});
 	}
 	return commitments;
 }
@@ -120,7 +114,7 @@ export async function buildIncomePlan(
 		stores.categories.list(),
 		stores.budgets.list(),
 		listGoals(stores, { today, dayOf: (d) => toLocalDate(d) }),
-		collectCommitments(stores, month),
+		collectCommitments(stores, month, today),
 	]);
 	const active = categories.filter((c) => c.archivedAt === null);
 	const activeIds = new Set(active.map((c) => c.id));
@@ -283,7 +277,7 @@ export async function fitBudgetLimits(stores: Stores, today: LocalDate): Promise
 		budgets.filter((b) => b.scope !== TOTAL_BUDGET_SCOPE).map((b) => [b.scope, b.limitCents]),
 	);
 	const locked: Record<string, Cents> = {};
-	for (const c of await collectCommitments(stores, monthOf(today))) {
+	for (const c of await collectCommitments(stores, monthOf(today), today)) {
 		if (c.categoryId !== null) locked[c.categoryId] = (locked[c.categoryId] ?? 0) + c.amountCents;
 	}
 	const fitted = scaleDownToFit(limits, total.limitCents, locked);

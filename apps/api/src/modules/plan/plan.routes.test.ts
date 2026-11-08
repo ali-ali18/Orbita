@@ -111,6 +111,33 @@ describe("sugestão do orçamento com renda", () => {
 		expect(s.byCategory[category("lazer")]).toBe(95108);
 	});
 
+	it("aplicação (kind investment) nunca entra no histórico do plano, só pelo tipo e sem depender da categoria", async () => {
+		const t = await setupFinance();
+		const b = await t.basics();
+		await t.api.post("/v1/income", { name: "Salário", amountCents: 500000, payday: 5 });
+		for (const month of ["2026-08", "2026-09", "2026-10"]) {
+			await t.api.post("/v1/transactions", {
+				kind: "expense",
+				amountCents: 100000,
+				date: `${month}-10`,
+				description: `mercado ${month}`,
+				accountId: b.account.id,
+				categoryId: b.category("mercado"),
+			});
+			const invest = await t.api.post("/v1/transactions", {
+				kind: "investment",
+				amountCents: 300000,
+				date: `${month}-11`,
+				description: `aplicação ${month}`,
+				accountId: b.account.id,
+			});
+			expect(invest.status).toBe(201);
+		}
+		const plan = (await t.api.get(`/v1/plan/${MONTH}`)).body;
+		expect(plan.budget.totalCents).toBe(100000);
+		expect(plan.budget.byCategory[b.category("mercado")]).toBe(100000);
+	});
+
 	it("sem renda cadastrada continua a sugestão de antes (mediana, sem teto)", async () => {
 		const { api, basics } = await setupFinance();
 		const b = await basics();
