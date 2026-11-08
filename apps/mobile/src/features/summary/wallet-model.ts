@@ -51,6 +51,15 @@ export interface BandLook extends IssuerBand {
  */
 export const isLastBand = (index: number, count: number): boolean => count > 0 && index === count - 1;
 
+/**
+ * Altura da pilha: cada faixa aparece `peek` abaixo da anterior e a última (a da frente) ocupa a altura dela inteira.
+ * Sem cartão, não há pilha.
+ */
+export function stackHeight(count: number, peek: number, band: number, front: number): number {
+	if (count <= 0) return 0;
+	return peek * (count - 1) + Math.max(band, front);
+}
+
 /** Cor, texto e logo da faixa: pelo ISPB ou pelo nome do banco; sem banco conhecido, cinza neutro. */
 export function bandLook(card: { name: string; bankCode?: string | null | undefined }): BandLook {
 	const logo = bankLogoKey(card);

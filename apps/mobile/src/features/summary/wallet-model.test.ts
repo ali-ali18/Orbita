@@ -9,6 +9,7 @@ import {
 	nextDueText,
 	openLine,
 	orderBands,
+	stackHeight,
 	type WalletInvoice,
 } from "./wallet-model.ts";
 
@@ -43,6 +44,17 @@ describe("isLastBand", () => {
 	it("uma faixa só é a última; pilha vazia não tem nenhuma", () => {
 		expect(isLastBand(0, 1)).toBe(true);
 		expect(isLastBand(0, 0)).toBe(false);
+	});
+});
+
+describe("stackHeight", () => {
+	it("cada faixa sobe um peek; a da frente ocupa a altura dela inteira", () => {
+		expect(stackHeight(0, 30, 56, 90)).toBe(0);
+		expect(stackHeight(1, 30, 56, 90)).toBe(90);
+		expect(stackHeight(4, 30, 56, 90)).toBe(3 * 30 + 90);
+	});
+	it("nunca menor que a faixa normal, para nada ficar cortado", () => {
+		expect(stackHeight(2, 30, 56, 40)).toBe(30 + 56);
 	});
 });
 

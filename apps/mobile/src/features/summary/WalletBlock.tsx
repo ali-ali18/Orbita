@@ -22,10 +22,13 @@ import {
 	nextDueText,
 	openLine,
 	orderBands,
+	stackHeight,
 } from "./wallet-model.ts";
 
 /** Altura da faixa inteira e do pedaço que aparece embaixo da anterior (a "bolsa" da carteira). */
 const BAND_HEIGHT = 56;
+/** A última faixa (a da frente) é mais alta, para ler como o cartão de cima da pilha. */
+const FRONT_BAND_HEIGHT = Math.round(BAND_HEIGHT * 1.6);
 const PEEK = 30;
 const LIFT = -6;
 
@@ -121,7 +124,7 @@ export function WalletBlock({
 		);
 	}
 	const selected = bands.find((b) => b.card.id === selectedId) ?? (bands[0] as Line);
-	const stackHeight = PEEK * (bands.length - 1) + BAND_HEIGHT;
+	const height = stackHeight(bands.length, PEEK, BAND_HEIGHT, FRONT_BAND_HEIGHT);
 	const goTo = (next: number) => {
 		setPage(next);
 		scroller.current?.scrollTo({ x: next * width, animated: !reduceMotion });
@@ -130,7 +133,7 @@ export function WalletBlock({
 
 	const summary = (
 		<View style={{ gap: spacing.xs }}>
-			<View style={{ height: stackHeight, marginBottom: spacing.md }}>
+			<View style={{ height, marginBottom: spacing.md }}>
 				{bands.map((line, index) => {
 					const look = bandLook(line.card);
 					const lift = liftOf(line.card.id);
@@ -143,7 +146,7 @@ export function WalletBlock({
 								top: index * PEEK,
 								left: 0,
 								right: 0,
-								height: BAND_HEIGHT,
+								height: last ? FRONT_BAND_HEIGHT : BAND_HEIGHT,
 								zIndex: index,
 								transform: [{ translateY: lift }],
 							}}
