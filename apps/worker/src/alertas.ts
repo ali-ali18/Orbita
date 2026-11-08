@@ -12,7 +12,7 @@ import {
 import { isDue, latestOccurrence, monthOf, toLocalDate } from "@orbita/core";
 import type { AgentRecord, Stores } from "@orbita/db";
 import { budgetBlock, createAgentReader } from "@orbita/ledger";
-import { BUILTIN_AGENT_KEYS, BUILTIN_AGENTS } from "@orbita/shared";
+import { builtinAgentSeeds } from "@orbita/shared";
 import { createFindingsPort } from "./alertas-port.ts";
 
 /*
@@ -53,27 +53,11 @@ export interface RunAgentsResult {
 	failed: number;
 }
 
-/** O catálogo dos agentes da casa como as stores o recebem. */
-export function builtinSeeds() {
-	return BUILTIN_AGENT_KEYS.map((key) => {
-		const info = BUILTIN_AGENTS[key];
-		return {
-			builtinKey: key,
-			name: info.name,
-			enabled: info.defaultEnabled,
-			frequency: info.defaultSchedule.frequency,
-			runHour: info.defaultSchedule.hour,
-			runDay: info.defaultSchedule.day,
-			settings: info.defaultSettings,
-		};
-	});
-}
-
 const scheduleOf = (a: AgentRecord) => ({ frequency: a.frequency, hour: a.runHour, day: a.runDay });
 
 export async function runDueAgents(deps: RunAgentsDeps): Promise<RunAgentsResult> {
 	const { stores } = deps;
-	await stores.agents.ensureBuiltins(builtinSeeds());
+	await stores.agents.ensureBuiltins(builtinAgentSeeds());
 	const now = deps.now();
 	const due = (await stores.agents.list()).filter(
 		// A Órbita é só a conversa: não tem avisos próprios.

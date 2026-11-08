@@ -61,7 +61,7 @@ export function routes(deps: ChatRoutesDeps) {
 				const body = c.req.valid("json");
 				let pre: Awaited<ReturnType<typeof preflightChat>>;
 				try {
-					pre = await preflightChat(service, body.conversationId);
+					pre = await preflightChat(service, body.conversationId, body.agentId);
 				} catch (error) {
 					if (error instanceof ChatPreconditionError) {
 						return c.json(apiError(error.code, error.message), error.status);

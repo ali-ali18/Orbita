@@ -7,7 +7,7 @@ import {
 } from "@orbita/agents";
 import { createMemoryStores, type Stores } from "@orbita/db";
 import { beforeEach, describe, expect, it } from "vitest";
-import { builtinSeeds, type RunAgentsDeps, runDueAgents } from "./alertas.ts";
+import { type RunAgentsDeps, runDueAgents } from "./alertas.ts";
 
 // 2026-11-08 12:00 UTC = 09:00 em São Paulo (domingo).
 const NOW = new Date("2026-11-08T12:00:00Z");
@@ -104,7 +104,6 @@ describe("runDueAgents", () => {
 			"caca_assinatura",
 			"cofrinho",
 		]);
-		expect(builtinSeeds()).toHaveLength(6);
 	});
 
 	it("roda o Vigia na hora, grava o aviso com texto-modelo (sem chave) e anota a execução", async () => {

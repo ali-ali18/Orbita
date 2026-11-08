@@ -214,6 +214,22 @@ export const BUILTIN_AGENTS: Readonly<Record<BuiltinAgentKey, BuiltinAgentInfo>>
 	},
 };
 
+/** Como cada agente da casa nasce no banco (`AgentStore.ensureBuiltins`). */
+export function builtinAgentSeeds() {
+	return BUILTIN_AGENT_KEYS.map((key) => {
+		const info = BUILTIN_AGENTS[key];
+		return {
+			builtinKey: key,
+			name: info.name,
+			enabled: info.defaultEnabled,
+			frequency: info.defaultSchedule.frequency,
+			runHour: info.defaultSchedule.hour,
+			runDay: info.defaultSchedule.day,
+			settings: { ...info.defaultSettings },
+		};
+	});
+}
+
 export const isBuiltinAgentKey = (value: unknown): value is BuiltinAgentKey =>
 	typeof value === "string" && (BUILTIN_AGENT_KEYS as readonly string[]).includes(value);
 

@@ -2,20 +2,23 @@ import {
 	type AgentEvent,
 	ALL_TOOLS,
 	applyProposal,
-	buildSystem,
+	buildAgentSystem,
 	type ChatModelConfig,
 	costMicroUsd,
+	isMainModel,
 	type ModelClient,
 	type ModelMessage,
 	type ProposalDraft,
 	pickModel,
 	resolveChatModels,
+	resolvePersona,
 	runAgent,
 	ToolError,
 	undoProposal,
 } from "@orbita/agents";
 import { monthOf, toLocalDate } from "@orbita/core";
 import {
+	type AgentRecord,
 	type ChatMessageRecord,
 	type ChatProposalRecord,
 	DataError,
@@ -244,20 +247,29 @@ export interface ChatTurnInput {
 export interface ChatTurnPreflight {
 	apiKey: string;
 	conversationId: string | null;
+	/** Agente da conversa (o da conversa existente, ou o pedido numa conversa nova); `null` = Órbita. */
+	agent: AgentRecord | null;
 }
 
 /** Tudo que pode recusar o pedido ANTES de abrir o fluxo: chave, limite do mês e conversa existente. */
 export async function preflightChat(
 	deps: ChatServiceDeps,
 	conversationId: string | undefined,
+	agentId?: string | undefined,
 ): Promise<ChatTurnPreflight> {
-	if (conversationId !== undefined && !(await deps.stores.chat.getConversation(conversationId))) {
+	const conversation =
+		conversationId === undefined ? null : await deps.stores.chat.getConversation(conversationId);
+	if (conversationId !== undefined && !conversation) {
 		throw new DataError("not_found", "Conversa não encontrada.");
 	}
+	// Numa conversa que já existe, vale o agente com que ela foi aberta (o papel não muda no meio).
+	const wantedAgentId = conversation ? conversation.agentId : (agentId ?? null);
+	const agent = wantedAgentId === null ? null : await deps.stores.agents.get(wantedAgentId);
+	if (wantedAgentId !== null && !agent) throw new DataError("not_found", "Agente não encontrado.");
 	const apiKey = await requireApiKey(deps.vault);
 	const blocked = await budgetBlock(deps);
 	if (blocked) throw new ChatPreconditionError(403, CHAT_ERROR_CODES.monthlyLimit, blocked);
-	return { apiKey, conversationId: conversationId ?? null };
+	return { apiKey, conversationId: conversationId ?? null, agent };
 }
 
 /** Uma volta do chat: grava a mensagem do dono, roda o agente e grava a resposta. Devolve o id da resposta. */
@@ -269,7 +281,7 @@ export async function runChatTurn(
 	const { stores } = deps;
 	const conversation =
 		pre.conversationId === null
-			? await stores.chat.createConversation(input.message)
+			? await stores.chat.createConversation(input.message, { agentId: pre.agent?.id ?? null })
 			: await stores.chat.getConversation(pre.conversationId);
 	if (!conversation) throw new DataError("not_found", "Conversa não encontrada.");
 
@@ -283,16 +295,22 @@ export async function runChatTurn(
 	let catalog: ReturnType<typeof reader.catalog> | undefined;
 	// O que o dono escolheu no app vence; sem escolha, valem as variáveis de ambiente (`deps.models`).
 	const models = resolveChatModels(deps.models, await stores.aiUsage.getModelChoice());
-	const { model, effort } = pickModel(models, {
-		text: input.message,
-		isFirstMessage: before.length === 0,
-	});
+	// "Conversar com o agente": o papel e só as ferramentas dele. Sem agente (ou a Órbita), valem todas.
+	const persona = pre.agent ? resolvePersona(pre.agent) : { roleText: "", tools: ALL_TOOLS };
+	// O modelo escolhido para o agente vale; senão, a mesma escolha do chat (o barato só na Órbita, em pergunta curta).
+	const picked = pickModel(models, { text: input.message, isFirstMessage: before.length === 0 });
+	const { model, effort } =
+		pre.agent?.model && isMainModel(pre.agent.model)
+			? { model: pre.agent.model, effort: models.effort }
+			: pre.agent && pre.agent.builtinKey !== "orbita"
+				? { model: models.main, effort: models.effort }
+				: picked;
 	await input.emit({ type: "meta", conversationId: conversation.id, model });
 
 	const result = await runAgent(
 		{
 			client: deps.createClient(pre.apiKey),
-			tools: ALL_TOOLS,
+			tools: persona.tools,
 			toolContext: {
 				today,
 				currentMonth: month,
@@ -327,7 +345,7 @@ export async function runChatTurn(
 		{
 			model,
 			effort,
-			system: buildSystem({ today, month, ownerName: input.ownerName }),
+			system: buildAgentSystem({ today, month, ownerName: input.ownerName }, persona.roleText),
 			history,
 			userText: input.message,
 			...(input.signal ? { signal: input.signal } : {}),
