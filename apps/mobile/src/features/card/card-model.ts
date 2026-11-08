@@ -62,8 +62,9 @@ export function cardSpokenName(card: Pick<CardLike, "name" | "last4">): string {
 	return card.last4 ? `${card.name}, final ${card.last4}` : card.name;
 }
 
-export function cardColor(card: Pick<CardLike, "bankCode">): string {
-	return bankColor(card.bankCode);
+/** Cor da marca do cartão, a mesma do logo: pelo ISPB e, sem ele, pelo nome. */
+export function cardColor(card: Pick<CardLike, "bankCode" | "name">): string {
+	return bankColor(card.bankCode, card.name);
 }
 
 // ---------------------------------------------------------------- faturas

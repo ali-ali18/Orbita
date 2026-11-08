@@ -109,29 +109,32 @@ export function invoiceCaption(
 	return `Venceu há ${pluralDays(Math.max(1, daysBetween(invoice.dueDate, today)))}`;
 }
 
-/** Cor de fundo do círculo do banco pelo ISPB; banco que o design system não conhece usa o genérico. */
-export function bankColor(bankCode: string | null): string {
-	switch (bankCode) {
-		case "18236120":
-			return banks.nubank;
-		case "00416968":
-			return banks.inter;
-		case "90400888":
-			return banks.santander;
-		case "10573521":
-			return banks.mercadoPago;
-		case "60701190":
-			return banks.itau;
-		default:
-			return banks.generic;
-	}
+/** Cor da marca pelo ISPB do logo. Banco sem cor no design system usa o genérico. */
+const LOGO_COLOR: Readonly<Record<string, string>> = {
+	"18236120": banks.nubank,
+	"00416968": banks.inter,
+	"90400888": banks.santander,
+	"10573521": banks.mercadoPago,
+	"60701190": banks.itau,
+	"31872495": banks.c6,
+	"22896431": banks.picpay,
+	"60746948": banks.bradesco,
+};
+
+/**
+ * Cor da marca do banco. Com `name`, o nome também identifica (o Meu Pluggy muitas vezes não manda o ISPB).
+ * Banco que o design system não conhece usa o genérico.
+ */
+export function bankColor(bankCode: string | null, name?: string | null): string {
+	const key = bankLogoKey({ bankCode, name });
+	return (key && LOGO_COLOR[key]) || banks.generic;
 }
 
 /** O círculo de uma conta, cartão ou conexão: logo do banco se for conhecido (pelo ISPB ou pelo nome), senão a inicial. */
 export function bankBadge(source: { name: string; bankCode?: string | null | undefined }): BankBadge {
 	return {
 		initial: initialOf(source.name),
-		color: bankColor(source.bankCode ?? null),
+		color: bankColor(source.bankCode ?? null, source.name),
 		logo: bankLogoKey(source),
 	};
 }

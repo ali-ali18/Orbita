@@ -1,9 +1,10 @@
-import { chart, chartSeries } from "@orbita/tokens";
+import { banks, chart, chartSeries } from "@orbita/tokens";
 import { describe, expect, it } from "vitest";
 import {
 	activeGroups,
 	bestPurchaseDay,
 	type CardLike,
+	cardColor,
 	cardLabel,
 	commitment,
 	compositionBar,
@@ -190,6 +191,15 @@ describe("parcelas", () => {
 	});
 	it("sem parcelas, devolve só o primeiro mês vazio", () => {
 		expect(monthColumns([], "2026-11", ["c1"])).toEqual([{ month: "2026-11", totalCents: 0, byCard: [] }]);
+	});
+	it("a cor da barra é a do banco do cartão, pelo código ou pelo nome", () => {
+		expect(cardColor({ bankCode: "00416968", name: "Cartão" })).toBe(banks.inter);
+		expect(cardColor({ bankCode: null, name: "Nu Pagamentos S.A. - Instituição de Pagamento" })).toBe(
+			banks.nubank,
+		);
+		expect(cardColor({ bankCode: null, name: "Mercado Pago" })).toBe(banks.mercadoPago);
+		expect(cardColor({ bankCode: "90400888", name: "FREE VISA" })).toBe(banks.santander);
+		expect(cardColor({ bankCode: null, name: "FREE VISA" })).toBe(banks.generic);
 	});
 	it("abreviação do mês", () => {
 		expect(monthAbbrev("2026-11")).toBe("NOV");
