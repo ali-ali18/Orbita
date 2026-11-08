@@ -14,6 +14,7 @@ import {
 	DUPLICATE_INSTALLMENT_MESSAGE,
 	dataOf,
 	duplicateExternal,
+	matchesFilter,
 	mergeTransaction,
 	normalizeExternalInstallment,
 	normalizeInstallmentGroup,
@@ -227,9 +228,10 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 
 		async listRecent(options) {
 			checkRecentOptions(options);
-			const { before } = options;
+			const { before, filter } = options;
 			return live()
 				.map(view)
+				.filter((t) => !filter || matchesFilter(t, filter))
 				.filter((t) => !before || t.date < before.date || (t.date === before.date && t.id < before.id))
 				.sort(byRecent)
 				.slice(0, options.limit);

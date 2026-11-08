@@ -6,7 +6,10 @@ import {
 	cleanSourceCategory,
 	isLocalDate,
 	MAX_INSTALLMENT_COUNT,
+	TRANSACTION_KINDS,
 	TRANSACTION_SOURCES,
+	TRANSACTION_STATUSES,
+	transactionFilterRangeError,
 	transactionInvariantError,
 } from "@orbita/shared";
 import { DataError, invalid } from "./errors.ts";
@@ -15,6 +18,7 @@ import type {
 	InstallmentInput,
 	TransactionCursor,
 	TransactionData,
+	TransactionFilter,
 	TransactionInput,
 	TransactionPatch,
 	TransactionRecord,
@@ -200,12 +204,82 @@ export function cleanIds(ids: readonly string[]): string[] {
 	return [...new Set(ids)];
 }
 
-export function checkRecentOptions(options: { limit: number; before?: TransactionCursor | undefined }): void {
+export function checkRecentOptions(options: {
+	limit: number;
+	before?: TransactionCursor | undefined;
+	filter?: TransactionFilter | undefined;
+}): void {
 	cleanLimit(options.limit);
+	if (options.filter) cleanFilter(options.filter);
 	if (options.before) {
 		cleanLocalDate(options.before.date, "A data do cursor");
 		if (!options.before.id) throw invalid("O cursor precisa do id.");
 	}
+}
+
+const FILTER_LIST_MAX = 50;
+
+/** Confere o filtro de `listRecent` (a API já valida; a store não confia em quem a chama). */
+export function cleanFilter(filter: TransactionFilter): void {
+	const lists = [
+		filter.kinds,
+		filter.accountIds,
+		filter.cardIds,
+		filter.categoryIds,
+		filter.sources,
+		filter.statuses,
+	];
+	for (const list of lists) {
+		if (list !== undefined && (!Array.isArray(list) || list.length > FILTER_LIST_MAX)) {
+			throw invalid(`Uma lista de filtro aceita até ${FILTER_LIST_MAX} itens.`);
+		}
+	}
+	for (const [list, valid] of [
+		[filter.kinds, TRANSACTION_KINDS],
+		[filter.sources, TRANSACTION_SOURCES],
+		[filter.statuses, TRANSACTION_STATUSES],
+	] as const) {
+		if (list?.some((item) => !(valid as readonly string[]).includes(item))) {
+			throw invalid("O filtro tem um valor inválido.");
+		}
+	}
+	for (const ids of [filter.accountIds, filter.cardIds, filter.categoryIds]) {
+		if (ids?.some((id) => typeof id !== "string" || id.length === 0 || id.length > 64)) {
+			throw invalid("O filtro tem um id inválido.");
+		}
+	}
+	if (filter.from !== undefined) cleanLocalDate(filter.from, "A data inicial");
+	if (filter.to !== undefined) cleanLocalDate(filter.to, "A data final");
+	for (const cents of [filter.minCents, filter.maxCents]) {
+		if (cents !== undefined && (!Number.isInteger(cents) || cents < 0)) {
+			throw invalid("Os valores do filtro devem ser centavos inteiros, sem negativo.");
+		}
+	}
+	const range = transactionFilterRangeError(filter);
+	if (range) throw invalid(range);
+}
+
+/** O lançamento passa no filtro? Mesma regra que a store Prisma monta em SQL (a em memória usa esta). */
+export function matchesFilter(t: TransactionRecord, f: TransactionFilter): boolean {
+	if (f.kinds?.length && !f.kinds.includes(t.kind)) return false;
+	if (f.sources?.length && !f.sources.includes(t.source)) return false;
+	if (f.statuses?.length && !f.statuses.includes(t.status)) return false;
+	if (f.categoryIds?.length && (t.categoryId === null || !f.categoryIds.includes(t.categoryId))) return false;
+	if (f.from !== undefined && t.date < f.from) return false;
+	if (f.to !== undefined && t.date > f.to) return false;
+	if (f.minCents !== undefined && t.amountCents < f.minCents) return false;
+	if (f.maxCents !== undefined && t.amountCents > f.maxCents) return false;
+	const accounts = f.accountIds?.length ? f.accountIds : null;
+	const cards = f.cardIds?.length ? f.cardIds : null;
+	if (accounts || cards) {
+		const byAccount =
+			accounts !== null &&
+			((t.accountId !== null && accounts.includes(t.accountId)) ||
+				(t.counterpartAccountId !== null && accounts.includes(t.counterpartAccountId)));
+		const byCard = cards !== null && t.cardId !== null && cards.includes(t.cardId);
+		if (!byAccount && !byCard) return false;
+	}
+	return true;
 }
 
 /** Ordem das listas de um mês/fatura: data, depois criação, depois id. */

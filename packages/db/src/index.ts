@@ -49,6 +49,7 @@ export {
 	type InstallmentInput,
 	type TransactionCursor,
 	type TransactionData,
+	type TransactionFilter,
 	type TransactionInput,
 	type TransactionPatch,
 	type TransactionRecord,

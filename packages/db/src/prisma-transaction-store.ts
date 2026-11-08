@@ -1,5 +1,6 @@
 import type { Db, DbClient } from "./client.ts";
 import { DataError, invalid, notFound } from "./errors.ts";
+import type { Prisma } from "./generated/prisma/client.ts";
 import { fromDbDate, toDbDate } from "./local-date.ts";
 import type { Clock } from "./memory-state.ts";
 import { byGroup, byInstallment } from "./memory-transaction-store.ts";
@@ -25,6 +26,7 @@ import {
 import type {
 	InstallmentGroupRecord,
 	TransactionData,
+	TransactionFilter,
 	TransactionRecord,
 	TransactionStore,
 } from "./transaction-store.ts";
@@ -74,6 +76,41 @@ async function deleteCascade(tx: DbClient, rootIds: string[], at: Date): Promise
 
 const ORDER_BY_DATE = [{ date: "asc" }, { createdAt: "asc" }, { id: "asc" }] as const;
 const ORDER_RECENT = [{ date: "desc" }, { id: "desc" }] as const;
+
+/** Traduz o filtro em condições do Prisma (a regra é a de `matchesFilter`, que a store em memória usa). */
+function filterConditions(f: TransactionFilter): Prisma.TransactionWhereInput[] {
+	const out: Prisma.TransactionWhereInput[] = [];
+	if (f.kinds?.length) out.push({ kind: { in: [...f.kinds] } });
+	if (f.sources?.length) out.push({ source: { in: [...f.sources] } });
+	if (f.statuses?.length) out.push({ status: { in: [...f.statuses] } });
+	if (f.categoryIds?.length) out.push({ categoryId: { in: [...f.categoryIds] } });
+	if (f.from !== undefined || f.to !== undefined) {
+		out.push({
+			date: {
+				...(f.from !== undefined ? { gte: toDbDate(f.from) } : {}),
+				...(f.to !== undefined ? { lte: toDbDate(f.to) } : {}),
+			},
+		});
+	}
+	if (f.minCents !== undefined || f.maxCents !== undefined) {
+		out.push({
+			amountCents: {
+				...(f.minCents !== undefined ? { gte: f.minCents } : {}),
+				...(f.maxCents !== undefined ? { lte: f.maxCents } : {}),
+			},
+		});
+	}
+	const owners: Prisma.TransactionWhereInput[] = [];
+	if (f.accountIds?.length) {
+		owners.push(
+			{ accountId: { in: [...f.accountIds] } },
+			{ counterpartAccountId: { in: [...f.accountIds] } },
+		);
+	}
+	if (f.cardIds?.length) owners.push({ cardId: { in: [...f.cardIds] } });
+	if (owners.length > 0) out.push({ OR: owners });
+	return out;
+}
 
 /** Valida e grava um lançamento no client dado (o normal ou o de uma `$transaction`). */
 export async function insertTransaction(
@@ -307,15 +344,18 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 
 		async listRecent(options) {
 			checkRecentOptions(options);
-			const { before } = options;
+			const { before, filter } = options;
 			const beforeDate = before ? toDbDate(before.date) : null;
 			return await many(
 				db.transaction.findMany({
 					where: {
 						deletedAt: null,
-						...(before && beforeDate
-							? { OR: [{ date: { lt: beforeDate } }, { date: beforeDate, id: { lt: before.id } }] }
-							: {}),
+						AND: [
+							...(before && beforeDate
+								? [{ OR: [{ date: { lt: beforeDate } }, { date: beforeDate, id: { lt: before.id } }] }]
+								: []),
+							...(filter ? filterConditions(filter) : []),
+						],
 					},
 					orderBy: [...ORDER_RECENT],
 					take: options.limit,

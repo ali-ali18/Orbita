@@ -765,6 +765,132 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			});
 		});
 
+		describe("listRecent com filtro", () => {
+			const ids = async (filter: Parameters<typeof tx.listRecent>[0]["filter"]) =>
+				(await tx.listRecent({ limit: 100, filter })).map((t) => t.id);
+
+			it("sem filtro ou com filtro vazio devolve tudo", async () => {
+				const a = await tx.create(expense());
+				const b2 = await tx.create(expense({ date: "2026-11-06" }));
+				expect(await ids({})).toEqual([b2.id, a.id]);
+				expect(await ids({ kinds: [], accountIds: [] })).toEqual([b2.id, a.id]);
+			});
+
+			it("tipo, origem e situação (OU dentro da lista, E entre filtros)", async () => {
+				const exp = await tx.create(expense({ date: "2026-11-01" }));
+				const inc = await tx.create({ ...expense({ date: "2026-11-02" }), kind: "income" });
+				const tr = await tx.create({
+					...expense({ date: "2026-11-03" }),
+					kind: "transfer",
+					counterpartAccountId: b.savings.id,
+				});
+				const pend = await tx.create(
+					expense({ date: "2026-11-04", status: "pending", source: "notification" }),
+				);
+				expect(await ids({ kinds: ["income", "transfer"] })).toEqual([tr.id, inc.id]);
+				expect(await ids({ sources: ["notification"] })).toEqual([pend.id]);
+				expect(await ids({ statuses: ["pending"] })).toEqual([pend.id]);
+				expect(await ids({ statuses: ["confirmed"], kinds: ["expense"] })).toEqual([exp.id]);
+				expect(await ids({ statuses: ["pending"], kinds: ["income"] })).toEqual([]);
+			});
+
+			it("período inclusivo nas duas pontas", async () => {
+				const first = await tx.create(expense({ date: "2026-10-31" }));
+				const mid = await tx.create(expense({ date: "2026-11-15" }));
+				const last = await tx.create(expense({ date: "2026-11-30" }));
+				await tx.create(expense({ date: "2026-12-01" }));
+				expect(await ids({ from: "2026-10-31", to: "2026-11-30" })).toEqual([last.id, mid.id, first.id]);
+				expect(await ids({ from: "2026-11-01" })).toContain(last.id);
+				expect(await ids({ from: "2026-11-01", to: "2026-11-30" })).toEqual([last.id, mid.id]);
+				expect(await ids({ to: "2026-10-31" })).toEqual([first.id]);
+			});
+
+			it("faixa de valor em centavos, inclusiva", async () => {
+				const low = await tx.create(expense({ amountCents: 1000, date: "2026-11-01" }));
+				const mid = await tx.create(expense({ amountCents: 5000, date: "2026-11-02" }));
+				const high = await tx.create(expense({ amountCents: 9000, date: "2026-11-03" }));
+				expect(await ids({ minCents: 5000 })).toEqual([high.id, mid.id]);
+				expect(await ids({ maxCents: 5000 })).toEqual([mid.id, low.id]);
+				expect(await ids({ minCents: 1000, maxCents: 9000 })).toHaveLength(3);
+				expect(await ids({ minCents: 5000, maxCents: 5000 })).toEqual([mid.id]);
+			});
+
+			it("contas e cartões valem como OU; a conta casa também com o destino da transferência", async () => {
+				const inChecking = await tx.create(expense({ date: "2026-11-01" }));
+				const inCard = await tx.create(cardPurchase({ date: "2026-11-02" }));
+				const toSavings = await tx.create({
+					...expense({ date: "2026-11-03" }),
+					kind: "transfer",
+					counterpartAccountId: b.savings.id,
+				});
+				expect(await ids({ accountIds: [b.checking.id] })).toEqual([toSavings.id, inChecking.id]);
+				expect(await ids({ accountIds: [b.savings.id] })).toEqual([toSavings.id]);
+				expect(await ids({ cardIds: [b.card.id] })).toEqual([inCard.id]);
+				expect(await ids({ accountIds: [b.savings.id], cardIds: [b.card.id] })).toEqual([
+					toSavings.id,
+					inCard.id,
+				]);
+				expect(await ids({ accountIds: ["nao-existe"] })).toEqual([]);
+			});
+
+			it("categorias; lançamento sem categoria não passa quando há filtro de categoria", async () => {
+				const other = await stores.categories.create({ slug: "lazer", name: "Lazer", chartSlot: 1 });
+				const food = await tx.create(expense({ categoryId: b.food.id, date: "2026-11-01" }));
+				const fun = await tx.create(expense({ categoryId: other.id, date: "2026-11-02" }));
+				await tx.create(expense({ date: "2026-11-03" }));
+				expect(await ids({ categoryIds: [b.food.id] })).toEqual([food.id]);
+				expect(await ids({ categoryIds: [b.food.id, other.id] })).toEqual([fun.id, food.id]);
+			});
+
+			it("apagados continuam de fora", async () => {
+				const gone = await tx.create(expense());
+				await tx.softDelete(gone.id);
+				expect(await ids({ kinds: ["expense"] })).toEqual([]);
+			});
+
+			it("a paginação por cursor segue valendo sobre o resultado filtrado", async () => {
+				const dates = ["2026-11-01", "2026-11-03", "2026-11-03", "2026-11-03", "2026-11-04", "2026-11-03"];
+				const wanted = [];
+				for (const [i, date] of dates.entries()) {
+					// Metade é despesa, metade é receita: o filtro deixa só as despesas.
+					const row = await tx.create(
+						i % 2 === 0 ? expense({ date }) : { ...expense({ date }), kind: "income" },
+					);
+					if (i % 2 === 0) wanted.push(row);
+				}
+				const seen: string[] = [];
+				let before: { date: string; id: string } | undefined;
+				for (let page = 0; page < 10; page++) {
+					const rows = await tx.listRecent({
+						limit: 2,
+						filter: { kinds: ["expense"] },
+						...(before ? { before } : {}),
+					});
+					if (rows.length === 0) break;
+					seen.push(...rows.map((r) => r.id));
+					const last = rows.at(-1);
+					if (!last) break;
+					before = { date: last.date, id: last.id };
+				}
+				const expected = [...wanted]
+					.sort((x, y) => (x.date === y.date ? (x.id < y.id ? 1 : -1) : x.date < y.date ? 1 : -1))
+					.map((r) => r.id);
+				expect(seen).toEqual(expected);
+			});
+
+			it("valida o filtro", async () => {
+				const bad = (filter: Parameters<typeof tx.listRecent>[0]["filter"]) =>
+					expect(tx.listRecent({ limit: 5, filter })).rejects.toMatchObject({ code: "invalid" });
+				await bad({ from: "ontem" });
+				await bad({ from: "2026-11-10", to: "2026-11-01" });
+				await bad({ minCents: 10, maxCents: 5 });
+				await bad({ minCents: -1 });
+				await bad({ maxCents: 1.5 });
+				await bad({ kinds: ["nada" as never] });
+				await bad({ accountIds: Array.from({ length: 51 }, (_, i) => `id${i}`) });
+			});
+		});
+
 		it("listInstallmentGroups: só parcelamentos que ainda têm parcela a partir do mês", async () => {
 			const make = (invoices: string[], description: string) =>
 				tx.createInstallmentGroup(
