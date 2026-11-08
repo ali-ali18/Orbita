@@ -1,11 +1,11 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
-import type { CardsView, InstallmentsView, InvoiceView } from "../../lib/api.ts";
+import type { InstallmentsView } from "../../lib/api.ts";
 import { money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
-import { BankLogo, Card, ErrorState, Icon, type IconName, Skeleton, Text } from "../../ui/index.ts";
-import { bankBadge, installmentsOverview, invoiceCaption } from "./summary-model.ts";
+import { Card, ErrorState, Icon, type IconName, Skeleton, Text } from "../../ui/index.ts";
+import { installmentsOverview } from "./summary-model.ts";
 
 /** Altura dos cards quadrados no Figma (173 de largura por 221 de altura). */
 const SQUARE_MIN_HEIGHT = 221;
@@ -80,117 +80,6 @@ function IconCircle({ name }: { name: IconName }) {
 		>
 			<Icon name={name} />
 		</View>
-	);
-}
-
-/**
- * Fatura do primeiro cartão ativo. `cards` é a lista de cartões; `invoice` só existe quando há cartão.
- * Cada fase é distinta: carregando (esqueleto), falha (tentar de novo) ou vazio de verdade ("Sem cartão").
- */
-export function InvoiceSquare({
-	cards,
-	invoice,
-	dueInvoice,
-	today,
-	hidden,
-	onPress,
-}: {
-	onPress?: () => void;
-	cards: Loadable<CardsView>;
-	invoice: Loadable<InvoiceView> | null;
-	/** A fatura fechada que vence neste mês, quando a aberta vence no mês que vem; `null` se não há outra. */
-	dueInvoice?: Loadable<InvoiceView> | null;
-	today: string;
-	hidden: boolean;
-}) {
-	if (cards.phase === "loading") {
-		return (
-			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={<Skeleton width={96} height={32} />}>
-				<Placeholder label="Fatura atual" />
-			</Frame>
-		);
-	}
-	if (cards.phase === "error") {
-		return (
-			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={<IconCircle name="cartao" />}>
-				<ErrorState message={cards.message} onRetry={cards.retry} />
-			</Frame>
-		);
-	}
-	const card = cards.data.cards.find((c) => c.archivedAt === null);
-	if (!card) {
-		return (
-			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={<IconCircle name="cartao" />}>
-				<Facts
-					label="Fatura atual"
-					value="Sem cartão"
-					caption="Cadastre um cartão para acompanhar a fatura."
-				/>
-			</Frame>
-		);
-	}
-	const top = (
-		<>
-			<BankLogo {...bankBadge(card)} size={32} />
-			<Text variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>
-				{card.last4 ? `•••• ${card.last4}` : card.name}
-			</Text>
-		</>
-	);
-	if (!invoice || invoice.phase === "loading") {
-		return (
-			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={top}>
-				<Placeholder label="Fatura atual" />
-			</Frame>
-		);
-	}
-	if (invoice.phase === "error") {
-		return (
-			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={top}>
-				<ErrorState message={invoice.message} onRetry={invoice.retry} />
-			</Frame>
-		);
-	}
-	const open = (
-		<Facts
-			label="Fatura atual"
-			value={money(invoice.data.composition.totalCents, hidden)}
-			caption={invoiceCaption(invoice.data.invoice, today)}
-		/>
-	);
-	if (!dueInvoice) {
-		return (
-			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={top}>
-				{open}
-			</Frame>
-		);
-	}
-	// Duas faturas: a que vence neste mês (o que se paga agora) em destaque e a atual, aberta, logo abaixo.
-	return (
-		<Frame label="Fatura que vence este mês e fatura atual, abrir o cartão" onPress={onPress} top={top}>
-			{dueInvoice.phase === "ready" ? (
-				<Facts
-					label="Vence este mês"
-					value={money(dueInvoice.data.composition.totalCents, hidden)}
-					caption={invoiceCaption(dueInvoice.data.invoice, today)}
-				/>
-			) : dueInvoice.phase === "loading" ? (
-				<Placeholder label="Fatura que vence este mês" />
-			) : (
-				<ErrorState message={dueInvoice.message} onRetry={dueInvoice.retry} />
-			)}
-			<View style={{ marginTop: spacing.md }}>
-				<Text variant="caption" tone="secondary">
-					Fatura atual
-				</Text>
-				<Text variant="bodyStrong" adjustsFontSizeToFit numberOfLines={1}>
-					{money(invoice.data.composition.totalCents, hidden)}
-				</Text>
-				<Text variant="caption" tone="secondary">
-					{invoiceCaption(invoice.data.invoice, today)}
-				</Text>
-			</View>
-		</Frame>
 	);
 }
 

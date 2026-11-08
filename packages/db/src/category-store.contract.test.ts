@@ -68,6 +68,7 @@ describe.each(contractSuites())("CategoryStore (%s)", (_name, make) => {
 			["transferencias", 7, true],
 			["investimentos", 8, true],
 			["outros", 9, true],
+			["fatura-cartao", null, true],
 		]);
 		const mercado = list[0];
 		await stores.categories.update(mercado?.id ?? "", { name: "Supermercado", chartSlot: 3 });
@@ -76,7 +77,7 @@ describe.each(contractSuites())("CategoryStore (%s)", (_name, make) => {
 			name: "Supermercado",
 			chartSlot: 3,
 		});
-		expect(await stores.categories.list()).toHaveLength(10);
+		expect(await stores.categories.list()).toHaveLength(11);
 	});
 
 	it("ensureDefaults não recria a que o usuário arquivou", async () => {

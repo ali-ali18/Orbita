@@ -6,12 +6,12 @@ import { money, monthYear } from "../../lib/format.ts";
 import { toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { Card, ErrorState, IconButton, ListRow, Screen, Skeleton, Text } from "../../ui/index.ts";
-import { type BreakdownRow, rowCaption, sections } from "./breakdown-model.ts";
+import { type BreakdownRow, cardGroups, rowCaption, sections } from "./breakdown-model.ts";
 import { useBreakdown, useCategories } from "./queries.ts";
 
 /**
- * "Como chegamos nesse número": cada lançamento que somou ao Gasto do mês, agrupado por onde veio (conta, cartão
- * pela fatura, parcela estimada). Tudo vem de `GET /v1/summary/:mês/breakdown`; a tela só mostra.
+ * "Como chegamos nesse número": cada lançamento que somou ao Gasto do mês, agrupado por onde veio (conta ou cartão, com o
+ * subtotal de cada cartão). Tudo vem de `GET /v1/summary/:mês/breakdown`; a tela só mostra.
  */
 export function BreakdownScreen({ month }: { month?: string }) {
 	const router = useRouter();
@@ -22,6 +22,16 @@ export function BreakdownScreen({ month }: { month?: string }) {
 	const categoriesQ = useCategories();
 	const names = new Map((categoriesQ.data?.categories ?? []).map((c) => [c.id, c.name]));
 
+	const renderRow = (r: BreakdownRow) => (
+		<ListRow
+			key={r.id}
+			title={rowTitle(r)}
+			caption={caption(r)}
+			value={money(r.deltaCents, hidden, { sign: r.deltaCents < 0 ? "always" : "never" })}
+			valueTone={r.deltaCents < 0 ? "positive" : "primary"}
+			onPress={() => router.push(`/lancamento/${r.id}`)}
+		/>
+	);
 	const rowTitle = (r: BreakdownRow) => r.description || "Sem descrição";
 	const caption = (r: BreakdownRow) => {
 		const category = r.categoryId ? names.get(r.categoryId) : undefined;
@@ -87,17 +97,23 @@ export function BreakdownScreen({ month }: { month?: string }) {
 									{section.count === 1 ? "1 lançamento" : `${section.count} lançamentos`} · {section.hint}
 								</Text>
 								<View style={{ marginTop: spacing.sm }}>
-									{section.rows.map((r) => (
-										<ListRow
-											key={r.id}
-											title={rowTitle(r)}
-											caption={caption(r)}
-											value={money(r.deltaCents, hidden, { sign: r.deltaCents < 0 ? "always" : "never" })}
-											valueTone={r.deltaCents < 0 ? "positive" : "primary"}
-											{...(r.estimated ? { badge: "estimada" } : {})}
-											{...(r.estimated ? {} : { onPress: () => router.push(`/lancamento/${r.id}`) })}
-										/>
-									))}
+									{section.branch === "card"
+										? cardGroups(section.rows, breakdown.data.cards).map((group) => (
+												<View key={group.cardId} style={{ marginTop: spacing.sm }}>
+													<View
+														style={{ flexDirection: "row", justifyContent: "space-between", gap: spacing.md }}
+													>
+														<Text variant="bodyStrong" tone="secondary" style={{ flexShrink: 1 }}>
+															{group.title}
+														</Text>
+														<Text variant="bodyStrong" tone="secondary">
+															{money(group.subtotalCents, hidden, { sign: "never" })}
+														</Text>
+													</View>
+													{group.rows.map(renderRow)}
+												</View>
+											))
+										: section.rows.map(renderRow)}
 								</View>
 							</Card>
 						))}

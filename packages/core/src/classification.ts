@@ -13,13 +13,8 @@ export interface Transaction {
 	 * Sem ele, vale o mês de `date`.
 	 */
 	budgetMonth?: MonthKey;
-	/**
-	 * Fatura (mês do vencimento) de uma compra ou estorno NO CARTÃO. Presente = é do cartão e pesa no gasto do mês em
-	 * que a fatura vence, não no da data da compra.
-	 */
+	/** Fatura (mês do vencimento) de uma compra ou estorno NO CARTÃO. Não decide o gasto: serve à visão das faturas. */
 	invoiceMonth?: MonthKey;
-	/** Parcela que o banco ainda não lançou (estimada pelo grupo). Conta no mês, mas o resumo a separa em `projectedCents`. */
-	projected?: boolean;
 	categoryId?: string;
 	/** Id da despesa original, quando `kind` é "refund". */
 	refundOf?: string;
@@ -28,15 +23,13 @@ export interface Transaction {
 export const UNCATEGORIZED = "outros";
 
 /**
- * Em que mês o lançamento pesa no GASTO (a definição única do "Gasto do mês"):
- * - compra ou estorno no cartão: o mês da fatura (`invoiceMonth`, o do vencimento), que é quando o dinheiro sai;
- *   cada parcela pesa na sua própria fatura;
- * - o resto (débito, Pix, boleto, receita, aplicação): `budgetMonth`, senão o mês da data.
+ * Em que mês o lançamento pesa no GASTO (a definição única do "Gasto do mês"): o da COMPETÊNCIA, `budgetMonth`
+ * (senão o mês da data). Compra no cartão pesa no mês em que foi feita e cada parcela no seu (mês da compra + n − 1),
+ * não no da fatura; a fatura é outra visão (o que ainda se deve nos cartões).
  */
-export function spendingMonthOf(tx: Pick<Transaction, "invoiceMonth" | "budgetMonth" | "date">): MonthKey {
-	if (tx.invoiceMonth !== undefined) parseMonthKey(tx.invoiceMonth);
+export function spendingMonthOf(tx: Pick<Transaction, "budgetMonth" | "date">): MonthKey {
 	if (tx.budgetMonth !== undefined) parseMonthKey(tx.budgetMonth);
-	return tx.invoiceMonth ?? tx.budgetMonth ?? monthOf(tx.date);
+	return tx.budgetMonth ?? monthOf(tx.date);
 }
 
 function assertPositive(tx: Transaction): void {
@@ -74,15 +67,13 @@ export interface MonthSummary {
 	incomeCents: Cents;
 	/** Aplicações do mês (dinheiro enviado a investimentos). Fora de `spentCents` e de `byCategory`. */
 	investedCents: Cents;
-	/** Parte de `spentCents` que é estimativa (parcela ainda não lançada pelo banco). */
-	projectedCents: Cents;
 	/** Estorno que passou do gasto da categoria no mês e por isso não abateu nada. */
 	refundCreditCents: Cents;
 	byCategory: Record<string, Cents>;
 }
 
 /**
- * Resumo do mês de GASTO (`spendingMonthOf`): conta por data/orçamento, cartão pela fatura que vence no mês. A
+ * Resumo do mês de GASTO (`spendingMonthOf`): tudo pela data da compra (competência), parcela no seu mês. A
  * aplicação em investimento vai para `investedCents`, nunca para o gasto. O estorno abate a
  * categoria da compra original (achada na mesma lista, mesmo de outro mês), senão a do
  * próprio estorno, senão "outros", até no máximo zero. O que passar disso vai para
@@ -97,7 +88,6 @@ export function summarizeMonth(transactions: readonly Transaction[], month: Mont
 
 	let incomeCents = 0;
 	let investedCents = 0;
-	let projectedCents = 0;
 	let refundCreditCents = 0;
 	const byCategory: Record<string, Cents> = {};
 	const refunds: Transaction[] = [];
@@ -112,7 +102,6 @@ export function summarizeMonth(transactions: readonly Transaction[], month: Mont
 		else if (spending > 0) {
 			const category = tx.categoryId ?? UNCATEGORIZED;
 			byCategory[category] = (byCategory[category] ?? 0) + spending;
-			if (tx.projected) projectedCents += spending;
 		}
 	}
 	// Estornos depois de todas as despesas, para a ordem da lista não mudar o resultado.
@@ -126,16 +115,13 @@ export function summarizeMonth(transactions: readonly Transaction[], month: Mont
 	}
 	let spentCents = 0;
 	for (const value of Object.values(byCategory)) spentCents += value;
-	if (
-		![spentCents, incomeCents, investedCents, projectedCents, refundCreditCents].every(Number.isSafeInteger)
-	) {
+	if (![spentCents, incomeCents, investedCents, refundCreditCents].every(Number.isSafeInteger)) {
 		throw new RangeError("soma do mês excede o inteiro seguro");
 	}
 	return {
 		spentCents,
 		incomeCents,
 		investedCents,
-		projectedCents: Math.min(projectedCents, spentCents),
 		refundCreditCents,
 		byCategory,
 	};

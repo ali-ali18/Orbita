@@ -48,7 +48,6 @@ describe("summarizeMonth", () => {
 			spentCents: 0,
 			incomeCents: 0,
 			investedCents: 0,
-			projectedCents: 0,
 			refundCreditCents: 0,
 			byCategory: {},
 		});
@@ -67,7 +66,6 @@ describe("summarizeMonth", () => {
 			spentCents: 5000,
 			incomeCents: 300000,
 			investedCents: 0,
-			projectedCents: 0,
 			refundCreditCents: 0,
 			byCategory: { mercado: 5000 },
 		});
@@ -149,7 +147,6 @@ describe("summarizeMonth", () => {
 			spentCents: 0,
 			incomeCents: 0,
 			investedCents: 0,
-			projectedCents: 0,
 			refundCreditCents: 8000,
 			byCategory: {},
 		});
@@ -275,18 +272,10 @@ describe("summarizeMonth: o mês de quem tem rendimento, fatura paga, Pix e tran
 	});
 });
 
-describe("gasto por fatura e investido (caso do dono)", () => {
+describe("gasto pela data da compra e investido (caso do dono)", () => {
 	const M = "2026-11";
-	// Fatura fechada que vence em novembro: parcelas e compras avulsas, de datas bem anteriores.
-	const closed = [
-		tx({
-			kind: "expense",
-			amountCents: 8687,
-			date: "2026-09-12",
-			budgetMonth: "2026-09",
-			invoiceMonth: M,
-			categoryId: "lazer",
-		}),
+	// Compras de outubro cuja fatura vence em novembro: NÃO são gasto de novembro (competência é a data da compra).
+	const octOnNovInvoice = [
 		tx({
 			kind: "expense",
 			amountCents: 12464,
@@ -304,13 +293,22 @@ describe("gasto por fatura e investido (caso do dono)", () => {
 			categoryId: "lazer",
 		}),
 	];
-	// Fatura aberta (vence em dezembro): não pesa em novembro.
-	const open = tx({
+	// Compra de novembro no cartão (fatura de dezembro): é gasto de novembro.
+	const novOnDecInvoice = tx({
 		kind: "expense",
 		amountCents: 5150,
 		date: "2026-11-05",
 		invoiceMonth: "2026-12",
 		categoryId: "mercado",
+	});
+	// Parcela 3/6 de compra de setembro: pesa no seu mês (compra + n − 1 = novembro), não na data da compra.
+	const parcel = tx({
+		kind: "expense",
+		amountCents: 7666,
+		date: "2026-09-10",
+		budgetMonth: M,
+		invoiceMonth: M,
+		categoryId: "lazer",
 	});
 	const invest = tx({
 		kind: "investment",
@@ -320,69 +318,41 @@ describe("gasto por fatura e investido (caso do dono)", () => {
 	});
 	const yieldIn = tx({ kind: "income", amountCents: 1234, date: "2026-11-06", categoryId: "investimentos" });
 	const pixDebit = tx({ kind: "expense", amountCents: 3000, date: "2026-11-08", categoryId: "mercado" });
+	const payment = tx({ kind: "card_payment", amountCents: 14838, date: "2026-11-07" });
 
-	it("Gasto = faturas que vencem no mês + conta por data; Investido à parte", () => {
-		const s = summarizeMonth([...closed, open, invest, yieldIn], M);
-		expect(s.spentCents).toBe(8687 + 12464 + 51000); // 72.151
+	it("Gasto = compras com data no mês (cartão ou conta) + as parcelas do mês; Investido à parte", () => {
+		const s = summarizeMonth(
+			[...octOnNovInvoice, novOnDecInvoice, parcel, pixDebit, payment, invest, yieldIn],
+			M,
+		);
+		expect(s.spentCents).toBe(5150 + 7666 + 3000);
 		expect(s.investedCents).toBe(200000);
 		expect(s.incomeCents).toBe(1234);
-		expect(s.byCategory).toEqual({ lazer: 8687 + 51000, mercado: 12464 });
-		expect(s.byCategory.investimentos).toBeUndefined();
+		expect(s.byCategory).toEqual({ mercado: 5150 + 3000, lazer: 7666 });
 	});
-	it("todos os quatro itens de cartão vencendo no mês somam 773,01", () => {
-		const four = [
-			...closed,
-			tx({ kind: "expense", amountCents: 5150, date: "2026-11-05", invoiceMonth: M, categoryId: "mercado" }),
-		];
-		// 86,87 + 124,64 + 510,00 + 51,50 = 773,01
-		const s = summarizeMonth([...four, invest, yieldIn], M);
-		expect(s.spentCents).toBe(77301);
-		expect(s.investedCents).toBe(200000);
+	it("compra de outubro pesa em outubro, mesmo com a fatura vencendo em novembro", () => {
+		expect(summarizeMonth(octOnNovInvoice, "2026-10").spentCents).toBe(12464 + 51000);
+		expect(summarizeMonth(octOnNovInvoice, M).spentCents).toBe(0);
 	});
-	it("a fatura aberta pesa em dezembro, não em novembro", () => {
-		expect(summarizeMonth([open], "2026-12").spentCents).toBe(5150);
-		expect(summarizeMonth([open], M).spentCents).toBe(0);
-	});
-	it("débito/Pix continua pela data", () => {
-		expect(summarizeMonth([pixDebit], M).spentCents).toBe(3000);
-	});
-	it("estorno no cartão acompanha a fatura", () => {
+	it("estorno acompanha o mês em que acontece", () => {
 		const orig = tx({
 			kind: "expense",
 			amountCents: 10000,
 			date: "2026-10-01",
-			budgetMonth: "2026-10",
-			invoiceMonth: M,
 			categoryId: "lazer",
 		});
 		const refund = tx({
 			kind: "refund",
 			amountCents: 4000,
 			date: "2026-11-20",
-			invoiceMonth: M,
 			refundOf: orig.id,
 			categoryId: "lazer",
 		});
-		expect(summarizeMonth([orig, refund], M).spentCents).toBe(6000);
-		const late = { ...refund, invoiceMonth: "2026-12" };
-		expect(summarizeMonth([orig, late], M).spentCents).toBe(10000);
-		expect(summarizeMonth([orig, late], "2026-12").refundCreditCents).toBe(4000);
-	});
-	it("parcela projetada conta no mês e vem separada", () => {
-		const projected = tx({
-			kind: "expense",
-			amountCents: 9000,
-			date: "2026-11-30",
-			invoiceMonth: M,
-			categoryId: "lazer",
-			projected: true,
-		});
-		const s = summarizeMonth([...closed, projected], M);
-		expect(s.spentCents).toBe(72151 + 9000);
-		expect(s.projectedCents).toBe(9000);
+		expect(summarizeMonth([orig, refund], "2026-10").spentCents).toBe(10000);
+		expect(summarizeMonth([orig, refund], M).refundCreditCents).toBe(4000);
 	});
 	it("spendingMonthOf e investedDelta", () => {
-		expect(spendingMonthOf({ date: "2026-09-12", budgetMonth: "2026-09", invoiceMonth: M })).toBe(M);
+		expect(spendingMonthOf({ date: "2026-09-12", budgetMonth: M })).toBe(M);
 		expect(spendingMonthOf({ date: "2026-09-12" })).toBe("2026-09");
 		expect(investedDelta(invest)).toBe(200000);
 		expect(spendingDelta(invest)).toBe(0);

@@ -1,4 +1,4 @@
-import { type Cents, daysBetween, invoiceFor, type LocalDate, type MonthKey, monthOf } from "@orbita/core";
+import { type Cents, daysBetween, type LocalDate, type MonthKey } from "@orbita/core";
 import { banks, categoryColor, colors } from "@orbita/tokens";
 import { bankLogoKey } from "../../lib/bank-logos.ts";
 import { percentOf, pluralDays } from "../../lib/format.ts";
@@ -91,29 +91,18 @@ export function installmentsOverview(groups: readonly InstallmentGroupLike[], mo
 	return { activeCount: active.length, monthlyCents };
 }
 
-export interface CardLike {
-	closingDay: number;
-	dueDay: number;
-	closingRule: "closing-day-next" | "closing-day-included";
-}
-
-/** A fatura aberta de hoje (o mês dela é o do vencimento), calculada pelo engine. */
-export function currentInvoiceMonth(card: CardLike, today: LocalDate): MonthKey {
-	return invoiceFor(today, card).month;
-}
-
 /**
- * O que o cartão do Início mostra: a fatura ABERTA (a de hoje) e, quando ela vence só no mês que vem, a fatura FECHADA que
- * vence neste mês, que é a que o dono paga agora e a que pesa no "Gasto" do mês. Se a aberta já vence neste mês
- * (fecha dia 20, vence dia 27, por exemplo), não existe outra: `dueThisMonth` é `null`.
+ * "paga" quando o pago cobre a fatura, "falta R$ Z" quando pagou em parte (Z = total − pago, do engine), `null` quando
+ * nada foi pago ou a fatura ainda recebe compras (não há o que pagar).
  */
-export function cardTileInvoices(
-	card: CardLike,
-	today: LocalDate,
-): { open: MonthKey; dueThisMonth: MonthKey | null } {
-	const open = currentInvoiceMonth(card, today);
-	const thisMonth = monthOf(today);
-	return { open, dueThisMonth: open === thisMonth ? null : thisMonth };
+export function paidSuffix(
+	invoice: { totalCents: Cents; paidCents: Cents; paymentStatus: "paid" | "partial" | "unpaid" | "open" },
+	formatMoney: (cents: Cents) => string,
+): string | null {
+	if (invoice.paymentStatus === "paid") return "paga";
+	if (invoice.paymentStatus === "partial")
+		return `falta ${formatMoney(Math.max(0, invoice.totalCents - invoice.paidCents))}`;
+	return null;
 }
 
 /** Legenda da fatura: "Fecha em 3 dias", "Fecha hoje", "Vence em 5 dias", "Venceu há 2 dias". */

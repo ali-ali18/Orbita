@@ -84,9 +84,6 @@ export const toCoreTransaction = (
 		amountCents: t.amountCents,
 		date: t.date,
 		budgetMonth: t.budgetMonth,
-		// Cartão pesa no mês da fatura (ver `spendingMonthOf` do engine).
-		...(t.invoiceMonth === null ? {} : { invoiceMonth: t.invoiceMonth }),
-		...(isProjectedRow(t) ? { projected: true } : {}),
 		...(categoryId === null ? {} : { categoryId }),
 		...(t.refundOfId === null ? {} : { refundOf: t.refundOfId }),
 	};
@@ -109,40 +106,41 @@ export async function refundOriginalsOutside(stores: Stores, txs: readonly Trans
 
 /**
  * O conjunto do "Gasto do mês", o mesmo para o Início, o relatório, a sugestão de orçamento, as ferramentas da IA e os
- * avisos: o que o store devolve em `listForSpendingMonth` (cartão pela fatura que vence no mês, conta pelo mês do
- * orçamento) mais as PARCELAS ESTIMADAS dessa fatura.
- *
- * Parcela estimada: grupo de parcelas conhecido (visto em outra fatura) cuja parcela deste mês o banco ainda não
- * lançou. Conta no mês, marcada como estimada (`projectedCents` no resumo), porque a fatura que vence em `month` vai
- * cobrá-la. Só de hoje em diante (um mês já passado fica como foi gravado, não se inventa histórico) e só enquanto a
- * fatura está aberta (fechada, o banco já cobrou tudo o que ia cobrar). Parcela que a fatura já tem, de qualquer
- * grupo, não é estimada de novo (ver `projectMissingInstallments`).
+ * avisos: tudo pela DATA da compra (`budgetMonth`, competência). Compra no cartão pesa no mês em que foi feita e cada
+ * parcela no seu (mês da compra + n − 1); a fatura é outra visão (`invoicesOverview`). Nada estimado entra aqui.
  */
-export async function loadSpendingMonth(
+export function loadSpendingMonth(
+	stores: Stores,
+	month: MonthKey,
+	_today?: LocalDate,
+): Promise<TransactionRecord[]> {
+	return stores.transactions.listByBudgetMonth(month);
+}
+
+/**
+ * Parcelas que o banco ainda não lançou, de grupos já vistos, na fatura que vence em `month` (estimadas, só para
+ * planejar o futuro e para a visão da fatura; nunca somam ao Gasto). Só de hoje em diante e só enquanto a fatura está
+ * aberta; a parcela que a fatura já tem não é estimada de novo.
+ */
+export async function plannedInstallments(
 	stores: Stores,
 	month: MonthKey,
 	today: LocalDate,
 ): Promise<TransactionRecord[]> {
-	const rows = await stores.transactions.listForSpendingMonth(month);
-	if (month < monthOf(today)) return rows;
+	if (month < monthOf(today)) return [];
 	const [cards, groups] = await Promise.all([
 		stores.cards.list(),
 		stores.transactions.listInstallmentGroups(addMonths(month, -71)),
 	]);
-	const estimated = cards
+	const open = cards
 		.filter((c) => c.archivedAt === null)
-		// Fatura já fechada não ganha parcela inventada: o banco a fechou com o que tinha de cobrar.
-		.filter((c) => invoiceStatus(invoiceByMonth(month, toCardConfig(c)), today) === "open")
-		.flatMap((c) =>
-			projectedRows(
-				groups,
-				c.id,
-				month,
-				`${month}-01`,
-				rows.filter((t) => t.cardId === c.id),
-			),
-		);
-	return [...rows, ...estimated];
+		.filter((c) => invoiceStatus(invoiceByMonth(month, toCardConfig(c)), today) === "open");
+	const perCard = await Promise.all(
+		open.map(async (c) =>
+			projectedRows(groups, c.id, month, `${month}-01`, await stores.transactions.listByInvoice(c.id, month)),
+		),
+	);
+	return perCard.flat();
 }
 
 /**
@@ -203,12 +201,8 @@ export async function monthSummary(
 	if (monthOf(today) === month) {
 		// Gasto variável = o que saiu sem ser recorrência já lançada (o aluguel tem data certa).
 		const postedIds = new Set(postings.map((p) => p.transactionId));
-		// Ritmo diário = só o que sai da conta no dia a dia. A fatura que vence no mês é compromisso já fechado (e as
-		// parcelas estimadas também): estender esse valor pelos dias que faltam o contaria de novo.
-		const dailyPace = sum(
-			txs
-				.filter((t) => t.kind === "expense" && t.cardId === null && !postedIds.has(t.id))
-				.map((t) => t.amountCents),
+		const recurringSpent = sum(
+			txs.filter((t) => t.kind === "expense" && postedIds.has(t.id)).map((t) => t.amountCents),
 		);
 		const total = budgets.find((b) => b.scope === TOTAL_BUDGET_SCOPE);
 		if (total) {
@@ -223,7 +217,7 @@ export async function monthSummary(
 		projection = projectMonth({
 			spentCents: raw.spentCents,
 			pendingRecurringExpenseCents: pending.expenseCents,
-			variableSpentCents: dailyPace,
+			variableSpentCents: Math.max(0, raw.spentCents - recurringSpent),
 			today,
 			month,
 		});
@@ -236,7 +230,6 @@ export async function monthSummary(
 			spentCents: raw.spentCents,
 			incomeCents: raw.incomeCents,
 			investedCents: raw.investedCents,
-			projectedCents: raw.projectedCents,
 			refundCreditCents: raw.refundCreditCents,
 			byCategory,
 		},
@@ -250,7 +243,7 @@ export async function monthSummary(
 
 /**
  * "Como chegamos nesse número": o mesmo conjunto do Gasto (`loadSpendingMonth`) e a mesma soma (`summarizeMonth`), com
- * cada linha que pesou, de que ramo veio (conta pela data, cartão pela fatura, estimada) e quanto somou. Serve para o
+ * cada linha que pesou, de que ramo veio (conta ou cartão, por cartão) e quanto somou. Serve para o
  * dono (e para a gente) conferir o que entrou, sem recalcular nada fora do engine.
  */
 export async function spendingBreakdown(
@@ -269,12 +262,9 @@ export async function spendingBreakdown(
 	const toCore = (t: TransactionRecord) => toCoreTransaction(t, outros?.id ?? null, bySlug);
 	const summary = summarizeMonth([...txs, ...originals].map(toCore), month);
 
-	const branchOf = (t: TransactionRecord): SpendingBranch =>
-		isProjectedRow(t) ? "projected" : t.cardId !== null ? "card" : "account";
+	const branchOf = (t: TransactionRecord): SpendingBranch => (t.cardId !== null ? "card" : "account");
 	const rows = txs
-		.filter(
-			(t) => (t.kind === "expense" || t.kind === "refund") && (t.invoiceMonth ?? t.budgetMonth) === month,
-		)
+		.filter((t) => (t.kind === "expense" || t.kind === "refund") && t.budgetMonth === month)
 		.map((t) => ({
 			id: t.id,
 			branch: branchOf(t),
@@ -289,21 +279,35 @@ export async function spendingBreakdown(
 			cardId: t.cardId,
 			accountId: t.accountId,
 			status: t.status,
-			estimated: isProjectedRow(t),
 		}))
 		.sort(
 			(a, b) => a.branch.localeCompare(b.branch) || b.date.localeCompare(a.date) || a.id.localeCompare(b.id),
 		);
-	const branches = (["account", "card", "projected"] as const).map((branch) => {
+	const branches = (["account", "card"] as const).map((branch) => {
 		const own = rows.filter((r) => r.branch === branch);
 		return { branch, count: own.length, subtotalCents: sum(own.map((r) => r.deltaCents)) };
+	});
+	const cardList = await stores.cards.list();
+	const cards = cardList.flatMap((card) => {
+		const own = rows.filter((r) => r.branch === "card" && r.cardId === card.id);
+		return own.length === 0
+			? []
+			: [
+					{
+						cardId: card.id,
+						name: card.name,
+						last4: card.last4,
+						count: own.length,
+						subtotalCents: sum(own.map((r) => r.deltaCents)),
+					},
+				];
 	});
 	return {
 		month,
 		spentCents: summary.spentCents,
 		rowsCents: sum(rows.map((r) => r.deltaCents)),
-		projectedCents: summary.projectedCents,
 		branches,
+		cards,
 		rows,
 	};
 }

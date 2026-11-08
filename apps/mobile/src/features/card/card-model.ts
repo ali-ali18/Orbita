@@ -179,6 +179,7 @@ const PAYMENT_AFFECTED: ReadonlySet<unknown> = new Set([
 	"transactions",
 	"month-transactions",
 	"invoice",
+	"invoices-overview",
 	"installments",
 	"accounts",
 ]);

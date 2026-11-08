@@ -34,13 +34,13 @@ import {
 	useCards,
 	useCategories,
 	useInstallments,
-	useInvoice,
+	useInvoicesOverview,
 	useRecentTransactions,
 	useSummary,
 } from "./queries.ts";
 import { RecentCard } from "./RecentCard.tsx";
-import { InstallmentsSquare, InvoiceSquare } from "./SquareCards.tsx";
-import { cardTileInvoices } from "./summary-model.ts";
+import { InstallmentsSquare } from "./SquareCards.tsx";
+import { WalletBlock } from "./WalletBlock.tsx";
 
 export function HomeScreen() {
 	const { hidden, toggle } = usePrivacy();
@@ -59,6 +59,7 @@ export function HomeScreen() {
 	const cardsQ = useCards();
 	const accountsQ = useAccounts();
 	const installmentsQ = useInstallments();
+	const overviewQ = useInvoicesOverview();
 	const recentQ = useRecentTransactions(4);
 	const pendingQ = usePendingTransactions();
 	// "Salário cai em N dias": o próximo pagamento é calculado pelo servidor; sem renda cadastrada, a linha não aparece.
@@ -81,13 +82,6 @@ export function HomeScreen() {
 	const facts = useChecklistFacts(recentQ.data?.transactions.length);
 	const { show: showChecklist, checklist } = shouldShowChecklist(facts, dismissed);
 	const emptyHome = showChecklist && isFirstUse(facts.transactionCount);
-
-	const cards = toLoadable(cardsQ);
-	const firstCard = cards.phase === "ready" ? cards.data.cards.find((c) => c.archivedAt === null) : undefined;
-	const tileMonths = firstCard ? cardTileInvoices(firstCard, today) : null;
-	const invoiceQ = useInvoice(firstCard?.id, tileMonths?.open);
-	// A fatura fechada que vence neste mês (a que o dono paga agora), quando a aberta vence só no mês que vem.
-	const dueInvoiceQ = useInvoice(firstCard?.id, tileMonths?.dueThisMonth ?? undefined);
 
 	const summary = toLoadable(summaryQ);
 	const summaryWithCategories = combineLoadables(summary, toLoadable(categoriesQ));
@@ -188,15 +182,13 @@ export function HomeScreen() {
 								onPress={() => router.push("/revisao")}
 							/>
 						) : null}
+						<WalletBlock
+							overview={toLoadable(overviewQ)}
+							today={today}
+							hidden={hidden}
+							onOpen={() => router.push("/cartao?aba=faturas")}
+						/>
 						<View style={{ flexDirection: "row", gap: spacing.md }}>
-							<InvoiceSquare
-								cards={cards}
-								invoice={firstCard ? toLoadable(invoiceQ) : null}
-								dueInvoice={tileMonths?.dueThisMonth ? toLoadable(dueInvoiceQ) : null}
-								today={today}
-								hidden={hidden}
-								onPress={() => router.push("/cartao?aba=faturas")}
-							/>
 							<InstallmentsSquare
 								installments={toLoadable(installmentsQ)}
 								month={month}

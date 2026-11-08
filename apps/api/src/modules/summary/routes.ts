@@ -1,5 +1,11 @@
 import { monthOf, toLocalDate } from "@orbita/core";
-import { activeInstallments, cardInvoice, monthSummary, spendingBreakdown } from "@orbita/ledger";
+import {
+	activeInstallments,
+	cardInvoice,
+	invoicesOverview,
+	monthSummary,
+	spendingBreakdown,
+} from "@orbita/ledger";
 import { cardInvoiceParam, installmentsQuery, invoicePayBody, monthParam } from "@orbita/shared";
 import { Hono } from "hono";
 import { idempotent } from "../../http/idempotency.ts";
@@ -17,6 +23,7 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 			.use("/v1/summary/*", requireDevice)
 			.use("/v1/cards/:id/invoices/*", requireDevice)
 			.use("/v1/installments", requireDevice)
+			.use("/v1/invoices/*", requireDevice)
 			.get("/v1/summary/:month", validate("param", monthParam), async (c) =>
 				c.json(await monthSummary(stores, c.req.valid("param").month, toLocalDate(now()))),
 			)
@@ -24,6 +31,21 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 			.get("/v1/summary/:month/breakdown", validate("param", monthParam), async (c) =>
 				c.json(await spendingBreakdown(stores, c.req.valid("param").month, toLocalDate(now()))),
 			)
+			// "Faturas" do Início: o que se deve em cada cartão e no total (aberta mais fechadas sem pagar, menos pagamentos).
+			.get("/v1/invoices/overview", async (c) => {
+				const overview = await invoicesOverview(stores, toLocalDate(now()));
+				return c.json({
+					owedCents: overview.owedCents,
+					nextDueDate: overview.nextDueDate,
+					cards: overview.cards.map((line) => ({
+						card: toCardDto(line.card),
+						due: line.due,
+						open: line.open,
+						owedCents: line.owedCents,
+						nextDueDate: line.nextDueDate,
+					})),
+				});
+			})
 			.get("/v1/cards/:id/invoices/:month", validate("param", cardInvoiceParam), async (c) => {
 				const { id, month } = c.req.valid("param");
 				const result = await cardInvoice(stores, id, month, toLocalDate(now()));

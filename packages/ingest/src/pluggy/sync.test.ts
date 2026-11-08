@@ -232,7 +232,101 @@ describe("syncPluggy", () => {
 		expect(first?.limitCents).toBe(700_000);
 	});
 
-	it("plano B: dois cartões com fatura do mesmo total não deixam adivinhar; fica de fora, com aviso", async () => {
+	describe("pagamento de fatura que o banco chama de transferência", () => {
+		const pay = tx("p-1", {
+			description: "Pagamento de fatura Cartão Mercado Pago",
+			amount: -148.38,
+			date: "2026-11-07T00:00:00.000Z",
+			category: "Transfers",
+		});
+		const nubank = { ...cardAccount, id: "0f1d2c3b-aaaa-4bbb-8ccc-000000000009", number: "9999" };
+		const connected = () =>
+			setup({
+				accounts: [bankAccount, cardAccount],
+				transactions: { [BANK_ACCOUNT_ID]: [pay], [CARD_ACCOUNT_ID]: [] },
+				bills: { [CARD_ACCOUNT_ID]: [bill("bill-x", "2026-11-17T00:00:00.000Z", 148.38)] },
+			});
+
+		it("cartão conectado: vira card_payment (0 no gasto), não Transferências", async () => {
+			const t2 = connected();
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			const [card] = await t2.stores.cards.list();
+			const row = (await everything(t2.stores)).find((r) => r.externalId === "p-1");
+			expect(row).toMatchObject({ kind: "card_payment", cardId: card?.id, amountCents: 14_838 });
+		});
+
+		it("cartão não conectado: conta em 'Fatura de cartão' com a nota, fora de Transferências", async () => {
+			const t2 = setup({
+				accounts: [bankAccount],
+				transactions: { [BANK_ACCOUNT_ID]: [pay] },
+				bills: {},
+			});
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			const bySlug = new Map((await t2.stores.categories.list()).map((c) => [c.id, c.slug]));
+			const row = (await everything(t2.stores)).find((r) => r.externalId === "p-1");
+			expect(row).toMatchObject({
+				kind: "expense",
+				note: "Pagamento de fatura: cartão não conectado.",
+				status: "confirmed",
+			});
+			expect(bySlug.get(row?.categoryId ?? "")).toBe("fatura-cartao");
+		});
+
+		it("dois cartões com o mesmo total: pendente para revisão, não chuta", async () => {
+			const t2 = setup({
+				accounts: [bankAccount, cardAccount, nubank],
+				transactions: { [BANK_ACCOUNT_ID]: [{ ...pay, description: "Pagamento de fatura Cartão" }] },
+				bills: {
+					[CARD_ACCOUNT_ID]: [bill("a", "2026-11-17T00:00:00.000Z", 148.38)],
+					[nubank.id]: [bill("b", "2026-11-20T00:00:00.000Z", 148.38)],
+				},
+			});
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			const row = (await everything(t2.stores)).find((r) => r.externalId === "p-1");
+			expect(row).toMatchObject({ kind: "expense", status: "pending" });
+		});
+
+		it("recalcula o já gravado como Transferências: idempotente, e não mexe no que o dono editou", async () => {
+			const t2 = connected();
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.run();
+			const [card] = await t2.stores.cards.list();
+			const stored = (await everything(t2.stores)).find((r) => r.externalId === "p-1");
+			const transferencias = (await t2.stores.categories.list()).find((c) => c.slug === "transferencias");
+			// Como estava em produção: despesa em Transferências, sem cartão.
+			await t2.stores.transactions.update(stored?.id ?? "", {
+				kind: "expense",
+				cardId: null,
+				categoryId: transferencias?.id ?? null,
+			});
+			const first = await t2.run();
+			expect(first.connections[0]?.reclassified).toBe(1);
+			expect((await everything(t2.stores)).find((r) => r.externalId === "p-1")).toMatchObject({
+				kind: "card_payment",
+				cardId: card?.id,
+			});
+			const second = await t2.run();
+			expect(second.connections[0]?.reclassified ?? 0).toBe(0);
+
+			// Dono editou a categoria: o sync não toca.
+			await t2.stores.transactions.update(stored?.id ?? "", {
+				kind: "expense",
+				cardId: null,
+				categoryId: transferencias?.id ?? null,
+				categoryEditedByOwner: true,
+			});
+			await t2.run();
+			expect((await everything(t2.stores)).find((r) => r.externalId === "p-1")).toMatchObject({
+				kind: "expense",
+				categoryEditedByOwner: true,
+			});
+		});
+	});
+
+	it("plano B: dois cartões com fatura do mesmo total não deixam adivinhar; fica pendente para revisão", async () => {
 		const other = { ...cardAccount, id: "0f1d2c3b-aaaa-4bbb-8ccc-000000000003", number: "9999" };
 		const t2 = setup({
 			accounts: [(await import("./fake-pluggy.ts")).bankAccount, cardAccount, other],
@@ -243,10 +337,13 @@ describe("syncPluggy", () => {
 			},
 		});
 		await t2.stores.pluggyConnections.add({ id: ITEM_ID });
-		const result = await t2.run();
-		expect(result.connections[0]?.skipped.card_payment_unlinked).toBe(1);
-		expect(result.connections[0]?.notes.join(" ")).toContain("pagamento(s) de fatura não foram ligados");
-		expect((await everything(t2.stores)).some((r) => r.kind === "card_payment")).toBe(false);
+		await t2.run();
+		const rows = await everything(t2.stores);
+		expect(rows.some((r) => r.kind === "card_payment")).toBe(false);
+		// Dois cartões com o mesmo total: pendente, fora do gasto, à espera de revisão.
+		expect(
+			rows.filter((r) => r.status === "pending" && r.note?.startsWith("Pagamento de fatura")),
+		).toHaveLength(1);
 	});
 
 	it("pagamento de fatura casa pelo /bills (valor + dia) e acha o cartão certo mesmo com dois cartões", async () => {
@@ -675,7 +772,11 @@ describe("syncPluggy", () => {
 			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
 			const result = await t2.run();
 			expect(result.status).toBe("ok");
-			expect(result.connections[0]?.skipped.card_payment_unlinked).toBe(1);
+			// Nenhuma fatura para casar: o pagamento é o único rastro e conta como "Fatura de cartão".
+			const paid = (await everything(t2.stores)).find(
+				(r) => r.note === "Pagamento de fatura: cartão não conectado.",
+			);
+			expect(paid).toMatchObject({ kind: "expense" });
 		});
 
 		it("billId com fatura conhecida decide o invoiceMonth; sem ela vale o engine", async () => {
