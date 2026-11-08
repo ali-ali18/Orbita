@@ -13,6 +13,10 @@ import { usePluggyHomeWatch, usePluggyStatusSnapshot } from "../banks/queries.ts
 import { ReconnectBanner } from "../banks/ReconnectBanner.tsx";
 import { useConnectLauncher } from "../banks/use-connect.ts";
 import { useNow } from "../banks/use-now.ts";
+import { Checklist } from "../checklist/Checklist.tsx";
+import { EMPTY_HOME_CAPTION, isFirstUse, shouldShowChecklist } from "../checklist/checklist-model.ts";
+import { EmptyHero } from "../checklist/EmptyHero.tsx";
+import { useChecklistDismissed, useChecklistFacts } from "../checklist/use-checklist.ts";
 import { usePendingTransactions } from "../review/queries.ts";
 import { ReviewBanner } from "../review/ReviewScreen.tsx";
 import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
@@ -61,6 +65,12 @@ export function HomeScreen() {
 	const { start: reconnect, pending: reconnecting } = useConnectLauncher(
 		(pluggyQ.data?.connections ?? []).map((c) => c.id),
 	);
+
+	// Primeiros passos: derivados de dado real; somem completos ou dispensados.
+	const { dismissed, dismiss } = useChecklistDismissed();
+	const facts = useChecklistFacts(recentQ.data?.transactions.length);
+	const { show: showChecklist, checklist } = shouldShowChecklist(facts, dismissed);
+	const emptyHome = showChecklist && isFirstUse(facts.transactionCount);
 
 	const cards = toLoadable(cardsQ);
 	const firstCard = cards.phase === "ready" ? cards.data.cards.find((c) => c.archivedAt === null) : undefined;
@@ -118,8 +128,8 @@ export function HomeScreen() {
 						{greetingFor(hour)}
 					</Text>
 					<Text variant="caption" tone="secondary">
-						{monthName(month)}
-						{summary.phase === "ready" && summary.data.safeToSpend
+						{emptyHome ? EMPTY_HOME_CAPTION : monthName(month)}
+						{!emptyHome && summary.phase === "ready" && summary.data.safeToSpend
 							? ` · faltam ${pluralDays(summary.data.safeToSpend.remainingDays)}`
 							: ""}
 					</Text>
@@ -134,44 +144,52 @@ export function HomeScreen() {
 						onReconnect={() => void reconnect()}
 					/>
 				))}
-				<HeroCard state={summaryWithCategories} hidden={hidden} />
-				{pendingQ.data && pendingQ.data.transactions.length > 0 ? (
-					<ReviewBanner
-						count={pendingQ.data.transactions.length}
-						hasMore={pendingQ.data.hasMore}
-						onPress={() => router.push("/revisao")}
-					/>
+				{emptyHome ? <EmptyHero /> : null}
+				{showChecklist ? (
+					<Checklist checklist={checklist} onOpen={(href) => router.push(href)} onDismiss={dismiss} />
 				) : null}
-				<View style={{ flexDirection: "row", gap: spacing.md }}>
-					<InvoiceSquare
-						cards={cards}
-						invoice={firstCard ? toLoadable(invoiceQ) : null}
-						today={today}
-						hidden={hidden}
-						onPress={() => router.push("/cartao?aba=faturas")}
-					/>
-					<InstallmentsSquare
-						installments={toLoadable(installmentsQ)}
-						month={month}
-						hidden={hidden}
-						onPress={() => router.push("/cartao?aba=parcelas")}
-					/>
-				</View>
-				<CategoriesCard
-					state={summaryWithCategories}
-					hidden={hidden}
-					onPress={() => router.push("/configuracoes/orcamento")}
-				/>
-				<RecentCard
-					state={toLoadable(recentQ)}
-					accounts={accountsQ.data?.accounts ?? []}
-					categories={categoriesQ.data?.categories ?? []}
-					cards={cardsQ.data?.cards ?? []}
-					today={today}
-					hidden={hidden}
-					onSeeAll={() => router.push("/atividades")}
-					onOpen={(id) => router.push({ pathname: "/lancamento/[id]", params: { id } })}
-				/>
+				{emptyHome ? null : (
+					<>
+						<HeroCard state={summaryWithCategories} hidden={hidden} />
+						{pendingQ.data && pendingQ.data.transactions.length > 0 ? (
+							<ReviewBanner
+								count={pendingQ.data.transactions.length}
+								hasMore={pendingQ.data.hasMore}
+								onPress={() => router.push("/revisao")}
+							/>
+						) : null}
+						<View style={{ flexDirection: "row", gap: spacing.md }}>
+							<InvoiceSquare
+								cards={cards}
+								invoice={firstCard ? toLoadable(invoiceQ) : null}
+								today={today}
+								hidden={hidden}
+								onPress={() => router.push("/cartao?aba=faturas")}
+							/>
+							<InstallmentsSquare
+								installments={toLoadable(installmentsQ)}
+								month={month}
+								hidden={hidden}
+								onPress={() => router.push("/cartao?aba=parcelas")}
+							/>
+						</View>
+						<CategoriesCard
+							state={summaryWithCategories}
+							hidden={hidden}
+							onPress={() => router.push("/configuracoes/orcamento")}
+						/>
+						<RecentCard
+							state={toLoadable(recentQ)}
+							accounts={accountsQ.data?.accounts ?? []}
+							categories={categoriesQ.data?.categories ?? []}
+							cards={cardsQ.data?.cards ?? []}
+							today={today}
+							hidden={hidden}
+							onSeeAll={() => router.push("/atividades")}
+							onOpen={(id) => router.push({ pathname: "/lancamento/[id]", params: { id } })}
+						/>
+					</>
+				)}
 			</ScrollView>
 		</Screen>
 	);

@@ -61,4 +61,6 @@ export const KEYS = {
 	 * "done" quando terminou. Ausente: já usava o app; a entrada fica nas configurações.
 	 */
 	onboarding: "orbita.onboarding",
+	/** "1" quando a pessoa dispensou a lista de primeiros passos do Início. */
+	checklistDismissed: "orbita.checklistDismissed",
 } as const;
