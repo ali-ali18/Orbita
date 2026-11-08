@@ -3,7 +3,7 @@ import { relativeDate } from "../../lib/format.ts";
 import type { IconName } from "../../ui/index.ts";
 
 export interface TransactionLike {
-	kind: "expense" | "income" | "transfer" | "card_payment" | "refund";
+	kind: "expense" | "income" | "transfer" | "card_payment" | "refund" | "investment";
 	amountCents: Cents;
 	date: LocalDate;
 	accountId: string | null;
@@ -15,12 +15,12 @@ export interface TransactionLike {
 
 /** Sinal do valor: saída −, entrada +, movimento entre contas sem sinal. A cor vem de `amountTone`. */
 export function signedAmount(t: Pick<TransactionLike, "kind" | "amountCents">): Cents {
-	if (t.kind === "expense") return -t.amountCents;
+	if (t.kind === "expense" || t.kind === "investment") return -t.amountCents;
 	return t.amountCents;
 }
 
 /**
- * Cor do valor de dinheiro: o que entra (receita, estorno, pagamento de fatura) é verde (`positive`), a saída
+ * Cor do valor de dinheiro (aplicação em investimento é neutra: o dinheiro foi guardado, não gasto): o que entra (receita, estorno, pagamento de fatura) é verde (`positive`), a saída
  * segue branca e a transferência entre contas próprias é neutra, porque o dinheiro só mudou de lugar.
  */
 export function amountTone(kind: TransactionLike["kind"]): "positive" | "primary" | "secondary" {
@@ -30,6 +30,7 @@ export function amountTone(kind: TransactionLike["kind"]): "positive" | "primary
 		case "card_payment":
 			return "positive";
 		case "transfer":
+		case "investment":
 			return "secondary";
 		case "expense":
 			return "primary";
@@ -73,6 +74,7 @@ export function initialOf(name: string): string {
 export function transactionIcon(kind: TransactionLike["kind"], categorySlug: string | undefined): IconName {
 	switch (kind) {
 		case "income":
+		case "investment":
 			return "grafico";
 		case "transfer":
 			return "pix";

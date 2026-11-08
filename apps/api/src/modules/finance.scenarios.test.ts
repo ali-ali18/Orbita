@@ -644,14 +644,15 @@ describe("gastos por categoria: rendimento, fatura paga e transferência própri
 		expect(body.summary.byCategory).toEqual({
 			[b.category("mercado")]: 25_000,
 			[b.category("transferencias")]: 9_000,
-			[b.category("investimentos")]: 20_000,
 			[b.category("lazer")]: 83_010,
 		});
-		expect(body.summary.spentCents).toBe(137_010);
+		// A aplicação (despesa de conta em Investimentos) vira `investment`: fica fora do gasto e das categorias.
+		expect(body.summary.investedCents).toBe(20_000);
+		expect(body.summary.spentCents).toBe(117_010);
 		expect(body.summary.incomeCents).toBe(320);
 		const total = body.budgets.find((x: { scope: string }) => x.scope === "total");
-		expect(total).toMatchObject({ spentCents: 137_010, remainingCents: 62_990, overBudget: false });
-		expect(total.ratio).toBeCloseTo(0.68505, 5);
+		expect(total).toMatchObject({ spentCents: 117_010, remainingCents: 82_990, overBudget: false });
+		expect(total.ratio).toBeCloseTo(0.58505, 5);
 	});
 });
 
@@ -780,5 +781,45 @@ describe("gasto por fatura e investido (caso do dono)", () => {
 		expect((await api.get("/v1/summary/2026-09")).body.summary.projectedCents).toBe(0);
 		// Novembro já tem a parcela 2 lançada: nada estimado.
 		expect((await api.get("/v1/summary/2026-11")).body.summary.projectedCents).toBe(0);
+	});
+});
+
+describe("aplicação lançada à mão", () => {
+	it("despesa de conta em Investimentos vira investment; no cartão continua despesa", async () => {
+		const { api, account, card, category } = await withRent();
+		const made = (
+			await api.post("/v1/transactions", {
+				kind: "expense",
+				amountCents: 100000,
+				date: "2026-11-09",
+				description: "Compra de ações",
+				accountId: account.id,
+				categoryId: category("investimentos"),
+			})
+		).body.transaction;
+		expect(made.kind).toBe("investment");
+		const onCard = (
+			await api.post("/v1/transactions", {
+				kind: "expense",
+				amountCents: 5000,
+				date: "2026-11-09",
+				description: "Curso de investimentos",
+				cardId: card.id,
+				categoryId: category("investimentos"),
+			})
+		).body.transaction;
+		expect(onCard.kind).toBe("expense");
+		const nov = (await api.get("/v1/summary/2026-11")).body.summary;
+		expect(nov.investedCents).toBe(100000);
+		// 20.000 do mercado + 5.000 no cartão (comprado antes do fechamento, vence em 20/11); a aplicação fica de fora.
+		expect(nov.spentCents).toBe(25000);
+
+		// Tirar a categoria devolve à despesa; voltar a Investimentos, à aplicação.
+		const back = (await api.patch(`/v1/transactions/${made.id}`, { categoryId: category("lazer") })).body
+			.transaction;
+		expect(back.kind).toBe("expense");
+		const again = (await api.patch(`/v1/transactions/${made.id}`, { categoryId: category("investimentos") }))
+			.body.transaction;
+		expect(again.kind).toBe("investment");
 	});
 });

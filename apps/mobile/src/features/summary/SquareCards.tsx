@@ -90,6 +90,7 @@ function IconCircle({ name }: { name: IconName }) {
 export function InvoiceSquare({
 	cards,
 	invoice,
+	dueInvoice,
 	today,
 	hidden,
 	onPress,
@@ -97,6 +98,8 @@ export function InvoiceSquare({
 	onPress?: () => void;
 	cards: Loadable<CardsView>;
 	invoice: Loadable<InvoiceView> | null;
+	/** A fatura fechada que vence neste mês, quando a aberta vence no mês que vem; `null` se não há outra. */
+	dueInvoice?: Loadable<InvoiceView> | null;
 	today: string;
 	hidden: boolean;
 }) {
@@ -148,13 +151,45 @@ export function InvoiceSquare({
 			</Frame>
 		);
 	}
+	const open = (
+		<Facts
+			label="Fatura atual"
+			value={money(invoice.data.composition.totalCents, hidden)}
+			caption={invoiceCaption(invoice.data.invoice, today)}
+		/>
+	);
+	if (!dueInvoice) {
+		return (
+			<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={top}>
+				{open}
+			</Frame>
+		);
+	}
+	// Duas faturas: a que vence neste mês (o que se paga agora) em destaque e a atual, aberta, logo abaixo.
 	return (
-		<Frame label="Fatura atual, abrir o cartão" onPress={onPress} top={top}>
-			<Facts
-				label="Fatura atual"
-				value={money(invoice.data.composition.totalCents, hidden)}
-				caption={invoiceCaption(invoice.data.invoice, today)}
-			/>
+		<Frame label="Fatura que vence este mês e fatura atual, abrir o cartão" onPress={onPress} top={top}>
+			{dueInvoice.phase === "ready" ? (
+				<Facts
+					label="Vence este mês"
+					value={money(dueInvoice.data.composition.totalCents, hidden)}
+					caption={invoiceCaption(dueInvoice.data.invoice, today)}
+				/>
+			) : dueInvoice.phase === "loading" ? (
+				<Placeholder label="Fatura que vence este mês" />
+			) : (
+				<ErrorState message={dueInvoice.message} onRetry={dueInvoice.retry} />
+			)}
+			<View style={{ marginTop: spacing.md }}>
+				<Text variant="caption" tone="secondary">
+					Fatura atual
+				</Text>
+				<Text variant="bodyStrong" adjustsFontSizeToFit numberOfLines={1}>
+					{money(invoice.data.composition.totalCents, hidden)}
+				</Text>
+				<Text variant="caption" tone="secondary">
+					{invoiceCaption(invoice.data.invoice, today)}
+				</Text>
+			</View>
 		</Frame>
 	);
 }

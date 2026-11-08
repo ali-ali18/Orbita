@@ -38,7 +38,7 @@ import {
 } from "./queries.ts";
 import { RecentCard } from "./RecentCard.tsx";
 import { InstallmentsSquare, InvoiceSquare } from "./SquareCards.tsx";
-import { currentInvoiceMonth } from "./summary-model.ts";
+import { cardTileInvoices } from "./summary-model.ts";
 
 export function HomeScreen() {
 	const { hidden, toggle } = usePrivacy();
@@ -76,7 +76,10 @@ export function HomeScreen() {
 
 	const cards = toLoadable(cardsQ);
 	const firstCard = cards.phase === "ready" ? cards.data.cards.find((c) => c.archivedAt === null) : undefined;
-	const invoiceQ = useInvoice(firstCard?.id, firstCard ? currentInvoiceMonth(firstCard, today) : undefined);
+	const tileMonths = firstCard ? cardTileInvoices(firstCard, today) : null;
+	const invoiceQ = useInvoice(firstCard?.id, tileMonths?.open);
+	// A fatura fechada que vence neste mês (a que o dono paga agora), quando a aberta vence só no mês que vem.
+	const dueInvoiceQ = useInvoice(firstCard?.id, tileMonths?.dueThisMonth ?? undefined);
 
 	const summary = toLoadable(summaryQ);
 	const summaryWithCategories = combineLoadables(summary, toLoadable(categoriesQ));
@@ -164,6 +167,7 @@ export function HomeScreen() {
 							<InvoiceSquare
 								cards={cards}
 								invoice={firstCard ? toLoadable(invoiceQ) : null}
+								dueInvoice={tileMonths?.dueThisMonth ? toLoadable(dueInvoiceQ) : null}
 								today={today}
 								hidden={hidden}
 								onPress={() => router.push("/cartao?aba=faturas")}

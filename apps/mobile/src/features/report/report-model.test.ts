@@ -30,7 +30,13 @@ const row = (categoryId: string, spentCents: number, previousCents: number, perc
 const report = (over: Partial<MonthReportView> = {}): MonthReportView => ({
 	month: "2026-10",
 	closedOn: "2026-11-01",
-	totals: { incomeCents: 420000, spentCents: 388760, balanceCents: 31240, refundCreditCents: 0 },
+	totals: {
+		incomeCents: 420000,
+		spentCents: 388760,
+		investedCents: 0,
+		balanceCents: 31240,
+		refundCreditCents: 0,
+	},
 	vsPrevious: null,
 	vsAverage: null,
 	topCategories: [
@@ -150,7 +156,13 @@ describe("narrative (modelo fixo, sem IA)", () => {
 		const text = narrative(
 			report({
 				topCategories: [],
-				totals: { incomeCents: 1000, spentCents: 3500, balanceCents: -2500, refundCreditCents: 0 },
+				totals: {
+					incomeCents: 1000,
+					spentCents: 3500,
+					investedCents: 0,
+					balanceCents: -2500,
+					refundCreditCents: 0,
+				},
 			}),
 			categories,
 		);

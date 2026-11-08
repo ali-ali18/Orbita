@@ -54,6 +54,7 @@ export function HeroCard({
 	const total = summary.budgets.find((b) => b.scope === TOTAL_BUDGET_SCOPE);
 	const safe = summary.safeToSpend;
 	const spent = summary.summary.spentCents;
+	const invested = summary.summary.investedCents;
 	// Aviso dentro do app enquanto o push não existe; a decisão é do servidor (`alert`).
 	const notice = budgetAlertNotice(summary.budgets, categories, summary.budgetAlertPercent);
 
@@ -66,6 +67,11 @@ export function HeroCard({
 				<Text variant="caption" tone="secondary" style={{ marginTop: spacing.lg }}>
 					Gasto {money(spent, hidden, { sign: "never" })}
 				</Text>
+				{invested > 0 ? (
+					<Text variant="caption" tone="secondary">
+						Investido {money(invested, hidden, { sign: "never" })}
+					</Text>
+				) : null}
 			</Shell>
 		);
 	}
@@ -116,6 +122,11 @@ export function HeroCard({
 					{hero.percent}% do orçamento
 				</Text>
 			</View>
+			{invested > 0 ? (
+				<Text variant="caption" tone="secondary" style={{ marginTop: spacing.xs }}>
+					Investido {money(invested, hidden, { sign: "never" })}
+				</Text>
+			) : null}
 			{notice ? (
 				<Text variant="caption" accessibilityRole="alert" style={{ marginTop: spacing.sm }}>
 					{notice}

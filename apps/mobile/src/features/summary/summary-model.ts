@@ -1,4 +1,4 @@
-import { type Cents, daysBetween, invoiceFor, type LocalDate, type MonthKey } from "@orbita/core";
+import { type Cents, daysBetween, invoiceFor, type LocalDate, type MonthKey, monthOf } from "@orbita/core";
 import { banks, categoryColor, colors } from "@orbita/tokens";
 import { bankLogoKey } from "../../lib/bank-logos.ts";
 import { percentOf, pluralDays } from "../../lib/format.ts";
@@ -100,6 +100,20 @@ export interface CardLike {
 /** A fatura aberta de hoje (o mês dela é o do vencimento), calculada pelo engine. */
 export function currentInvoiceMonth(card: CardLike, today: LocalDate): MonthKey {
 	return invoiceFor(today, card).month;
+}
+
+/**
+ * O que o cartão do Início mostra: a fatura ABERTA (a de hoje) e, quando ela vence só no mês que vem, a fatura FECHADA que
+ * vence neste mês, que é a que o dono paga agora e a que pesa no "Gasto" do mês. Se a aberta já vence neste mês
+ * (fecha dia 20, vence dia 27, por exemplo), não existe outra: `dueThisMonth` é `null`.
+ */
+export function cardTileInvoices(
+	card: CardLike,
+	today: LocalDate,
+): { open: MonthKey; dueThisMonth: MonthKey | null } {
+	const open = currentInvoiceMonth(card, today);
+	const thisMonth = monthOf(today);
+	return { open, dueThisMonth: open === thisMonth ? null : thisMonth };
 }
 
 /** Legenda da fatura: "Fecha em 3 dias", "Fecha hoje", "Vence em 5 dias", "Venceu há 2 dias". */

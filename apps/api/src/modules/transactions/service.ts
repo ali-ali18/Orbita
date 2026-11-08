@@ -18,6 +18,28 @@ export async function invoiceMonthFor(stores: Stores, cardId: string, date: stri
 const isCardRow = (kind: string, cardId: string | null | undefined) =>
 	Boolean(cardId) && kind !== "card_payment";
 
+/** Slug da categoria de aplicações (categoria do sistema). */
+const INVESTMENTS_SLUG = "investimentos";
+
+/**
+ * Despesa de CONTA na categoria Investimentos é uma aplicação, não gasto: vira `investment` (aparece em "Investido").
+ * No cartão fica despesa (a compra pesa na fatura). Tirar a categoria de uma aplicação a devolve a despesa.
+ */
+async function kindForCategory(
+	stores: Stores,
+	kind: string,
+	accountId: string | null | undefined,
+	categoryId: string | null | undefined,
+): Promise<"investment" | "expense" | null> {
+	if (!accountId || (kind !== "expense" && kind !== "investment")) return null;
+	const isInvestments = categoryId
+		? (await stores.categories.get(categoryId))?.slug === INVESTMENTS_SLUG
+		: false;
+	if (kind === "expense" && isInvestments) return "investment";
+	if (kind === "investment" && !isInvestments) return "expense";
+	return null;
+}
+
 export async function createTransaction(
 	stores: Stores,
 	body: TransactionApiCreateBody,
@@ -26,7 +48,8 @@ export async function createTransaction(
 	const invoiceMonth = isCardRow(body.kind, body.cardId)
 		? await invoiceMonthFor(stores, body.cardId as string, body.date)
 		: null;
-	return stores.transactions.create({ ...input, invoiceMonth });
+	const kind = (await kindForCategory(stores, body.kind, body.accountId, body.categoryId)) ?? body.kind;
+	return stores.transactions.create({ ...input, kind, invoiceMonth });
 }
 
 export async function createInstallments(
@@ -93,6 +116,20 @@ export async function updateTransaction(
 			if (touched) patch.invoiceMonth = await invoiceMonthFor(stores, cardId as string, date);
 		} else if (current.invoiceMonth !== null) {
 			patch.invoiceMonth = null;
+		}
+	}
+	// Categoria Investimentos numa despesa de conta é aplicação (e o contrário). Despesa com estorno não muda de tipo:
+	// nesse caso a categoria vale, mas o tipo fica como está.
+	if (patch.kind === undefined && (patch.categoryId !== undefined || patch.accountId !== undefined)) {
+		const accountId = patch.accountId === undefined ? current.accountId : patch.accountId;
+		const categoryId = patch.categoryId === undefined ? current.categoryId : patch.categoryId;
+		const next = await kindForCategory(stores, current.kind, accountId, categoryId);
+		if (next !== null) {
+			try {
+				return await stores.transactions.update(id, { ...patch, kind: next });
+			} catch (e) {
+				if (!(e instanceof DataError) || e.code !== "invalid") throw e;
+			}
 		}
 	}
 	return stores.transactions.update(id, patch);
