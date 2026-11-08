@@ -1,6 +1,8 @@
 import type {
+	BudgetBefore,
 	GoalsListResponse,
 	MonthSummaryResponse,
+	PlanDto,
 	RecurrenceDto,
 	TransactionApiCreateBody,
 	TransactionDto,
@@ -68,6 +70,8 @@ export interface AgentReader {
 	recurrences(): Promise<RecurrenceDto[]>;
 	/** Metas ativas com guardado, percentual, valor mensal e situação (tudo do engine). */
 	goals(): Promise<GoalsListResponse>;
+	/** Plano da renda do mês (engine `incomePlan`): baldes, categorias, avisos. `reservePercent` ausente = padrão. */
+	incomePlan(month: string, reservePercent?: number): Promise<PlanDto>;
 }
 
 /** Escrita: só é chamada depois que o dono confirma uma proposta (nunca direto por uma ferramenta). */
@@ -84,6 +88,10 @@ export interface AgentWriter {
 	/** Desfaz uma confirmação: volta a pendente. */
 	revertConfirmation(id: string): Promise<void>;
 	deleteTransaction(id: string): Promise<boolean>;
+	/** Grava o plano da renda no orçamento (o dono já confirmou) e devolve o que valia antes, para o Desfazer. */
+	applyPlan(month: string, reservePercent: number): Promise<{ previous: BudgetBefore[] }>;
+	/** Devolve os limites ao que eram antes de `applyPlan`. */
+	restoreBudgets(previous: BudgetBefore[]): Promise<void>;
 }
 
 /** Erro esperado de uma ferramenta: a mensagem (pt-BR) é segura para o modelo e para o dono. */

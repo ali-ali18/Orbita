@@ -57,6 +57,7 @@ export const AGENT_TOOL_OPTIONS = [
 	{ name: "get_card_invoice", label: "Fatura do cartão" },
 	{ name: "list_subscriptions", label: "Assinaturas" },
 	{ name: "goals_status", label: "Metas" },
+	{ name: "income_plan", label: "Plano da renda" },
 	{ name: "list_catalog", label: "Contas, cartões e categorias" },
 ] as const;
 export const AGENT_TOOL_NAMES: readonly string[] = AGENT_TOOL_OPTIONS.map((t) => t.name);

@@ -2,7 +2,7 @@ import { colors, spacing } from "@orbita/tokens";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { RefreshControl, ScrollView, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useClock } from "../../lib/clock.tsx";
 import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
@@ -17,6 +17,8 @@ import { Checklist } from "../checklist/Checklist.tsx";
 import { EMPTY_HOME_CAPTION, isFirstUse, shouldShowChecklist } from "../checklist/checklist-model.ts";
 import { EmptyHero } from "../checklist/EmptyHero.tsx";
 import { useChecklistDismissed, useChecklistFacts } from "../checklist/use-checklist.ts";
+import { paydayLine } from "../income/income-model.ts";
+import { useIncome } from "../income/queries.ts";
 import { ReportLink } from "../report/ReportLink.tsx";
 import { usePendingTransactions } from "../review/queries.ts";
 import { ReviewBanner } from "../review/ReviewScreen.tsx";
@@ -59,6 +61,12 @@ export function HomeScreen() {
 	const installmentsQ = useInstallments();
 	const recentQ = useRecentTransactions(4);
 	const pendingQ = usePendingTransactions();
+	// "Salário cai em N dias": o próximo pagamento é calculado pelo servidor; sem renda cadastrada, a linha não aparece.
+	const income = useIncome().data;
+	const nextPay = income?.nextPayday ?? null;
+	const paydayText = nextPay
+		? paydayLine(income?.sources.find((s) => s.id === nextPay.sourceId)?.name ?? "Renda", nextPay.daysUntil)
+		: null;
 	// Sem nome (ou enquanto carrega) a saudação vai como sempre e o avatar usa "V".
 	const displayName = useProfile().data?.displayName ?? null;
 	const pluggyQ = usePluggyStatusSnapshot();
@@ -138,6 +146,23 @@ export function HomeScreen() {
 							? ` · faltam ${pluralDays(summary.data.safeToSpend.remainingDays)}`
 							: ""}
 					</Text>
+					{!emptyHome && paydayText ? (
+						<Pressable
+							accessibilityRole="button"
+							accessibilityLabel={`${paydayText}. Abrir renda`}
+							hitSlop={8}
+							onPress={() => router.push("/configuracoes/renda")}
+							style={({ pressed }) => ({
+								minHeight: 44,
+								justifyContent: "center",
+								opacity: pressed ? 0.8 : 1,
+							})}
+						>
+							<Text variant="caption" tone="secondary">
+								{paydayText}
+							</Text>
+						</Pressable>
+					) : null}
 				</View>
 
 				{disconnected.map((c) => (

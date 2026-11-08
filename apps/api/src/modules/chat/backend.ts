@@ -1,6 +1,7 @@
 import type { AgentWriter } from "@orbita/agents";
 import { monthOf, toLocalDate } from "@orbita/core";
 import { DataError, type Stores } from "@orbita/db";
+import { applyIncomePlan, restoreBudgets } from "@orbita/ledger";
 import { orNotFound } from "../../http/errors.ts";
 import {
 	confirmTransaction,
@@ -11,7 +12,7 @@ import {
 
 export { createAgentReader } from "@orbita/ledger";
 
-export function createAgentWriter(stores: Stores): AgentWriter {
+export function createAgentWriter(stores: Stores, now: () => Date): AgentWriter {
 	return {
 		async createTransaction(input) {
 			const created = await createTransaction(stores, input);
@@ -45,6 +46,15 @@ export function createAgentWriter(stores: Stores): AgentWriter {
 				throw error;
 			}
 		},
+		async applyPlan(month, reservePercent) {
+			// O dono já viu no card quantos limites seriam trocados e confirmou: aqui a confirmação vale.
+			const { previous } = await applyIncomePlan(stores, month, toLocalDate(now()), {
+				reservePercent,
+				confirm: true,
+			});
+			return { previous };
+		},
+		restoreBudgets: (previous) => restoreBudgets(stores, previous),
 	};
 }
 

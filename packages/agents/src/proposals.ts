@@ -1,4 +1,4 @@
-import { transactionApiCreateBody } from "@orbita/shared";
+import { budgetBefore, monthKeySchema, transactionApiCreateBody } from "@orbita/shared";
 import { z } from "zod";
 import { type AgentWriter, ToolError } from "./backend.ts";
 
@@ -11,6 +11,12 @@ const createPayload = z.object({ input: transactionApiCreateBody });
 const categorizePayload = z.object({ transactionId: z.string().min(1), categoryId: z.string().min(1) });
 const confirmPayload = z.object({ transactionId: z.string().min(1) });
 
+const applyPlanPayload = z.object({
+	month: monthKeySchema,
+	reservePercent: z.number().int().min(0).max(100),
+});
+const applyPlanResult = z.object({ previous: z.array(budgetBefore) });
+
 const createResult = z.object({ transactionId: z.string().min(1) });
 const categorizeResult = z.object({
 	transactionId: z.string().min(1),
@@ -22,8 +28,8 @@ const confirmResult = z.object({ transactionId: z.string().min(1), wasPending: z
 export interface AppliedProposal {
 	/** Guardado na proposta para o Desfazer. */
 	result: Record<string, unknown>;
-	/** Lançamento criado ou alterado. */
-	transactionId: string;
+	/** Lançamento criado ou alterado; `null` quando a proposta não mexe em lançamento (plano da renda). */
+	transactionId: string | null;
 }
 
 const invalidPayload = () => new ToolError("A proposta está corrompida e não pode ser executada.");
@@ -53,6 +59,12 @@ export async function applyProposal(
 		const { wasPending } = await writer.confirmTransaction(transactionId);
 		return { result: { transactionId, wasPending }, transactionId };
 	}
+	if (kind === "apply_plan") {
+		const parsed = applyPlanPayload.safeParse(payload);
+		if (!parsed.success) throw invalidPayload();
+		const { previous } = await writer.applyPlan(parsed.data.month, parsed.data.reservePercent);
+		return { result: { previous }, transactionId: null };
+	}
 	throw invalidPayload();
 }
 
@@ -80,6 +92,12 @@ export async function undoProposal(
 		if (!parsed.success) throw invalidPayload();
 		// Se já estava confirmado antes da proposta, não havia nada a desfazer.
 		if (parsed.data.wasPending) await writer.revertConfirmation(parsed.data.transactionId);
+		return;
+	}
+	if (kind === "apply_plan") {
+		const parsed = applyPlanResult.safeParse(result);
+		if (!parsed.success) throw invalidPayload();
+		await writer.restoreBudgets(parsed.data.previous);
 		return;
 	}
 	throw invalidPayload();

@@ -7,6 +7,7 @@ export * from "./finance-api.ts";
 export * from "./finance-primitives.ts";
 export * from "./goals-api.ts";
 export * from "./import-api.ts";
+export * from "./income-api.ts";
 export * from "./pairing.ts";
 export * from "./pluggy-api.ts";
 export * from "./preferences-api.ts";

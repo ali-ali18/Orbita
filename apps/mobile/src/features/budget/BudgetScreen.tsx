@@ -7,7 +7,11 @@ import { useClock } from "../../lib/clock.tsx";
 import { money } from "../../lib/format.ts";
 import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import { ErrorState, IconButton, Screen, Skeleton, Text, TOP_FADE } from "../../ui/index.ts";
+import { ErrorState, Icon, IconButton, Screen, Skeleton, Text, TOP_FADE } from "../../ui/index.ts";
+import { FitLimits } from "../income/FitLimits.tsx";
+import { aboveIncomeWarning } from "../income/income-model.ts";
+import { PlanCard } from "../income/PlanCard.tsx";
+import { useIncome } from "../income/queries.ts";
 import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
 import { isUnreachableQuery } from "../server/server-model.ts";
 import { useCategories, useSummary } from "../summary/queries.ts";
@@ -108,6 +112,7 @@ export function BudgetScreen() {
 	const budgetsQ = useBudgets();
 	const summaryQ = useSummary(month);
 	const categoriesQ = useCategories();
+	const incomeQ = useIncome();
 	const set = useSetBudget();
 	const remove = useRemoveBudget();
 	// `isPending` só muda no próximo render; a trava em ref barra o segundo toque no mesmo instante.
@@ -176,6 +181,8 @@ export function BudgetScreen() {
 			summary.spentCents,
 		);
 		const alertPercent = state.data[0][1].budgetAlertPercent;
+		// Aviso que não bloqueia: o dono pode definir um total acima da renda, só é avisado.
+		const incomeWarning = aboveIncomeWarning(total, incomeQ.data?.monthIncomeCents ?? 0, hidden);
 		return (
 			<>
 				<View
@@ -213,14 +220,28 @@ export function BudgetScreen() {
 						<Text variant="caption" tone="secondary">
 							Gasto {money(summary.spentCents, hidden, { sign: "never" })} neste mês
 						</Text>
+						{incomeWarning ? (
+							<View
+								accessibilityRole="alert"
+								style={{ flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" }}
+							>
+								<Icon name="alerta" size={18} color={colors.textSecondary} />
+								<Text variant="caption" tone="secondary" style={{ flex: 1 }}>
+									{incomeWarning}
+								</Text>
+							</View>
+						) : null}
 						{total !== null && limitsExceedTotal(rows, total) ? (
 							<Text variant="caption" tone="secondary">
 								Os limites das categorias somam mais que o total do mês.
 							</Text>
 						) : null}
 					</Pressable>
+					{total !== null && limitsExceedTotal(rows, total) ? <FitLimits /> : null}
 					<SuggestionLine budgets={budgets} categories={categories} hidden={hidden} />
 				</View>
+
+				<PlanCard hidden={hidden} />
 
 				<View style={{ gap: spacing.sm, paddingTop: 6 }}>
 					<Text variant="caption" tone="secondary" accessibilityRole="header">

@@ -38,6 +38,7 @@ export {
 	ToolError,
 	type TransactionQuery,
 } from "./backend.ts";
+export { getIncomePlan, proposeApplyPlan } from "./income-tools.ts";
 export {
 	type AgentEvent,
 	type AgentLoopDeps,

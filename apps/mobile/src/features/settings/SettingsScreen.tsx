@@ -125,6 +125,12 @@ export function SettingsScreen() {
 					<SettingsRow icon="assinatura" title="Assinaturas" onPress={() => router.push("/assinaturas")} />
 					<SettingsRow icon="bandeira" title="Metas" onPress={() => router.push("/metas")} />
 					<SettingsRow
+						icon="transferir"
+						title="Renda"
+						caption="Salário e outras entradas"
+						onPress={() => router.push("/configuracoes/renda")}
+					/>
+					<SettingsRow
 						icon="alvo"
 						title="Orçamento do mês"
 						onPress={() => router.push("/configuracoes/orcamento")}

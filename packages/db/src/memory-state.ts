@@ -6,6 +6,7 @@ import type { CategoryRuleRecord } from "./category-rule-store.ts";
 import type { CategoryRecord } from "./category-store.ts";
 import { badReference } from "./errors.ts";
 import type { GoalContributionRecord, GoalRecord } from "./goal-store.ts";
+import type { IncomeSourceRecord } from "./income-source-store.ts";
 import type { PluggyConnectionRecord } from "./pluggy-connection-store.ts";
 import { DEFAULT_PREFERENCES, type PreferencesRecord } from "./preferences-store.ts";
 import type { RecurrencePostingRecord, RecurrenceRecord } from "./recurrence-store.ts";
@@ -30,6 +31,7 @@ export interface MemoryState {
 	budgets: Map<string, BudgetRecord & { createdAt: Date }>;
 	secrets: Map<string, StoredSecret & { createdAt: Date }>;
 	pluggyConnections: Map<string, PluggyConnectionRecord>;
+	incomeSources: Map<string, IncomeSourceRecord>;
 	goals: Map<string, GoalRecord>;
 	goalContributions: Map<string, GoalContributionRecord>;
 	agents: Map<string, AgentRecord>;
@@ -51,6 +53,7 @@ export function createMemoryState(now: Clock = () => new Date()): MemoryState {
 		budgets: new Map(),
 		secrets: new Map(),
 		pluggyConnections: new Map(),
+		incomeSources: new Map(),
 		goals: new Map(),
 		goalContributions: new Map(),
 		agents: new Map(),

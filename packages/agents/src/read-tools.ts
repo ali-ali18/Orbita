@@ -3,6 +3,7 @@ import type { ChatRowsCard, MonthSummaryResponse, TransactionDto } from "@orbita
 import { z } from "zod";
 import { monthLabel } from "./alerts/text.ts";
 import { type Catalog, ToolError, type TransactionQuery } from "./backend.ts";
+import { getIncomePlan } from "./income-tools.ts";
 import {
 	dateInput,
 	defineTool,
@@ -703,6 +704,7 @@ export const READ_TOOLS: readonly Tool[] = [
 	getCardInvoice,
 	listSubscriptions,
 	getGoalsStatus,
+	getIncomePlan,
 	getCategoryBreakdown,
 	getMonthReport,
 	listCatalog,
