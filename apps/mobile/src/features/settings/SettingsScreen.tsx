@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSession } from "../../lib/session.tsx";
 import { Icon, IconButton, LetterAvatar, OrbitaAvatar, Screen, Text } from "../../ui/index.ts";
+import { useOnboardingPhase } from "../onboarding/flag.ts";
+import { showsSetupInSettings } from "../onboarding/model.ts";
 import { SettingsRow, SettingsSection, StaticSwitch } from "./SettingsRows.tsx";
 import { SignOutDialog } from "./SignOutDialog.tsx";
 
@@ -16,14 +18,16 @@ function hostOf(baseUrl: string | null): string | undefined {
 
 /**
  * Tela "Configurações" (Figma 41:605). "Bancos e cartões" e "Servidor e chaves" têm tela; os outros itens aparecem como no
- * Figma, esmaecidos e sem toque, até existirem. O que o Figma mostra com número de exemplo (4 bancos,
- * 3 apps…) não aparece: o app ainda não tem esses dados.
+ * Figma, esmaecidos e sem toque, até existirem. Quem já usava o app e não fez a configuração inicial vê essa entrada;
+ * depois de feita, ela some. O que o Figma mostra com número de exemplo (4 bancos, 3 apps…) não aparece.
  */
 export function SettingsScreen() {
 	const router = useRouter();
 	const { baseUrl } = useSession();
 	const [confirmingSignOut, setConfirmingSignOut] = useState(false);
 	const version = Constants.expoConfig?.version;
+	const phase = useOnboardingPhase();
+	const showSetup = phase !== "loading" && showsSetupInSettings(phase);
 
 	return (
 		<Screen>
@@ -48,6 +52,18 @@ export function SettingsScreen() {
 						Configurações
 					</Text>
 				</View>
+
+				{showSetup ? (
+					<SettingsSection title="Primeiros passos">
+						<SettingsRow
+							icon="brilho"
+							title="Configuração inicial"
+							caption="Bancos, notificações e orçamento"
+							onPress={() => router.push("/configuracoes/primeira-vez")}
+							last
+						/>
+					</SettingsSection>
+				) : null}
 
 				<SettingsSection title="Fontes de dados">
 					<SettingsRow

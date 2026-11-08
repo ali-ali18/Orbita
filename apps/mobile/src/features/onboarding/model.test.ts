@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
 	connectionsUsedLabel,
-	meuPluggyRow,
+	onboardingBankRows,
+	onboardingPhase,
 	progressLabel,
 	SUGGESTED_TOTAL_CENTS,
+	showsAutomaticSetup,
+	showsSetupInSettings,
 	splitBudget,
 	stepBudget,
 } from "./model.ts";
@@ -14,10 +17,48 @@ describe("primeira vez", () => {
 		expect(progressLabel(4)).toBe("4 de 4");
 	});
 
-	it("a primeira vez tem uma conexão: o Meu Pluggy", () => {
-		expect(meuPluggyRow(0)).toEqual({ name: "Meu Pluggy", connected: false });
-		expect(meuPluggyRow(1)).toEqual({ name: "Meu Pluggy", connected: true });
-		expect(meuPluggyRow(3).connected).toBe(true);
+	it("quem entra agora faz os passos; quem já entrou só vê nas configurações; feito, some", () => {
+		expect(onboardingPhase(null)).toBe("available");
+		expect(onboardingPhase("pending")).toBe("pending");
+		expect(onboardingPhase("done")).toBe("done");
+		expect(onboardingPhase("outro")).toBe("available");
+		expect(showsAutomaticSetup("pending")).toBe(true);
+		expect(showsAutomaticSetup("available")).toBe(false);
+		expect(showsAutomaticSetup("done")).toBe(false);
+		expect(showsSetupInSettings("available")).toBe(true);
+		expect(showsSetupInSettings("pending")).toBe(false);
+		expect(showsSetupInSettings("done")).toBe(false);
+	});
+
+	it("lista os bancos e deixa o Meu Pluggy por último", () => {
+		const rows = onboardingBankRows([]);
+		expect(rows.map((row) => row.name)).toEqual([
+			"Nubank",
+			"Inter",
+			"Santander",
+			"Mercado Pago",
+			"Itaú",
+			"C6 Bank",
+			"PicPay",
+			"Bradesco",
+			"Meu Pluggy",
+		]);
+		expect(rows.every((row) => row.logo.length > 0)).toBe(true);
+		expect(rows.slice(0, -1).every((row) => !row.connectable && !row.connected)).toBe(true);
+		expect(rows.at(-1)).toMatchObject({
+			name: "Meu Pluggy",
+			logo: "meu-pluggy",
+			connected: false,
+			connectable: true,
+		});
+	});
+
+	it("marca o banco pelo nome da conexão e o Meu Pluggy quando há conexão", () => {
+		const rows = onboardingBankRows(["Nubank", null]);
+		expect(rows.find((row) => row.name === "Nubank")?.connected).toBe(true);
+		expect(rows.find((row) => row.name === "Santander")?.connected).toBe(false);
+		expect(rows.at(-1)?.connected).toBe(true);
+		expect(onboardingBankRows(["Meu Pluggy"]).find((row) => row.name === "Inter")?.connected).toBe(false);
 	});
 
 	it("o rótulo conta essa única conexão", () => {

@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { View } from "react-native";
-import { useOnboardingDone } from "../features/onboarding/flag.ts";
+import { useOnboardingPhase } from "../features/onboarding/flag.ts";
+import { showsAutomaticSetup } from "../features/onboarding/model.ts";
 import { SetupFlow } from "../features/onboarding/SetupFlow.tsx";
 import { HomeScreen } from "../features/summary/HomeScreen.tsx";
 
 export default function InicioRoute() {
-	const done = useOnboardingDone();
+	const phase = useOnboardingPhase();
 	const [finished, setFinished] = useState(false);
-	if (done === "loading") return <View style={{ flex: 1 }} />;
-	if (done === "no" && !finished) return <SetupFlow onFinished={() => setFinished(true)} />;
+	if (phase === "loading") return <View style={{ flex: 1 }} />;
+	if (showsAutomaticSetup(phase) && !finished) return <SetupFlow onFinished={() => setFinished(true)} />;
 	return <HomeScreen />;
 }
