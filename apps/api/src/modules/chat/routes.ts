@@ -2,7 +2,13 @@ import type { ChatModelConfig } from "@orbita/agents";
 import { describeModelError, type ModelClient } from "@orbita/agents";
 import type { ChatConversationRecord, SecretVault } from "@orbita/db";
 import { createRateLimiter } from "@orbita/security";
-import { chatConversationRenameBody, chatConversationsQuery, chatRequestBody, idParam } from "@orbita/shared";
+import {
+	chatConversationRenameBody,
+	chatConversationsQuery,
+	chatRequestBody,
+	idParam,
+	proposalConfirmBody,
+} from "@orbita/shared";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { apiError, orNotFound } from "../../http/errors.ts";
@@ -69,7 +75,9 @@ export function routes(deps: ChatRoutesDeps) {
 				const body = c.req.valid("json");
 				let pre: Awaited<ReturnType<typeof preflightChat>>;
 				try {
-					pre = await preflightChat(service, body.conversationId, body.agentId);
+					pre = await preflightChat(service, body.conversationId, body.agentId, {
+						setup: body.intent === "setup",
+					});
 				} catch (error) {
 					if (error instanceof ChatPreconditionError) {
 						return c.json(apiError(error.code, error.message), error.status);
@@ -88,6 +96,7 @@ export function routes(deps: ChatRoutesDeps) {
 						const { messageId } = await runChatTurn(service, pre, {
 							conversationId: body.conversationId,
 							message: body.message,
+							intent: body.intent,
 							ownerName: profile.displayName,
 							signal: controller.signal,
 							emit: (event) => send(event),
@@ -151,8 +160,15 @@ export function routes(deps: ChatRoutesDeps) {
 		.delete("/v1/chat/conversations/:id", validate("param", idParam), async (c) =>
 			c.json({ deleted: await stores.chat.deleteConversation(c.req.valid("param").id) }),
 		)
-		.post("/v1/chat/proposals/:id/confirm", validate("param", idParam), async (c) =>
-			c.json({ proposal: await confirmProposal(service, c.req.valid("param").id) }),
+		.post(
+			"/v1/chat/proposals/:id/confirm",
+			validate("param", idParam),
+			// Corpo opcional: só a proposta de configuração leva o que o dono marcou e editou. Valor, dia e data nunca vêm daqui.
+			validate("json", proposalConfirmBody),
+			async (c) =>
+				c.json({
+					proposal: await confirmProposal(service, c.req.valid("param").id, c.req.valid("json").setup),
+				}),
 		)
 		.post("/v1/chat/proposals/:id/cancel", validate("param", idParam), async (c) =>
 			c.json({ proposal: await cancelProposal(service, c.req.valid("param").id) }),

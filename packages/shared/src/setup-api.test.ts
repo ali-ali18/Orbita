@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { chatRequestBody } from "./chat-api.ts";
 import {
 	appliedView,
 	fullSelection,
@@ -175,5 +176,20 @@ describe("seleção da proposta de configuração", () => {
 	it("o corpo do confirmar é estrito", () => {
 		expect(proposalConfirmBody.safeParse({}).success).toBe(true);
 		expect(proposalConfirmBody.safeParse({ extra: 1 }).success).toBe(false);
+	});
+});
+
+describe("pedido de chat com a tarefa de configuração", () => {
+	it("a tarefa fixa não leva mensagem digitada; sem tarefa a mensagem é obrigatória", () => {
+		expect(chatRequestBody.safeParse({ intent: "setup" }).success).toBe(true);
+		expect(chatRequestBody.safeParse({ intent: "setup", message: "oi" }).success).toBe(false);
+		expect(chatRequestBody.safeParse({}).success).toBe(false);
+		expect(chatRequestBody.safeParse({ message: "oi" }).success).toBe(true);
+		expect(chatRequestBody.safeParse({ intent: "outra" }).success).toBe(false);
+	});
+
+	it("a tarefa abre sempre uma conversa nova com a Órbita", () => {
+		expect(chatRequestBody.safeParse({ intent: "setup", conversationId: "c1" }).success).toBe(false);
+		expect(chatRequestBody.safeParse({ intent: "setup", agentId: "a1" }).success).toBe(false);
 	});
 });

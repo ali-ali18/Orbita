@@ -28,13 +28,34 @@ export const chatRequestBody = z
 		 * existe vale o agente com que ela foi aberta.
 		 */
 		agentId: idSchema.optional(),
+		/**
+		 * Tarefa fixa do lado do servidor ("Configurar com a Órbita"): abre a conversa com a análise do histórico, sem
+		 * mensagem digitada. Com `intent` não há `message`; sem `intent`, a mensagem é obrigatória.
+		 */
+		intent: z.literal("setup").optional(),
 		message: z
 			.string({ error: "Escreva a mensagem." })
 			.trim()
 			.min(1, "Escreva a mensagem.")
-			.max(CHAT_MESSAGE_MAX, `A mensagem tem até ${CHAT_MESSAGE_MAX} letras.`),
+			.max(CHAT_MESSAGE_MAX, `A mensagem tem até ${CHAT_MESSAGE_MAX} letras.`)
+			.optional(),
 	})
-	.strict();
+	.strict()
+	.superRefine((v, ctx) => {
+		if (v.intent === undefined && v.message === undefined) {
+			ctx.addIssue({ code: "custom", path: ["message"], message: "Escreva a mensagem." });
+		}
+		if (v.intent !== undefined && v.message !== undefined) {
+			ctx.addIssue({ code: "custom", path: ["message"], message: "Esta tarefa não leva mensagem." });
+		}
+		if (v.intent !== undefined && (v.conversationId !== undefined || v.agentId !== undefined)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["intent"],
+				message: "Esta tarefa abre uma conversa nova com a Órbita.",
+			});
+		}
+	});
 export type ChatRequestBody = z.infer<typeof chatRequestBody>;
 
 // ---------------------------------------------------------------- cards
