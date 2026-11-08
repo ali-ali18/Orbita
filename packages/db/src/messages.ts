@@ -8,6 +8,7 @@ export const ACCOUNT_ARCHIVED_MESSAGE = "A conta informada está arquivada.";
 export const CARD_ARCHIVED_MESSAGE = "O cartão informado está arquivado.";
 export const CATEGORY_ARCHIVED_MESSAGE = "A categoria informada está arquivada.";
 export const GOAL_MISSING_MESSAGE = "A meta informada não existe.";
+export const INCOME_ARCHIVED_MESSAGE = "A renda informada está arquivada.";
 export const GOAL_ARCHIVED_MESSAGE = "A meta informada está arquivada.";
 export const GOAL_TRANSACTION_MESSAGE = "O lançamento informado não existe.";
 export const LEFTOVER_ONE_TARGET_MESSAGE = "A sobra vai para uma conta ou para uma meta, não para as duas.";

@@ -59,6 +59,12 @@ export type {
 	ImportBegin,
 	ImportSummary,
 } from "./import-batch-store.ts";
+export type {
+	IncomeSourceInput,
+	IncomeSourcePatch,
+	IncomeSourceRecord,
+	IncomeSourceStore,
+} from "./income-source-store.ts";
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
 export type {

@@ -178,6 +178,34 @@ export function normalizeGoal(data: {
 	};
 }
 
+/**
+ * Campos da fonte de renda (a conta é conferida contra o banco por quem o tem). Recorrente não tem mês; avulsa
+ * precisa de um.
+ */
+export function normalizeIncomeSource(data: {
+	name: string;
+	amountCents: number;
+	payday: number;
+	recurring?: boolean | undefined;
+	month?: string | null | undefined;
+}) {
+	const recurring = data.recurring ?? true;
+	if (typeof recurring !== "boolean") throw invalid("Informe se a renda é todo mês ou avulsa.");
+	let month: string | null = null;
+	if (!recurring) {
+		if (!hasValue(data.month)) throw invalid("Informe o mês da renda avulsa.");
+		if (!isMonthKey(data.month)) throw invalid("O mês da renda é inválido (use AAAA-MM).");
+		month = data.month;
+	}
+	return {
+		name: cleanText(data.name, "o nome da renda"),
+		amountCents: cleanCents(data.amountCents, "O valor da renda", 1),
+		payday: cleanDay(data.payday, "O dia do pagamento"),
+		recurring,
+		month,
+	};
+}
+
 /** Aplica um patch ignorando chaves `undefined` (campo ausente = não muda). */
 export function applyPatch<T extends object>(current: T, patch: Partial<T>): T {
 	const next = { ...current };
