@@ -1,4 +1,5 @@
 export * from "./budget.ts";
+export * from "./budget-suggestion.ts";
 export * from "./classification.ts";
 export * from "./dates.ts";
 export * from "./installments.ts";
