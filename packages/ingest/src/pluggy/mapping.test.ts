@@ -869,6 +869,22 @@ describe("mapPluggyTransaction: Pix para si mesmo pelo nome do titular", () => {
 		});
 	});
 
+	it("descrição sem hífen ('Pix recebido ALISSON ...') também é reconhecida", () => {
+		const owner: TransactionContext = { ...bankCtx, ownerName: "Alisson Alves Bapka" };
+		expect(
+			mapPluggyTransaction(pix({ description: "Pix enviado Alisson Alves Bapka", amount: -171.16 }), owner),
+		).toMatchObject({ input: { kind: "transfer", amountCents: 17_116 } });
+		expect(
+			mapPluggyTransaction(
+				pix({ type: "CREDIT", description: "Pix recebido ALISSON ALVES BAPKA", amount: 33.63 }),
+				owner,
+			),
+		).toMatchObject({ input: { kind: "transfer", amountCents: 3_363 } });
+		expect(
+			mapPluggyTransaction(pix({ description: "Pix enviado Alisson Souza", amount: -10 }), owner),
+		).toMatchObject({ input: { kind: "expense" } });
+	});
+
 	it("Pix para outra pessoa, ou para um homônimo parcial, continua sendo gasto", () => {
 		for (const description of [
 			"Pix enviado - Rei Dos Coins",

@@ -430,6 +430,9 @@ function personName(value: string | null | undefined): string {
 
 /** "Pix enviado - Fulano de Tal" → "Fulano de Tal": a ponta que o banco escreveu na descrição. */
 const COUNTERPART_IN_DESCRIPTION = /^(?:pix|ted|doc|transfer[^-–]*)[^-–]*[-–]\s*(.+)$/i;
+/** O mesmo sem hífen ("Pix recebido ALISSON ALVES"): o banco só cola o nome depois do verbo. */
+const COUNTERPART_NO_DASH =
+	/^(?:pix|ted|doc|transferencia)\s+(?:enviado|enviada|recebido|recebida|efetuado|efetuada)\s+(?:de\s+|para\s+)?(.+)$/i;
 
 /**
  * Transferência para si mesmo pelo NOME: a outra ponta (`paymentData`, ou o que vem depois do hífen em "Pix enviado -
@@ -446,6 +449,7 @@ function isOwnTransferByName(
 	const names = [
 		tx.type === "DEBIT" ? tx.paymentData?.receiver?.name : tx.paymentData?.payer?.name,
 		COUNTERPART_IN_DESCRIPTION.exec(description.trim())?.[1],
+		COUNTERPART_NO_DASH.exec(plain(description))?.[1],
 	];
 	return names.some((name) => personName(name) === owner);
 }

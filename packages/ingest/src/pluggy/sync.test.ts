@@ -337,7 +337,7 @@ describe("syncPluggy", () => {
 			},
 		});
 		await t2.stores.pluggyConnections.add({ id: ITEM_ID });
-		const result = await t2.run();
+		await t2.run();
 		const rows = await everything(t2.stores);
 		expect(rows.some((r) => r.kind === "card_payment")).toBe(false);
 		// Dois cartões com o mesmo total: pendente, fora do gasto, à espera de revisão.
