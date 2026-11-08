@@ -20,7 +20,7 @@ async function prepare() {
 		const form = new FormData();
 		for (const [key, value] of Object.entries(fields)) {
 			if (typeof value === "string") form.set(key, value);
-			else form.set(key, new File([value.content as BlobPart], value.name, { type: value.type }));
+			else form.set(key, new File([value.content as never], value.name, { type: value.type }));
 		}
 		const res = await ctx.app.request(path, {
 			method: "POST",
