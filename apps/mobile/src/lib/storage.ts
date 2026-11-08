@@ -54,6 +54,8 @@ export const KEYS = {
 	baseUrl: "orbita.baseUrl",
 	token: "orbita.token",
 	hideValues: "orbita.hideValues",
+	/** "1" quando o app sempre abre com os valores escondidos (preferência deste aparelho). */
+	hideOnOpen: "orbita.hideOnOpen",
 	/** "1" quando o app só abre depois da digital (ou PIN/padrão) do aparelho. Ausente ou "0": desligado. */
 	biometricLock: "orbita.biometricLock",
 	/**

@@ -11,6 +11,8 @@ import { BottomBar, Screen, Text, TOP_FADE, useBottomBarHeight } from "../../ui/
 import { usePluggyHomeWatch } from "../banks/queries.ts";
 import { usePendingTransactions } from "../review/queries.ts";
 import { ReviewBanner } from "../review/ReviewScreen.tsx";
+import { useProfile } from "../settings/preferences-queries.ts";
+import { avatarInitial, greetWithName } from "../settings/profile-model.ts";
 import { CategoriesCard } from "./CategoriesCard.tsx";
 import { HeroCard } from "./HeroCard.tsx";
 import { HomeHeader } from "./HomeHeader.tsx";
@@ -26,9 +28,6 @@ import {
 import { RecentCard } from "./RecentCard.tsx";
 import { InstallmentsSquare, InvoiceSquare } from "./SquareCards.tsx";
 import { currentInvoiceMonth } from "./summary-model.ts";
-
-/** Ainda não há perfil/nome no servidor; o avatar usa "V" de "Você" e a saudação vai sem nome. */
-const PROFILE_INITIAL = "V";
 
 export function HomeScreen() {
 	const { hidden, toggle } = usePrivacy();
@@ -49,6 +48,8 @@ export function HomeScreen() {
 	const installmentsQ = useInstallments();
 	const recentQ = useRecentTransactions(4);
 	const pendingQ = usePendingTransactions();
+	// Sem nome (ou enquanto carrega) a saudação vai como sempre e o avatar usa "V".
+	const displayName = useProfile().data?.displayName ?? null;
 
 	const cards = toLoadable(cardsQ);
 	const firstCard = cards.phase === "ready" ? cards.data.cards.find((c) => c.archivedAt === null) : undefined;
@@ -90,7 +91,7 @@ export function HomeScreen() {
 				}
 			>
 				<HomeHeader
-					initial={PROFILE_INITIAL}
+					initial={avatarInitial(displayName)}
 					hidden={hidden}
 					onToggleHidden={toggle}
 					onAvatarPress={() => router.push("/configuracoes")}
@@ -98,7 +99,7 @@ export function HomeScreen() {
 
 				<View style={{ paddingTop: spacing.md, paddingBottom: spacing.sm, gap: spacing.xs }}>
 					<Text variant="greeting" accessibilityRole="header">
-						{greetingFor(hour)}
+						{greetWithName(greetingFor(hour), displayName)}
 					</Text>
 					<Text variant="caption" tone="secondary">
 						{monthName(month)}

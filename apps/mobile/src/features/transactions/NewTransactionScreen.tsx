@@ -16,6 +16,7 @@ import {
 	Skeleton,
 	Text,
 } from "../../ui/index.ts";
+import { usePreferences } from "../settings/preferences-queries.ts";
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { AmountInput } from "./AmountInput.tsx";
@@ -64,7 +65,13 @@ export function NewTransactionScreen() {
 		sources.phase === "ready"
 			? sourceOptions(form.kind, sources.data[0].accounts, sources.data[1].cards)
 			: [];
-	const source = effectiveSource(form.sourceKey, options);
+	// A conta padrão (Configurações → Preferências) já vem marcada; escolher outra vale sobre ela.
+	const defaultAccountId = usePreferences().data?.defaultAccountId ?? null;
+	const source = effectiveSource(
+		form.sourceKey,
+		options,
+		defaultAccountId ? `account:${defaultAccountId}` : null,
+	);
 	const installable = canInstall(form.kind, source);
 	// Se a escolha saiu da lista (ex.: mudou para Entrada), as parcelas já foram zeradas em `withKind`.
 	const installments = installable ? form.installments : 1;

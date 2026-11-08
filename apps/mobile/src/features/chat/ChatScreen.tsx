@@ -7,6 +7,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { monthName } from "../../lib/format.ts";
 import { IDEMPOTENCY_HEADER, newIdempotencyKey } from "../../lib/idempotency.ts";
 import { useSession } from "../../lib/session.tsx";
+import { useProfile } from "../settings/preferences-queries.ts";
 import { useAccounts, useCards, useCategories, useSummary } from "../summary/queries.ts";
 import { isAffectedByNewTransaction } from "../transactions/new-transaction-model.ts";
 import { type ChatBubble, ChatView } from "./ChatView.tsx";
@@ -31,6 +32,7 @@ function fromReply(reply: Exclude<ChatReply, { type: "launch" }>): ChatBubble {
 
 /** Chat da Órbita. As respostas leem o resumo do mês; o lançamento usa a mesma API do "+". */
 export function ChatScreen() {
+	const profileQ = useProfile();
 	const router = useRouter();
 	const { api, baseUrl } = useSession();
 	const queryClient = useQueryClient();
@@ -185,6 +187,7 @@ export function ChatScreen() {
 			onReset={() => setMessages([])}
 			onSend={send}
 			onAttach={(kind) => void attach(kind)}
+			displayName={profileQ.data?.displayName ?? null}
 		/>
 	);
 }
