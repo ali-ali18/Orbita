@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSession } from "../../lib/session.tsx";
 import { Icon, IconButton, LetterAvatar, OrbitaAvatar, Screen, Text, TOP_FADE } from "../../ui/index.ts";
+import { useLock } from "../lock/LockProvider.tsx";
 import { useOnboardingPhase } from "../onboarding/flag.ts";
 import { showsSetupInSettings } from "../onboarding/model.ts";
 import { SettingsRow, SettingsSection, StaticSwitch } from "./SettingsRows.tsx";
@@ -25,9 +26,24 @@ export function SettingsScreen() {
 	const router = useRouter();
 	const { baseUrl } = useSession();
 	const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+	const lock = useLock();
+	const [lockBusy, setLockBusy] = useState(false);
+	const [lockMessage, setLockMessage] = useState<string | null>(null);
 	const version = Constants.expoConfig?.version;
 	const phase = useOnboardingPhase();
 	const showSetup = phase !== "loading" && showsSetupInSettings(phase);
+
+	const toggleLock = async () => {
+		if (lockBusy) return;
+		setLockBusy(true);
+		setLockMessage(null);
+		try {
+			const result = await lock.setEnabled(!lock.enabled);
+			if (!result.ok) setLockMessage(result.message);
+		} finally {
+			setLockBusy(false);
+		}
+	};
 
 	return (
 		<Screen fadeTop>
@@ -98,13 +114,17 @@ export function SettingsScreen() {
 				</SettingsSection>
 
 				<SettingsSection title="Segurança">
-					<SettingsRow
-						icon="cadeado"
-						title="Desbloquear com digital"
-						leading={undefined}
-						chevron={false}
-						trailing={<StaticSwitch on={false} />}
-					/>
+					{lock.supported ? (
+						<SettingsRow
+							icon="cadeado"
+							title="Desbloquear com digital"
+							caption={lockMessage}
+							chevron={false}
+							toggled={lock.enabled}
+							onPress={() => void toggleLock()}
+							trailing={<StaticSwitch on={lock.enabled} />}
+						/>
+					) : null}
 					<SettingsRow
 						icon="olho"
 						title="Esconder valores ao abrir"

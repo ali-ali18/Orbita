@@ -44,6 +44,7 @@ export function SettingsRow({
 	info = false,
 	trailing,
 	soon = false,
+	toggled,
 }: {
 	icon?: IconName;
 	leading?: ReactNode;
@@ -59,6 +60,8 @@ export function SettingsRow({
 	trailing?: ReactNode;
 	/** Ainda sem tela: mostra "Em breve", esmaecida e sem toque (sem seta). */
 	soon?: boolean;
+	/** Linha que é um interruptor: o leitor de tela a lê como "ligado/desligado" em vez de botão. */
+	toggled?: boolean | undefined;
 }) {
 	const enabled = onPress !== undefined;
 	const rowStyle = {
@@ -92,9 +95,11 @@ export function SettingsRow({
 	}
 	return (
 		<Pressable
-			accessibilityRole="button"
+			accessibilityRole={toggled === undefined ? "button" : "switch"}
 			accessibilityLabel={[title, caption, value, soon ? "em breve" : undefined].filter(Boolean).join(", ")}
-			accessibilityState={{ disabled: !enabled }}
+			accessibilityState={
+				toggled === undefined ? { disabled: !enabled } : { disabled: !enabled, checked: toggled }
+			}
 			disabled={!enabled}
 			onPress={onPress}
 			style={({ pressed }) => ({ ...rowStyle, opacity: !enabled ? 0.45 : pressed ? 0.8 : 1 })}
@@ -124,7 +129,7 @@ export function SettingsRow({
 	);
 }
 
-/** Interruptor só de desenho (46 × 28), para os itens de Segurança que ainda não funcionam. */
+/** Interruptor (46 × 28) só de desenho: o toque é da linha que o contém. */
 export function StaticSwitch({ on }: { on: boolean }) {
 	return (
 		<View

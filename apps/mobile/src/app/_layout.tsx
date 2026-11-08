@@ -6,6 +6,8 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { LockGate } from "../features/lock/LockGate.tsx";
+import { LockProvider, useLock } from "../features/lock/LockProvider.tsx";
 import { AutoUpdate } from "../lib/auto-update.tsx";
 import { ClockProvider } from "../lib/clock.tsx";
 import { PrivacyProvider, usePrivacy } from "../lib/privacy.tsx";
@@ -47,12 +49,14 @@ function Routes() {
 	);
 }
 
-/** Segura a splash até as fontes, a sessão e a preferência de privacidade estarem prontas: sem pisca-pisca. */
+/** Segura a splash até as fontes, a sessão e as preferências (privacidade, bloqueio) estarem prontas: sem pisca-pisca. */
 function Gate({ children }: { children: ReactElement }) {
 	const [fontsLoaded, fontError] = useFonts(geistFonts);
 	const { state } = useSession();
 	const { loaded: privacyLoaded } = usePrivacy();
-	const ready = (fontsLoaded || fontError !== null) && state.status !== "loading" && privacyLoaded;
+	const { loaded: lockLoaded } = useLock();
+	const ready =
+		(fontsLoaded || fontError !== null) && state.status !== "loading" && privacyLoaded && lockLoaded;
 
 	useEffect(() => {
 		if (ready) SplashScreen.hideAsync().catch(() => {});
@@ -83,12 +87,16 @@ export default function RootLayout() {
 					<SessionProvider>
 						<QueryErrorBridge target={onError} />
 						<AutoUpdate />
-						<PrivacyProvider>
-							<StatusBar style="light" />
-							<Gate>
-								<Routes />
-							</Gate>
-						</PrivacyProvider>
+						<LockProvider>
+							<PrivacyProvider>
+								<StatusBar style="light" />
+								<Gate>
+									<LockGate>
+										<Routes />
+									</LockGate>
+								</Gate>
+							</PrivacyProvider>
+						</LockProvider>
 					</SessionProvider>
 				</ClockProvider>
 			</QueryClientProvider>
