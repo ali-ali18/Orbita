@@ -24,10 +24,11 @@ export const DEFAULT_CATEGORIES: readonly Required<CategoryInput>[] = [
 	{ slug: "transporte", name: "Transporte", chartSlot: 2, isSystem: false },
 	{ slug: "assinaturas", name: "Assinaturas", chartSlot: 3, isSystem: false },
 	{ slug: "lazer", name: "Lazer", chartSlot: 4, isSystem: false },
-	{ slug: "moradia", name: "Moradia", chartSlot: null, isSystem: false },
-	{ slug: "saude", name: "Saúde", chartSlot: null, isSystem: false },
-	{ slug: "transferencias", name: "Transferências", chartSlot: null, isSystem: true },
-	{ slug: "outros", name: "Outros", chartSlot: null, isSystem: true },
+	{ slug: "moradia", name: "Moradia", chartSlot: 5, isSystem: false },
+	{ slug: "saude", name: "Saúde", chartSlot: 6, isSystem: false },
+	{ slug: "transferencias", name: "Transferências", chartSlot: 7, isSystem: true },
+	{ slug: "investimentos", name: "Investimentos", chartSlot: 8, isSystem: true },
+	{ slug: "outros", name: "Outros", chartSlot: 9, isSystem: true },
 ];
 
 export interface CategoryStore {

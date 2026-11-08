@@ -1,5 +1,5 @@
 import { type Cents, daysBetween, invoiceFor, type LocalDate, type MonthKey } from "@orbita/core";
-import { banks, chart, chartSeries, colors } from "@orbita/tokens";
+import { banks, categoryColor, colors } from "@orbita/tokens";
 import { bankLogoKey } from "../../lib/bank-logos.ts";
 import { percentOf, pluralDays } from "../../lib/format.ts";
 import type { BankBadge } from "../../ui/index.ts";
@@ -13,6 +13,7 @@ import { initialOf } from "./transaction-model.ts";
 export interface CategoryLike {
 	id: string;
 	name: string;
+	slug?: string;
 	chartSlot: number | null;
 }
 
@@ -32,9 +33,9 @@ export interface CategoryShare {
 }
 
 /**
- * Gasto por categoria agrupado em até 5 cores + "Outros" (nunca uma 6ª cor). Categorias sem
- * espaço no gráfico (e as desconhecidas) somam em "Outros". Ordem: espaços 0..4, depois Outros;
- * categoria sem gasto não entra.
+ * O mesmo gasto do orçamento, uma linha por categoria. A cor é a do espaço no gráfico ou, se ele
+ * ainda não foi escolhido, a cor do slug. O que não tem categoria entra em Outros. Categoria sem
+ * gasto não entra.
  */
 export function categoryShares(
 	byCategory: Readonly<Record<string, Cents>>,
@@ -42,23 +43,31 @@ export function categoryShares(
 ): CategoryShare[] {
 	const byId = new Map(categories.map((c) => [c.id, c]));
 	const slots = new Map<number, CategoryShare>();
-	let otherCents = 0;
+	const rest: CategoryShare[] = [];
+	let loose = 0;
 	for (const [id, cents] of Object.entries(byCategory)) {
 		if (cents <= 0) continue;
 		const category = byId.get(id);
 		const slot = category?.chartSlot;
-		const color = slot === null || slot === undefined ? undefined : chartSeries[slot];
-		if (category && slot !== null && slot !== undefined && color) {
+		const color = categoryColor({ slug: category?.slug, chartSlot: slot });
+		if (category && slot !== null && slot !== undefined) {
 			const current = slots.get(slot);
 			if (current) current.cents += cents;
 			else slots.set(slot, { key: `slot-${slot}`, name: category.name, color, cents });
+		} else if (category) {
+			rest.push({ key: category.id, name: category.name, color, cents });
 		} else {
-			otherCents += cents;
+			loose += cents;
 		}
 	}
 	const shares = [...slots.entries()].sort(([a], [b]) => a - b).map(([, share]) => share);
-	if (otherCents > 0) shares.push({ key: "other", name: "Outros", color: chart.other, cents: otherCents });
-	return shares;
+	rest.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+	if (loose > 0) {
+		const outros = rest.find((share) => share.name === "Outros");
+		if (outros) outros.cents += loose;
+		else rest.push({ key: "other", name: "Outros", color: categoryColor({ slug: "outros" }), cents: loose });
+	}
+	return [...shares, ...rest];
 }
 
 export function shareSegments(shares: readonly CategoryShare[]): BarSegment[] {

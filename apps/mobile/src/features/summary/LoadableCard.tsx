@@ -10,6 +10,7 @@ export function LoadableCard<T>({
 	state,
 	skeletonLines = 3,
 	chevron = false,
+	onPress,
 	action,
 	onAction,
 	gap = spacing.md,
@@ -19,6 +20,8 @@ export function LoadableCard<T>({
 	state: Loadable<T>;
 	skeletonLines?: number;
 	chevron?: boolean;
+	/** Toque no card inteiro. */
+	onPress?: () => void;
 	action?: string | undefined;
 	/** Toque em `action` (sem isso o texto é só um indicativo). */
 	onAction?: (() => void) | undefined;
@@ -27,7 +30,7 @@ export function LoadableCard<T>({
 	children: (data: T) => ReactNode;
 }) {
 	return (
-		<Card>
+		<Card {...(onPress ? { onPress, label: title } : {})}>
 			<CardHeader title={title} chevron={chevron} action={action} onAction={onAction} />
 			<View style={{ marginTop: state.phase === "loading" || state.phase === "error" ? spacing.md : gap }}>
 				{state.phase === "loading" ? (

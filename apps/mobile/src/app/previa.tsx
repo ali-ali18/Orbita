@@ -1,10 +1,12 @@
 import { useLocalSearchParams } from "expo-router";
+import { ChatEmptyPreview, ChatTalkPreview } from "../features/chat/ChatPreview.tsx";
 import { BanksStep } from "../features/onboarding/BanksStep.tsx";
 import { BudgetStep } from "../features/onboarding/BudgetStep.tsx";
 import { onboardingBankRows } from "../features/onboarding/model.ts";
 import { NotificationsStep } from "../features/onboarding/NotificationsStep.tsx";
 import { WelcomeScreen } from "../features/onboarding/WelcomeScreen.tsx";
 import { PairingForm } from "../features/pairing/PairingForm.tsx";
+import { HomePreview, InvoicePreview } from "../features/preview/ChangedScreens.tsx";
 
 /** Prévia estática das telas de primeira vez, no navegador (390×844). */
 export default function PreviaRoute() {
@@ -27,6 +29,14 @@ export default function PreviaRoute() {
 			return <NotificationsStep onBack={noop} onAllow={noop} onSkip={noop} />;
 		case "orcamento":
 			return <BudgetStep onBack={noop} onDone={noop} />;
+		case "fatura":
+			return <InvoicePreview />;
+		case "inicio":
+			return <HomePreview />;
+		case "chat":
+			return <ChatEmptyPreview />;
+		case "conversa":
+			return <ChatTalkPreview />;
 		default:
 			return <WelcomeScreen onStart={noop} />;
 	}

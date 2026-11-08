@@ -13,12 +13,20 @@ const AMOUNT_WIDTH = 92;
 export function CategoriesCard({
 	state,
 	hidden,
+	onPress,
 }: {
 	state: Loadable<[MonthSummary, CategoriesView]>;
 	hidden: boolean;
+	onPress?: () => void;
 }) {
 	return (
-		<LoadableCard title="Gastos por categoria" state={state} skeletonLines={4} chevron>
+		<LoadableCard
+			title="Gastos por categoria"
+			state={state}
+			skeletonLines={4}
+			chevron
+			{...(onPress ? { onPress } : {})}
+		>
 			{([summary, { categories }]) => {
 				const shares = categoryShares(summary.summary.byCategory, categories);
 				const total = shares.reduce((sum, s) => sum + s.cents, 0);

@@ -27,9 +27,9 @@ import {
 	type CategoryIndex,
 	categoryChain,
 	classifyFamily,
-	matchSpendingSlug,
 	plain,
 	readableCategory,
+	suggestSpendingSlug,
 } from "./classify.ts";
 import { categoryForCnae, categoryForMcc } from "./mcc.ts";
 import type { PluggyAccount, PluggyBill, PluggyTransaction } from "./schemas.ts";
@@ -381,9 +381,31 @@ function chooseCategory(
 	if (mcc) return { categoryId: mcc, source: "mcc" };
 	const cnae = bySlug(categoryForCnae(tx.merchant?.cnae));
 	if (cnae) return { categoryId: cnae, source: "cnae" };
-	const pluggy = bySlug(matchSpendingSlug(chain));
+	// A categoria do banco decide. Pix e "Outros" do banco não dizem o consumo: aí vale a descrição e o
+	// estabelecimento, com a mesma tabela.
+	const fromNames = suggestSpendingSlug({
+		sourceCategory: chain.join(" › "),
+		description,
+		merchantName,
+	});
+	const pluggy = bySlug(fromNames);
 	if (pluggy) return { categoryId: pluggy, source: "pluggy" };
 	return { categoryId: ids.get("outros") ?? null, source: "none" };
+}
+
+/**
+ * Lançamento já gravado, que o dono não editou, e que caiu em Outros: a sincronização pode trocar para uma
+ * categoria específica. Não mexe no que o dono escolheu, nem apaga uma categoria boa.
+ */
+export function shouldUpgradeCategory(
+	current: { kind: string; categoryId: string | null; categoryEditedByOwner: boolean },
+	nextCategoryId: string | null,
+	outrosId: string | null,
+): boolean {
+	if (current.categoryEditedByOwner) return false;
+	if (current.kind !== "expense" && current.kind !== "refund") return false;
+	if (nextCategoryId === null || nextCategoryId === outrosId) return false;
+	return current.categoryId === null || current.categoryId === outrosId;
 }
 
 /** Id do grupo de um parcelamento do Pluggy: o mesmo para todas as parcelas da mesma compra, em qualquer sincronização. */
@@ -463,9 +485,24 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 				input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: billPayment.cardId },
 			};
 		}
-		// 2) Aplicação, resgate, caixinha, poupança: o dinheiro só mudou de bolso. O Órbita não tem conta de
-		// investimento, e "transferência" exige duas contas dele; contar como gasto/receita dobraria o mês.
-		if (family === "investment") return { action: "skip", reason: "investment" };
+		// 2) Aplicação sai do saldo e entra em Investimentos. Resgate e rendimento voltam como receita
+		// nessa categoria. Transferência entre contas suas continua de fora (abaixo).
+		if (family === "investment" || family === "yield") {
+			const categoryId = ctx.categoryIds?.get("investimentos") ?? null;
+			if (tx.type === "CREDIT") {
+				return {
+					action: "upsert",
+					externalId: tx.id,
+					input: { ...base, kind: "income", accountId: ctx.accountId, categoryId },
+				};
+			}
+			return {
+				action: "upsert",
+				externalId: tx.id,
+				input: { ...base, kind: "expense", accountId: ctx.accountId, categoryId },
+				categorySource: "pluggy",
+			};
+		}
 		// Sem as faturas não dá para distinguir pagamento de fatura de gasto, e o upsert nunca corrige depois.
 		if (tx.type === "DEBIT" && ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
 		// 3) Sem pagamento para casar: o nome da categoria (suposição). Só liga a um cartão se o valor bate com o total

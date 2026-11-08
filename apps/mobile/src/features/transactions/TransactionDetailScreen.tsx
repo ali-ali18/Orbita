@@ -263,7 +263,7 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 							{...(categoryReady ? { onPress: () => openSheet("category") } : {})}
 						>
 							{category ? (
-								<CategoryPill name={category.name} chartSlot={category.chartSlot} />
+								<CategoryPill name={category.name} chartSlot={category.chartSlot} slug={category.slug} />
 							) : (
 								<RowValue>
 									{categoryReady ? "Sem categoria" : categoriesQ.isError ? "Indisponível" : "Carregando"}

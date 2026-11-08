@@ -356,6 +356,33 @@ describe("estorno, pagamento de fatura e transferência", () => {
 		expect(s.summary.byCategory[category("outros")]).toBe(6000);
 		expect(s.budgets[0]).toMatchObject({ spentCents: 6000, overBudget: true });
 	});
+
+	it("texto do banco tira o gasto de Outros; PIX sem compra vira Transferências", async () => {
+		const { api, account, category } = await setupFinance().then(async (c) => ({
+			...c,
+			...(await c.basics()),
+		}));
+		await api.post("/v1/transactions", {
+			kind: "expense",
+			amountCents: 4890,
+			date: "2026-11-10",
+			description: "Pix enviado - iFood",
+			accountId: account.id,
+			categoryId: category("outros"),
+		});
+		await api.post("/v1/transactions", {
+			kind: "expense",
+			amountCents: 1500,
+			date: "2026-11-11",
+			description: "Pix enviado - Rei Dos",
+			accountId: account.id,
+			categoryId: category("outros"),
+		});
+		const s = (await api.get("/v1/summary/2026-11")).body;
+		expect(s.summary.byCategory[category("delivery")]).toBe(4890);
+		expect(s.summary.byCategory[category("transferencias")]).toBe(1500);
+		expect(s.summary.spentCents).toBe(6390);
+	});
 });
 
 describe("segurança e erros", () => {

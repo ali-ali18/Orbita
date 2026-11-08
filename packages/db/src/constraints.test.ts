@@ -67,8 +67,13 @@ describe.skipIf(!url)("CHECKs do Postgres", () => {
 			`INSERT INTO recurrences (id, kind, name, amount_cents, day_of_month, start_date, end_date, updated_at) VALUES ('r1', 'expense', 'R', 10, 5, '2026-01-01', '2025-01-01', now())`,
 		);
 		await rejects(
-			`INSERT INTO categories (id, slug, name, chart_slot, updated_at) VALUES ('k1', 's', 'S', 5, now())`,
+			`INSERT INTO categories (id, slug, name, chart_slot, updated_at) VALUES ('k1', 's', 'S', 10, now())`,
 		);
+		await expect(
+			client().$executeRawUnsafe(
+				`INSERT INTO categories (id, slug, name, chart_slot, updated_at) VALUES ('k1', 's', 'S', 9, now())`,
+			),
+		).resolves.toBe(1);
 		await rejects(
 			`INSERT INTO budgets (id, scope, limit_cents, updated_at) VALUES ('b1', 'total', -1, now())`,
 		);

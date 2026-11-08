@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	banks,
+	categoryColor,
 	chart,
 	chartSeries,
 	colors,
@@ -36,15 +37,30 @@ describe("tokens", () => {
 		}
 	});
 
-	it("a série do gráfico tem 5 cores distintas, nesta ordem", () => {
-		expect([...chartSeries]).toEqual(["#3987E5", "#D95926", "#199E70", "#C98500", "#D55181"]);
-		expect(new Set(chartSeries).size).toBe(5);
+	it("a série do gráfico tem uma cor por categoria padrão, nesta ordem", () => {
+		expect([...chartSeries]).toEqual([
+			"#3987E5",
+			"#D95926",
+			"#199E70",
+			"#C98500",
+			"#D55181",
+			"#7C5CFF",
+			"#2EC4D6",
+			"#E23D3D",
+			"#8FBF3F",
+			"#7AA2FF",
+		]);
+		expect(new Set(chartSeries).size).toBe(chartSeries.length);
 	});
 
-	it("toda categoria mapeia para uma cor do gráfico", () => {
+	it("toda categoria padrão tem cor própria, e um nome novo também", () => {
 		const valid = new Set<string>(Object.values(chart));
 		for (const c of Object.values(defaultCategoryColor)) expect(valid.has(c)).toBe(true);
-		expect(defaultCategoryColor.outros).toBe(chart.other);
+		expect(new Set(Object.values(defaultCategoryColor)).size).toBe(10);
+		expect(defaultCategoryColor.outros).not.toBe(chart.other);
+		expect(categoryColor({ slug: "moradia", chartSlot: null })).toBe(chart.violet);
+		expect(categoryColor({ slug: "mercado", chartSlot: 3 })).toBe(chartSeries[3]);
+		expect(valid.has(categoryColor({ slug: "pets", chartSlot: null }))).toBe(true);
 	});
 
 	it("o espaçamento é crescente e múltiplo de 4", () => {

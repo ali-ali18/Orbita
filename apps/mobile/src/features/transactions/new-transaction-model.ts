@@ -8,7 +8,7 @@ import {
 	type TransactionApiCreateBody,
 	transactionApiCreateBody,
 } from "@orbita/shared";
-import { chart, chartSeries } from "@orbita/tokens";
+import { categoryColor, chart, chartSeries } from "@orbita/tokens";
 import { monthName } from "../../lib/format.ts";
 
 /*
@@ -219,8 +219,9 @@ export function maskBrDate(text: string): string {
 
 // ------------------------------------------------------------- categorias
 
-/** Bolinha da categoria: a cor do espaço no gráfico (0..4) ou o cinza de "Outros". */
-export function categoryDot(chartSlot: number | null): string {
+/** Bolinha da categoria: o espaço escolhido, senão a cor do slug. Sem os dois, o cinza. */
+export function categoryDot(chartSlot: number | null, slug?: string | null): string {
+	if (slug) return categoryColor({ slug, chartSlot });
 	return (chartSlot === null ? undefined : chartSeries[chartSlot]) ?? chart.other;
 }
 

@@ -172,7 +172,7 @@ export function SubscriptionsScreen() {
 	};
 
 	return (
-		<Screen>
+		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
 					paddingHorizontal: spacing.lg,

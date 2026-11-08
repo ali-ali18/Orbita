@@ -67,7 +67,11 @@ export function HomeScreen() {
 	};
 
 	return (
-		<Screen fadeTop footer={<BottomBar onNew={() => router.push("/novo")} />} floatingFooter>
+		<Screen
+			fadeTop
+			footer={<BottomBar onNew={() => router.push("/novo")} onAsk={() => router.push("/chat")} />}
+			floatingFooter
+		>
 			<ScrollView
 				contentContainerStyle={{
 					paddingHorizontal: spacing.lg,
@@ -126,7 +130,11 @@ export function HomeScreen() {
 						onPress={() => router.push("/cartao?aba=parcelas")}
 					/>
 				</View>
-				<CategoriesCard state={summaryWithCategories} hidden={hidden} />
+				<CategoriesCard
+					state={summaryWithCategories}
+					hidden={hidden}
+					onPress={() => router.push("/configuracoes/orcamento")}
+				/>
 				<RecentCard
 					state={toLoadable(recentQ)}
 					accounts={accountsQ.data?.accounts ?? []}

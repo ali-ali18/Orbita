@@ -94,9 +94,9 @@ describe("cadastros", () => {
 	});
 
 	it("categoria, recorrência e orçamento", () => {
-		expect(categoryCreateBody.safeParse({ slug: "pets", name: "Pets", chartSlot: 4 }).success).toBe(true);
+		expect(categoryCreateBody.safeParse({ slug: "pets", name: "Pets", chartSlot: 9 }).success).toBe(true);
 		expect(categoryCreateBody.safeParse({ slug: "Pets", name: "Pets" }).success).toBe(false);
-		expect(categoryCreateBody.safeParse({ slug: "pets", name: "Pets", chartSlot: 5 }).success).toBe(false);
+		expect(categoryCreateBody.safeParse({ slug: "pets", name: "Pets", chartSlot: 10 }).success).toBe(false);
 		const rent = {
 			kind: "expense",
 			name: "Aluguel",

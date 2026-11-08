@@ -1,5 +1,5 @@
 import type { Cents } from "@orbita/core";
-import { chart, defaultCategoryColor } from "@orbita/tokens";
+import { defaultCategoryColor } from "@orbita/tokens";
 import { type BankLogoKey, bankLogoKey } from "../../lib/bank-logos.ts";
 import type { OnboardingLogoId } from "./bank-svgs.ts";
 
@@ -107,7 +107,7 @@ const SPLIT: readonly { name: string; cents: Cents; color: string }[] = [
 	{ name: "Transporte", cents: 40_000, color: defaultCategoryColor.transporte },
 	{ name: "Assinaturas", cents: 25_000, color: defaultCategoryColor.assinaturas },
 	{ name: "Lazer", cents: 40_000, color: defaultCategoryColor.lazer },
-	{ name: "Outros", cents: 55_000, color: chart.other },
+	{ name: "Outros", cents: 55_000, color: defaultCategoryColor.outros },
 ];
 
 export interface SplitRow {

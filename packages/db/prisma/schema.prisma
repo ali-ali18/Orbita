@@ -138,7 +138,7 @@ model Category {
   id         String    @id @default(cuid())
   slug       String    @unique
   name       String
-  /// Índice em `chart.series` (0..4); nulo = cinza "outros".
+  /// Índice em `chart.series` (0..9). Nulo: a tela usa a cor do slug.
   chartSlot  Int?      @map("chart_slot")
   isSystem   Boolean   @default(false) @map("is_system")
   archivedAt DateTime? @map("archived_at")

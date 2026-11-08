@@ -8,6 +8,7 @@ import {
 	TOTAL_SCOPE,
 	totalLimit,
 	validateLimit,
+	withUnassignedSpend,
 } from "./budget-model.ts";
 
 const cat = (id: string, name: string, chartSlot: number | null, archivedAt: string | null = null) => ({
@@ -68,6 +69,14 @@ describe("budgetRows", () => {
 		);
 		expect(rows[0]).toMatchObject({ fillPercent: 100, over: true });
 		expect(rows[1]).toMatchObject({ spentCents: 0, fillPercent: 0 });
+	});
+
+	it("o gasto sem categoria entra em Outros, para fechar com o total do mês", () => {
+		const rows = budgetRows([...categories, cat("out", "Outros", null)], budgets, spent);
+		const aligned = withUnassignedSpend(rows, 130000);
+		expect(aligned.find((row) => row.name === "Outros")?.spentCents).toBe(7900);
+		expect(aligned.reduce((sum, row) => sum + row.spentCents, 0)).toBe(130000);
+		expect(withUnassignedSpend(rows, 122100)).toBe(rows);
 	});
 
 	it("soma os limites e compara com o total", () => {

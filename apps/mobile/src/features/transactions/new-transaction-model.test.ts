@@ -148,6 +148,7 @@ describe("categoria", () => {
 		expect(categoryDot(0)).toBe(chartSeries[0]);
 		expect(categoryDot(4)).toBe(chartSeries[4]);
 		expect(categoryDot(null)).toBe(chart.other);
+		expect(categoryDot(null, "moradia")).toBe(chart.violet);
 	});
 });
 

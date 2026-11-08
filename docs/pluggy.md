@@ -90,7 +90,7 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 - A categoria do Órbita vem, nesta ordem, de regra do dono → MCC → CNAE → categoria do Pluggy → Outros (ver "Categoria do banco, MCC e regras do dono"). As tabelas de MCC, CNAE e nomes do Pluggy são conhecimento geral, **não** conferidas contra os dados reais do dono: a nota "Outros: …" do sync existe para ajustá-las.
 - Remover uma conexão só para de sincronizar; contas e lançamentos importados ficam.
 - Cartão sem datas no `creditData` **não é mais ignorado** (ver "Datas do cartão"). Limitação: a marca "datas estimadas" vive só nas notas do resultado da sincronização (não há coluna no cartão nem aviso no app); o dono confere os dias em Cartões. Um cartão criado com datas estimadas não é corrigido sozinho depois (o dono pode ter ajustado à mão).
-- Investimento fica de fora (não há conta de investimento no Órbita); ver "Classificação".
+- Aplicação entra como gasto na categoria Investimentos; resgate e rendimento entram como receita nessa categoria. Transferência entre contas suas continua de fora. Ver "Classificação".
 - Lançamentos de moeda estrangeira sem valor convertido são ignorados.
 
 ## Datas do cartão
@@ -108,15 +108,16 @@ Os casos 3 e 4 geram uma nota no resultado da sincronização ("datas estimadas.
 
 `classify.ts` (puro). A árvore vem de `GET /categories` (uma vez por rodada, validada por Zod; se falhar, a rodada segue só com o nome da categoria do lançamento e anota). A "cadeia" de um lançamento é o nome da categoria dele e dos ancestrais (`parentId`/`parentDescription`), sem acento e minúsculo. Decisão por trechos do nome, nunca por id fixo.
 
-| Família                                                                                                  | O que o Órbita faz                                                                 |
-| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Pagamento de fatura (`credit card payment`, `pagamento de fatura`…)                                      | Como antes: casa com `/bills`; plano B pelo total                                  |
-| Mesma titularidade (`same person`, `mesma titularidade`…)                                                | Ignorada (`own_transfer`), junto da detecção por CPF/CNPJ que já existia           |
-| Investimento (`investment`, `renda fixa`, `fixed income`, `previdência`, `poupança`, `caixinha`, `cdb`…) | **Ignorado** (`investment`): aplicação e resgate só mudam o dinheiro de bolso      |
-| Rendimento (`rendimento`, `dividend`, `interests on investments`…), só entrada                           | **Receita** (`income`, sem categoria)                                              |
-| Demais                                                                                                   | Despesa na categoria do Órbita pela tabela abaixo; sem correspondência, **Outros** |
+| Família                                                                                                  | O que o Órbita faz                                                                      |
+| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Pagamento de fatura (`credit card payment`, `pagamento de fatura`…)                                      | Como antes: casa com `/bills`; plano B pelo total                                       |
+| Mesma titularidade (`same person`, `mesma titularidade`…)                                                | Ignorada (`own_transfer`), junto da detecção por CPF/CNPJ que já existia                |
+| Investimento (`investment`, `renda fixa`, `fixed income`, `previdência`, `poupança`, `caixinha`, `cdb`…) | **Gasto** na categoria Investimentos (aplicação). Resgate é **receita** nessa categoria |
+| Rendimento (`rendimento`, `dividend`, `interests on investments`…), só entrada                           | **Receita** na categoria Investimentos                                                  |
+| PIX, TED, DOC ou transferência que não é compra nem mesma titularidade                                   | **Gasto** na categoria Transferências                                                   |
+| Demais                                                                                                   | Despesa na categoria do Órbita pela tabela abaixo; sem correspondência, **Outros**      |
 
-**Por que "ignorar" e não "transferência":** o tipo `transfer` do engine exige conta de origem **e** de destino do próprio dono, e o Órbita não tem conta de investimento. Gravar uma ponta só quebra a invariante; inventar a conta de destino criaria saldo falso. Ignorar é igual ao que já se faz com a transferência própria. **Por que rendimento é receita:** é dinheiro novo (o principal que volta num resgate não é), e entra no "Receita do mês" sem tocar o gasto. Um rendimento que o banco descreve como "resgate" fica de fora (conservador).
+**Por que a transferência entre contas suas continua de fora:** o tipo `transfer` do engine exige conta de origem **e** de destino do próprio dono. PIX para outra pessoa não é isso: o dinheiro saiu, então conta como gasto em Transferências (a menos que a descrição diga a compra: Netflix, iFood). **Por que aplicação é gasto e resgate é receita:** o Órbita não tem a conta de investimento do outro lado; a aplicação é o dinheiro que saiu da conta corrente, e o resgate é o que voltou. O rendimento é dinheiro novo e também fica em Investimentos, sem entrar no gasto.
 
 **Plano B pela descrição** (só em conta corrente e só com categoria ausente ou genérica "other/outros"): palavras inteiras `aplicação`, `resgate`, `caixinha`, `cdb`, `rdb`, `lci`, `lca`, `poupança`, `tesouro direto`, `dinheiro guardado` → investimento; `rendimento(s)` em entrada → rendimento.
 

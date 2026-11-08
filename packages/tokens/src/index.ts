@@ -1,5 +1,5 @@
 export { banks } from "./banks.ts";
-export { chart, chartSeries, defaultCategoryColor } from "./chart.ts";
+export { categoryColor, chart, chartSeries, defaultCategoryColor } from "./chart.ts";
 export { colors } from "./colors.ts";
 export { layout } from "./layout.ts";
 export { motion } from "./motion.ts";

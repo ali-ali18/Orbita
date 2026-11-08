@@ -1,4 +1,5 @@
 import {
+	addMonths,
 	budgetStatus,
 	type Cents,
 	invoiceByMonth,
@@ -11,6 +12,7 @@ import {
 	paymentStatus,
 	paymentWindow,
 	pendingInMonth,
+	projectMissingInstallments,
 	projectMonth,
 	remainingInstallments,
 	safeToSpend,
@@ -26,6 +28,7 @@ import {
 	toCardConfig,
 	toMonthlyRecurrence,
 } from "@orbita/db";
+import { suggestSpendingSlug } from "@orbita/ingest";
 import type { MonthSummaryResponse } from "@orbita/shared";
 import { orNotFound } from "../../http/errors.ts";
 
@@ -35,16 +38,44 @@ const sum = (values: Iterable<Cents>) => {
 	return total;
 };
 
+/**
+ * Gasto ainda em Outros, que o dono não editou, usa a categoria que o texto do banco já permite
+ * (iFood, Uber, "Food and drinks"). PIX sem compra vira Transferências; aplicação vira Investimentos.
+ */
+export function categoryForSummary(
+	t: TransactionRecord,
+	outrosId: string | null,
+	bySlug: ReadonlyMap<string, string>,
+): string | null {
+	if (t.categoryEditedByOwner) return t.categoryId;
+	if (t.kind !== "expense" && t.kind !== "refund") return t.categoryId;
+	if (t.categoryId !== null && t.categoryId !== outrosId) return t.categoryId;
+	const slug = suggestSpendingSlug({
+		sourceCategory: t.sourceCategory,
+		description: t.description,
+		merchantName: t.merchantName,
+	});
+	if (slug === null || slug === "outros") return t.categoryId;
+	return bySlug.get(slug) ?? t.categoryId;
+}
+
 /** A forma que o engine espera (`null` vira ausente). */
-const toCoreTransaction = (t: TransactionRecord): Transaction => ({
-	id: t.id,
-	kind: t.kind,
-	amountCents: t.amountCents,
-	date: t.date,
-	budgetMonth: t.budgetMonth,
-	...(t.categoryId === null ? {} : { categoryId: t.categoryId }),
-	...(t.refundOfId === null ? {} : { refundOf: t.refundOfId }),
-});
+const toCoreTransaction = (
+	t: TransactionRecord,
+	outrosId: string | null,
+	bySlug: ReadonlyMap<string, string>,
+): Transaction => {
+	const categoryId = categoryForSummary(t, outrosId, bySlug);
+	return {
+		id: t.id,
+		kind: t.kind,
+		amountCents: t.amountCents,
+		date: t.date,
+		budgetMonth: t.budgetMonth,
+		...(categoryId === null ? {} : { categoryId }),
+		...(t.refundOfId === null ? {} : { refundOf: t.refundOfId }),
+	};
+};
 
 /** Compras originais de estornos que moram em outro mês (para o estorno abater a categoria certa). */
 async function refundOriginalsOutside(stores: Stores, txs: readonly TransactionRecord[]) {
@@ -70,15 +101,19 @@ export async function monthSummary(
 	month: MonthKey,
 	today: LocalDate,
 ): Promise<MonthSummaryResponse> {
-	const [txs, recurrences, postings, budgets, outros] = await Promise.all([
+	const [txs, recurrences, postings, budgets, categories] = await Promise.all([
 		stores.transactions.listByBudgetMonth(month),
 		stores.recurrences.list(),
 		stores.recurrences.listPostings(month),
 		stores.budgets.list(),
-		stores.categories.getBySlug("outros"),
+		stores.categories.list(),
 	]);
+	const active = categories.filter((c) => c.archivedAt === null);
+	const bySlug = new Map(active.map((c) => [c.slug, c.id]));
+	const outros = active.find((c) => c.slug === "outros") ?? null;
 	const originals = await refundOriginalsOutside(stores, txs);
-	const raw = summarizeMonth([...txs, ...originals].map(toCoreTransaction), month);
+	const toCore = (t: TransactionRecord) => toCoreTransaction(t, outros?.id ?? null, bySlug);
+	const raw = summarizeMonth([...txs, ...originals].map(toCore), month);
 
 	// O engine agrupa o que não tem categoria sob a chave "outros"; para o app (e para um
 	// orçamento da categoria Outros) essa chave é o id real da categoria.
@@ -147,14 +182,55 @@ export async function monthSummary(
 	};
 }
 
+const ESTIMATED_NOTE = "Estimada: o banco ainda não lançou esta parcela.";
+const EPOCH = new Date(0);
+
+/** Linhas só da resposta da fatura: a parcela que ainda vai cair neste mês, sem gravar lançamento. */
+function projectedRows(
+	groups: readonly InstallmentGroupRecord[],
+	cardId: string,
+	month: MonthKey,
+	date: LocalDate,
+): TransactionRecord[] {
+	return projectMissingInstallments(groups, cardId, month).map((item) => ({
+		id: `est-${item.number}-${item.groupId}`.slice(0, 64),
+		kind: "expense" as const,
+		amountCents: item.amountCents,
+		date,
+		description: item.description,
+		categoryId: null,
+		accountId: null,
+		cardId,
+		counterpartAccountId: null,
+		refundOfId: null,
+		budgetMonth: month,
+		invoiceMonth: month,
+		installmentGroupId: item.groupId,
+		installmentNumber: item.number,
+		installmentCount: item.count,
+		status: "confirmed" as const,
+		source: "import" as const,
+		externalId: null,
+		note: ESTIMATED_NOTE,
+		sourceCategory: null,
+		merchantName: null,
+		categoryEditedByOwner: false,
+		createdAt: EPOCH,
+		updatedAt: EPOCH,
+	}));
+}
+
 export async function cardInvoice(stores: Stores, cardId: string, month: MonthKey, today: LocalDate) {
 	const card = orNotFound(await stores.cards.get(cardId), "Cartão", "o");
 	const invoice = invoiceByMonth(month, toCardConfig(card));
 	const config = toCardConfig(card);
-	const [txs, payments] = await Promise.all([
+	const [posted, payments, groups] = await Promise.all([
 		stores.transactions.listByInvoice(cardId, month),
 		stores.transactions.listCardPayments(cardId, paymentWindow(month, config)),
+		// A parcela de dezembro pode ainda não ter lançamento: o grupo visto nos meses anteriores a projeta.
+		stores.transactions.listInstallmentGroups(addMonths(month, -71)),
 	]);
+	const txs = [...posted, ...projectedRows(groups, cardId, month, invoice.closingDate)];
 	// Um posting vale para o mês do orçamento do lançamento: busca só os meses que aparecem na fatura.
 	const budgetMonths = [
 		...new Set(txs.filter((t) => t.installmentGroupId === null).map((t) => t.budgetMonth)),

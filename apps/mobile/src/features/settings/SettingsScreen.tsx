@@ -30,7 +30,7 @@ export function SettingsScreen() {
 	const showSetup = phase !== "loading" && showsSetupInSettings(phase);
 
 	return (
-		<Screen>
+		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
 					paddingHorizontal: spacing.lg,

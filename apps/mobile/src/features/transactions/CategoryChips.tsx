@@ -6,6 +6,7 @@ import { categoryDot } from "./new-transaction-model.ts";
 export interface CategoryOption {
 	id: string;
 	name: string;
+	slug?: string;
 	chartSlot: number | null;
 }
 
@@ -45,7 +46,7 @@ function CategoryChip({
 					width: 8,
 					height: 8,
 					borderRadius: radius.pill,
-					backgroundColor: categoryDot(category.chartSlot),
+					backgroundColor: categoryDot(category.chartSlot, category.slug),
 				}}
 			/>
 			<Text variant="caption" tone={selected ? "onAccent" : "primary"}>

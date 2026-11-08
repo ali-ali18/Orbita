@@ -18,6 +18,7 @@ import {
 	limitsExceedTotal,
 	TOTAL_SCOPE,
 	totalLimit,
+	withUnassignedSpend,
 } from "./budget-model.ts";
 import { useBudgets, useRemoveBudget, useSetBudget } from "./queries.ts";
 
@@ -57,7 +58,7 @@ function CategoryLine({ row, hidden, onPress }: { row: BudgetRow; hidden: boolea
 						width: 10,
 						height: 10,
 						borderRadius: radius.pill,
-						backgroundColor: categoryDot(row.chartSlot),
+						backgroundColor: categoryDot(row.chartSlot, row.slug),
 					}}
 				/>
 				<Text variant="body" style={{ flex: 1 }} numberOfLines={1}>
@@ -68,7 +69,7 @@ function CategoryLine({ row, hidden, onPress }: { row: BudgetRow; hidden: boolea
 				</Text>
 			</View>
 			{row.limitCents !== null ? (
-				<LimitBar percent={row.fillPercent} color={categoryDot(row.chartSlot)} />
+				<LimitBar percent={row.fillPercent} color={categoryDot(row.chartSlot, row.slug)} />
 			) : null}
 			{row.over ? (
 				<Text variant="micro" tone="secondary">
@@ -154,7 +155,7 @@ export function BudgetScreen() {
 		if (state.phase === "error") return <ErrorState message={state.message} onRetry={state.retry} />;
 		const [[{ budgets }, { summary }], { categories }] = state.data;
 		const total = totalLimit(budgets);
-		const rows = budgetRows(categories, budgets, summary.byCategory);
+		const rows = withUnassignedSpend(budgetRows(categories, budgets, summary.byCategory), summary.spentCents);
 		return (
 			<>
 				<Pressable
@@ -186,6 +187,9 @@ export function BudgetScreen() {
 					</Text>
 					<Text variant="numberLarge" tone={total === null ? "tertiary" : "primary"}>
 						{total === null ? "Definir limite" : money(total, hidden, { sign: "never" })}
+					</Text>
+					<Text variant="caption" tone="secondary">
+						Gasto {money(summary.spentCents, hidden, { sign: "never" })} neste mês
 					</Text>
 					{total !== null && limitsExceedTotal(rows, total) ? (
 						<Text variant="caption" tone="secondary">
@@ -234,7 +238,7 @@ export function BudgetScreen() {
 	};
 
 	return (
-		<Screen>
+		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
 					paddingHorizontal: spacing.lg,

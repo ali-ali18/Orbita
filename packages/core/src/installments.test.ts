@@ -1,8 +1,39 @@
 import { describe, expect, it } from "vitest";
 import { summarizeMonth } from "./classification.ts";
-import { installmentSchedule, remainingInstallments, splitInstallments } from "./installments.ts";
+import {
+	installmentSchedule,
+	projectMissingInstallments,
+	remainingInstallments,
+	splitInstallments,
+} from "./installments.ts";
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+
+describe("projectMissingInstallments", () => {
+	const group = {
+		groupId: "g1",
+		installments: [
+			{
+				description: "Kabum",
+				cardId: "card",
+				installmentNumber: 4,
+				installmentCount: 10,
+				amountCents: 5150,
+				invoiceMonth: "2026-11" as const,
+			},
+		],
+	};
+	it("a parcela que ainda não veio entra no mês seguinte, pelo valor da última vista", () => {
+		expect(projectMissingInstallments([group], "card", "2026-12")).toEqual([
+			{ groupId: "g1", description: "Kabum", number: 5, count: 10, amountCents: 5150 },
+		]);
+	});
+	it("não inventa parcela anterior nem repete a que já está na fatura", () => {
+		expect(projectMissingInstallments([group], "card", "2026-08")).toEqual([]);
+		expect(projectMissingInstallments([group], "card", "2026-11")).toEqual([]);
+		expect(projectMissingInstallments([group], "outro", "2026-12")).toEqual([]);
+	});
+});
 
 describe("splitInstallments", () => {
 	it("1 parcela é o total", () => {

@@ -162,7 +162,7 @@ export function BanksScreen() {
 	};
 
 	return (
-		<Screen>
+		<Screen fadeTop>
 			<ScrollView
 				keyboardShouldPersistTaps="handled"
 				contentContainerStyle={{
