@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { percentOf } from "../../lib/format.ts";
 import { Icon, IconButton, OrbitaAvatar, Screen, Sheet, SheetGroup, SheetRow, Text } from "../../ui/index.ts";
+import { hello } from "../settings/profile-model.ts";
 import type { MonthRow } from "./reply.ts";
 
 const SUGGESTIONS = [
@@ -210,6 +211,7 @@ export function ChatView({
 	onReset,
 	onSend,
 	onAttach,
+	displayName = null,
 }: {
 	messages: readonly ChatBubble[];
 	onClose: () => void;
@@ -217,6 +219,8 @@ export function ChatView({
 	onSend: (text: string) => void;
 	/** Comprovante ou foto, depois que a folha fecha. */
 	onAttach?: (kind: "receipt" | "photo") => void;
+	/** Como a Órbita chama o dono ("Olá, Alisson"); sem nome, só "Olá". */
+	displayName?: string | null;
 }) {
 	const [draft, setDraft] = useState("");
 	const [attachOpen, setAttachOpen] = useState(false);
@@ -250,7 +254,7 @@ export function ChatView({
 					<View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 6 }}>
 						<OrbitaAvatar size={88} />
 						<View style={{ height: spacing.md }} />
-						<Text variant="numberMedium">Olá</Text>
+						<Text variant="numberMedium">{hello(displayName)}</Text>
 						<Text variant="body" tone="secondary">
 							Como posso te ajudar com o seu dinheiro?
 						</Text>

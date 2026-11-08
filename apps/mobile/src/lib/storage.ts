@@ -54,9 +54,15 @@ export const KEYS = {
 	baseUrl: "orbita.baseUrl",
 	token: "orbita.token",
 	hideValues: "orbita.hideValues",
+	/** "1" quando o app sempre abre com os valores escondidos (preferência deste aparelho). */
+	hideOnOpen: "orbita.hideOnOpen",
+	/** "1" quando o app só abre depois da digital (ou PIN/padrão) do aparelho. Ausente ou "0": desligado. */
+	biometricLock: "orbita.biometricLock",
 	/**
 	 * "pending" quando a pessoa começou agora (os passos abrem depois de parear).
 	 * "done" quando terminou. Ausente: já usava o app; a entrada fica nas configurações.
 	 */
 	onboarding: "orbita.onboarding",
+	/** "1" quando a pessoa dispensou a lista de primeiros passos do Início. */
+	checklistDismissed: "orbita.checklistDismissed",
 } as const;

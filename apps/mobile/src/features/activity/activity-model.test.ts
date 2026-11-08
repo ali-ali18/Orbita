@@ -177,5 +177,7 @@ describe("emptyMessage", () => {
 		expect(emptyMessage("out", "", true)).toContain("Role a lista");
 		expect(emptyMessage("all", "uber", false)).toBe("Nenhum lançamento encontrado.");
 		expect(emptyMessage("all", "uber", true)).toContain("Role a lista");
+		expect(emptyMessage("all", "", false, true)).toBe("Nenhum lançamento com esses filtros.");
+		expect(emptyMessage("all", "", false, false)).toBe("Nenhum lançamento por aqui ainda.");
 	});
 });

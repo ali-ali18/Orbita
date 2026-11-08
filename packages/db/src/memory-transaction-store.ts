@@ -8,12 +8,15 @@ import {
 	byRecent,
 	changedColumns,
 	checkRecentOptions,
+	checkTarget,
+	cleanFilter,
 	cleanIds,
 	cleanLimit,
 	DEFAULT_PENDING_LIMIT,
 	DUPLICATE_INSTALLMENT_MESSAGE,
 	dataOf,
 	duplicateExternal,
+	matchesFilter,
 	mergeTransaction,
 	normalizeExternalInstallment,
 	normalizeInstallmentGroup,
@@ -201,6 +204,19 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 				.sort(byDateAsc);
 		},
 
+		async listByTarget(target, { from, to }) {
+			const { accountId, cardId } = checkTarget(target);
+			return live()
+				.filter(
+					(t) =>
+						t.date >= from &&
+						t.date <= to &&
+						(accountId !== undefined ? t.accountId === accountId : t.cardId === cardId),
+				)
+				.map(view)
+				.sort(byDateAsc);
+		},
+
 		async listPending(options = {}) {
 			const limit = cleanLimit(options.limit ?? DEFAULT_PENDING_LIMIT);
 			return live()
@@ -227,12 +243,20 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 
 		async listRecent(options) {
 			checkRecentOptions(options);
-			const { before } = options;
+			const { before, filter } = options;
 			return live()
 				.map(view)
+				.filter((t) => !filter || matchesFilter(t, filter))
 				.filter((t) => !before || t.date < before.date || (t.date === before.date && t.id < before.id))
 				.sort(byRecent)
 				.slice(0, options.limit);
+		},
+
+		async countMatching(filter) {
+			if (filter) cleanFilter(filter);
+			return live()
+				.map(view)
+				.filter((t) => !filter || matchesFilter(t, filter)).length;
 		},
 
 		async listInstallmentGroups(activeFromMonth) {

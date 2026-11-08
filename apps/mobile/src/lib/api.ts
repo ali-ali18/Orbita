@@ -17,8 +17,34 @@ export class ApiError extends Error {
 export const UNREACHABLE_MESSAGE = "Não consegui falar com o servidor. Confira o endereço e a sua conexão.";
 const NOT_ORBITA_MESSAGE = "Esse endereço respondeu, mas não parece ser um servidor Órbita.";
 
+/** Sem resposta em 15 s o servidor conta como fora do ar (a consulta falha em vez de ficar pendurada). */
+export const API_TIMEOUT_MS = 15_000;
+
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+/** Envolve um `fetch` para abortar depois de `ms`. Quem chama recebe a falha de rede de sempre. */
+export function withTimeout(fetchImpl: FetchLike, ms: number): FetchLike {
+	return async (input, init) => {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), ms);
+		const outer = init?.signal;
+		if (outer) {
+			if (outer.aborted) controller.abort();
+			else outer.addEventListener("abort", () => controller.abort(), { once: true });
+		}
+		try {
+			return await fetchImpl(input, { ...init, signal: controller.signal });
+		} finally {
+			clearTimeout(timer);
+		}
+	};
+}
+
 export function createApi(baseUrl: string, token?: string) {
-	return hc<AppType>(baseUrl, token ? { headers: { Authorization: `Bearer ${token}` } } : {});
+	return hc<AppType>(baseUrl, {
+		...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+		fetch: withTimeout((input, init) => globalThis.fetch(input, init), API_TIMEOUT_MS),
+	});
 }
 export type Api = ReturnType<typeof createApi>;
 

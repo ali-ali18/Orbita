@@ -9,6 +9,7 @@ afterAll(async () => db?.$disconnect());
 
 async function clean(client: Db) {
 	// Ordem das chaves estrangeiras: quem aponta vem antes de quem é apontado.
+	await client.importBatch.deleteMany();
 	await client.recurrencePosting.deleteMany();
 	await client.transaction.deleteMany();
 	await client.recurrence.deleteMany();
@@ -47,6 +48,39 @@ describe.skipIf(!url)("API sobre Postgres", () => {
 
 		const list = await api.get("/v1/settings/secrets");
 		expect(list.body.secrets[0]).toMatchObject({ configured: true, readable: true, updatedBy: "Teste" });
+	});
+
+	it("lista com filtros pagina por cursor sem perder nem repetir", async () => {
+		const { api, basics } = await setup();
+		const { account, card } = await basics();
+		const post = async (extra: Record<string, unknown>) =>
+			(
+				await api.post("/v1/transactions", {
+					kind: "expense",
+					amountCents: 2500,
+					date: "2026-11-10",
+					description: "Item",
+					accountId: account.id,
+					...extra,
+				})
+			).body.transaction.id as string;
+		const wanted: string[] = [];
+		for (let day = 1; day <= 5; day++) {
+			wanted.unshift(await post({ date: `2026-11-0${day}`, amountCents: 1000 * day }));
+			await post({ kind: "income", date: `2026-11-0${day}` });
+			await post({ accountId: null, cardId: card.id, date: `2026-11-0${day}`, amountCents: 100 });
+		}
+		const query = `accountIds=${account.id}&kinds=expense&minCents=2000&from=2026-11-02&to=2026-11-30`;
+		const seen: string[] = [];
+		let cursor = "";
+		for (let page = 0; page < 5; page++) {
+			const res = await api.get(`/v1/transactions?${query}&limit=2${cursor}`);
+			seen.push(...res.body.transactions.map((t: { id: string }) => t.id));
+			if (!res.body.nextCursor) break;
+			cursor = `&cursor=${encodeURIComponent(res.body.nextCursor)}`;
+		}
+		// Dias 2 a 5 com valor >= 2000 (2000, 3000, 4000, 5000), do mais novo para o mais antigo.
+		expect(seen).toEqual(wanted.slice(0, 4));
 	});
 
 	it("dá pra gastar com aluguel lançado e salário", async () => {
@@ -231,5 +265,31 @@ describe.skipIf(!url)("API sobre Postgres", () => {
 		expect((await post({ ...body, amountCents: 1 })).status).toBe(422);
 		expect((await api.get("/v1/transactions?limit=100")).body.transactions).toHaveLength(1);
 		expect(await (db as Db).idempotencyKey.count()).toBe(1);
+	});
+
+	it("importar extrato: envios simultâneos do mesmo arquivo criam os pendentes uma vez só", async () => {
+		const { app, token, basics, api } = await setup();
+		const { account } = await basics();
+		const ofx = `OFXHEADER:100\n<OFX><BANKTRANLIST>
+<STMTTRN><DTPOSTED>20261102<TRNAMT>-45.90<FITID>F1<MEMO>MERCADO</STMTTRN>
+<STMTTRN><DTPOSTED>20261103<TRNAMT>3500.00<FITID>F2<MEMO>SALARIO</STMTTRN>
+</BANKTRANLIST></OFX>`;
+		const send = () => {
+			const form = new FormData();
+			form.set("file", new File([ofx], "extrato.ofx", { type: "application/x-ofx" }));
+			form.set("accountId", account.id);
+			return app.request("/v1/imports", {
+				method: "POST",
+				headers: { authorization: `Bearer ${token}` },
+				body: form,
+			});
+		};
+		const results = await Promise.all(Array.from({ length: 6 }, send));
+		expect(results.every((r) => [200, 201, 409].includes(r.status))).toBe(true);
+		expect(results.filter((r) => r.status === 201)).toHaveLength(1);
+		const pending = (await api.get("/v1/transactions/pending")).body.transactions as Json[];
+		expect(pending).toHaveLength(2);
+		expect(pending.every((t) => t.source === "import")).toBe(true);
+		expect(await (db as Db).importBatch.count()).toBe(1);
 	});
 });

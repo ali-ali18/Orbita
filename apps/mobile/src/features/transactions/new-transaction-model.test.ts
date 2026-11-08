@@ -90,6 +90,13 @@ describe("conta ou cartão", () => {
 		expect(effectiveSource(null, [])).toBeNull();
 	});
 
+	it("a conta padrão vale quando nada foi escolhido, mas a escolha do dono vence e conta que saiu da lista é ignorada", () => {
+		expect(effectiveSource(null, expenseOptions, "card:c1")?.key).toBe("card:c1");
+		expect(effectiveSource("account:a1", expenseOptions, "card:c1")?.key).toBe("account:a1");
+		expect(effectiveSource(null, expenseOptions, "account:arquivada")?.key).toBe("account:a1");
+		expect(effectiveSource(null, expenseOptions, null)?.key).toBe("account:a1");
+	});
+
 	it("só despesa no cartão parcela", () => {
 		expect(canInstall("expense", card)).toBe(true);
 		expect(canInstall("expense", account)).toBe(false);

@@ -21,6 +21,8 @@ export function tickingClock(start = "2026-11-06T12:00:00Z") {
 export async function cleanDatabase(client: Db): Promise<void> {
 	// Ordem das chaves estrangeiras: quem aponta vem antes de quem é apontado.
 	await client.idempotencyKey.deleteMany();
+	await client.importBatch.deleteMany();
+	await client.appPreferences.deleteMany();
 	await client.recurrencePosting.deleteMany();
 	await client.transaction.deleteMany();
 	await client.categoryRule.deleteMany();

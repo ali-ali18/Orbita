@@ -10,10 +10,13 @@ import * as cards from "./modules/cards/routes.ts";
 import * as categories from "./modules/categories/routes.ts";
 import * as categoryRules from "./modules/category-rules/routes.ts";
 import * as devices from "./modules/devices/routes.ts";
+import * as exportData from "./modules/export/routes.ts";
+import * as imports from "./modules/imports/routes.ts";
 import * as pairing from "./modules/pairing/routes.ts";
 import * as pluggyConnect from "./modules/pluggy/connect/routes.ts";
 import type { PluggySyncQueue } from "./modules/pluggy/queue.ts";
 import * as pluggy from "./modules/pluggy/routes.ts";
+import * as preferences from "./modules/preferences/routes.ts";
 import * as recurrences from "./modules/recurrences/routes.ts";
 import * as settings from "./modules/settings/routes.ts";
 import * as summary from "./modules/summary/routes.ts";
@@ -48,12 +51,12 @@ export function createApp(deps: AppDeps) {
 	// global os sobrescreveria (ele escreve depois da rota).
 	const defaultHeaders = secureHeaders();
 	app.use(async (c, next) => (c.req.path.startsWith("/pluggy/") ? next() : defaultHeaders(c, next)));
-	app.use(
-		bodyLimit({
-			maxSize: MAX_BODY_BYTES,
-			onError: (c) => c.json(apiError("corpo_grande", "O pedido é grande demais."), 413),
-		}),
-	);
+	// Importar extrato recebe um arquivo de até 5 MB: o módulo aplica o próprio limite, depois de autenticar.
+	const smallBody = bodyLimit({
+		maxSize: MAX_BODY_BYTES,
+		onError: (c) => c.json(apiError("corpo_grande", "O pedido é grande demais."), 413),
+	});
+	app.use(async (c, next) => (c.req.path.startsWith("/v1/imports") ? next() : smallBody(c, next)));
 
 	app.get("/health", (c) => c.json({ ok: true }));
 	// Módulo novo = pasta em `modules/` + uma linha aqui.
@@ -68,6 +71,9 @@ export function createApp(deps: AppDeps) {
 		.route("/", budgets.routes(finance))
 		.route("/", recurrences.routes(finance))
 		.route("/", transactions.routes(finance))
+		.route("/", imports.routes(finance))
+		.route("/", exportData.routes(finance))
+		.route("/", preferences.routes(finance))
 		.route("/", summary.routes(finance))
 		.route("/", settings.routes({ ...finance, vault: deps.vault, version: deps.version }))
 		.route("/", updates.routes(deps))

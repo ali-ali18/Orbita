@@ -3,10 +3,14 @@ import { descriptionSchema, transactionFields, transactionUpdateBody } from "./f
 import {
 	idSchema,
 	localDateSchema,
+	MAX_CENTS,
 	MAX_INSTALLMENT_COUNT,
 	monthKeySchema,
 	nonNegativeCentsSchema,
 	positiveCentsSchema,
+	TRANSACTION_KINDS,
+	TRANSACTION_SOURCES,
+	TRANSACTION_STATUSES,
 } from "./finance-primitives.ts";
 import { transactionInvariantError } from "./transaction-rules.ts";
 
@@ -69,15 +73,83 @@ export const installmentCreateBody = z
 	});
 export type InstallmentCreateBody = z.infer<typeof installmentCreateBody>;
 
-export const transactionListQuery = z.object({
-	cursor: z.string().min(1).max(200).optional(),
-	limit: z.coerce
-		.number("O limite deve ser um número.")
-		.int("O limite deve ser inteiro.")
-		.min(1, "O limite mínimo é 1.")
-		.max(100, "O limite máximo é 100.")
-		.default(50),
+/** Máximo de itens numa lista de filtro (ids de contas, cartões, categorias). */
+export const MAX_FILTER_ITEMS = 50;
+
+/** Lista na URL: `a,b,c`. Vazio equivale a ausente; repetidos contam uma vez. */
+const csvList = <T extends z.ZodType>(item: T, max: number) =>
+	z.preprocess(
+		(raw) => (typeof raw === "string" ? (raw === "" ? undefined : [...new Set(raw.split(","))]) : raw),
+		z.array(item).min(1).max(max, `Há itens demais no filtro (máximo ${max}).`).optional(),
+	);
+
+/** Parâmetro em branco (`from=`) é o mesmo que ausente. */
+const blankAsAbsent = <T extends z.ZodType>(schema: T) =>
+	z.preprocess((raw) => (raw === "" ? undefined : raw), schema.optional());
+
+const filterCents = (label: string) =>
+	z.coerce
+		.number(`${label} deve ser um número.`)
+		.int(`${label} deve ser inteiro, em centavos.`)
+		.min(0, `${label} não pode ser negativo.`)
+		.max(MAX_CENTS, `${label} passa do limite aceito.`);
+
+/**
+ * Filtros da lista de lançamentos (todos opcionais, combinados com E). Listas vão separadas por vírgula.
+ * `accountIds` e `cardIds` valem juntos como OU ("estas contas ou estes cartões").
+ */
+export const transactionFilterFields = {
+	from: blankAsAbsent(localDateSchema),
+	to: blankAsAbsent(localDateSchema),
+	kinds: csvList(z.enum(TRANSACTION_KINDS, "Tipo de lançamento inválido."), TRANSACTION_KINDS.length),
+	accountIds: csvList(idSchema, MAX_FILTER_ITEMS),
+	cardIds: csvList(idSchema, MAX_FILTER_ITEMS),
+	categoryIds: csvList(idSchema, MAX_FILTER_ITEMS),
+	sources: csvList(z.enum(TRANSACTION_SOURCES, "Origem inválida."), TRANSACTION_SOURCES.length),
+	statuses: csvList(z.enum(TRANSACTION_STATUSES, "Situação inválida."), TRANSACTION_STATUSES.length),
+	minCents: blankAsAbsent(filterCents("O valor mínimo")),
+	maxCents: blankAsAbsent(filterCents("O valor máximo")),
+};
+
+interface FilterRange {
+	from?: string | undefined;
+	to?: string | undefined;
+	minCents?: number | undefined;
+	maxCents?: number | undefined;
+}
+
+/** Mensagem do primeiro problema entre intervalos (data inicial depois da final, mínimo maior que o máximo). */
+export function transactionFilterRangeError(f: FilterRange): string | null {
+	if (f.from !== undefined && f.to !== undefined && f.from > f.to) {
+		return "A data inicial não pode ser depois da final.";
+	}
+	if (f.minCents !== undefined && f.maxCents !== undefined && f.minCents > f.maxCents) {
+		return "O valor mínimo não pode ser maior que o máximo.";
+	}
+	return null;
+}
+
+/** `GET /v1/transactions/count`: só os filtros (o app mostra "Ver 42 lançamentos" antes de aplicar). */
+export const transactionCountQuery = z.object(transactionFilterFields).superRefine((q, ctx) => {
+	const message = transactionFilterRangeError(q);
+	if (message) ctx.addIssue({ code: "custom", message });
 });
+
+export const transactionListQuery = z
+	.object({
+		cursor: z.string().min(1).max(200).optional(),
+		limit: z.coerce
+			.number("O limite deve ser um número.")
+			.int("O limite deve ser inteiro.")
+			.min(1, "O limite mínimo é 1.")
+			.max(100, "O limite máximo é 100.")
+			.default(50),
+		...transactionFilterFields,
+	})
+	.superRefine((q, ctx) => {
+		const message = transactionFilterRangeError(q);
+		if (message) ctx.addIssue({ code: "custom", message });
+	});
 export type TransactionListQuery = z.infer<typeof transactionListQuery>;
 
 export const pendingListQuery = z.object({

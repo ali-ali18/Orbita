@@ -33,6 +33,24 @@ export interface TransactionData {
 	categoryEditedByOwner: boolean;
 }
 
+/**
+ * Filtros de `listRecent`, combinados com E; dentro de cada lista, OU. Campo ausente ou lista vazia = sem filtro.
+ * `accountIds` e `cardIds` juntos valem como OU entre os dois; a conta também casa com o destino de uma transferência.
+ * `from`/`to` (datas) e `minCents`/`maxCents` são inclusivos.
+ */
+export interface TransactionFilter {
+	kinds?: readonly TransactionKindValue[] | undefined;
+	accountIds?: readonly string[] | undefined;
+	cardIds?: readonly string[] | undefined;
+	categoryIds?: readonly string[] | undefined;
+	sources?: readonly TransactionSource[] | undefined;
+	statuses?: readonly TransactionStatus[] | undefined;
+	from?: LocalDate | undefined;
+	to?: LocalDate | undefined;
+	minCents?: number | undefined;
+	maxCents?: number | undefined;
+}
+
 export interface TransactionRecord extends TransactionData {
 	id: string;
 	createdAt: Date;
@@ -193,6 +211,15 @@ export interface TransactionStore {
 	listByInvoice(cardId: string, invoiceMonth: MonthKey): Promise<TransactionRecord[]>;
 	/** Pagamentos de fatura (`card_payment`) vivos do cartão com data entre `from` e `to`, inclusive, por data. */
 	listCardPayments(cardId: string, range: { from: LocalDate; to: LocalDate }): Promise<TransactionRecord[]>;
+	/**
+	 * Lançamentos vivos de uma conta OU de um cartão (exatamente um dos dois) com data entre `from` e `to`, inclusive,
+	 * de qualquer origem e situação. Serve à importação para achar possível duplicata (mesma data e valor).
+	 * `invalid` se `target` não tiver exatamente um dos dois ids.
+	 */
+	listByTarget(
+		target: { accountId?: string; cardId?: string },
+		range: { from: LocalDate; to: LocalDate },
+	): Promise<TransactionRecord[]>;
 	/** Os que esperam revisão, do mais recente para o mais antigo. `limit` padrão 200, máximo 500. */
 	listPending(options?: { limit?: number }): Promise<TransactionRecord[]>;
 	/**
@@ -203,8 +230,17 @@ export interface TransactionStore {
 	getMany(ids: readonly string[]): Promise<TransactionRecord[]>;
 	/** Todos os lançamentos vivos cuja categoria o dono não trocou à mão (para reclassificar por regra). */
 	listCategoryNotEditedByOwner(): Promise<TransactionRecord[]>;
-	/** Do mais recente para o mais antigo (data, id). `before` é o último item da página anterior. */
-	listRecent(options: { limit: number; before?: TransactionCursor }): Promise<TransactionRecord[]>;
+	/**
+	 * Do mais recente para o mais antigo (data, id). `before` é o último item da página anterior; `filter`
+	 * restringe a lista (a paginação por cursor continua valendo sobre o resultado filtrado).
+	 */
+	listRecent(options: {
+		limit: number;
+		before?: TransactionCursor;
+		filter?: TransactionFilter | undefined;
+	}): Promise<TransactionRecord[]>;
+	/** Quantos lançamentos vivos passam no filtro (sem filtro, todos). Mesma regra de `listRecent`. */
+	countMatching(filter?: TransactionFilter): Promise<number>;
 	/**
 	 * Parcelamentos ainda em andamento: com alguma parcela cuja fatura (ou mês do orçamento,
 	 * se não for de cartão) é `activeFromMonth` ou depois. Devolve o grupo inteiro, por data.

@@ -15,7 +15,7 @@ packages/
   security/   Derivação de chaves, criptografia de segredos, limite de requisições.
   ota/        Atualização OTA do app: layout do diretório, manifesto, assinatura e o CLI que roda no CI.
   db/         Prisma e as implementações das "stores" e o cofre das chaves.
-  ingest/     Fontes de lançamentos: cliente e sincronização do Meu Pluggy (ver pluggy.md).
+  ingest/     Fontes de lançamentos: Meu Pluggy (ver pluggy.md) e extratos CSV/OFX/PDF (statement/).
   core/       Engine financeiro: funções puras (próxima fase).
 ```
 
@@ -81,6 +81,31 @@ Se algum passo não se aplica, pule. Se a feature não tem regra de dinheiro, n�
 - Corrida: a unicidade `(device_id, key)` no banco decide quem executa; o outro pedido vê a reserva. Uma reserva sem resposta há mais de 60 s (processo caiu) é retomada.
 - Sem o cabeçalho, o pedido executa como antes. O worker apaga as chaves expiradas a cada hora (fila `manutencao`).
 - Para acrescentar a outro POST: envolva a criação em `idempotent(...)` na rota e mande o cabeçalho no app (`lib/idempotency.ts`).
+
+## Filtros da lista de lançamentos
+
+`GET /v1/transactions` (e `GET /v1/transactions/count`, que só conta) aceitam filtros opcionais, combinados com E; listas vão separadas por vírgula e o `cursor` continua valendo sobre o resultado filtrado: `from`/`to` (AAAA-MM-DD, inclusivos), `kinds`, `accountIds`, `cardIds`, `categoryIds`, `sources`, `statuses`, `minCents`/`maxCents` (centavos inteiros, inclusivos). `accountIds` e `cardIds` juntos valem como OU, e a conta também casa com o destino de uma transferência. O schema está em `@orbita/shared` (`transactionFilterFields`), a regra em `TransactionStore.listRecent`/`countMatching` (Prisma e memória, mesmo contrato). No app, `features/activity/filters-model.ts` converte o que o dono marcou na gaveta nesses parâmetros; o estado fica em `filters-store.ts` (memória do app, sobrevive à navegação).
+
+## Importação de extrato
+
+`packages/ingest/src/statement/` lê CSV, OFX e PDF e devolve itens `{ date, amountCents (negativo = saída), description, externalId }` mais avisos e a lista "não entendi estas linhas". É tudo função pura sobre bytes (`parseCsv`, `parseOfx`, `parsePdfLines`); só `parsePdf` faz I/O, ao extrair o texto com o `unpdf` (pdf.js sem worker, MIT). O formato é decidido pelo **conteúdo** (`%PDF-`, cabeçalho OFX), nunca só pela extensão.
+
+- **CSV:** acha o separador (`;` `,` tab) e o cabeçalho pelos nomes das colunas (Nubank, Inter, Itaú, Bradesco, BB, Santander, C6, Caixa). Se data, descrição e valor (ou saída/entrada) não ficam claros, devolve `needs_mapping` com colunas e amostra, e o app pergunta ao dono; a escolha volta no campo `mapping`.
+- **Sinal:** em conta, negativo é saída. Em cartão (`cardId`), o valor positivo da fatura é compra; entradas do cartão (pagamento, estorno) não são importadas. `invertSign` troca tudo quando o banco usa o contrário.
+- **Identificador:** FITID/coluna de id do banco quando é único no arquivo; senão um hash de data + valor + descrição + "ocorrência" (o enésimo item igual), que não muda se o banco reexportar um período diferente. O `externalId` gravado é `account:<id>:` ou `card:<id>:` + esse id, porque o mesmo FITID pode existir em duas contas.
+- **Serviço** (`previewStatement`, `importStatement`): confere o destino, lê, classifica cada item (`new`, `duplicate` por `existsByExternal("import", …)`, `possible_duplicate` por mesma data e valor via `TransactionStore.listByTarget`), aplica as regras de categoria aprendidas e grava com `upsertByExternal` como `pending` e origem `import`. Compra no cartão ganha a fatura pelo engine (`invoiceFor`). Possíveis duplicatas só entram se o dono pedir (`includePossibleDuplicates`).
+- **Idempotência do arquivo:** `ImportBatchStore` (Prisma e memória, mesmo teste de contrato) guarda o SHA-256 do arquivo + destino e os números do resultado. Reenviar o mesmo arquivo devolve o resumo anterior (`already_imported`); envios simultâneos: um importa, os outros veem a reserva (409 `em_andamento`); se a importação falha, a reserva é desfeita.
+- **API** (`apps/api/src/modules/imports/`): `POST /v1/imports/preview` e `POST /v1/imports`, multipart (`file`, `accountId` ou `cardId`, `mapping`, `invertSign`, `includePossibleDuplicates`). O limite global de 16 KB não vale para `/v1/imports*`; o módulo aplica 5 MB depois de autenticar.
+- **App:** Configurações → Comprovantes e arquivos (`/configuracoes/arquivos`) → Importar extrato (`/configuracoes/importar`): arquivo (`expo-document-picker`) → conta ou cartão → resumo do servidor → colunas, se preciso → "Importar N". Termina em **Para revisar** (`/revisao`), que confirma os pendentes. `expo-document-picker` é módulo nativo: precisa de **APK novo** (não chega por OTA; o `runtimeVersion` muda).
+
+## Perfil, preferências, exportação e backup
+
+Telas de Configurações com módulos próprios na API:
+
+- **Preferências** (`modules/preferences`): `GET/PATCH /v1/profile` (nome do dono, usado na saudação do Início e do chat, e nome do aparelho, via `AuthStore.renameDevice`), `/v1/preferences` (conta padrão do Novo lançamento, que só pode ser conta ativa) e `/v1/notification-settings` (escolhas da tela Notificações do celular). Os dados ficam em `PreferencesStore` (Prisma e memória, mesmo contrato), numa única linha (`app_preferences`, id `main`). **A captura de notificações do banco não existe ainda**: o servidor só guarda as escolhas e devolve `active: false`; a tela diz isso. "Esconder valores ao abrir" é preferência do aparelho (armazenamento local), não do servidor.
+- **Exportação** (`modules/export`): `GET /v1/export?format=csv|json&include=transactions,categories,accounts,subscriptions&from&to`. JSON com centavos inteiros e os mesmos DTOs da API; CSV (BOM, `;`, CRLF) com dinheiro formatado ("-46,90") e **um tipo de dado por arquivo**. Aparelho pareado obrigatório, 10 pedidos por 10 minutos por aparelho, `Cache-Control: no-store`. Nunca leva chaves do cofre, tokens nem aparelhos. No app: Configurações → Exportar tudo, que grava no cache e abre a folha de compartilhar (`expo-file-system` e `expo-sharing`, **módulos nativos novos: exigem APK novo**) ou baixa no navegador.
+- **Backup:** não há job no app nem na API. O backup do Postgres é do Dokploy (ver [servidor](servidor.md#backup)); a tela só explica e aponta para as instruções. O app não sabe se um backup rodou, e por isso não mostra "último backup".
+- **Reportar problema:** monta uma issue pré-preenchida (`ali-ali18/Orbita`) e abre no navegador; nada sai do app sozinho. Só versão, plataforma, sistema e modelo do aparelho, sem valores, nomes, nome do aparelho dado pelo dono nem endereço do servidor.
 
 ## Tarefas em segundo plano
 

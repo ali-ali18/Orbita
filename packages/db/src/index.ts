@@ -19,6 +19,12 @@ export {
 export { createDb, type Db } from "./client.ts";
 export { DataError, type DataErrorCode } from "./errors.ts";
 export type { IdempotencyBegin, IdempotencyRecord, IdempotencyStore } from "./idempotency-store.ts";
+export type {
+	ImportBatchRecord,
+	ImportBatchStore,
+	ImportBegin,
+	ImportSummary,
+} from "./import-batch-store.ts";
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
 export type {
@@ -31,6 +37,12 @@ export type {
 	PluggyConnectionStore,
 	PluggySyncResult,
 } from "./pluggy-connection-store.ts";
+export {
+	DEFAULT_PREFERENCES,
+	type PreferencesPatch,
+	type PreferencesRecord,
+	type PreferencesStore,
+} from "./preferences-store.ts";
 export { createPrismaAuthStore } from "./prisma-auth-store.ts";
 export {
 	type RecurrenceInput,
@@ -49,6 +61,7 @@ export {
 	type InstallmentInput,
 	type TransactionCursor,
 	type TransactionData,
+	type TransactionFilter,
 	type TransactionInput,
 	type TransactionPatch,
 	type TransactionRecord,

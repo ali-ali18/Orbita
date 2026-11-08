@@ -1,4 +1,5 @@
 import { colors, radius, spacing } from "@orbita/tokens";
+import type { ReactNode } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { Text } from "../../ui/index.ts";
 import { ACTIVITY_FILTERS, type ActivityFilter } from "./activity-model.ts";
@@ -7,9 +8,12 @@ import { ACTIVITY_FILTERS, type ActivityFilter } from "./activity-model.ts";
 export function FilterChips({
 	value,
 	onChange,
+	leading,
 }: {
 	value: ActivityFilter;
 	onChange: (next: ActivityFilter) => void;
+	/** Botão "Filtros" (gaveta), que abre a fila como no Figma. */
+	leading?: ReactNode;
 }) {
 	return (
 		<ScrollView
@@ -20,6 +24,7 @@ export function FilterChips({
 			style={{ marginHorizontal: -spacing.lg }}
 			contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.sm }}
 		>
+			{leading}
 			{ACTIVITY_FILTERS.map((f) => {
 				const active = f.id === value;
 				return (

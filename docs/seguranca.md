@@ -34,7 +34,7 @@ Rotas sem Bearer: `GET /health`, `POST /v1/pairing/claim` (trocar código por to
 - **Um segredo mestre**, `APP_SECRET` (mínimo 32 caracteres; gere com `openssl rand -base64 48`). As senhas do Postgres e do Redis entram em URLs de conexão; gere-as com `openssl rand -hex 32` (base64 pode ter `/`, que quebra a URL). Cada uso deriva uma chave própria com **HKDF-SHA256** (`orbita/pairing-code/v1`, `orbita/secret-box/v1`), então uma chave nunca serve para outra finalidade.
 - **Segredos em repouso** (chave da Anthropic, credenciais do Meu Pluggy) são guardados com **AES-256-GCM**: IV aleatório por gravação, autenticação contra adulteração, e _AAD_ que amarra o valor ao campo (não dá para copiar o segredo cifrado de um campo para outro). O formato tem versão (`v1.`) para permitir troca de algoritmo.
 - **Em trânsito:** HTTPS no proxy. Dentro do compose, a rede é privada.
-- **No celular:** o token fica no armazenamento seguro do sistema (Keystore no Android, via `expo-secure-store`) e o app abre com biometria.
+- **No celular:** o token fica no armazenamento seguro do sistema (Keystore no Android, via `expo-secure-store`) e o app pode abrir com biometria (veja [Bloqueio do app](#bloqueio-do-app-biometria)).
 
 ### Trocar o `APP_SECRET`
 
@@ -56,6 +56,22 @@ Trocar invalida o código de pareamento ativo e torna ilegíveis os segredos cif
 - A chave (`Idempotency-Key`) vale **por aparelho**: outro aparelho, mesmo com a mesma chave, não lê a resposta guardada. A resposta guardada é a do próprio aparelho (um lançamento do dono), por 24 h, e some com o aparelho revogado e apagado (cascata) ou pela limpeza do worker.
 - A chave só pode repetir o **mesmo pedido** (método, caminho e corpo): reutilizá-la com outro conteúdo é recusado (422), então uma chave repetida nunca faz o servidor devolver a resposta de uma operação diferente.
 - Risco aceito: se o processo cair entre criar o lançamento e guardar a resposta, a reserva fica sem resposta e, depois de 60 s, uma nova tentativa pode criar de novo (duplicado raro, visível e apagável no app).
+
+## Bloqueio do app (biometria)
+
+Configurações → Segurança → "Desbloquear com digital" (`apps/mobile/src/features/lock/`, módulo nativo `expo-local-authentication`).
+
+- **Ligar** exige digital cadastrada no aparelho e uma autenticação bem-sucedida na hora. Sem leitor ou sem digital cadastrada, o app explica e deixa desligado. Desligar não pede nada (quem chegou às configurações já passou pelo bloqueio).
+- **Quando trava:** na abertura a frio e ao voltar do segundo plano depois de **30 s** (`GRACE_MS`); voltar antes disso não pede nada. O relógio que andou para trás conta como "passou o prazo".
+- **Como desbloqueia:** o aviso do sistema aceita digital/rosto e, como alternativa, o PIN ou padrão do aparelho. Na abertura a frio travada o app nem monta as telas (nada de dados por baixo); depois, uma tela opaca cobre o app ao travar e enquanto ele está em segundo plano.
+- **Preferência** guardada no `SecureStore` (`orbita.biometricLock`). Sair deste aparelho a desliga. Se o aparelho perder todo método de autenticação (digitais e PIN removidos), o app destrava e desliga o bloqueio em vez de trancar a pessoa fora.
+- Na web a opção não aparece.
+
+**O que protege:** alguém com o celular desbloqueado nas mãos (ou emprestado) não abre o Órbita nem vê seus dados.
+
+**O que não protege:** é uma trava de **interface**, local. O token do servidor continua no `SecureStore` (Keystore) e **não** fica atrás da biometria; quem tiver acesso root ao aparelho, ou ao backup dele, não passa por essa tela. A captura de tela não é bloqueada, e a miniatura em "apps recentes" só é coberta quando o sistema a tira depois de o app reagir (melhor esforço). Para anular um aparelho perdido, desconecte-o por Configurações → Servidor e chaves em outro aparelho, ou pelo servidor.
+
+**Exige APK novo:** é um módulo nativo (e a permissão `USE_BIOMETRIC`), então muda o `runtimeVersion`. A atualização OTA sozinha não liga o recurso em APK antigo; veja [servidor](servidor.md#quando-precisa-de-apk-novo-e-quando-não).
 
 ## Atualização OTA do app
 
@@ -94,6 +110,23 @@ O app abre no navegador uma página do servidor que carrega o Pluggy Connect. As
 - **Risco residual**: o token está na URL (fragmento) até o JS rodar. Se o navegador não executar JS, o token fica na barra de endereço e no histórico do navegador do celular até a sessão expirar (15 min) ou ser usada; o fragmento nunca é enviado ao servidor nem como `Referer`.
 - **Risco aceito**: quem tiver o link da sessão (token) durante os 15 min pode concluir a conexão de um banco **da nossa conta Pluggy** (e só de item novo, de banco de verdade). Não lê dado nenhum: o dado só entra no servidor do dono.
 - `includeSandbox` fica sempre desligado.
+
+## Importar extrato (CSV, OFX, PDF)
+
+- **O conteúdo do arquivo é dado, nunca instrução.** Descrição, memo e qualquer texto do extrato viram só descrição de lançamento (sem caracteres de controle, até 200 letras). Nenhuma IA lê o arquivo nesta etapa, e os parsers não executam nada (OFX é lido como texto, sem entidades externas; PDF só tem o texto extraído, sem JavaScript do documento).
+- **Nada é adivinhado:** linha sem formato inteiro (data, descrição, valor sem ambiguidade; sem sinal de entrada/saída; ano desconhecido) vai para "não entendi estas linhas" e não é gravada. Valores como "1.234" ou "12,345" são recusados por serem ambíguos. Dinheiro é lido por texto e vira inteiro em centavos.
+- **Limites:** 5 MB por arquivo (e 5 MB + 64 KB de corpo), só `.csv .txt .ofx .qfx .pdf`; o tipo MIME vem do cliente e só serve de primeira barreira, então o servidor confere o conteúdo (`%PDF-`, cabeçalho OFX, sem byte nulo). PDF: no máximo 60 páginas e 20 s de leitura; PDF com senha ou sem texto é recusado com mensagem clara; CSV até 20 mil linhas. Limite por aparelho: 30 prévias e 20 importações a cada 10 minutos. A rota exige o Bearer **antes** de ler o corpo.
+- **O arquivo não é guardado.** Fica em memória durante o pedido; no banco entram só o SHA-256 do arquivo, o destino e quatro contagens (`import_batches`). Os lançamentos criados nascem `pending` e só entram nos números quando o dono confirma em Para revisar.
+- **Risco aceito:** um PDF malicioso pode gastar CPU do servidor até o limite de tempo (a leitura roda no mesmo processo). Por isso os limites acima e o acesso só de aparelho pareado.
+- **Fora do alcance:** PDF escaneado (imagem) não é lido; PDF de layout em colunas que o texto não separa por linha tende a cair em "não entendi".
+
+## Exportar dados e reportar problema
+
+- `GET /v1/export` exige o token do aparelho, tem limite por aparelho (429 com `Retry-After`) e responde sem cache. O arquivo é o dado financeiro em texto aberto: é o dono quem o leva para fora, e a tela avisa. Chaves do cofre, tokens e aparelhos nunca entram.
+- **CSV e injeção de fórmula:** descrição, observação e nomes vêm de fora (banco, extrato, notificação), então células de texto que começam com `=`, `+`, `-`, `@`, tab ou CR levam um apóstrofo na frente. Valores em dinheiro são gerados pelo servidor e não passam por esse escape.
+- No celular o arquivo vai para o cache privado do app e as exportações anteriores (`orbita-*`) são apagadas antes de criar a nova.
+- **Reportar problema:** o app só abre no navegador endereços de `github.com/ali-ali18/Orbita`; a issue é pública, e o texto avisa para não escrever valores nem nomes.
+- **Notificações do celular:** a tela só guarda preferências. Enquanto a captura não existe, nada é lido; quando existir, o texto da notificação continua sendo dado não confiável.
 
 ## Containers
 

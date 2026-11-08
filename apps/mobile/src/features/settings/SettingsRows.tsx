@@ -3,13 +3,18 @@ import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { Icon, type IconName, Text } from "../../ui/index.ts";
 
-/** Seção do Figma: legenda em `textSecondary` e, embaixo, um bloco `surface` com as linhas (raio `group`). */
-export function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * Seção do Figma: legenda em `textSecondary` (se houver `title`) e, embaixo, um bloco `surface` com as
+ * linhas (raio `group`). Sem `title` é só o bloco, para telas em que o nome já aparece em outro campo.
+ */
+export function SettingsSection({ title, children }: { title?: string; children: ReactNode }) {
 	return (
 		<View style={{ gap: spacing.sm, paddingTop: spacing.sm }}>
-			<Text variant="caption" tone="secondary" accessibilityRole="header">
-				{title}
-			</Text>
+			{title ? (
+				<Text variant="caption" tone="secondary" accessibilityRole="header">
+					{title}
+				</Text>
+			) : null}
 			<View
 				style={{
 					backgroundColor: colors.surface,
@@ -39,6 +44,7 @@ export function SettingsRow({
 	info = false,
 	trailing,
 	soon = false,
+	toggled,
 }: {
 	icon?: IconName;
 	leading?: ReactNode;
@@ -54,6 +60,8 @@ export function SettingsRow({
 	trailing?: ReactNode;
 	/** Ainda sem tela: mostra "Em breve", esmaecida e sem toque (sem seta). */
 	soon?: boolean;
+	/** Linha que é um interruptor: o leitor de tela a lê como "ligado/desligado" em vez de botão. */
+	toggled?: boolean | undefined;
 }) {
 	const enabled = onPress !== undefined;
 	const rowStyle = {
@@ -87,9 +95,11 @@ export function SettingsRow({
 	}
 	return (
 		<Pressable
-			accessibilityRole="button"
+			accessibilityRole={toggled === undefined ? "button" : "switch"}
 			accessibilityLabel={[title, caption, value, soon ? "em breve" : undefined].filter(Boolean).join(", ")}
-			accessibilityState={{ disabled: !enabled }}
+			accessibilityState={
+				toggled === undefined ? { disabled: !enabled } : { disabled: !enabled, checked: toggled }
+			}
 			disabled={!enabled}
 			onPress={onPress}
 			style={({ pressed }) => ({ ...rowStyle, opacity: !enabled ? 0.45 : pressed ? 0.8 : 1 })}
@@ -119,7 +129,7 @@ export function SettingsRow({
 	);
 }
 
-/** Interruptor só de desenho (46 × 28), para os itens de Segurança que ainda não funcionam. */
+/** Interruptor (46 × 28) só de desenho: o toque é da linha que o contém. */
 export function StaticSwitch({ on }: { on: boolean }) {
 	return (
 		<View

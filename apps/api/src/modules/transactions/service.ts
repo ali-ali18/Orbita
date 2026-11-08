@@ -3,6 +3,7 @@ import {
 	DataError,
 	type Stores,
 	type TransactionCursor,
+	type TransactionFilter,
 	type TransactionPatch,
 	type TransactionRecord,
 } from "@orbita/db";
@@ -143,17 +144,18 @@ export function decodeCursor(raw: string): TransactionCursor {
 
 export async function listRecentPage(
 	stores: Stores,
-	options: { limit: number; cursor?: string | undefined },
+	options: { limit: number; cursor?: string | undefined } & TransactionFilter,
 ): Promise<{ transactions: TransactionRecord[]; nextCursor: string | null }> {
-	const before = options.cursor === undefined ? undefined : decodeCursor(options.cursor);
+	const { limit, cursor, ...filter } = options;
+	const before = cursor === undefined ? undefined : decodeCursor(cursor);
 	// Pede um a mais só para saber se há outra página.
 	const rows = await stores.transactions.listRecent({
-		limit: options.limit + 1,
+		limit: limit + 1,
 		...(before ? { before } : {}),
+		filter,
 	});
-	const transactions = rows.slice(0, options.limit);
+	const transactions = rows.slice(0, limit);
 	const last = transactions.at(-1);
-	const nextCursor =
-		rows.length > options.limit && last ? encodeCursor({ date: last.date, id: last.id }) : null;
+	const nextCursor = rows.length > limit && last ? encodeCursor({ date: last.date, id: last.id }) : null;
 	return { transactions, nextCursor };
 }

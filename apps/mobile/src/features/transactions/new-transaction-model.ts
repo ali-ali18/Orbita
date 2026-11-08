@@ -126,12 +126,21 @@ export function sourceOptions(
 	return [...fromAccounts, ...fromCards];
 }
 
-/** A escolhida, ou a primeira da lista enquanto o usuário não escolheu (ou se a escolhida saiu da lista). */
+/**
+ * A escolhida; senão a conta padrão das preferências (`preferredKey`, "account:<id>"), se ainda está na lista;
+ * senão a primeira da lista (também quando a escolhida saiu da lista).
+ */
 export function effectiveSource(
 	sourceKey: string | null,
 	options: readonly SourceOption[],
+	preferredKey: string | null = null,
 ): SourceOption | null {
-	return options.find((o) => o.key === sourceKey) ?? options[0] ?? null;
+	return (
+		options.find((o) => o.key === sourceKey) ??
+		(preferredKey ? options.find((o) => o.key === preferredKey) : undefined) ??
+		options[0] ??
+		null
+	);
 }
 
 /** Só despesa no cartão parcela. */

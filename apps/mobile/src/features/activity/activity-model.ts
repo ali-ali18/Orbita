@@ -172,13 +172,21 @@ export function activityCaption(
 }
 
 /** Mensagem de lista vazia: com busca ou filtro o motivo é outro (e há o que fazer). */
-export function emptyMessage(filter: ActivityFilter, query: string, hasMore: boolean): string {
+export function emptyMessage(
+	filter: ActivityFilter,
+	query: string,
+	hasMore: boolean,
+	/** Há filtros da gaveta ativos: o servidor já filtrou, então não sobra "o que ainda não carregou" a não ser pelo chip/busca. */
+	drawerFiltered = false,
+): string {
 	if (query.trim() !== "") {
 		return hasMore
 			? "Nada encontrado entre os lançamentos já carregados. Role a lista para carregar mais."
 			: "Nenhum lançamento encontrado.";
 	}
-	if (filter === "all") return "Nenhum lançamento por aqui ainda.";
+	if (filter === "all") {
+		return drawerFiltered ? "Nenhum lançamento com esses filtros." : "Nenhum lançamento por aqui ainda.";
+	}
 	return hasMore
 		? "Nenhum lançamento desse tipo entre os já carregados. Role a lista para carregar mais."
 		: "Nenhum lançamento desse tipo.";

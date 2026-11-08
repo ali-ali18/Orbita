@@ -1,4 +1,6 @@
+import { toLocalDate } from "@orbita/core";
 import {
+	needsReconnect,
 	PLUGGY_LABEL_MAX,
 	type PluggyConnectionDto,
 	type PluggyStatusResponse,
@@ -7,6 +9,7 @@ import {
 } from "@orbita/shared";
 import { banks } from "@orbita/tokens";
 import { ApiError } from "../../lib/api.ts";
+import { dayMonth } from "../../lib/format.ts";
 import { errorMessage } from "../../lib/loadable.ts";
 
 /*
@@ -56,6 +59,7 @@ export function connectionStatusLine(c: PluggyConnectionDto, now: Date): string 
 	const good = syncedAt(c.lastSyncAt, now);
 	const ago = c.lastSyncAt ? formatAgo(c.lastSyncAt, now) : null;
 	const lastOk = ago ? ` · último ok ${ago}` : "";
+	if (needsReconnect(c)) return `Desconectado${lastOk}`;
 	switch (c.lastStatus) {
 		case "ok":
 			return good ?? "Sincronizado";
@@ -273,5 +277,43 @@ export function parseConnectionInput(itemId: string, label: string): ValidatedCo
 		ok: true,
 		itemId: parsed.data.itemId,
 		...(parsed.data.label ? { label: parsed.data.label } : {}),
+	};
+}
+
+/**
+ * Conexões em que o banco pediu login de novo (Figma 55:1204). Reconectar cria uma conexão nova no Pluggy: se já
+ * existe outra com o mesmo nome e sincronizando bem, a velha não precisa mais do aviso.
+ */
+export function disconnectedConnections(connections: readonly PluggyConnectionDto[]): PluggyConnectionDto[] {
+	const sameName = (a: PluggyConnectionDto, b: PluggyConnectionDto) =>
+		connectionName(a).toLowerCase() === connectionName(b).toLowerCase();
+	return connections.filter(
+		(c) =>
+			needsReconnect(c) &&
+			!connections.some(
+				(o) => o.id !== c.id && sameName(o, c) && (o.lastStatus === "ok" || o.lastStatus === "partial"),
+			),
+	);
+}
+
+export interface ReconnectBannerText {
+	title: string;
+	caption: string;
+	body: string;
+	button: string;
+}
+
+/** Texto do aviso "O Santander desconectou". `lastSyncAt` diz até quando o dado é bom. */
+export function reconnectBannerText(c: PluggyConnectionDto, now: Date): ReconnectBannerText {
+	const name = connectionName(c);
+	const ago = c.lastSyncAt ? formatAgo(c.lastSyncAt, now) : null;
+	const since = c.lastSyncAt ? dayMonth(toLocalDate(new Date(c.lastSyncAt))) : null;
+	return {
+		title: `O ${name} desconectou`,
+		caption: ago ? `Última sincronização ${ago}` : "O banco pediu para você entrar de novo.",
+		body: since
+			? `Reconecte para eu buscar o que faltou desde ${since}.`
+			: "Reconecte para eu buscar seus lançamentos.",
+		button: `Reconectar o ${name}`,
 	};
 }
