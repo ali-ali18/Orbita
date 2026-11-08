@@ -188,7 +188,9 @@ describe.skipIf(!url)("API sobre Postgres", () => {
 			totalCents: 20000,
 		});
 		expect(dec.transactions).toHaveLength(2);
-		expect((await api.get("/v1/summary/2026-11")).body.summary.spentCents).toBe(20000);
+		// Cartão pesa na fatura: as duas primeiras parcelas vencem em dezembro, não em novembro.
+		expect((await api.get("/v1/summary/2026-11")).body.summary.spentCents).toBe(0);
+		expect((await api.get("/v1/summary/2026-12")).body.summary.spentCents).toBe(20000);
 	});
 
 	it("estorno de outro mês, pagamento de fatura e erro de referência", async () => {
