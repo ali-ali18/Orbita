@@ -23,12 +23,19 @@ import { bankBadge } from "../summary/summary-model.ts";
 import { initialOf } from "../summary/transaction-model.ts";
 import { effectiveSource, formatAmount, sourceOptions } from "../transactions/new-transaction-model.ts";
 import { SourceSheet } from "../transactions/PickerSheets.tsx";
-import { useArchiveSubscription, useRecurrences, useSaveSubscription } from "./queries.ts";
+import {
+	useArchiveSubscription,
+	useMonthTransactions,
+	usePostSubscription,
+	useRecurrences,
+	useSaveSubscription,
+} from "./queries.ts";
 import { DaySheet, ValueSheet } from "./SubscriptionSheets.tsx";
 import {
 	buildRequest,
 	formFromRecurrence,
 	initialForm,
+	monthStatus,
 	POPULAR_SERVICES,
 	parseSourceKey,
 	type SubscriptionForm,
@@ -78,13 +85,15 @@ export function NewSubscriptionScreen() {
 	const router = useRouter();
 	const { id } = useLocalSearchParams<{ id?: string }>();
 	const editingId = typeof id === "string" && id !== "" ? id : null;
-	const { today } = useClock();
+	const { today, month } = useClock();
 	const recurrencesQ = useRecurrences();
 	const accountsQ = useAccounts();
 	const cardsQ = useCards();
 	const categoriesQ = useCategories();
 	const save = useSaveSubscription();
 	const archive = useArchiveSubscription();
+	const postNow = usePostSubscription();
+	const monthTxQ = useMonthTransactions(month);
 	// `isPending` só muda no próximo render; a trava em ref barra o segundo toque no mesmo instante.
 	const busy = useRef(false);
 
@@ -152,6 +161,27 @@ export function NewSubscriptionScreen() {
 		});
 	};
 
+	// 409 = já estava lançada (por fora do app): vale como feito, a lista recarrega e a linha passa a "lançada".
+	const post = () => {
+		if (busy.current || !editingId) return;
+		busy.current = true;
+		setMessage(null);
+		postNow.mutate(
+			{ id: editingId, month },
+			{
+				onSuccess: close,
+				onError: (error) => (error instanceof ApiError && error.status === 409 ? close() : finish(error)),
+				onSettled: () => {
+					busy.current = false;
+				},
+			},
+		);
+	};
+	const canPost =
+		existing !== undefined &&
+		monthTxQ.data !== undefined &&
+		monthStatus(existing, month, monthTxQ.data.transactions) === "pending";
+
 	const loadingExisting = editingId !== null && form === null;
 	const missing = editingId !== null && form === null && recurrencesQ.isSuccess && !existing;
 
@@ -166,6 +196,9 @@ export function NewSubscriptionScreen() {
 									{message}
 								</Text>
 							</View>
+						) : null}
+						{canPost ? (
+							<Button label="Lançar agora" variant="secondary" loading={postNow.isPending} onPress={post} />
 						) : null}
 						{editingId ? (
 							<Button
