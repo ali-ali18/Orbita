@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from "expo-router";
 import { BanksStep } from "../features/onboarding/BanksStep.tsx";
 import { BudgetStep } from "../features/onboarding/BudgetStep.tsx";
-import { bankRows } from "../features/onboarding/model.ts";
+import { meuPluggyRow } from "../features/onboarding/model.ts";
 import { NotificationsStep } from "../features/onboarding/NotificationsStep.tsx";
 import { WelcomeScreen } from "../features/onboarding/WelcomeScreen.tsx";
 import { PairingForm } from "../features/pairing/PairingForm.tsx";
@@ -15,13 +15,7 @@ export default function PreviaRoute() {
 			return <PairingForm setup preview initialCode="48291" />;
 		case "bancos":
 			return (
-				<BanksStep
-					rows={bankRows(["Nubank", "Inter"])}
-					onBack={noop}
-					onConnect={noop}
-					onContinue={noop}
-					onSkip={noop}
-				/>
+				<BanksStep rows={[meuPluggyRow(0)]} onBack={noop} onConnect={noop} onContinue={noop} onSkip={noop} />
 			);
 		case "notificacoes":
 			return <NotificationsStep onBack={noop} onAllow={noop} onSkip={noop} />;

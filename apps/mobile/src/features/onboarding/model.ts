@@ -1,6 +1,5 @@
 import type { Cents } from "@orbita/core";
 import { chart, defaultCategoryColor } from "@orbita/tokens";
-import { bankLogoKey } from "../../lib/bank-logos.ts";
 
 /** Passos depois das boas-vindas: servidor, bancos, notificações, orçamento. */
 export const ONBOARDING_STEPS = 4 as const;
@@ -11,43 +10,24 @@ export function progressLabel(step: OnboardingStep): string {
 	return `${step} de ${ONBOARDING_STEPS}`;
 }
 
-/** Limite do plano pessoal do Meu Pluggy, o "N de 5" da tela de bancos. */
-export const PLUGGY_CONNECTION_LIMIT = 5;
-
-/** Bancos da tela de primeira vez, na ordem do Figma. */
-export const ONBOARDING_BANKS = [
-	"Nubank",
-	"Inter",
-	"Santander",
-	"Mercado Pago",
-	"Itaú",
-	"C6 Bank",
-	"PicPay",
-	"Bradesco",
-] as const;
+/**
+ * Sem a API paga o Pluggy não deixa conectar cada banco. O plano pessoal entra por uma conexão só,
+ * o conector Meu Pluggy, que libera as contas e os cartões.
+ */
+export const MEU_PLUGGY_NAME = "Meu Pluggy";
 
 export interface BankRow {
-	name: (typeof ONBOARDING_BANKS)[number];
+	name: string;
 	connected: boolean;
 }
 
-/** Uma conexão conta para o banco quando os dois resolvem o mesmo logo. */
-export function bankRows(connectionNames: readonly string[]): BankRow[] {
-	const logos = new Set(
-		connectionNames.flatMap((name) => {
-			const logo = bankLogoKey({ name });
-			return logo ? [logo] : [];
-		}),
-	);
-	return ONBOARDING_BANKS.map((name) => {
-		const logo = bankLogoKey({ name });
-		return { name, connected: logo !== null && logos.has(logo) };
-	});
+/** A única linha da primeira vez: conectada quando já existe ao menos uma conexão cadastrada. */
+export function meuPluggyRow(connectionCount: number): BankRow {
+	return { name: MEU_PLUGGY_NAME, connected: connectionCount > 0 };
 }
 
-export function connectionsUsedLabel(connected: number): string {
-	const n = Math.max(0, Math.min(PLUGGY_CONNECTION_LIMIT, connected));
-	return `${n} de ${PLUGGY_CONNECTION_LIMIT} conexões usadas`;
+export function connectionsUsedLabel(connected: boolean): string {
+	return connected ? "1 de 1 conexão" : "0 de 1 conexão";
 }
 
 export const SUGGESTED_TOTAL_CENTS = 300_000;

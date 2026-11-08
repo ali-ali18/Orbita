@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-	bankRows,
 	connectionsUsedLabel,
+	meuPluggyRow,
 	progressLabel,
 	SUGGESTED_TOTAL_CENTS,
 	splitBudget,
@@ -14,15 +14,15 @@ describe("primeira vez", () => {
 		expect(progressLabel(4)).toBe("4 de 4");
 	});
 
-	it("marca o banco quando alguma conexão tem o mesmo logo", () => {
-		const rows = bankRows(["Nu Pagamentos S.A.", "Conta Corrente Inter"]);
-		expect(rows.filter((r) => r.connected).map((r) => r.name)).toEqual(["Nubank", "Inter"]);
-		expect(rows).toHaveLength(8);
+	it("a primeira vez tem uma conexão: o Meu Pluggy", () => {
+		expect(meuPluggyRow(0)).toEqual({ name: "Meu Pluggy", connected: false });
+		expect(meuPluggyRow(1)).toEqual({ name: "Meu Pluggy", connected: true });
+		expect(meuPluggyRow(3).connected).toBe(true);
 	});
 
-	it("conta no máximo 5 conexões no rótulo", () => {
-		expect(connectionsUsedLabel(2)).toBe("2 de 5 conexões usadas");
-		expect(connectionsUsedLabel(9)).toBe("5 de 5 conexões usadas");
+	it("o rótulo conta essa única conexão", () => {
+		expect(connectionsUsedLabel(false)).toBe("0 de 1 conexão");
+		expect(connectionsUsedLabel(true)).toBe("1 de 1 conexão");
 	});
 
 	it("sobe e desce o orçamento de 100 em 100, dentro do intervalo", () => {

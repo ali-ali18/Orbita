@@ -9,7 +9,7 @@ import { useSetBudget } from "../budget/queries.ts";
 import { BanksStep } from "./BanksStep.tsx";
 import { BudgetStep } from "./BudgetStep.tsx";
 import { markOnboardingDone } from "./flag.ts";
-import { bankRows } from "./model.ts";
+import { meuPluggyRow } from "./model.ts";
 import { NotificationsStep } from "./NotificationsStep.tsx";
 
 type Step = "banks" | "notifications" | "budget";
@@ -22,8 +22,7 @@ export function SetupFlow({ onFinished }: { onFinished: () => void }) {
 	const { connect } = usePluggyActions();
 	const { baseUrl } = useSession();
 	const saveBudget = useSetBudget();
-	const names =
-		status.phase === "ready" ? status.data.connections.flatMap((c) => (c.label ? [c.label] : [])) : [];
+	const connectionCount = status.phase === "ready" ? status.data.connections.length : 0;
 
 	const finish = async (cents: number | null) => {
 		if (cents !== null) {
@@ -63,7 +62,7 @@ export function SetupFlow({ onFinished }: { onFinished: () => void }) {
 	}
 	return (
 		<BanksStep
-			rows={bankRows(names)}
+			rows={[meuPluggyRow(connectionCount)]}
 			onBack={() => {}}
 			onConnect={() => {
 				setNotice(null);

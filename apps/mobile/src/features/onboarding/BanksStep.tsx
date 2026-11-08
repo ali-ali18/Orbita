@@ -5,7 +5,7 @@ import { bankBadge } from "../summary/summary-model.ts";
 import { type BankRow, connectionsUsedLabel } from "./model.ts";
 import { ProgressHeader, SkipLink } from "./parts.tsx";
 
-/** Bancos (Figma 52:1109). `rows` já vem na ordem do guia. */
+/** Bancos (Figma 52:1109), com a conexão que o plano pessoal realmente abre: o Meu Pluggy. */
 export function BanksStep({
 	rows,
 	onBack,
@@ -21,7 +21,7 @@ export function BanksStep({
 	onSkip: () => void;
 	notice?: string | null;
 }) {
-	const used = rows.filter((r) => r.connected).length;
+	const used = rows.some((r) => r.connected);
 	return (
 		<Screen>
 			<View style={{ flex: 1, paddingHorizontal: spacing.xl, paddingBottom: spacing.md, gap: spacing.lg }}>
@@ -31,7 +31,8 @@ export function BanksStep({
 						Conecte seus bancos
 					</Text>
 					<Text variant="body" tone="secondary">
-						Pelo Meu Pluggy, de graça, até 5 conexões. Eu só leio: não consigo mover dinheiro.
+						Sem a API paga, o Pluggy não deixa conectar cada banco. O Meu Pluggy é a conexão que libera os
+						seus. Eu só leio: não consigo mover dinheiro.
 					</Text>
 				</View>
 				<ScrollView
