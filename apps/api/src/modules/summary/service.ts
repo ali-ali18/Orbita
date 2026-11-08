@@ -1,4 +1,5 @@
 import {
+	addMonths,
 	budgetStatus,
 	type Cents,
 	invoiceByMonth,
@@ -11,6 +12,7 @@ import {
 	paymentStatus,
 	paymentWindow,
 	pendingInMonth,
+	projectMissingInstallments,
 	projectMonth,
 	remainingInstallments,
 	safeToSpend,
@@ -147,14 +149,55 @@ export async function monthSummary(
 	};
 }
 
+const ESTIMATED_NOTE = "Estimada: o banco ainda não lançou esta parcela.";
+const EPOCH = new Date(0);
+
+/** Linhas só da resposta da fatura: a parcela que ainda vai cair neste mês, sem gravar lançamento. */
+function projectedRows(
+	groups: readonly InstallmentGroupRecord[],
+	cardId: string,
+	month: MonthKey,
+	date: LocalDate,
+): TransactionRecord[] {
+	return projectMissingInstallments(groups, cardId, month).map((item) => ({
+		id: `est-${item.number}-${item.groupId}`.slice(0, 64),
+		kind: "expense" as const,
+		amountCents: item.amountCents,
+		date,
+		description: item.description,
+		categoryId: null,
+		accountId: null,
+		cardId,
+		counterpartAccountId: null,
+		refundOfId: null,
+		budgetMonth: month,
+		invoiceMonth: month,
+		installmentGroupId: item.groupId,
+		installmentNumber: item.number,
+		installmentCount: item.count,
+		status: "confirmed" as const,
+		source: "import" as const,
+		externalId: null,
+		note: ESTIMATED_NOTE,
+		sourceCategory: null,
+		merchantName: null,
+		categoryEditedByOwner: false,
+		createdAt: EPOCH,
+		updatedAt: EPOCH,
+	}));
+}
+
 export async function cardInvoice(stores: Stores, cardId: string, month: MonthKey, today: LocalDate) {
 	const card = orNotFound(await stores.cards.get(cardId), "Cartão", "o");
 	const invoice = invoiceByMonth(month, toCardConfig(card));
 	const config = toCardConfig(card);
-	const [txs, payments] = await Promise.all([
+	const [posted, payments, groups] = await Promise.all([
 		stores.transactions.listByInvoice(cardId, month),
 		stores.transactions.listCardPayments(cardId, paymentWindow(month, config)),
+		// A parcela de dezembro pode ainda não ter lançamento: o grupo visto nos meses anteriores a projeta.
+		stores.transactions.listInstallmentGroups(addMonths(month, -71)),
 	]);
+	const txs = [...posted, ...projectedRows(groups, cardId, month, invoice.closingDate)];
 	// Um posting vale para o mês do orçamento do lançamento: busca só os meses que aparecem na fatura.
 	const budgetMonths = [
 		...new Set(txs.filter((t) => t.installmentGroupId === null).map((t) => t.budgetMonth)),

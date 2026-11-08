@@ -198,6 +198,7 @@ export function ActivityScreen() {
 
 	return (
 		<Screen
+			fadeTop
 			footer={<BottomBar onHome={() => router.dismissTo("/")} onNew={() => router.push("/novo")} />}
 			floatingFooter
 		>

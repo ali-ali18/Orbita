@@ -171,17 +171,17 @@ describe("syncPluggy", () => {
 		expect(after).toEqual(before);
 		expect(await t.stores.accounts.list()).toHaveLength(1);
 		expect(await t.stores.cards.list()).toHaveLength(1);
-		// A segunda rodada olha desde 03/10 (12/11 menos 40 dias): os 6 lançamentos já existem.
+		// A segunda rodada relê os 4 meses: os 6 lançamentos já existem.
 		expect(second.connections[0]).toMatchObject({ created: 0, existing: 6, status: "ok" });
 	});
 
-	it("primeira vez busca 90 dias; depois, desde a última sincronização boa menos 40 dias", async () => {
+	it("busca os 4 meses anteriores, também na sincronização seguinte", async () => {
 		await t.run();
 		const from = () =>
 			t.fake.requests
 				.filter((r) => r.url.pathname === "/v2/transactions")
 				.map((r) => r.url.searchParams.get("dateFrom"));
-		expect(from()).toEqual(["2026-08-14", "2026-08-14"]);
+		expect(from()).toEqual(["2026-07-13", "2026-07-13"]);
 		expect(
 			t.fake.requests.find((r) => r.url.pathname === "/v2/transactions")?.url.searchParams.get("dateTo"),
 		).toBe("2026-11-12");
@@ -189,7 +189,7 @@ describe("syncPluggy", () => {
 		t.fake.requests.length = 0;
 		t.setNow(new Date("2026-11-13T09:00:00Z"));
 		await t.run();
-		expect(from()).toEqual(["2026-10-03", "2026-10-03"]);
+		expect(from()).toEqual(["2026-07-14", "2026-07-14"]);
 	});
 
 	it("o lançamento que o dono apagou não volta", async () => {

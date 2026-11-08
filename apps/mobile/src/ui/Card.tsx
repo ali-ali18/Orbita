@@ -4,13 +4,35 @@ import { Pressable, type StyleProp, View, type ViewStyle } from "react-native";
 import { Icon } from "./icons.tsx";
 import { Text } from "./Text.tsx";
 
-export function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+export function Card({
+	children,
+	style,
+	onPress,
+	label,
+}: {
+	children: ReactNode;
+	style?: StyleProp<ViewStyle>;
+	/** O card inteiro abre outra tela. */
+	onPress?: () => void;
+	label?: string;
+}) {
+	const box = {
+		backgroundColor: colors.surface,
+		borderRadius: radius.card,
+		padding: spacing.xl,
+	};
+	if (!onPress) {
+		return <View style={[box, style]}>{children}</View>;
+	}
 	return (
-		<View
-			style={[{ backgroundColor: colors.surface, borderRadius: radius.card, padding: spacing.xl }, style]}
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={label}
+			onPress={onPress}
+			style={({ pressed }) => [box, style, { opacity: pressed ? 0.8 : 1 }]}
 		>
 			{children}
-		</View>
+		</Pressable>
 	);
 }
 

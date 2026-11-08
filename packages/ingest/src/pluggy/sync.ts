@@ -25,6 +25,7 @@ import {
 	PLUGGY_SOURCE,
 	pluggyDateToLocal,
 	type SkipReason,
+	shouldUpgradeCategory,
 	type TransactionContext,
 	transactionFacts,
 } from "./mapping.ts";
@@ -37,8 +38,11 @@ export const PLUGGY_DAILY_JOB = "pluggy-diario";
 export const PLUGGY_MANUAL_JOB = "pluggy-agora";
 export const PLUGGY_MANUAL_JOB_ID = "pluggy-agora";
 
-/** Primeira sincronização de uma conexão: quantos dias para trás. */
-export const FIRST_SYNC_DAYS = 90;
+/**
+ * Quantos dias para trás a sincronização sempre olha: 4 meses. Parcelas e o relatório delas precisam das
+ * faturas anteriores, não só do que entrou desde a última rodada.
+ */
+export const FIRST_SYNC_DAYS = 122;
 /**
  * Depois: recomeça tantos dias antes da última sincronização boa. Lançamento de cartão pode levar semanas para
  * efetivar (aparece na fatura com a data da compra); a gravação é idempotente, então a folga só custa uma consulta maior.
@@ -94,7 +98,8 @@ const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().t
  *
  * - Idempotente: o lançamento é gravado por `upsertByExternal("pluggy", id do Pluggy)`; rodar de novo não duplica
  *   nem altera o que já está gravado. Conta e cartão são ligados por `findByExternal`.
- * - Janela: primeira vez, 90 dias; depois, desde `lastSyncAt` menos 40 dias. `lastSyncAt` só avança quando a
+ * - Janela: sempre pelo menos 4 meses (`FIRST_SYNC_DAYS`); se a última sincronização boa é mais antiga, desde ela
+ *   menos 40 dias. `lastSyncAt` só avança quando a
  *   conexão termina `ok` (um `partial` repete a janela na próxima). Item que não está `UPDATED`, falha em /bills e
  *   conta que não sincronizou deixam a conexão `partial`.
  * - Sem chaves: grava "no_keys" em cada conexão e sai, sem erro e sem chamar o Pluggy.
@@ -228,9 +233,7 @@ async function syncConnection(
 	const partial: string[] = [];
 	try {
 		const today = toLocalDate(startedAt);
-		const from = connection.lastSyncAt
-			? addDays(toLocalDate(connection.lastSyncAt), -OVERLAP_DAYS)
-			: addDays(today, -FIRST_SYNC_DAYS);
+		const from = syncWindowStart(today, connection.lastSyncAt);
 
 		const item = await client.item(connection.id);
 		if (NEEDS_USER.has(item.status)) {
@@ -543,6 +546,14 @@ async function linkAccounts(
 	return { linked: out, deferredCards };
 }
 
+/** O começo da janela: no mínimo 4 meses, ou mais se a última sincronização boa for anterior a isso. */
+export function syncWindowStart(today: string, lastSyncAt: Date | null): string {
+	const history = addDays(today, -FIRST_SYNC_DAYS);
+	if (lastSyncAt === null) return history;
+	const overlap = addDays(toLocalDate(lastSyncAt), -OVERLAP_DAYS);
+	return [history, overlap].sort()[0] ?? history;
+}
+
 const bump = (counts: ConnectionSyncResult["skipped"], key: SkipReason | "archived_account") => {
 	counts[key] = (counts[key] ?? 0) + 1;
 };
@@ -579,7 +590,16 @@ async function storeTransactions(
 						const label = mapped.input.sourceCategory ?? NO_SOURCE_CATEGORY;
 						others.set(label, (others.get(label) ?? 0) + 1);
 					}
-				} else result.existing += 1;
+				} else {
+					const nextCategoryId = mapped.input.categoryId ?? null;
+					if (
+						res.transaction &&
+						shouldUpgradeCategory(res.transaction, nextCategoryId, ctx.categoryIds?.get("outros") ?? null)
+					) {
+						await transactions.update(res.transaction.id, { categoryId: nextCategoryId });
+					}
+					result.existing += 1;
+				}
 				continue;
 			}
 			// Estorno: só entra se a compra original está gravada. Sem ela, fica de fora e a próxima rodada tenta de novo.

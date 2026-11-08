@@ -35,7 +35,7 @@ export function CardScreen({ initialTab, initialCardId }: { initialTab: CardTab;
 	const cards = cardsQ.phase === "ready" ? activeCards(cardsQ.data.cards) : [];
 
 	return (
-		<Screen>
+		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
 					paddingHorizontal: spacing.lg,

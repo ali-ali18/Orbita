@@ -26,6 +26,7 @@ import { cardDisplayName, cleanBankName, isMeuPluggyConnector } from "./bank-nam
 import {
 	type CategoryIndex,
 	categoryChain,
+	chainLeavesSpendingOpen,
 	classifyFamily,
 	matchSpendingSlug,
 	plain,
@@ -381,9 +382,29 @@ function chooseCategory(
 	if (mcc) return { categoryId: mcc, source: "mcc" };
 	const cnae = bySlug(categoryForCnae(tx.merchant?.cnae));
 	if (cnae) return { categoryId: cnae, source: "cnae" };
-	const pluggy = bySlug(matchSpendingSlug(chain));
+	// A categoria do banco decide. Pix e "Outros" do banco não dizem o consumo: aí vale a descrição e o
+	// estabelecimento, com a mesma tabela.
+	const fromNames =
+		matchSpendingSlug(chain) ??
+		(chainLeavesSpendingOpen(chain) ? matchSpendingSlug([plain(merchantName), plain(description)]) : null);
+	const pluggy = bySlug(fromNames);
 	if (pluggy) return { categoryId: pluggy, source: "pluggy" };
 	return { categoryId: ids.get("outros") ?? null, source: "none" };
+}
+
+/**
+ * Lançamento já gravado, que o dono não editou, e que caiu em Outros: a sincronização pode trocar para uma
+ * categoria específica. Não mexe no que o dono escolheu, nem apaga uma categoria boa.
+ */
+export function shouldUpgradeCategory(
+	current: { kind: string; categoryId: string | null; categoryEditedByOwner: boolean },
+	nextCategoryId: string | null,
+	outrosId: string | null,
+): boolean {
+	if (current.categoryEditedByOwner) return false;
+	if (current.kind !== "expense" && current.kind !== "refund") return false;
+	if (nextCategoryId === null || nextCategoryId === outrosId) return false;
+	return current.categoryId === null || current.categoryId === outrosId;
 }
 
 /** Id do grupo de um parcelamento do Pluggy: o mesmo para todas as parcelas da mesma compra, em qualquer sincronização. */

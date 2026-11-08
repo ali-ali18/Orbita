@@ -11,16 +11,18 @@ import {
 	INVOICE_FILTERS,
 	type InvoiceFilter,
 	invoiceDatesCaption,
+	monthChipLabel,
 	monthWindow,
 	openInvoiceMonth,
+	type PaymentStatusLike,
 	paymentBadge,
-	statusLabel,
 	statusOfMonth,
 } from "./card-model.ts";
 import { InvoiceComposition } from "./InvoiceComposition.tsx";
 import { InvoiceLines } from "./InvoiceLines.tsx";
 import { MonthChips } from "./MonthChips.tsx";
 import { BigNumber, BleedRow, CardChip, Notice } from "./parts.tsx";
+import { useInvoiceTotals } from "./queries.ts";
 
 /** Aba Faturas: cartão, total, mês, composição e lançamentos. */
 export function InvoicesTab({
@@ -49,16 +51,15 @@ export function InvoicesTab({
 	const categoriesQ = useCategories();
 	const invoice = toLoadable(invoiceQ);
 
-	const options = useMemo(
-		() =>
-			card
-				? monthWindow(openInvoiceMonth(card, today)).map((m) => ({
-						month: m,
-						status: statusLabel(statusOfMonth(card, m, today)),
-					}))
-				: [],
-		[card, today],
-	);
+	const months = useMemo(() => (card ? monthWindow(openInvoiceMonth(card, today)) : []), [card, today]);
+	const totals = useInvoiceTotals(months.map((month) => ({ cardId: card?.id ?? "", month })));
+	const options = months.map((month, index) => ({
+		month,
+		status: monthChipLabel(
+			card ? statusOfMonth(card, month, today) : "open",
+			totals[index]?.data?.invoice.paymentStatus as PaymentStatusLike | undefined,
+		),
+	}));
 
 	if (!card || !month) return null;
 

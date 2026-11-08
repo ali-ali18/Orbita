@@ -100,6 +100,15 @@ export function statusOfMonth(card: CardLike, month: MonthKey, today: LocalDate)
  * Rótulo de situação. O engine só sabe o calendário, então "vencida" não quer dizer "não paga":
  * o texto diz o fato ("venceu"), não o que ele não sabe.
  */
+/**
+ * Rótulo do mês na fila. "Venceu" só quando a fatura passou do vencimento e não foi paga.
+ * Paga continua "paga", mesmo que o calendário já tenha passado.
+ */
+export function monthChipLabel(status: InvoiceStatus, payment?: PaymentStatusLike): string {
+	if (payment === "paid" && status !== "open") return "paga";
+	return statusLabel(status);
+}
+
 export function statusLabel(status: InvoiceStatus): string {
 	switch (status) {
 		case "open":
@@ -224,6 +233,7 @@ export interface InvoiceLine {
 	installmentGroupId: string | null;
 	installmentNumber: number | null;
 	installmentCount: number | null;
+	note?: string | null;
 }
 
 /** Mais recente primeiro (a API não promete ordem). "Compras" = o que não é parcela nem estorno. */
@@ -243,6 +253,7 @@ export function invoiceLineCaption(line: InvoiceLine, categoryName: string | und
 	if (line.installmentNumber !== null && line.installmentCount !== null) {
 		parts.push(`${line.installmentNumber}/${line.installmentCount}`);
 	}
+	if (line.note?.startsWith("Estimada")) parts.push("estimada");
 	return parts.join(" · ");
 }
 

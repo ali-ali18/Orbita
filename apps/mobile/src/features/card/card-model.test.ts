@@ -20,6 +20,7 @@ import {
 	limitBar,
 	limitsOverview,
 	monthAbbrev,
+	monthChipLabel,
 	monthColumns,
 	monthWindow,
 	openInvoiceMonth,
@@ -72,6 +73,10 @@ describe("faturas", () => {
 		expect(statusOfMonth(santander, "2026-11", "2026-11-07")).toBe("closed");
 		expect(statusOfMonth(santander, "2026-12", "2026-11-07")).toBe("open");
 		expect(statusLabel("overdue")).toBe("venceu");
+		expect(monthChipLabel("overdue", "paid")).toBe("paga");
+		expect(monthChipLabel("overdue", "unpaid")).toBe("venceu");
+		expect(monthChipLabel("closed", "paid")).toBe("paga");
+		expect(monthChipLabel("open", "open")).toBe("aberta");
 	});
 	it("legenda de datas por situação", () => {
 		const base = { closingDate: "2026-10-31", dueDate: "2026-11-07" };

@@ -83,3 +83,57 @@ export function remainingInstallments(
 	}
 	return result;
 }
+
+export interface ProjectedInstallment {
+	groupId: string;
+	description: string;
+	number: number;
+	count: number;
+	amountCents: Cents;
+}
+
+/**
+ * Parcela que o banco ainda não lançou, mas que cai neste mês da fatura. Só depois da última parcela já
+ * vista: o que veio antes e não está gravado o Órbita não inventa.
+ */
+export function projectMissingInstallments(
+	groups: readonly {
+		groupId: string;
+		installments: readonly {
+			description: string;
+			cardId: string | null;
+			installmentNumber: number | null;
+			installmentCount: number | null;
+			amountCents: Cents;
+			invoiceMonth: MonthKey | null;
+		}[];
+	}[],
+	cardId: string,
+	month: MonthKey,
+): ProjectedInstallment[] {
+	const projected: ProjectedInstallment[] = [];
+	for (const group of groups) {
+		if (group.installments.length === 0 || group.installments[0]?.cardId !== cardId) continue;
+		const count = group.installments[0]?.installmentCount ?? group.installments.length;
+		if (!Number.isInteger(count) || count <= 1) continue;
+		const known = group.installments.filter(
+			(item): item is typeof item & { installmentNumber: number; invoiceMonth: MonthKey } =>
+				item.installmentNumber !== null && item.invoiceMonth !== null,
+		);
+		if (known.length === 0 || known.some((item) => item.invoiceMonth === month)) continue;
+		const anchor = known.reduce((best, item) =>
+			item.installmentNumber > best.installmentNumber ? item : best,
+		);
+		for (let number = anchor.installmentNumber + 1; number <= count; number += 1) {
+			if (addMonths(anchor.invoiceMonth, number - anchor.installmentNumber) !== month) continue;
+			projected.push({
+				groupId: group.groupId,
+				description: anchor.description || group.installments[0]?.description || "Parcela",
+				number,
+				count,
+				amountCents: anchor.amountCents,
+			});
+		}
+	}
+	return projected;
+}

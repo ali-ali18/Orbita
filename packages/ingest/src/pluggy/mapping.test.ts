@@ -533,7 +533,9 @@ describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () =>
 		// Folha desconhecida, pai conhecido pela árvore.
 		expect(kindOf({ category: "Coisa nova", categoryId: "10020000", amount: -10 })).toBe("expense:cat-saude");
 		expect(kindOf({ category: "Online shopping", amount: -10 })).toBe("expense:cat-outros");
-		expect(kindOf({ category: null, amount: -10 })).toBe("expense:cat-outros");
+		expect(kindOf({ category: null, description: "Cobrança avulsa", amount: -10 })).toBe(
+			"expense:cat-outros",
+		);
 		// Sem categorias carregadas, sem categoria.
 		expect(kindOf({ category: "Eating out", amount: -10 }, bankCtx)).toBe("expense:null");
 	});
@@ -560,6 +562,7 @@ describe("mapPluggyTransaction: prioridade da categoria", () => {
 		["mercado", "cat-mercado"],
 		["delivery", "cat-delivery"],
 		["transporte", "cat-transporte"],
+		["assinaturas", "cat-assinaturas"],
 		["saude", "cat-saude"],
 		["outros", "cat-outros"],
 	]);
@@ -612,6 +615,15 @@ describe("mapPluggyTransaction: prioridade da categoria", () => {
 	it("MCC como texto também vale", () => {
 		const m = pick({ creditCardMetadata: { payeeMCC: "5411" } });
 		expect(m.input.categoryId).toBe("cat-mercado");
+	});
+
+	it("a descrição categoriza quando o banco só diz que foi Pix", () => {
+		const m = pick({
+			category: "Transfer - PIX",
+			categoryId: "20010000",
+			description: "Pix enviado - Netflix",
+		});
+		expect([m.input.categoryId, m.categorySource]).toEqual(["cat-assinaturas", "pluggy"]);
 	});
 
 	it("sem nenhuma pista cai em Outros e diz que não houve pista; guarda a categoria do banco legível", () => {

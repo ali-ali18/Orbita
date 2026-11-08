@@ -62,6 +62,13 @@ const YIELD =
 	/\b(rendimento|dividend|provento|interests? on investments?|investment income|juros sobre capital)/;
 /** Categoria genérica: o Pluggy não soube dizer, então vale o plano B pela descrição. */
 const GENERIC = /^(other|others|outros|outras|uncategorized|sem categoria|not categorized|nao categorizado)$/;
+/** Transferência não diz o que foi comprado: a descrição ainda pode dizer. */
+const VAGUE = /\b(transfers?|transferencias?|pix|ted|doc|wire)\b/;
+
+/** A cadeia não escolheu um consumo: vazia, genérica ("Outros") ou só transferência. */
+export function chainLeavesSpendingOpen(chain: readonly string[]): boolean {
+	return chain.length === 0 || chain.every((name) => GENERIC.test(name) || VAGUE.test(name));
+}
 
 /** Plano B, só com categoria ausente ou genérica: palavras que, inteiras, indicam mexer no próprio investimento. */
 const INVESTMENT_DESCRIPTION =
@@ -118,27 +125,33 @@ export type SpendingSlug =
  * em algum nome da cadeia (da folha para a raiz) decide, então "Gas stations" cai em Transporte antes de "gás" de Moradia.
  */
 const SPENDING_RULES: ReadonlyArray<readonly [SpendingSlug, RegExp]> = [
-	["mercado", /\b(grocer|supermarket|supermercado|mercado|hortifruti|wholesale|atacado)/],
+	[
+		"mercado",
+		/\b(grocer|supermarket|supermercado|mercado|hortifruti|wholesale|atacado|carrefour|assai|atacadao|pao de acucar)/,
+	],
 	[
 		"delivery",
-		/\b(eating out|restaurant|food delivery|delivery|fast food|lanchonete|bakery|padaria|coffee|cafeteria|snack|lanche|alimentacao|refeicao|ifood)/,
+		/\b(eating out|restaurant|food delivery|delivery|fast food|lanchonete|bakery|padaria|coffee|cafeteria|snack|lanche|alimentacao|refeicao|ifood|rappi|aiqfome)/,
 	],
 	[
 		"transporte",
-		/\b(transport|taxi|ride|fuel|gasoline|gas station|combustivel|posto|parking|estacionamento|toll|pedagio|vehicle|veiculo|public transit|onibus|bus\b|metro\b|train|trem|auto\b|automotive|car rental)/,
+		/\b(transport|taxi|ride|fuel|gasoline|gas station|combustivel|posto|parking|estacionamento|toll|pedagio|vehicle|veiculo|public transit|onibus|bus\b|metro\b|train|trem|auto\b|automotive|car rental|uber|cabify|99pop)/,
 	],
-	["assinaturas", /\b(digital service|subscription|assinatura|streaming|software|cloud|app store)/],
+	[
+		"assinaturas",
+		/\b(digital service|subscription|assinatura|streaming|software|cloud|app store|netflix|spotify|disney|deezer|globoplay|icloud|hbo|prime video|youtube premium)/,
+	],
 	[
 		"saude",
-		/\b(health|saude|pharmac|farmacia|drugstore|medic|doctor|dental|dentist|hospital|clinic|exame|wellness|therap|optic)/,
+		/\b(health|saude|pharmac|farmacia|drugstore|medic|doctor|dental|dentist|hospital|clinic|exame|wellness|therap|optic|drogasil|droga raia|pague menos)/,
 	],
 	[
 		"moradia",
-		/\b(housing|moradia|rent\b|aluguel|condominio|utilities|electric|energia|water\b|agua\b|gas\b|internet|telecom|phone|telefone|furniture|mortgage|financiamento imobiliario|home\b)/,
+		/\b(housing|moradia|rent\b|aluguel|condominio|utilities|electric|energia|water\b|agua\b|gas\b|internet|telecom|phone|telefone|furniture|mortgage|financiamento imobiliario|home\b|enel|cemig|sabesp|comgas|cpfl)/,
 	],
 	[
 		"lazer",
-		/\b(entertainment|leisure|lazer|travel|viagem|hotel|lodging|airline|game|sport|esporte|gym\b|academia|cinema|movie|music|musica|event|hobb)/,
+		/\b(entertainment|leisure|lazer|travel|viagem|hotel|lodging|airline|game|sport|esporte|gym\b|academia|cinema|movie|music|musica|event|hobb|steam|playstation|ingresso)/,
 	],
 ];
 

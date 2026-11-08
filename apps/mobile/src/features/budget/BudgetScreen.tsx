@@ -238,7 +238,7 @@ export function BudgetScreen() {
 	};
 
 	return (
-		<Screen>
+		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
 					paddingHorizontal: spacing.lg,
