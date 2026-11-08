@@ -46,7 +46,11 @@ export function useUpdatePreferences() {
 	return useMutation({
 		mutationFn: async (patch: PreferencesPatchBody) =>
 			(await call(() => api.v1.preferences.$patch({ json: patch }))).preferences,
-		onSuccess: (preferences) => queryClient.setQueryData([baseUrl, "preferences"], preferences),
+		onSuccess: (preferences) => {
+			queryClient.setQueryData([baseUrl, "preferences"], preferences);
+			// O percentual do aviso muda quais limites aparecem como "passou de X%" no resumo.
+			void queryClient.invalidateQueries({ queryKey: [baseUrl, "summary"] });
+		},
 	});
 }
 

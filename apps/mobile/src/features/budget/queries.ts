@@ -14,6 +14,15 @@ export function useBudgets() {
 	return useQuery({ queryKey: [baseUrl, "budgets"], queryFn: () => call(() => api.v1.budgets.$get()) });
 }
 
+/** Sugestão da Órbita (calculada pelo servidor, com o engine). */
+export function useBudgetSuggestion() {
+	const { api, baseUrl } = useScoped();
+	return useQuery({
+		queryKey: [baseUrl, "budgets", "suggestion"],
+		queryFn: () => call(() => api.v1.budgets.suggestion.$get()),
+	});
+}
+
 function useRefreshAfter() {
 	const { baseUrl } = useSession();
 	const queryClient = useQueryClient();
@@ -56,6 +65,21 @@ export function useRemoveBudget() {
 			if (!res.ok && status !== 404) await call(async () => res);
 		},
 		onSuccess: () => {
+			void refresh();
+		},
+	});
+}
+
+/** "Usar sugestão": grava os limites um a um, em ordem; se um falha, os anteriores já valem e o erro aparece. */
+export function useApplySuggestion() {
+	const { api } = useSession();
+	const refresh = useRefreshAfter();
+	return useMutation({
+		mutationFn: async (requests: readonly SetRequest[]) => {
+			if (!api) throw new Error("Orçamento sem sessão");
+			for (const request of requests) await call(() => api.v1.budgets.$put({ json: request }));
+		},
+		onSettled: () => {
 			void refresh();
 		},
 	});

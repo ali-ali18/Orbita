@@ -34,6 +34,8 @@ export interface BudgetRow {
 	/** 0..100 da barra (passou do limite = 100). */
 	fillPercent: number;
 	over: boolean;
+	/** Passou do percentual de aviso (e ainda não estourou): o servidor decide, pelo engine. */
+	warn: boolean;
 }
 
 export function totalLimit(budgets: readonly BudgetLike[]): Cents | null {
@@ -48,6 +50,7 @@ export function budgetRows(
 	categories: readonly CategoryLike[],
 	budgets: readonly BudgetLike[],
 	byCategory: Readonly<Record<string, Cents>>,
+	alerts: ReadonlySet<string> = new Set(),
 ): BudgetRow[] {
 	const limits = new Map(budgets.map((b) => [b.scope, b.limitCents]));
 	const rows = categories
@@ -65,6 +68,7 @@ export function budgetRows(
 				fillPercent:
 					limit === null ? 0 : limit === 0 ? (spent > 0 ? 100 : 0) : Math.min(100, percentOf(spent, limit)),
 				over: limit !== null && spent > limit,
+				warn: limit !== null && spent <= limit && alerts.has(c.id),
 			};
 		});
 	const slot = (r: BudgetRow) => r.chartSlot ?? 99;
@@ -95,6 +99,7 @@ export function withUnassignedSpend(rows: readonly BudgetRow[], spentCents: Cent
 			fillPercent:
 				limit === null ? 0 : limit === 0 ? (spent > 0 ? 100 : 0) : Math.min(100, percentOf(spent, limit)),
 			over: limit !== null && spent > limit,
+			warn: limit !== null && spent <= limit && row.warn,
 		};
 	});
 }
@@ -128,4 +133,75 @@ export function buildSetRequest(
 /** Salvar o limite muda o "Dá pra gastar" do Início e a barra dele: o resumo recarrega junto com a lista de limites. */
 export function isAffectedByBudget(queryKey: readonly unknown[], baseUrl: string): boolean {
 	return queryKey[0] === baseUrl && (queryKey[1] === "summary" || queryKey[1] === "budgets");
+}
+
+/** Percentuais oferecidos em "Avisar quando passar de". */
+export const ALERT_PERCENT_OPTIONS = [50, 60, 70, 80, 90, 100] as const;
+
+export const ALERT_CAPTION =
+	"O aviso por notificação chega quando as notificações existirem. Por enquanto, ele aparece aqui e no Início.";
+export const LEFTOVER_CAPTION = "Só guardo a sua escolha: nenhum dinheiro é movido sozinho.";
+export const GOALS_SOON = "Metas: em breve";
+
+export interface SuggestionLike {
+	months: number;
+	monthsUsed: number;
+	totalCents: Cents;
+	byCategory: Readonly<Record<string, Cents>>;
+}
+
+/**
+ * O que "Usar sugestão" grava: o total e um limite por categoria ativa que tem sugestão. Categoria sem sugestão
+ * (sem gasto) mantém o limite que já tinha.
+ */
+export function suggestionRequests(
+	suggestion: SuggestionLike,
+	categories: readonly CategoryLike[],
+): SetRequest[] {
+	const out: SetRequest[] = [];
+	if (suggestion.totalCents > 0) out.push({ scope: TOTAL_SCOPE, limitCents: suggestion.totalCents });
+	for (const c of categories) {
+		const cents = suggestion.byCategory[c.id];
+		if (c.archivedAt === null && cents !== undefined && cents > 0)
+			out.push({ scope: c.id, limitCents: cents });
+	}
+	return out.filter((r) => validateLimit(r.limitCents) === null);
+}
+
+/** Só o que muda algo: limite igual ao atual não precisa de pedido (e, sem nada a mudar, o botão some). */
+export function changedByRequests(
+	requests: readonly SetRequest[],
+	budgets: readonly BudgetLike[],
+): SetRequest[] {
+	const current = new Map(budgets.map((b) => [b.scope, b.limitCents]));
+	return requests.filter((r) => current.get(r.scope) !== r.limitCents);
+}
+
+/** Quantos dos limites a trocar já existiam (a troca pede confirmação). */
+export function replacedCount(requests: readonly SetRequest[], budgets: readonly BudgetLike[]): number {
+	const current = new Set(budgets.map((b) => b.scope));
+	return requests.filter((r) => current.has(r.scope)).length;
+}
+
+/** "Sugestão da Órbita: R$ 2.800, pela mediana dos últimos 3 meses". `amount` já vem formatado (e mascarado). */
+export function suggestionCaption(
+	suggestion: Pick<SuggestionLike, "monthsUsed" | "months">,
+	amount: string,
+): string {
+	const { monthsUsed: n, months } = suggestion;
+	const basis =
+		n === 1
+			? "pelo único mês fechado com gastos"
+			: n === months
+				? `pela mediana dos últimos ${n} meses`
+				: `pela mediana dos ${n} últimos meses com gastos`;
+	return `Sugestão da Órbita: ${amount}, ${basis}`;
+}
+
+/** Texto do aviso de percentual em uma categoria ou no total. */
+export const warnText = (percent: number) => `Passou de ${percent}% do limite`;
+
+/** Salvar preferências, limites ou a sugestão mexe no resumo (o aviso) e nas preferências. */
+export function isAffectedByPreferences(queryKey: readonly unknown[], baseUrl: string): boolean {
+	return queryKey[0] === baseUrl && (queryKey[1] === "summary" || queryKey[1] === "preferences");
 }

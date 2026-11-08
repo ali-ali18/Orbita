@@ -4,7 +4,7 @@ import type { CategoriesView, MonthSummary } from "../../lib/api.ts";
 import { formatWholeReais, money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
 import { Card, ErrorState, ProgressBar, Skeleton, Text } from "../../ui/index.ts";
-import { categoryShares, heroBarParts, heroModel } from "./summary-model.ts";
+import { budgetAlertNotice, categoryShares, heroBarParts, heroModel } from "./summary-model.ts";
 
 /** Mesmo valor de `TOTAL_BUDGET_SCOPE` em `@orbita/db` (o app não importa o banco). */
 const TOTAL_BUDGET_SCOPE = "total";
@@ -54,6 +54,8 @@ export function HeroCard({
 	const total = summary.budgets.find((b) => b.scope === TOTAL_BUDGET_SCOPE);
 	const safe = summary.safeToSpend;
 	const spent = summary.summary.spentCents;
+	// Aviso dentro do app enquanto o push não existe; a decisão é do servidor (`alert`).
+	const notice = budgetAlertNotice(summary.budgets, categories, summary.budgetAlertPercent);
 
 	if (!total || !safe) {
 		return (
@@ -114,6 +116,11 @@ export function HeroCard({
 					{hero.percent}% do orçamento
 				</Text>
 			</View>
+			{notice ? (
+				<Text variant="caption" accessibilityRole="alert" style={{ marginTop: spacing.sm }}>
+					{notice}
+				</Text>
+			) : null}
 			{hero.reservedCents > 0 && !hero.overBudget ? (
 				<Text variant="caption" tone="secondary" style={{ marginTop: spacing.xs }}>
 					Contas a vencer (listradas) {money(hero.reservedCents, hidden, { sign: "never" })}
