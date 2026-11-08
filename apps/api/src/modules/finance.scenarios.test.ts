@@ -573,3 +573,82 @@ describe("segurança e erros", () => {
 		expect(JSON.stringify(archived.body)).not.toMatch(/prisma|select|stack/i);
 	});
 });
+
+describe("gastos por categoria: rendimento, fatura paga e transferência própria não são gasto", () => {
+	it("Início, orçamento e total fecham só com as despesas", async () => {
+		const ctx = await setupFinance();
+		const b = await ctx.basics();
+		const other = (await ctx.api.post("/v1/accounts", { name: "Mercado Pago", kind: "checking" })).body
+			.account;
+		await ctx.api.put("/v1/budgets", { scope: "total", limitCents: 200_000 });
+		const post = (body: Record<string, unknown>) => ctx.api.post("/v1/transactions", body);
+		const expense = (amountCents: number, date: string, categoryId: string, extra: object = {}) =>
+			post({
+				kind: "expense",
+				amountCents,
+				date,
+				description: "x",
+				categoryId,
+				accountId: b.account.id,
+				...extra,
+			});
+
+		await expense(25_000, "2026-11-03", b.category("mercado"));
+		await expense(9_000, "2026-11-06", b.category("transferencias"), {
+			description: "Pix enviado - Rei Dos Coins",
+		});
+		await expense(20_000, "2026-11-07", b.category("investimentos"), { description: "Aplicação" });
+		await expense(83_010, "2026-11-05", b.category("lazer"), { accountId: undefined, cardId: b.card.id });
+		await post({
+			kind: "income",
+			amountCents: 320,
+			date: "2026-11-08",
+			description: "Rendimentos",
+			categoryId: b.category("investimentos"),
+			accountId: other.id,
+		});
+		await post({
+			kind: "card_payment",
+			amountCents: 83_010,
+			date: "2026-11-09",
+			description: "Pagamento de fatura",
+			accountId: b.account.id,
+			cardId: b.card.id,
+		});
+		await post({
+			kind: "transfer",
+			amountCents: 50_000,
+			date: "2026-11-10",
+			description: "Para o Mercado Pago",
+			categoryId: b.category("transferencias"),
+			accountId: b.account.id,
+			counterpartAccountId: other.id,
+		});
+
+		// Pix de/para outra conta sua, sem saber qual: transferência sem destino, nos dois sentidos.
+		for (const description of ["Pix enviado - titular", "Pix recebido - titular"]) {
+			const res = await post({
+				kind: "transfer",
+				amountCents: 70_000,
+				date: "2026-11-11",
+				description,
+				categoryId: b.category("transferencias"),
+				accountId: b.account.id,
+			});
+			expect(res.status).toBe(201);
+		}
+
+		const body = (await ctx.api.get("/v1/summary/2026-11")).body;
+		expect(body.summary.byCategory).toEqual({
+			[b.category("mercado")]: 25_000,
+			[b.category("transferencias")]: 9_000,
+			[b.category("investimentos")]: 20_000,
+			[b.category("lazer")]: 83_010,
+		});
+		expect(body.summary.spentCents).toBe(137_010);
+		expect(body.summary.incomeCents).toBe(320);
+		const total = body.budgets.find((x: { scope: string }) => x.scope === "total");
+		expect(total).toMatchObject({ spentCents: 137_010, remainingCents: 62_990, overBudget: false });
+		expect(total.ratio).toBeCloseTo(0.68505, 5);
+	});
+});

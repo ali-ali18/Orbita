@@ -3,6 +3,10 @@ import {
 	ACCOUNT_KINDS,
 	type AccountKind,
 	CLOSING_RULES,
+	DEFAULT_GOAL_ICON,
+	GOAL_CHART_SLOTS,
+	GOAL_ICONS,
+	type GoalIcon,
 	INCOME_ON_CARD_MESSAGE,
 	isCents,
 	isLocalDate,
@@ -148,6 +152,29 @@ export function normalizeRecurrence(data: RecurrenceData): RecurrenceData {
 		accountId: data.accountId ?? null,
 		cardId: data.cardId ?? null,
 		remindDayBefore: data.remindDayBefore === true,
+	};
+}
+
+/** Campos da meta (menos a conta, que é conferida contra o banco por quem o tem). */
+export function normalizeGoal(data: {
+	name: string;
+	targetCents: number;
+	deadline?: string | null | undefined;
+	icon?: GoalIcon | undefined;
+	chartSlot?: number | undefined;
+}) {
+	const icon = data.icon ?? DEFAULT_GOAL_ICON;
+	if (!GOAL_ICONS.includes(icon)) throw invalid("Ícone de meta inválido.");
+	const chartSlot = data.chartSlot ?? 0;
+	if (!Number.isInteger(chartSlot) || chartSlot < 0 || chartSlot >= GOAL_CHART_SLOTS) {
+		throw invalid("A cor da meta vai de 0 a 9.");
+	}
+	return {
+		name: cleanText(data.name, "o nome da meta"),
+		targetCents: cleanCents(data.targetCents, "O valor da meta", 1),
+		deadline: hasValue(data.deadline) ? cleanLocalDate(data.deadline, "A data do prazo") : null,
+		icon,
+		chartSlot,
 	};
 }
 

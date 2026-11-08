@@ -18,6 +18,14 @@ export {
 } from "./category-store.ts";
 export { createDb, type Db } from "./client.ts";
 export { DataError, type DataErrorCode } from "./errors.ts";
+export type {
+	GoalContributionInput,
+	GoalContributionRecord,
+	GoalInput,
+	GoalPatch,
+	GoalRecord,
+	GoalStore,
+} from "./goal-store.ts";
 export type { IdempotencyBegin, IdempotencyRecord, IdempotencyStore } from "./idempotency-store.ts";
 export type {
 	ImportBatchRecord,

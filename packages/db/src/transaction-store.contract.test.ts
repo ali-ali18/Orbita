@@ -161,9 +161,9 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 				"A conta de destino só vale para transferência.",
 			],
 			[
-				"transferência sem destino",
-				() => expense({ kind: "transfer" }),
-				"A transferência precisa de conta de origem e de destino.",
+				"transferência sem conta",
+				() => expense({ kind: "transfer", accountId: null }),
+				"A transferência precisa de uma conta.",
 			],
 			[
 				"transferência para a mesma conta",
@@ -246,11 +246,24 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect(await tx.get(t.id)).toEqual(u);
 		});
 
+		it("transferência sem destino conhecido é válida (outra conta sua, não identificada)", async () => {
+			const t = await tx.create(expense({ kind: "transfer" }));
+			expect(t).toMatchObject({ kind: "transfer", counterpartAccountId: null });
+			const e = await tx.create(expense());
+			const u = await tx.update(e.id, { kind: "transfer", counterpartAccountId: b.savings.id });
+			expect(u).toMatchObject({ kind: "transfer", counterpartAccountId: b.savings.id });
+			expect(await tx.update(e.id, { counterpartAccountId: null })).toMatchObject({
+				counterpartAccountId: null,
+			});
+		});
+
 		it("recusa patch que deixa o lançamento inválido e não grava nada", async () => {
 			const t = await tx.create(expense());
-			await expect(tx.update(t.id, { kind: "transfer" })).rejects.toMatchObject({
+			await expect(
+				tx.update(t.id, { kind: "transfer", counterpartAccountId: t.accountId }),
+			).rejects.toMatchObject({
 				code: "invalid",
-				message: "A transferência precisa de conta de origem e de destino.",
+				message: "Origem e destino da transferência devem ser contas diferentes.",
 			});
 			await expect(tx.update(t.id, { accountId: null })).rejects.toMatchObject({ code: "invalid" });
 			await expect(tx.update(t.id, { cardId: b.card.id })).rejects.toMatchObject({ code: "invalid" });
@@ -529,6 +542,15 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect(await tx.existsByExternal("pluggy", "e-1")).toBe(true);
 		});
 
+		it("findByExternal devolve só o vivo, por origem", async () => {
+			expect(await tx.findByExternal("pluggy", "f-1")).toBeNull();
+			const first = await tx.upsertByExternal("pluggy", "f-1", incoming());
+			expect((await tx.findByExternal("pluggy", "f-1"))?.id).toBe(first.transaction?.id);
+			expect(await tx.findByExternal("notification", "f-1")).toBeNull();
+			await tx.softDelete(first.transaction?.id ?? "");
+			expect(await tx.findByExternal("pluggy", "f-1")).toBeNull();
+		});
+
 		it("hardDeleteBySource apaga só a origem pedida, de verdade, com estornos e ligações", async () => {
 			const manual = await tx.create(expense({ description: "Manual" }));
 			const bought = await tx.upsertByExternal(
@@ -679,6 +701,17 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			]);
 			expect(await tx.listByBudgetMonth("2027-05")).toEqual([]);
 			await expect(tx.listByBudgetMonth("2026-1")).rejects.toMatchObject({ code: "invalid" });
+		});
+
+		it("listBudgetMonths devolve os meses com lançamento vivo, do mais recente ao mais antigo", async () => {
+			expect(await tx.listBudgetMonths()).toEqual([]);
+			await tx.create(expense({ date: "2026-09-02" }));
+			await tx.create(expense({ date: "2026-11-20" }));
+			const gone = await tx.create(expense({ date: "2026-12-01" }));
+			await tx.create(expense({ date: "2026-11-02" }));
+			await tx.create(expense({ date: "2026-10-30", budgetMonth: "2026-11" }));
+			await tx.softDelete(gone.id);
+			expect(await tx.listBudgetMonths()).toEqual(["2026-11", "2026-09"]);
 		});
 
 		it("listByInvoice filtra por cartão e fatura", async () => {

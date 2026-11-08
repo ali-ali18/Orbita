@@ -120,8 +120,9 @@ describe("syncPluggy", () => {
 
 		const rows = await everything(t.stores);
 		const byExt = Object.fromEntries(rows.map((r) => [r.externalId, r]));
-		// b-3 (transferência própria), b-5 (pendente) e c-3 (pagamento recebido) ficam de fora.
-		expect(Object.keys(byExt).sort()).toEqual(["b-1", "b-2", "b-4", "c-1", "c-2", "c-4"]);
+		// b-5 (pendente) e c-3 (pagamento recebido) ficam de fora; b-3 (transferência própria) entra como transfer.
+		expect(Object.keys(byExt).sort()).toEqual(["b-1", "b-2", "b-3", "b-4", "c-1", "c-2", "c-4"]);
+		expect(byExt["b-3"]).toMatchObject({ kind: "transfer", amountCents: 30_000, counterpartAccountId: null });
 		expect(byExt["b-1"]).toMatchObject({
 			kind: "expense",
 			amountCents: 15_237,
@@ -158,8 +159,8 @@ describe("syncPluggy", () => {
 		const [connection] = await t.stores.pluggyConnections.list();
 		expect(connection).toMatchObject({ lastStatus: "ok", lastError: null, lastSyncAt: NOW });
 		expect(result.connections[0]).toMatchObject({
-			created: 6,
-			skipped: { own_transfer: 1, pending: 1, card_payment: 1, refund_without_original: 1 },
+			created: 7,
+			skipped: { pending: 1, card_payment: 1, refund_without_original: 1 },
 		});
 	});
 
@@ -172,7 +173,7 @@ describe("syncPluggy", () => {
 		expect(await t.stores.accounts.list()).toHaveLength(1);
 		expect(await t.stores.cards.list()).toHaveLength(1);
 		// A segunda rodada relê os 4 meses: os 6 lançamentos já existem.
-		expect(second.connections[0]).toMatchObject({ created: 0, existing: 6, status: "ok" });
+		expect(second.connections[0]).toMatchObject({ created: 0, existing: 7, status: "ok" });
 	});
 
 	it("busca os 4 meses anteriores, também na sincronização seguinte", async () => {
@@ -283,7 +284,7 @@ describe("syncPluggy", () => {
 		});
 	});
 
-	it("transferência para o próprio CPF é ignorada mesmo sem categoria", async () => {
+	it("transferência para o próprio CPF vira transferência (nem gasto nem receita) mesmo sem categoria", async () => {
 		const own = { documentNumber: { type: "CPF", value: "12345678900" } };
 		const t2 = setup({
 			transactions: {
@@ -312,9 +313,14 @@ describe("syncPluggy", () => {
 			},
 		});
 		await t2.stores.pluggyConnections.add({ id: ITEM_ID });
-		const result = await t2.run();
-		expect(result.connections[0]?.skipped.own_transfer).toBe(2);
-		expect((await everything(t2.stores)).map((r) => r.externalId)).toEqual(["other"]);
+		await t2.run();
+		const rows = await everything(t2.stores);
+		expect(rows.map((r) => [r.externalId, r.kind]).sort()).toEqual([
+			["other", "expense"],
+			["self", "transfer"],
+			["self2", "transfer"],
+		]);
+		expect(rows.every((r) => r.kind !== "transfer" || r.counterpartAccountId === null)).toBe(true);
 	});
 
 	it("item esperando ação do dono (WAITING_USER_ACTION) pede para reconectar", async () => {
@@ -389,7 +395,12 @@ describe("syncPluggy", () => {
 		const [c] = await t2.stores.pluggyConnections.list();
 		expect(c).toMatchObject({ lastStatus: "partial", lastSyncAt: null });
 		expect(c?.lastError).toContain("1 conta(s) não sincronizaram");
-		expect((await everything(t2.stores)).map((r) => r.externalId).sort()).toEqual(["b-1", "b-2", "b-4"]);
+		expect((await everything(t2.stores)).map((r) => r.externalId).sort()).toEqual([
+			"b-1",
+			"b-2",
+			"b-3",
+			"b-4",
+		]);
 	});
 
 	it("uma conexão com erro não impede as outras", async () => {
@@ -1079,5 +1090,126 @@ describe("syncPluggy", () => {
 			await t2.run();
 			expect((await t2.stores.cards.list())[0]?.name).toBe("Cartão da casa");
 		});
+	});
+});
+
+describe("syncPluggy: corrige o que foi gravado errado antes", () => {
+	const pixToSelf = tx("p-self", {
+		description: "Pix enviado - Maria de Souza Silva",
+		amount: -400,
+		category: "Transfer - PIX",
+	});
+	const pixToThird = tx("p-third", {
+		description: "Pix enviado - Rei Dos Coins",
+		amount: -90,
+		category: "Transfer - PIX",
+	});
+
+	const second = {
+		...bankAccount,
+		id: "0f1d2c3b-aaaa-4bbb-8ccc-000000000003",
+		name: "Mercado Pago",
+		owner: "Maria de Souza Silva",
+	};
+	const accountIdOf = async (externalId: string, stores: Stores) =>
+		(await everything(stores)).find((r) => r.externalId === externalId);
+
+	it("Pix para si que já contava como gasto, e a entrada que contava como renda, viram transferência no lugar", async () => {
+		const out = pixToSelf;
+		const inn = tx("p-in", {
+			description: "Pix recebido - Maria de Souza Silva",
+			type: "CREDIT",
+			amount: 400,
+			category: "Transfer - PIX",
+		});
+		const txs = { [BANK_ACCOUNT_ID]: [out, pixToThird], [second.id]: [inn], [CARD_ACCOUNT_ID]: [] };
+		// 1ª rodada: o titular da conta ainda não batia com o Pix, então entrou como despesa e como receita.
+		const before = setup({
+			accounts: [bankAccount, { ...second, owner: "FULANO DE TAL" }, cardAccount],
+			transactions: txs,
+		});
+		await before.stores.pluggyConnections.add({ id: ITEM_ID, label: "Mercado Pago" });
+		await before.run();
+		expect((await everything(before.stores)).map((r) => [r.externalId, r.kind]).sort()).toEqual([
+			["p-in", "income"],
+			["p-self", "expense"],
+			["p-third", "expense"],
+		]);
+		const originalOut = await accountIdOf("p-self", before.stores);
+
+		// 2ª rodada: a conta traz o titular certo.
+		const fake = fakePluggy({
+			accounts: [{ ...bankAccount, owner: "MARIA DE SOUZA SILVA" }, second, cardAccount],
+			transactions: txs,
+		});
+		const again = () =>
+			syncPluggy({
+				stores: before.stores,
+				readSecret: async (name) => SECRETS[name] ?? null,
+				fetch: fake.fetch,
+				now: () => NOW,
+			});
+		expect((await again()).connections[0]?.reclassified).toBe(2);
+		const self = await accountIdOf("p-self", before.stores);
+		const received = await accountIdOf("p-in", before.stores);
+		// Mesmos lançamentos (continuam nas Atividades), agora transferência, com par único entre as duas contas.
+		expect(self).toMatchObject({
+			id: originalOut?.id,
+			kind: "transfer",
+			amountCents: 40_000,
+			categoryId: originalOut?.categoryId,
+			note: "Recalculado: transferência entre contas suas.",
+		});
+		expect(received).toMatchObject({ kind: "transfer", counterpartAccountId: self?.accountId });
+		expect(self?.counterpartAccountId).toBe(received?.accountId);
+		expect(self?.accountId).not.toBe(received?.accountId);
+		expect(await accountIdOf("p-third", before.stores)).toMatchObject({ kind: "expense" });
+
+		// 3ª rodada: nada muda.
+		expect((await again()).connections[0]?.reclassified).toBeUndefined();
+		expect(await everything(before.stores)).toHaveLength(3);
+	});
+
+	it("sem par único, a transferência fica sem destino; com dois candidatos não escolhe", async () => {
+		const inn = (id: string) =>
+			tx(id, {
+				description: "Pix recebido - Maria de Souza Silva",
+				type: "CREDIT",
+				amount: 400,
+				category: "Transfer - PIX",
+			});
+		const mine = { ...bankAccount, owner: "Maria de Souza Silva" };
+		const ambiguous = setup({
+			accounts: [mine, second, cardAccount],
+			transactions: {
+				[BANK_ACCOUNT_ID]: [pixToSelf],
+				[second.id]: [inn("in-1"), inn("in-2")],
+				[CARD_ACCOUNT_ID]: [],
+			},
+		});
+		await ambiguous.stores.pluggyConnections.add({ id: ITEM_ID, label: "Mercado Pago" });
+		await ambiguous.run();
+		const rows = await everything(ambiguous.stores);
+		expect(rows.map((r) => r.kind)).toEqual(["transfer", "transfer", "transfer"]);
+		expect(rows.every((r) => r.counterpartAccountId === null)).toBe(true);
+	});
+
+	it("receita gravada como despesa volta a ser receita", async () => {
+		const yieldTx = tx("y-1", {
+			description: "Rendimentos",
+			type: "CREDIT",
+			amount: 3.2,
+			category: "Interests on investments",
+		});
+		const t = setup({ transactions: { [BANK_ACCOUNT_ID]: [yieldTx], [CARD_ACCOUNT_ID]: [] } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "Mercado Pago" });
+		await t.run();
+		const [row] = await everything(t.stores);
+		expect(row).toMatchObject({ kind: "income", amountCents: 320 });
+		// Simula a gravação antiga errada.
+		await t.stores.transactions.update(row?.id ?? "", { kind: "expense" });
+		const result = await t.run();
+		expect(result.connections[0]?.reclassified).toBe(1);
+		expect((await everything(t.stores))[0]).toMatchObject({ kind: "income" });
 	});
 });

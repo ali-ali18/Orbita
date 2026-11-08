@@ -46,6 +46,8 @@ export const accountSchema = z.object({
 	number: z.string().max(60).nullish(),
 	/** CPF/CNPJ do titular. Serve para reconhecer transferência entre contas do próprio dono. */
 	taxNumber: z.string().max(40).nullish(),
+	/** Nome do titular da conta. Serve (com o CPF) para reconhecer Pix entre contas do próprio dono. */
+	owner: z.string().max(200).nullish(),
 	currencyCode: z.string().max(10).nullish(),
 	creditData: creditData.nullish(),
 });
@@ -53,6 +55,7 @@ export type PluggyAccount = z.infer<typeof accountSchema>;
 
 const participant = z.object({
 	documentNumber: z.object({ value: z.string().max(40).nullish() }).nullish(),
+	name: z.string().max(200).nullish(),
 });
 
 export const transactionSchema = z.object({

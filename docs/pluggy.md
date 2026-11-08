@@ -29,6 +29,7 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 
 1. Pagamento de fatura: cada `payments[]` de `/bills` casa com **um** débito da conta (mesmo valor, até 3 dias de diferença; prefere o mesmo dia, depois o mais próximo; o pagamento é consumido) → `card_payment` ligado ao cartão daquela fatura, com qualquer número de cartões. Um aluguel de mesmo valor dois dias depois continua gasto. No cartão vale o mesmo: o crédito casado é o pagamento (ignorado) e um estorno real de mesmo valor continua estorno.
 2. Transferência própria: `paymentData.payer` e `receiver` com o mesmo CPF/CNPJ, ou a outra ponta igual ao `taxNumber` da conta.
+   Também pelo **nome**: a outra ponta (`paymentData.payer/receiver.name`, ou o texto depois do hífen em "Pix enviado - Nome") igual ao `owner` da conta, palavra por palavra, com pelo menos duas palavras. Homônimo parcial ("Maria Silva" x "Maria Souza Silva") continua sendo gasto. **Limites:** quando o banco não manda nem CPF nem nome do titular, Pix entre duas contas suas é indistinguível de Pix para um terceiro e conta como gasto em Transferências (o dono corrige o lançamento). Casar "saída de um lado com entrada igual do outro no mesmo dia" foi descartado: um Pix real de mesmo valor no mesmo dia seria engolido.
 3. Só se nada acima serve: nome da categoria (suposição), e **só liga a um cartão se o valor bate com o total (`totalAmount`) de uma fatura de um único cartão** da conexão. Senão o lançamento fica de fora (`card_payment_unlinked`, com aviso): o Órbita não tem "pagamento de fatura sem cartão" (`card_payment` exige conta e cartão), então ignorar é mais honesto que inventar um cartão ou contar como gasto.
 
 **Ainda suposição (o SDK não diz)**
@@ -241,3 +242,13 @@ Todas as de `/v1/pluggy/*` exigem `Authorization: Bearer`; as de `/pluggy/*` sã
 - `GET /v1/pluggy/status` → `{ keysConfigured, sync, lastSyncAt, connections }`
 
 A API precisa de `REDIS_URL` (o compose já passa) para enfileirar; sem ele as demais rotas funcionam.
+
+## Transferência entre contas suas e correção do que já foi gravado
+
+**Modelo.** `transfer` aceita `counterpartAccountId` vazio, que significa "outra conta sua, não identificada" (regra em `packages/shared/src/transaction-rules.ts`; o banco já aceitava nulo). A conta do lançamento é sempre a que o viu; o engine só soma `expense` (menos estornos) como gasto e só `income` como renda, então `transfer` sai das duas contas. O destino, quando existe, tem de ser outra conta. Isso vale também para transferência lançada à mão.
+
+**Ingestão.** As duas pontas de uma transferência própria (CPF/CNPJ, nome do titular, ou categoria "mesma titularidade") são gravadas como `transfer`, categoria Transferências, na conta que as viu. Nada é ignorado nem apagado. O Pluggy não diz o destino; o sync só o preenche quando o par é ÚNICO: saída e entrada de mesmo valor, em contas diferentes da mesma conexão, no mesmo dia ou no dia seguinte, em que cada ponta é a única candidata da outra. Em dúvida (dois candidatos, ou o outro banco é outra conexão) o destino fica vazio.
+
+**Recálculo.** A sincronização é idempotente e antes nunca mexia no que já estava gravado. Agora, dentro da janela que ela baixa (no mínimo 4 meses), e nunca em lançamento cuja categoria o dono editou: (1) entrada gravada como despesa vira receita; (2) despesa ou receita que hoje é reconhecida como transferência própria vira `transfer` no lugar (categoria mantida; se não havia observação, entra "Recalculado: transferência entre contas suas."); (3) `transfer` sem destino ganha o destino quando surge um par único. O resultado traz `reclassified` e uma nota. Fora da janela, ou sem CPF/nome do titular, o histórico não muda.
+
+**Limites.** Pix entre bancos que o Pluggy não identifica como seu (sem CPF nem nome) continua sendo gasto/renda. O registro não guarda o sentido de uma transferência sem destino: o CSV de exportação mostra o valor positivo.

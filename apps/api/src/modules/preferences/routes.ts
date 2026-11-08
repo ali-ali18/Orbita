@@ -22,6 +22,7 @@ const toPreferences = (p: PreferencesRecord): PreferencesDto => ({
 	defaultAccountId: p.defaultAccountId,
 	budgetAlertPercent: p.budgetAlertPercent,
 	leftoverAccountId: p.leftoverAccountId,
+	leftoverGoalId: p.leftoverGoalId,
 });
 
 /** `active` é sempre `false`: a leitura das notificações do banco ainda não existe (o app avisa na tela). */

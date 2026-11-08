@@ -51,7 +51,12 @@ describe("preferências", () => {
 		const { api, basics } = await setupFinance();
 		const { account } = await basics();
 		expect((await api.get("/v1/preferences")).body).toEqual({
-			preferences: { defaultAccountId: null, budgetAlertPercent: 80, leftoverAccountId: null },
+			preferences: {
+				defaultAccountId: null,
+				budgetAlertPercent: 80,
+				leftoverAccountId: null,
+				leftoverGoalId: null,
+			},
 		});
 		expect((await api.patch("/v1/preferences", { defaultAccountId: account.id })).body).toMatchObject({
 			preferences: { defaultAccountId: account.id },

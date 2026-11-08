@@ -141,7 +141,6 @@ export const ALERT_PERCENT_OPTIONS = [50, 60, 70, 80, 90, 100] as const;
 export const ALERT_CAPTION =
 	"O aviso por notificação chega quando as notificações existirem. Por enquanto, ele aparece aqui e no Início.";
 export const LEFTOVER_CAPTION = "Só guardo a sua escolha: nenhum dinheiro é movido sozinho.";
-export const GOALS_SOON = "Metas: em breve";
 
 export interface SuggestionLike {
 	months: number;

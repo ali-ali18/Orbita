@@ -35,7 +35,11 @@ function Routes() {
 				<Stack.Screen name="cartao" />
 				<Stack.Screen name="lancamento/[id]" />
 				<Stack.Screen name="assinaturas" />
+				<Stack.Screen name="relatorio" />
 				<Stack.Screen name="assinatura" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
+				<Stack.Screen name="metas" />
+				<Stack.Screen name="meta" />
+				<Stack.Screen name="nova-meta" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
 				<Stack.Screen name="configuracoes/index" />
 				<Stack.Screen name="configuracoes/servidor" />
 				<Stack.Screen name="configuracoes/bancos" />

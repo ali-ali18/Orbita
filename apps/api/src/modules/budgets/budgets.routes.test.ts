@@ -82,12 +82,14 @@ describe("preferências do orçamento", () => {
 			defaultAccountId: null,
 			budgetAlertPercent: 80,
 			leftoverAccountId: null,
+			leftoverGoalId: null,
 		});
 		const res = await api.patch("/v1/preferences", { budgetAlertPercent: 70, leftoverAccountId: account.id });
 		expect(res.body.preferences).toEqual({
 			defaultAccountId: null,
 			budgetAlertPercent: 70,
 			leftoverAccountId: account.id,
+			leftoverGoalId: null,
 		});
 		for (const bad of [0, 101, 80.5, "80"]) {
 			expect((await api.patch("/v1/preferences", { budgetAlertPercent: bad })).status).toBe(400);

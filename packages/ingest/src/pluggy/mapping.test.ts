@@ -172,14 +172,13 @@ describe("mapPluggyTransaction: conta", () => {
 	});
 
 	it("transferência entre contas do próprio dono não é gasto nem receita", () => {
-		expect(mapPluggyTransaction(parse({ category: "Same person transfer" }), bankCtx)).toEqual({
-			action: "skip",
-			reason: "own_transfer",
-		});
-		expect(mapPluggyTransaction(parse({ category: "Transferência mesma titularidade" }), bankCtx)).toEqual({
-			action: "skip",
-			reason: "own_transfer",
-		});
+		// Vira `transfer` sem destino ("outra conta sua"): aparece nas Atividades, não conta como gasto nem renda.
+		for (const category of ["Same person transfer", "Transferência mesma titularidade"]) {
+			expect(mapPluggyTransaction(parse({ category }), bankCtx)).toMatchObject({
+				action: "upsert",
+				input: { kind: "transfer", counterpartAccountId: null, accountId: "acc-1" },
+			});
+		}
 	});
 
 	it("descarta o que não pode gravar, com motivo", () => {
@@ -287,12 +286,15 @@ describe("mapPluggyTransaction: sinais mais fortes que o nome da categoria", () 
 			category: null,
 			paymentData: { payer: doc("111.222.333-44"), receiver: doc("11122233344") },
 		});
-		expect(mapPluggyTransaction(same, bankCtx)).toEqual({ action: "skip", reason: "own_transfer" });
+		expect(mapPluggyTransaction(same, bankCtx)).toMatchObject({
+			action: "upsert",
+			input: { kind: "transfer", counterpartAccountId: null },
+		});
 
 		const toOwner = parse({ category: null, paymentData: { receiver: doc("11122233344") } });
-		expect(mapPluggyTransaction(toOwner, { ...bankCtx, ownerTaxNumber: "111.222.333-44" })).toEqual({
-			action: "skip",
-			reason: "own_transfer",
+		expect(mapPluggyTransaction(toOwner, { ...bankCtx, ownerTaxNumber: "111.222.333-44" })).toMatchObject({
+			action: "upsert",
+			input: { kind: "transfer", counterpartAccountId: null },
 		});
 		// Sem saber o CPF do titular, receber de alguém não prova nada.
 		expect(mapPluggyTransaction(toOwner, bankCtx)).toMatchObject({ action: "upsert" });
@@ -565,7 +567,7 @@ describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () =>
 		]);
 		expect(
 			kindOf({ category: "Transfers", categoryId: "05090000", amount: -5 }, { ...ctx, categoryIndex: tree }),
-		).toBe("skip:own_transfer");
+		).toBe("transfer:cat-transferencias");
 	});
 });
 
@@ -791,5 +793,58 @@ describe("mapPluggyAccount: nome do cartão", () => {
 		expect(good).toMatchObject({ kind: "card", input: { name: "Nubank Ultravioleta" } });
 		const noBank = mapPluggyAccount(card({ name: "G", marketingName: null }), "MeuPluggy", [], null);
 		expect(noBank).toMatchObject({ kind: "card", input: { name: "G" } });
+	});
+});
+
+describe("mapPluggyTransaction: Pix para si mesmo pelo nome do titular", () => {
+	const withOwner: TransactionContext = { ...bankCtx, ownerName: "Maria de Souza Silva" };
+	const pix = (extra: Record<string, unknown>) => parse({ category: "Transfer - PIX", ...extra });
+
+	it("o nome do titular na descrição ou em paymentData é transferência própria (entrada e saída)", () => {
+		expect(
+			mapPluggyTransaction(pix({ description: "Pix enviado - MARIA DE SOUZA SILVA" }), withOwner),
+		).toMatchObject({ action: "upsert", input: { kind: "transfer", counterpartAccountId: null } });
+		const received = pix({
+			type: "CREDIT",
+			amount: 80,
+			description: "Pix recebido",
+			paymentData: { payer: { name: "Maria de Souza Silva" } },
+		});
+		expect(mapPluggyTransaction(received, withOwner)).toMatchObject({
+			action: "upsert",
+			input: { kind: "transfer", counterpartAccountId: null },
+		});
+	});
+
+	it("Pix para outra pessoa, ou para um homônimo parcial, continua sendo gasto", () => {
+		for (const description of [
+			"Pix enviado - Rei Dos Coins",
+			"Pix enviado - Maria Silva",
+			"Pix enviado - Maria",
+		]) {
+			expect(mapPluggyTransaction(pix({ description }), withOwner)).toMatchObject({
+				action: "upsert",
+				input: { kind: "expense" },
+			});
+		}
+	});
+
+	it("com o par único encontrado pelo sync, o destino vem preenchido", () => {
+		const paired = { ...withOwner, ownTransferCounterparts: new Map([["t-1", "acc-2"]]) };
+		expect(
+			mapPluggyTransaction(pix({ description: "Pix enviado - Maria de Souza Silva" }), paired),
+		).toMatchObject({
+			action: "upsert",
+			input: { kind: "transfer", accountId: "acc-1", counterpartAccountId: "acc-2" },
+		});
+	});
+
+	it("sem o nome do titular, nada é presumido", () => {
+		expect(
+			mapPluggyTransaction(pix({ description: "Pix enviado - Maria de Souza Silva" }), bankCtx),
+		).toMatchObject({
+			action: "upsert",
+			input: { kind: "expense" },
+		});
 	});
 });

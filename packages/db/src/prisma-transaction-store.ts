@@ -211,6 +211,11 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			return row !== null;
 		},
 
+		async findByExternal(source, externalId) {
+			const row = await db.transaction.findUnique({ where: { source_externalId: { source, externalId } } });
+			return row && row.deletedAt === null ? toRecord(row) : null;
+		},
+
 		async update(id, patch) {
 			return db.$transaction(async (tx) => {
 				// Trava a linha: duas edições ao mesmo tempo se enfileiram e a segunda lê o resultado da primeira.
@@ -306,6 +311,16 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 					orderBy: [...ORDER_BY_DATE],
 				}),
 			);
+		},
+
+		async listBudgetMonths() {
+			const rows = await db.transaction.findMany({
+				where: { deletedAt: null },
+				distinct: ["budgetMonth"],
+				select: { budgetMonth: true },
+				orderBy: { budgetMonth: "desc" },
+			});
+			return rows.map((r) => r.budgetMonth);
 		},
 
 		async listByInvoice(cardId, invoiceMonth) {

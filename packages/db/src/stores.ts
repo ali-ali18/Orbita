@@ -5,6 +5,7 @@ import type { CardStore } from "./card-store.ts";
 import type { CategoryRuleStore } from "./category-rule-store.ts";
 import type { CategoryStore } from "./category-store.ts";
 import type { Db } from "./client.ts";
+import type { GoalStore } from "./goal-store.ts";
 import type { IdempotencyStore } from "./idempotency-store.ts";
 import type { ImportBatchStore } from "./import-batch-store.ts";
 import { createMemoryAccountStore } from "./memory-account-store.ts";
@@ -13,6 +14,7 @@ import { createMemoryBudgetStore } from "./memory-budget-store.ts";
 import { createMemoryCardStore } from "./memory-card-store.ts";
 import { createMemoryCategoryRuleStore } from "./memory-category-rule-store.ts";
 import { createMemoryCategoryStore } from "./memory-category-store.ts";
+import { createMemoryGoalStore } from "./memory-goal-store.ts";
 import { createMemoryIdempotencyStore } from "./memory-idempotency-store.ts";
 import { createMemoryImportBatchStore } from "./memory-import-batch-store.ts";
 import { createMemoryPluggyConnectSessionStore } from "./memory-pluggy-connect-session-store.ts";
@@ -31,6 +33,7 @@ import { createPrismaBudgetStore } from "./prisma-budget-store.ts";
 import { createPrismaCardStore } from "./prisma-card-store.ts";
 import { createPrismaCategoryRuleStore } from "./prisma-category-rule-store.ts";
 import { createPrismaCategoryStore } from "./prisma-category-store.ts";
+import { createPrismaGoalStore } from "./prisma-goal-store.ts";
 import { createPrismaIdempotencyStore } from "./prisma-idempotency-store.ts";
 import { createPrismaImportBatchStore } from "./prisma-import-batch-store.ts";
 import { createPrismaPluggyConnectSessionStore } from "./prisma-pluggy-connect-session-store.ts";
@@ -58,6 +61,7 @@ export interface Stores {
 	idempotency: IdempotencyStore;
 	imports: ImportBatchStore;
 	preferences: PreferencesStore;
+	goals: GoalStore;
 }
 
 export interface StoresOptions {
@@ -83,6 +87,7 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		idempotency: createPrismaIdempotencyStore(db),
 		imports: createPrismaImportBatchStore(db),
 		preferences: createPrismaPreferencesStore(db),
+		goals: createPrismaGoalStore(db, now),
 	};
 }
 
@@ -104,5 +109,6 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		idempotency: createMemoryIdempotencyStore(),
 		imports: createMemoryImportBatchStore(),
 		preferences: createMemoryPreferencesStore(state),
+		goals: createMemoryGoalStore(state),
 	};
 }

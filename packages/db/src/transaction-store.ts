@@ -195,6 +195,8 @@ export interface TransactionStore {
 	 * reservado (a ingestão não recria o que o dono apagou). Serve para decidir antes de montar o lançamento.
 	 */
 	existsByExternal(source: TransactionSource, externalId: string): Promise<boolean>;
+	/** O lançamento VIVO com esta identidade externa, ou `null` (não existe ou foi apagado). Serve para corrigir o já gravado. */
+	findByExternal(source: TransactionSource, externalId: string): Promise<TransactionRecord | null>;
 	/**
 	 * Valida o lançamento inteiro depois do patch e grava só o que mudou. `not_found` se não existe ou
 	 * foi apagado. Mudar o tipo de uma despesa que tem estornos vivos é `invalid`; apontar para conta,
@@ -227,6 +229,8 @@ export interface TransactionStore {
 	get(id: string): Promise<TransactionRecord | null>;
 	/** Por data, depois por criação. */
 	listByBudgetMonth(month: MonthKey): Promise<TransactionRecord[]>;
+	/** Meses de orçamento que têm ao menos um lançamento vivo, do mais recente para o mais antigo (sem repetir). */
+	listBudgetMonths(): Promise<MonthKey[]>;
 	listByInvoice(cardId: string, invoiceMonth: MonthKey): Promise<TransactionRecord[]>;
 	/** Pagamentos de fatura (`card_payment`) vivos do cartão com data entre `from` e `to`, inclusive, por data. */
 	listCardPayments(cardId: string, range: { from: LocalDate; to: LocalDate }): Promise<TransactionRecord[]>;

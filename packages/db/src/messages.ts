@@ -7,6 +7,10 @@ export const BUDGET_SCOPE_MESSAGE = "O orçamento vale para o total ou para uma 
 export const ACCOUNT_ARCHIVED_MESSAGE = "A conta informada está arquivada.";
 export const CARD_ARCHIVED_MESSAGE = "O cartão informado está arquivado.";
 export const CATEGORY_ARCHIVED_MESSAGE = "A categoria informada está arquivada.";
+export const GOAL_MISSING_MESSAGE = "A meta informada não existe.";
+export const GOAL_ARCHIVED_MESSAGE = "A meta informada está arquivada.";
+export const GOAL_TRANSACTION_MESSAGE = "O lançamento informado não existe.";
+export const LEFTOVER_ONE_TARGET_MESSAGE = "A sobra vai para uma conta ou para uma meta, não para as duas.";
 export const HAS_REFUNDS_MESSAGE =
 	"Este gasto tem estornos: apague os estornos antes de mudar o tipo do lançamento.";
 export const SPLIT_KIND_MESSAGE = "Só despesa ou receita pode ser dividida em categorias.";

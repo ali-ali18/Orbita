@@ -3,7 +3,7 @@ import type { Db } from "./client.ts";
 import { badReference } from "./errors.ts";
 import { cleanPreferencesPatch } from "./preferences-rules.ts";
 import { DEFAULT_PREFERENCES, type PreferencesRecord, type PreferencesStore } from "./preferences-store.ts";
-import { archivedAccount } from "./references.ts";
+import { archivedAccount, archivedGoal, missingGoal } from "./references.ts";
 
 const ID = "main";
 
@@ -15,6 +15,7 @@ type Row = {
 	notificationToReview: boolean;
 	budgetAlertPercent: number;
 	leftoverAccountId: string | null;
+	leftoverGoalId: string | null;
 };
 
 const toRecord = (row: Row): PreferencesRecord => ({
@@ -25,6 +26,7 @@ const toRecord = (row: Row): PreferencesRecord => ({
 	notificationToReview: row.notificationToReview,
 	budgetAlertPercent: row.budgetAlertPercent,
 	leftoverAccountId: row.leftoverAccountId,
+	leftoverGoalId: row.leftoverGoalId,
 });
 
 export function createPrismaPreferencesStore(db: Db): PreferencesStore {
@@ -35,6 +37,14 @@ export function createPrismaPreferencesStore(db: Db): PreferencesStore {
 		},
 		async update(patch) {
 			const clean = cleanPreferencesPatch(patch);
+			if (clean.leftoverGoalId) {
+				const goal = await db.goal.findUnique({
+					where: { id: clean.leftoverGoalId },
+					select: { archivedAt: true },
+				});
+				if (!goal) throw missingGoal();
+				if (goal.archivedAt !== null) throw archivedGoal();
+			}
 			for (const id of [clean.defaultAccountId, clean.leftoverAccountId]) {
 				if (!id) continue;
 				const account = await db.account.findUnique({ where: { id }, select: { archivedAt: true } });

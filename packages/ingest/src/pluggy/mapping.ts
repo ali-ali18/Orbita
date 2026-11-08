@@ -209,7 +209,6 @@ export type SkipReason =
 	| "pending" // ainda não efetivado: pode mudar de id ao efetivar
 	| "invalid" // valor, data ou tipo que o Órbita não aceita
 	| "foreign_currency"
-	| "own_transfer" // entre contas do próprio dono: não é gasto nem receita
 	| "investment" // aplicação, resgate, caixinha, poupança: o dinheiro só mudou de bolso (o Órbita não tem conta de investimento)
 	| "card_payment" // o lado do cartão do pagamento da fatura (o lado do banco é quem conta)
 	| "card_payment_unlinked" // pagamento de fatura que não dá para ligar a um cartão (o Órbita não tem pagamento "sem cartão")
@@ -305,6 +304,13 @@ export interface TransactionContext {
 	card: { id: string; config: CardConfig } | null;
 	/** CPF/CNPJ do titular da conta (`taxNumber`), para reconhecer transferência para si mesmo. */
 	ownerTaxNumber?: string | null;
+	/** Nome do titular da conta (`owner`), para reconhecer Pix para si mesmo quando o banco não manda o CPF. */
+	ownerName?: string | null;
+	/**
+	 * Destino de cada transferência própria que o sync conseguiu PAREAR de forma única (id do lançamento do Pluggy →
+	 * conta do Órbita da outra ponta). Sem par, a transferência é gravada sem destino ("outra conta sua").
+	 */
+	ownTransferCounterparts?: ReadonlyMap<string, string>;
 	/**
 	 * Quais lançamentos são pagamento de fatura, já casados um a um (`assignBillPayments`), por id do lançamento.
 	 * Mais confiável que o nome da categoria.
@@ -337,6 +343,37 @@ function isOwnTransferByDocument(tx: PluggyTransaction, ownerTaxNumber: string |
 	const owner = digits(ownerTaxNumber);
 	const other = tx.type === "DEBIT" ? receiver : payer;
 	return owner !== "" && other === owner;
+}
+
+/** Nome só com letras, minúsculo e sem acento; vazio se tiver menos de duas palavras (um primeiro nome não prova nada). */
+function personName(value: string | null | undefined): string {
+	const name = plain(value)
+		.replace(/[^a-z\s]/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	return name.split(" ").length >= 2 ? name : "";
+}
+
+/** "Pix enviado - Fulano de Tal" → "Fulano de Tal": a ponta que o banco escreveu na descrição. */
+const COUNTERPART_IN_DESCRIPTION = /^(?:pix|ted|doc|transfer[^-–]*)[^-–]*[-–]\s*(.+)$/i;
+
+/**
+ * Transferência para si mesmo pelo NOME: a outra ponta (`paymentData`, ou o que vem depois do hífen em "Pix enviado -
+ * Nome") é igual ao titular da conta, palavra por palavra. É mais fraco que o CPF, por isso só vale com igualdade exata
+ * de um nome com pelo menos duas palavras: homônimo parcial ("Maria Silva" x "Maria Souza Silva") continua sendo gasto.
+ */
+function isOwnTransferByName(
+	tx: PluggyTransaction,
+	description: string,
+	ownerName: string | null | undefined,
+): boolean {
+	const owner = personName(ownerName);
+	if (owner === "") return false;
+	const names = [
+		tx.type === "DEBIT" ? tx.paymentData?.receiver?.name : tx.paymentData?.payer?.name,
+		COUNTERPART_IN_DESCRIPTION.exec(description.trim())?.[1],
+	];
+	return names.some((name) => personName(name) === owner);
 }
 
 /** Valor (centavos) e dia de um lançamento, ou `null` se o Órbita não aceita. Base do casamento com as faturas. */
@@ -520,8 +557,24 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 				input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: only },
 			};
 		}
-		if (isOwnTransferByDocument(tx, ctx.ownerTaxNumber) || family === "own_transfer") {
-			return { action: "skip", reason: "own_transfer" };
+		if (
+			isOwnTransferByDocument(tx, ctx.ownerTaxNumber) ||
+			isOwnTransferByName(tx, description, ctx.ownerName) ||
+			family === "own_transfer"
+		) {
+			// Entrada e saída viram `transfer` (nem gasto nem receita), cada uma na conta que a viu. O destino só é
+			// preenchido quando as duas pontas foram pareadas com certeza; senão fica vazio.
+			return {
+				action: "upsert",
+				externalId: tx.id,
+				input: {
+					...base,
+					kind: "transfer",
+					accountId: ctx.accountId,
+					counterpartAccountId: ctx.ownTransferCounterparts?.get(tx.id) ?? null,
+					categoryId: ctx.categoryIds?.get("transferencias") ?? null,
+				},
+			};
 		}
 		// Rendimento de investimento é receita de verdade (o principal que volta, não: ver acima).
 		if (tx.type === "CREDIT") {

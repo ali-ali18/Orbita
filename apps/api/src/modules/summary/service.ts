@@ -61,7 +61,7 @@ export function categoryForSummary(
 }
 
 /** A forma que o engine espera (`null` vira ausente). */
-const toCoreTransaction = (
+export const toCoreTransaction = (
 	t: TransactionRecord,
 	outrosId: string | null,
 	bySlug: ReadonlyMap<string, string>,
@@ -79,7 +79,7 @@ const toCoreTransaction = (
 };
 
 /** Compras originais de estornos que moram em outro mês (para o estorno abater a categoria certa). */
-async function refundOriginalsOutside(stores: Stores, txs: readonly TransactionRecord[]) {
+export async function refundOriginalsOutside(stores: Stores, txs: readonly TransactionRecord[]) {
 	const inList = new Set(txs.map((t) => t.id));
 	const missing = [
 		...new Set(

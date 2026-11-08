@@ -11,6 +11,7 @@ import * as categories from "./modules/categories/routes.ts";
 import * as categoryRules from "./modules/category-rules/routes.ts";
 import * as devices from "./modules/devices/routes.ts";
 import * as exportData from "./modules/export/routes.ts";
+import * as goals from "./modules/goals/routes.ts";
 import * as imports from "./modules/imports/routes.ts";
 import * as pairing from "./modules/pairing/routes.ts";
 import * as pluggyConnect from "./modules/pluggy/connect/routes.ts";
@@ -18,6 +19,7 @@ import type { PluggySyncQueue } from "./modules/pluggy/queue.ts";
 import * as pluggy from "./modules/pluggy/routes.ts";
 import * as preferences from "./modules/preferences/routes.ts";
 import * as recurrences from "./modules/recurrences/routes.ts";
+import * as reports from "./modules/reports/routes.ts";
 import * as settings from "./modules/settings/routes.ts";
 import * as summary from "./modules/summary/routes.ts";
 import * as transactions from "./modules/transactions/routes.ts";
@@ -70,11 +72,13 @@ export function createApp(deps: AppDeps) {
 		.route("/", categoryRules.routes(finance))
 		.route("/", budgets.routes(finance))
 		.route("/", recurrences.routes(finance))
+		.route("/", goals.routes(finance))
 		.route("/", transactions.routes(finance))
 		.route("/", imports.routes(finance))
 		.route("/", exportData.routes(finance))
 		.route("/", preferences.routes(finance))
 		.route("/", summary.routes(finance))
+		.route("/", reports.routes(finance))
 		.route("/", settings.routes({ ...finance, vault: deps.vault, version: deps.version }))
 		.route("/", updates.routes(deps))
 		.route(

@@ -337,7 +337,12 @@ describe("lançamentos", () => {
 		expect((await api.post("/v1/transactions", { ...ok, date: "2026-02-30" })).status).toBe(400);
 		expect((await api.post("/v1/transactions", { ...ok, accountId: undefined })).status).toBe(400);
 		expect((await api.post("/v1/transactions", { ...ok, cardId: card.id })).status).toBe(400);
-		expect((await api.post("/v1/transactions", { ...ok, kind: "transfer" })).status).toBe(400);
+		expect(
+			(await api.post("/v1/transactions", { ...ok, kind: "transfer", counterpartAccountId: ok.accountId }))
+				.status,
+		).toBe(400);
+		// Sem destino é válido: "outra conta sua, não identificada".
+		expect((await api.post("/v1/transactions", { ...ok, kind: "transfer" })).status).toBe(201);
 		expect((await api.patch("/v1/transactions/x", { source: "pluggy" })).status).toBe(400);
 		expect((await api.get("/v1/transactions/month/2026-13")).status).toBe(400);
 		expect((await api.get("/v1/transactions?limit=101")).status).toBe(400);

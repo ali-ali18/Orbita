@@ -17,6 +17,7 @@ describe.each(contractSuites())("PreferencesStore (%s)", (_name, make) => {
 			notificationToReview: true,
 			budgetAlertPercent: 80,
 			leftoverAccountId: null,
+			leftoverGoalId: null,
 		});
 	});
 
@@ -35,6 +36,7 @@ describe.each(contractSuites())("PreferencesStore (%s)", (_name, make) => {
 			notificationToReview: true,
 			budgetAlertPercent: 80,
 			leftoverAccountId: null,
+			leftoverGoalId: null,
 		});
 		expect(await stores.preferences.get()).toEqual(next);
 	});
