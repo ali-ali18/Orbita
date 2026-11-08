@@ -218,6 +218,19 @@ describe("summarizeGoal", () => {
 		expect(s.projectedDate).toBe("2026-02-28");
 	});
 
+	it("ritmo minúsculo não dá projeção (e não estoura o calendário)", () => {
+		const s = summarizeGoal(
+			{
+				targetCents: 800000,
+				deadline: "2027-07-31",
+				createdOn: "2026-11-08",
+				contributions: [{ amountCents: 1, date: TODAY }],
+			},
+			TODAY,
+		);
+		expect(s).toMatchObject({ paceCents: 1, projectedDate: null, status: "behind" });
+	});
+
 	it("recusa contribuição inválida", () => {
 		expect(() => summarizeGoal({ ...base, contributions: [{ amountCents: 0, date: TODAY }] }, TODAY)).toThrow(
 			RangeError,

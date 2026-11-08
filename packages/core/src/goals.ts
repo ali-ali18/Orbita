@@ -2,6 +2,9 @@ import { addMonths, clampDayInMonth, monthOf, parseLocalDate, parseMonthKey } fr
 import { assertCents, sumCents } from "./money.ts";
 import type { Cents, LocalDate, MonthKey } from "./types.ts";
 
+/** Projeção além de 100 anos não é previsão, é ruído (e sairia do calendário): vira "sem projeção". */
+export const GOAL_MAX_PROJECTION_MONTHS = 1200;
+
 /** Quantos meses recentes entram no ritmo (a média não se deixa levar por um mês só). */
 export const GOAL_PACE_MONTHS = 3;
 
@@ -40,7 +43,7 @@ export interface GoalSummary {
 	monthlyNeededCents: Cents | null;
 	/** Média mensal guardada nos últimos meses (para baixo). */
 	paceCents: Cents;
-	/** Quando termina no ritmo atual; `null` se o ritmo é zero. Hoje, se já atingida. */
+	/** Quando termina no ritmo atual; `null` se o ritmo é zero ou a previsão passa de 100 anos. Hoje, se já atingida. */
 	projectedDate: LocalDate | null;
 	status: GoalStatus;
 }
@@ -129,7 +132,9 @@ export function summarizeGoal(input: GoalInput, today: LocalDate): GoalSummary {
 		projectedDate = today;
 	} else if (paceCents > 0) {
 		const months = ceilDiv(remainingCents, paceCents);
-		projectedDate = clampDayInMonth(addMonths(monthOf(today), months), parseLocalDate(today).day);
+		if (months <= GOAL_MAX_PROJECTION_MONTHS) {
+			projectedDate = clampDayInMonth(addMonths(monthOf(today), months), parseLocalDate(today).day);
+		}
 	}
 
 	let status: GoalStatus;

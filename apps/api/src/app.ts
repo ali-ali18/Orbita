@@ -11,6 +11,7 @@ import * as categories from "./modules/categories/routes.ts";
 import * as categoryRules from "./modules/category-rules/routes.ts";
 import * as devices from "./modules/devices/routes.ts";
 import * as exportData from "./modules/export/routes.ts";
+import * as goals from "./modules/goals/routes.ts";
 import * as imports from "./modules/imports/routes.ts";
 import * as pairing from "./modules/pairing/routes.ts";
 import * as pluggyConnect from "./modules/pluggy/connect/routes.ts";
@@ -71,6 +72,7 @@ export function createApp(deps: AppDeps) {
 		.route("/", categoryRules.routes(finance))
 		.route("/", budgets.routes(finance))
 		.route("/", recurrences.routes(finance))
+		.route("/", goals.routes(finance))
 		.route("/", transactions.routes(finance))
 		.route("/", imports.routes(finance))
 		.route("/", exportData.routes(finance))
