@@ -108,3 +108,5 @@ export type CategoriesView = InferResponseType<Api["v1"]["categories"]["$get"], 
 export type CardsView = InferResponseType<Api["v1"]["cards"]["$get"], 200>;
 export type AccountsView = InferResponseType<Api["v1"]["accounts"]["$get"], 200>;
 export type TransactionView = InferResponseType<Api["v1"]["transactions"][":id"]["$get"], 200>;
+export type MonthReportView = InferResponseType<Api["v1"]["reports"][":month"]["$get"], 200>;
+export type ReportMonthsView = InferResponseType<Api["v1"]["reports"]["$get"], 200>;

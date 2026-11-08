@@ -17,6 +17,7 @@ import { Checklist } from "../checklist/Checklist.tsx";
 import { EMPTY_HOME_CAPTION, isFirstUse, shouldShowChecklist } from "../checklist/checklist-model.ts";
 import { EmptyHero } from "../checklist/EmptyHero.tsx";
 import { useChecklistDismissed, useChecklistFacts } from "../checklist/use-checklist.ts";
+import { ReportLink } from "../report/ReportLink.tsx";
 import { usePendingTransactions } from "../review/queries.ts";
 import { ReviewBanner } from "../review/ReviewScreen.tsx";
 import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
@@ -179,6 +180,7 @@ export function HomeScreen() {
 							hidden={hidden}
 							onPress={() => router.push("/configuracoes/orcamento")}
 						/>
+						<ReportLink month={month} onPress={() => router.push("/relatorio")} />
 						<RecentCard
 							state={toLoadable(recentQ)}
 							accounts={accountsQ.data?.accounts ?? []}
