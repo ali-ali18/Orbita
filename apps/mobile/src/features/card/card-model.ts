@@ -285,9 +285,9 @@ export function commitment(groups: readonly InstallmentGroupLike[], month: Month
 	let committedCents = 0;
 	let futureCents = 0;
 	for (const g of activeGroups(groups)) {
-		for (const t of g.installments) {
-			if (t.invoiceMonth === month) committedCents += t.amountCents;
-			else if (t.invoiceMonth !== null && t.invoiceMonth > month) futureCents += t.amountCents;
+		for (const t of scheduleAmounts(g)) {
+			if (t.month === month) committedCents += t.cents;
+			else if (t.month > month) futureCents += t.cents;
 		}
 	}
 	return { committedCents, futureCents };
@@ -301,34 +301,73 @@ export interface MonthColumn {
 }
 
 /**
- * Colunas do gráfico: até `max` meses a partir de `from`, cortando os meses vazios do fim (o primeiro fica
- * mesmo vazio). `cardOrder` fixa a ordem das fatias para a cor não pular de lugar entre meses.
+ * Onde cada parcela cai. O banco manda só as que já existem; as que faltam (antes da primeira e depois da
+ * última) entram no mês correspondente, pelo valor da última vista — a mesma estimativa do "faltam".
+ */
+function scheduleAmounts(group: InstallmentGroupLike): { month: MonthKey; cents: Cents }[] {
+	const known = group.installments.filter(
+		(t): t is InstallmentLike & { invoiceMonth: MonthKey; installmentNumber: number } =>
+			t.invoiceMonth !== null && t.installmentNumber !== null,
+	);
+	if (known.length === 0) {
+		return group.installments.flatMap((t) =>
+			t.invoiceMonth !== null ? [{ month: t.invoiceMonth, cents: t.amountCents }] : [],
+		);
+	}
+	const byNumber = new Map(known.map((t) => [t.installmentNumber, t]));
+	const anchor = known.reduce((a, b) => (a.installmentNumber > b.installmentNumber ? a : b));
+	const out: { month: MonthKey; cents: Cents }[] = [];
+	for (let n = 1; n <= group.count; n += 1) {
+		const row = byNumber.get(n);
+		out.push(
+			row
+				? { month: row.invoiceMonth, cents: row.amountCents }
+				: { month: addMonths(anchor.invoiceMonth, n - anchor.installmentNumber), cents: anchor.amountCents },
+		);
+	}
+	return out;
+}
+
+/** Até `max` meses, com `from` sempre no meio do que couber: primeiro os seguintes, depois os anteriores. */
+function chartMonths(months: readonly MonthKey[], from: MonthKey, max: number): MonthKey[] {
+	const sorted = [...new Set(months)].sort();
+	if (!sorted.includes(from)) sorted.push(from);
+	sorted.sort();
+	if (sorted.length <= max) return sorted;
+	const future = sorted.filter((m) => m >= from).slice(0, max);
+	const room = max - future.length;
+	const past = sorted.filter((m) => m < from).slice(-room);
+	return [...past, ...future];
+}
+
+/**
+ * Colunas do gráfico: meses anteriores, o atual e os seguintes (até `max`). `cardOrder` fixa a ordem das
+ * fatias para a cor não pular de lugar entre meses. Sem parcela, fica só o mês atual vazio.
  */
 export function monthColumns(
 	groups: readonly InstallmentGroupLike[],
 	from: MonthKey,
 	cardOrder: readonly string[],
-	max = 8,
+	max = 12,
 ): MonthColumn[] {
-	const columns: MonthColumn[] = [];
-	for (let i = 0; i < max; i += 1) {
-		const month = addMonths(from, i);
-		const per = new Map<string, Cents>();
-		for (const g of activeGroups(groups)) {
-			if (g.cardId === null) continue;
-			for (const t of g.installments) {
-				if (t.invoiceMonth === month) per.set(g.cardId, (per.get(g.cardId) ?? 0) + t.amountCents);
-			}
+	const perMonth = new Map<MonthKey, Map<string, Cents>>();
+	for (const g of activeGroups(groups)) {
+		if (g.cardId === null) continue;
+		for (const t of scheduleAmounts(g)) {
+			const per = perMonth.get(t.month) ?? new Map<string, Cents>();
+			per.set(g.cardId, (per.get(g.cardId) ?? 0) + t.cents);
+			perMonth.set(t.month, per);
 		}
+	}
+	const months = perMonth.size === 0 ? [from] : chartMonths([...perMonth.keys()], from, max);
+	return months.map((month) => {
+		const per = perMonth.get(month);
 		const byCard = cardOrder.flatMap((cardId) => {
-			const cents = per.get(cardId) ?? 0;
+			const cents = per?.get(cardId) ?? 0;
 			return cents > 0 ? [{ cardId, cents }] : [];
 		});
-		columns.push({ month, totalCents: byCard.reduce((s, p) => s + p.cents, 0), byCard });
-	}
-	let last = columns.length - 1;
-	while (last > 0 && columns[last]?.totalCents === 0) last -= 1;
-	return columns.slice(0, last + 1);
+		return { month, totalCents: byCard.reduce((s, p) => s + p.cents, 0), byCard };
+	});
 }
 
 /** "NOV", "DEZ": três letras em caixa alta, como no Figma. */
@@ -360,8 +399,8 @@ export function installmentCard(group: InstallmentGroupLike, from: MonthKey): In
 		(a, b) => (a.installmentNumber ?? 0) - (b.installmentNumber ?? 0),
 	);
 	const current = ordered.find((t) => t.invoiceMonth !== null && t.invoiceMonth >= from) ?? ordered.at(-1);
-	const lastMonth = ordered.reduce<MonthKey | null>(
-		(acc, t) => (t.invoiceMonth !== null && (acc === null || t.invoiceMonth > acc) ? t.invoiceMonth : acc),
+	const lastMonth = scheduleAmounts(group).reduce<MonthKey | null>(
+		(acc, t) => (acc === null || t.month > acc ? t.month : acc),
 		null,
 	);
 	const left = group.remainingCount;
