@@ -733,6 +733,29 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			await expect(tx.listForSpendingMonth("2026-1")).rejects.toMatchObject({ code: "invalid" });
 		});
 
+		it("listForSpendingMonth: cada lançamento aparece uma vez só, nos dois ramos ao mesmo tempo", async () => {
+			// budgetMonth e invoiceMonth ambos em novembro: casaria com os dois lados do filtro e não pode vir em dobro.
+			const both = await tx.create(
+				cardPurchase({ date: "2026-11-02", budgetMonth: "2026-11", invoiceMonth: "2026-11" }),
+			);
+			// budgetMonth em novembro mas a fatura vence em dezembro: o cartão manda, fica fora de novembro.
+			const novBudgetDecInvoice = await tx.create(
+				cardPurchase({ date: "2026-11-02", budgetMonth: "2026-11", invoiceMonth: "2026-12" }),
+			);
+			// Pagamento de fatura mora na conta (sem fatura): entra na lista pelo orçamento, mas o engine não o soma.
+			const pay = await tx.create({
+				kind: "card_payment",
+				amountCents: 1000,
+				date: "2026-11-03",
+				description: "Fatura",
+				accountId: b.checking.id,
+				cardId: b.card.id,
+			});
+			const ids = (await tx.listForSpendingMonth("2026-11")).map((t) => t.id);
+			expect(ids.slice().sort()).toEqual([both.id, pay.id].sort());
+			expect(ids).not.toContain(novBudgetDecInvoice.id);
+		});
+
 		it("aplicação (investment) só vale em conta, nunca no cartão", async () => {
 			const ok = await tx.create({ ...expense(), kind: "investment" });
 			expect(ok.kind).toBe("investment");
