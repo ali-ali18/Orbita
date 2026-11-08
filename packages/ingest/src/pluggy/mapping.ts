@@ -452,8 +452,12 @@ export function pluggyInstallmentGroupId(input: {
 	count: number;
 	description: string;
 }): string {
+	// O banco escreve o número da parcela no nome ("04/10", "4 de 10", "4-10"): ele muda a cada fatura e não pode
+	// entrar no id, senão cada parcela vira um grupo de uma só (e cada grupo estima as seguintes, contando em dobro).
+	const ofCount = new RegExp(`\\b\\d{1,2}\\s*(?:de|/|-)\\s*${input.count}\\b`, "gi");
 	const name =
-		normalizeMerchantName(input.description.replace(/\bparc(ela)?\b/gi, " ")) || plain(input.description);
+		normalizeMerchantName(input.description.replace(ofCount, " ").replace(/\bparc(ela)?\b/gi, " ")) ||
+		plain(input.description);
 	const hash = createHash("sha256")
 		.update(JSON.stringify([input.cardId, input.purchaseDate, input.count, name]))
 		.digest("hex");
