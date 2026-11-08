@@ -27,6 +27,7 @@ export const DEFAULT_CATEGORIES: readonly Required<CategoryInput>[] = [
 	{ slug: "moradia", name: "Moradia", chartSlot: null, isSystem: false },
 	{ slug: "saude", name: "Saúde", chartSlot: null, isSystem: false },
 	{ slug: "transferencias", name: "Transferências", chartSlot: null, isSystem: true },
+	{ slug: "investimentos", name: "Investimentos", chartSlot: null, isSystem: true },
 	{ slug: "outros", name: "Outros", chartSlot: null, isSystem: true },
 ];
 

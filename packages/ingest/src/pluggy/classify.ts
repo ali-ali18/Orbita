@@ -80,8 +80,14 @@ export function suggestSpendingSlug(input: {
 		.filter((part) => part !== "");
 	const fromChain = matchSpendingSlug(chain);
 	if (fromChain) return fromChain;
-	// "Shopping" e "Online shopping" não nomeiam Mercado nem Delivery: a descrição ainda pode.
-	return matchSpendingSlug([plain(input.merchantName), plain(input.description)]);
+	const text = [plain(input.merchantName), plain(input.description)].filter((name) => name !== "");
+	const fromText = matchSpendingSlug(text);
+	if (fromText) return fromText;
+	// Aplicação, resgate e caixinha têm categoria própria. PIX sem compra conhecida também.
+	const names = [...chain, ...text];
+	if (names.some((name) => INVESTMENT.test(name))) return "investimentos";
+	if (names.some((name) => VAGUE.test(name))) return "transferencias";
+	return null;
 }
 
 /** A cadeia não escolheu um consumo: vazia, genérica ("Outros") ou só transferência. */
@@ -137,6 +143,8 @@ export type SpendingSlug =
 	| "lazer"
 	| "moradia"
 	| "saude"
+	| "transferencias"
+	| "investimentos"
 	| "outros";
 
 /**

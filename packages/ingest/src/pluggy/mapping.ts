@@ -485,9 +485,24 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 				input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: billPayment.cardId },
 			};
 		}
-		// 2) Aplicação, resgate, caixinha, poupança: o dinheiro só mudou de bolso. O Órbita não tem conta de
-		// investimento, e "transferência" exige duas contas dele; contar como gasto/receita dobraria o mês.
-		if (family === "investment") return { action: "skip", reason: "investment" };
+		// 2) Aplicação sai do saldo e entra em Investimentos. Resgate e rendimento voltam como receita
+		// nessa categoria. Transferência entre contas suas continua de fora (abaixo).
+		if (family === "investment" || family === "yield") {
+			const categoryId = ctx.categoryIds?.get("investimentos") ?? null;
+			if (tx.type === "CREDIT") {
+				return {
+					action: "upsert",
+					externalId: tx.id,
+					input: { ...base, kind: "income", accountId: ctx.accountId, categoryId },
+				};
+			}
+			return {
+				action: "upsert",
+				externalId: tx.id,
+				input: { ...base, kind: "expense", accountId: ctx.accountId, categoryId },
+				categorySource: "pluggy",
+			};
+		}
 		// Sem as faturas não dá para distinguir pagamento de fatura de gasto, e o upsert nunca corrige depois.
 		if (tx.type === "DEBIT" && ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
 		// 3) Sem pagamento para casar: o nome da categoria (suposição). Só liga a um cartão se o valor bate com o total

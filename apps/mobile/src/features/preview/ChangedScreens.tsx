@@ -31,32 +31,47 @@ const categories = [
 	{ id: "del", name: "Delivery", slug: "delivery", chartSlot: 1, isSystem: true, archivedAt: null },
 	{ id: "tra", name: "Transporte", slug: "transporte", chartSlot: 2, isSystem: true, archivedAt: null },
 	{ id: "ass", name: "Assinaturas", slug: "assinaturas", chartSlot: 3, isSystem: true, archivedAt: null },
-	{ id: "out", name: "Outros", slug: "outros", chartSlot: null, isSystem: true, archivedAt: null },
+	{
+		id: "pix",
+		name: "Transferências",
+		slug: "transferencias",
+		chartSlot: null,
+		isSystem: true,
+		archivedAt: null,
+	},
+	{
+		id: "inv",
+		name: "Investimentos",
+		slug: "investimentos",
+		chartSlot: null,
+		isSystem: true,
+		archivedAt: null,
+	},
 ];
 
 /**
- * O que o classificador faz com o texto do banco: Carrefour, iFood, Uber e Netflix saem de Outros.
- * "Pix enviado - Rei Dos" não tem palavra conhecida e continua em Outros (R$ 15,00).
+ * Carrefour, iFood, Uber e Netflix nas categorias de consumo. PIX sem compra (Rei Dos) em
+ * Transferências. Aplicação em Investimentos.
  */
 const summary = {
 	month: "2026-11",
 	summary: {
-		spentCents: 29567,
+		spentCents: 37567,
 		incomeCents: 13,
 		refundCreditCents: 0,
-		byCategory: { mer: 15237, del: 4890, tra: 2350, ass: 5590, out: 1500 },
+		byCategory: { mer: 15237, del: 4890, tra: 2350, ass: 5590, pix: 1500, inv: 8000 },
 	},
 	budgets: [
 		{
 			scope: "total",
 			limitCents: 230000,
-			spentCents: 29567,
-			remainingCents: 200433,
-			ratio: 0.13,
+			spentCents: 37567,
+			remainingCents: 192433,
+			ratio: 0.16,
 			overBudget: false,
 		},
 	],
-	safeToSpend: { availableCents: 200433, perDayCents: 9110, remainingDays: 22 },
+	safeToSpend: { availableCents: 192433, perDayCents: 8747, remainingDays: 22 },
 	pendingRecurring: { expenseCents: 0, incomeCents: 0 },
 	projection: null,
 	refundCreditCents: 0,

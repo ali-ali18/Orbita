@@ -40,7 +40,7 @@ const sum = (values: Iterable<Cents>) => {
 
 /**
  * Gasto ainda em Outros, que o dono não editou, usa a categoria que o texto do banco já permite
- * (iFood, Uber, "Food and drinks"). PIX sem palavra conhecida continua em Outros.
+ * (iFood, Uber, "Food and drinks"). PIX sem compra vira Transferências; aplicação vira Investimentos.
  */
 export function categoryForSummary(
 	t: TransactionRecord,

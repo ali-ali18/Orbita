@@ -607,17 +607,21 @@ describe("syncPluggy", () => {
 				tx("i-5", { description: "Sem nome", amount: -30, category: null, categoryId: null }),
 			];
 
-			it("investimento fica de fora, rendimento é receita, despesa ganha categoria do Órbita", async () => {
+			it("aplicação é gasto em Investimentos; resgate e rendimento são receita nessa categoria", async () => {
 				const t2 = setup({ categories, transactions: { [BANK_ACCOUNT_ID]: txs, [CARD_ACCOUNT_ID]: [] } });
 				await t2.stores.pluggyConnections.add({ id: ITEM_ID });
 				const result = await t2.run();
 				expect(result.status).toBe("ok");
-				expect(result.connections[0]?.skipped.investment).toBe(2);
-				expect(result.connections[0]?.notes.join()).toContain("investimento");
+				expect(result.connections[0]?.skipped.investment).toBeUndefined();
 				const cats = new Map((await t2.stores.categories.list()).map((c) => [c.id, c.slug]));
 				const rows = Object.fromEntries((await everything(t2.stores)).map((r) => [r.externalId, r]));
-				expect(Object.keys(rows).sort()).toEqual(["i-3", "i-4", "i-5"]);
-				expect(rows["i-3"]).toMatchObject({ kind: "income", categoryId: null });
+				expect(Object.keys(rows).sort()).toEqual(["i-1", "i-2", "i-3", "i-4", "i-5"]);
+				expect(rows["i-1"]).toMatchObject({ kind: "expense" });
+				expect(cats.get(rows["i-1"]?.categoryId ?? "")).toBe("investimentos");
+				expect(rows["i-2"]).toMatchObject({ kind: "income" });
+				expect(cats.get(rows["i-2"]?.categoryId ?? "")).toBe("investimentos");
+				expect(rows["i-3"]).toMatchObject({ kind: "income" });
+				expect(cats.get(rows["i-3"]?.categoryId ?? "")).toBe("investimentos");
 				expect(cats.get(rows["i-4"]?.categoryId ?? "")).toBe("saude");
 				expect(cats.get(rows["i-5"]?.categoryId ?? "")).toBe("outros");
 			});
@@ -634,8 +638,11 @@ describe("syncPluggy", () => {
 				const result = await t3.run();
 				expect(result.status).toBe("ok");
 				expect(result.connections[0]?.notes.join()).toContain("categorias do Pluggy não carregaram");
-				// Pelo nome da categoria do lançamento, a aplicação continua fora.
-				expect(result.connections[0]?.skipped.investment).toBe(2);
+				// Pelo nome da categoria do lançamento, a aplicação entra em Investimentos.
+				const cats = new Map((await t3.stores.categories.list()).map((c) => [c.id, c.slug]));
+				const rows = Object.fromEntries((await everything(t3.stores)).map((r) => [r.externalId, r]));
+				expect(rows["i-1"]).toMatchObject({ kind: "expense" });
+				expect(cats.get(rows["i-1"]?.categoryId ?? "")).toBe("investimentos");
 			});
 		});
 
@@ -909,7 +916,7 @@ describe("syncPluggy", () => {
 			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
 			const result = await t2.run();
 			const notes = result.connections[0]?.notes ?? [];
-			expect(notes).toContain("Outros: Transfer - PIX ×2, Shopping ×1");
+			expect(notes).toContain("Outros: Shopping ×1");
 			const text = JSON.stringify(notes);
 			expect(text).not.toContain("Secret");
 			expect(text).not.toContain("123");
@@ -923,14 +930,14 @@ describe("syncPluggy", () => {
 			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
 			await t2.stores.categories.ensureDefaults();
 			const delivery = await t2.stores.categories.getBySlug("delivery");
-			const outros = await t2.stores.categories.getBySlug("outros");
+			const transferencias = await t2.stores.categories.getBySlug("transferencias");
 			await t2.stores.categoryRules.upsert("rei dos lanches", delivery?.id ?? "");
 			const result = await t2.run();
 			const byExt = Object.fromEntries((await everything(t2.stores)).map((r) => [r.externalId, r]));
 			expect(byExt["r-1"]?.categoryId).toBe(delivery?.id);
-			expect(byExt["r-2"]?.categoryId).toBe(outros?.id);
-			// O que a regra resolveu não é "Outros" no diagnóstico.
-			expect(result.connections[0]?.notes).toContain("Outros: Transfer - PIX ×1");
+			expect(byExt["r-2"]?.categoryId).toBe(transferencias?.id);
+			// PIX com categoria própria não entra no diagnóstico de Outros.
+			expect(result.connections[0]?.notes.join(" ")).not.toContain("Outros:");
 		});
 
 		it("MCC do cartão decide a categoria", async () => {

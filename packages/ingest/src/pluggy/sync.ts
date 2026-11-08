@@ -391,12 +391,6 @@ async function syncConnection(
 		}
 		const othersNote = describeOthers(others);
 		if (othersNote !== null) result.notes.push(othersNote);
-		const investments = result.skipped.investment ?? 0;
-		if (investments > 0) {
-			result.notes.push(
-				`${investments} movimento(s) de investimento (aplicação, resgate, caixinha) ficaram de fora: não são gasto nem receita.`,
-			);
-		}
 		const unlinked = result.skipped.card_payment_unlinked ?? 0;
 		if (unlinked > 0) {
 			result.notes.push(

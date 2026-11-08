@@ -473,6 +473,8 @@ describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () =>
 		["mercado", "cat-mercado"],
 		["delivery", "cat-delivery"],
 		["saude", "cat-saude"],
+		["transferencias", "cat-transferencias"],
+		["investimentos", "cat-investimentos"],
 		["outros", "cat-outros"],
 	]);
 	const index = buildCategoryIndex([
@@ -491,31 +493,37 @@ describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () =>
 				: "refund";
 	};
 
-	it("aplicação e resgate (categoria de investimento, folha ou pai) não são gasto nem receita", () => {
+	it("aplicação é gasto em Investimentos; resgate e rendimento são receita nessa categoria", () => {
 		expect(kindOf({ category: "Fixed income", categoryId: "03020000", amount: -500 })).toBe(
-			"skip:investment",
+			"expense:cat-investimentos",
 		);
 		expect(kindOf({ category: "Fixed income", categoryId: "03020000", type: "CREDIT", amount: 500 })).toBe(
-			"skip:investment",
+			"income:cat-investimentos",
 		);
 		// Sem o nome da folha conhecido, o pai da árvore decide.
-		expect(kindOf({ category: "Algo novo", categoryId: "03020000", amount: -1 })).toBe("skip:investment");
+		expect(kindOf({ category: "Algo novo", categoryId: "03020000", amount: -1 })).toBe(
+			"expense:cat-investimentos",
+		);
 		expect(
 			kindOf({ category: "Investimentos", amount: -1 }, { ...ctx, categoryIndex: undefined as never }),
-		).toBe("skip:investment");
+		).toBe("expense:cat-investimentos");
 	});
 
-	it("rendimento de investimento entra como receita", () => {
-		expect(kindOf({ category: "Interests on investments", type: "CREDIT", amount: 3.2 })).toBe("income:null");
+	it("rendimento de investimento entra como receita em Investimentos", () => {
+		expect(kindOf({ category: "Interests on investments", type: "CREDIT", amount: 3.2 })).toBe(
+			"income:cat-investimentos",
+		);
 		expect(kindOf({ description: "Rendimentos caixinha", category: null, type: "CREDIT", amount: 3.2 })).toBe(
-			"income:null",
+			"income:cat-investimentos",
 		);
 	});
 
 	it("plano B pela descrição só com categoria ausente ou genérica", () => {
-		expect(kindOf({ description: "Aplicação CDB", category: null, amount: -100 })).toBe("skip:investment");
+		expect(kindOf({ description: "Aplicação CDB", category: null, amount: -100 })).toBe(
+			"expense:cat-investimentos",
+		);
 		expect(kindOf({ description: "RESGATE CAIXINHA", category: "Other", type: "CREDIT", amount: 100 })).toBe(
-			"skip:investment",
+			"income:cat-investimentos",
 		);
 		expect(kindOf({ description: "Poupança do Zé", category: "Eating out", amount: -100 })).toBe(
 			"expense:cat-delivery",
@@ -568,6 +576,8 @@ describe("mapPluggyTransaction: prioridade da categoria", () => {
 		["transporte", "cat-transporte"],
 		["assinaturas", "cat-assinaturas"],
 		["saude", "cat-saude"],
+		["transferencias", "cat-transferencias"],
+		["investimentos", "cat-investimentos"],
 		["outros", "cat-outros"],
 	]);
 	const index = buildCategoryIndex([
@@ -630,9 +640,9 @@ describe("mapPluggyTransaction: prioridade da categoria", () => {
 		expect([m.input.categoryId, m.categorySource]).toEqual(["cat-assinaturas", "pluggy"]);
 	});
 
-	it("sem nenhuma pista cai em Outros e diz que não houve pista; guarda a categoria do banco legível", () => {
+	it("PIX sem compra conhecida vira Transferências e guarda a categoria do banco", () => {
 		const m = pick({ category: "Transfer - PIX", categoryId: "20010000", description: "Pix enviado - Rei" });
-		expect([m.input.categoryId, m.categorySource]).toEqual(["cat-outros", "none"]);
+		expect([m.input.categoryId, m.categorySource]).toEqual(["cat-transferencias", "pluggy"]);
 		expect(m.input.sourceCategory).toBe("Transfers › Transfer - PIX");
 	});
 

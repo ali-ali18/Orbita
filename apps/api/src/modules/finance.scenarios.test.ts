@@ -357,7 +357,7 @@ describe("estorno, pagamento de fatura e transferência", () => {
 		expect(s.budgets[0]).toMatchObject({ spentCents: 6000, overBudget: true });
 	});
 
-	it("texto do banco tira o gasto de Outros; PIX sem palavra continua lá", async () => {
+	it("texto do banco tira o gasto de Outros; PIX sem compra vira Transferências", async () => {
 		const { api, account, category } = await setupFinance().then(async (c) => ({
 			...c,
 			...(await c.basics()),
@@ -380,7 +380,7 @@ describe("estorno, pagamento de fatura e transferência", () => {
 		});
 		const s = (await api.get("/v1/summary/2026-11")).body;
 		expect(s.summary.byCategory[category("delivery")]).toBe(4890);
-		expect(s.summary.byCategory[category("outros")]).toBe(1500);
+		expect(s.summary.byCategory[category("transferencias")]).toBe(1500);
 		expect(s.summary.spentCents).toBe(6390);
 	});
 });

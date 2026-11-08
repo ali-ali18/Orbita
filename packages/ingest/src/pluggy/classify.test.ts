@@ -7,7 +7,7 @@ describe("suggestSpendingSlug", () => {
 		expect(suggestSpendingSlug({ sourceCategory: "Groceries › Supermarket" })).toBe("mercado");
 	});
 
-	it("num PIX, a descrição decide; sem palavra conhecida, fica sem categoria", () => {
+	it("num PIX, a descrição decide; sem compra conhecida, vira Transferências", () => {
 		expect(
 			suggestSpendingSlug({
 				sourceCategory: "Transfers › Transfer - PIX",
@@ -19,7 +19,14 @@ describe("suggestSpendingSlug", () => {
 				sourceCategory: "Transfers › Transfer - PIX",
 				description: "Pix enviado - Rei Dos",
 			}),
-		).toBeNull();
+		).toBe("transferencias");
+	});
+
+	it("aplicação e caixinha viram Investimentos", () => {
+		expect(suggestSpendingSlug({ sourceCategory: "Fixed income", description: "Aplicação CDB" })).toBe(
+			"investimentos",
+		);
+		expect(suggestSpendingSlug({ description: "Caixinha" })).toBe("investimentos");
 	});
 
 	it("Shopping não escolhe sozinho; o nome na descrição escolhe, e compra sem palavra fica sem categoria", () => {
