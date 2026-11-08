@@ -270,29 +270,38 @@ export function ChatView({
 	);
 }
 
+function Suggestion({ label, onSend }: { label: string; onSend: (text: string) => void }) {
+	return (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={label}
+			onPress={() => onSend(label)}
+			style={{
+				flexShrink: 0,
+				backgroundColor: colors.surface,
+				borderWidth: 1,
+				borderColor: colors.border,
+				borderRadius: radius.pill,
+				paddingHorizontal: 14,
+				paddingVertical: 10,
+			}}
+		>
+			<Text variant="body" numberOfLines={1}>
+				{label}
+			</Text>
+		</Pressable>
+	);
+}
+
+/** Duas linhas, sem quebrar: a segunda sugestão da primeira linha encosta na borda, como no desenho. */
 function Suggestions({ onSend }: { onSend: (text: string) => void }) {
 	const rows = [SUGGESTIONS.slice(0, 2), SUGGESTIONS.slice(2)];
 	return (
-		<View style={{ gap: spacing.sm }}>
+		<View style={{ alignSelf: "stretch", gap: spacing.sm, overflow: "hidden" }}>
 			{rows.map((row) => (
-				<View key={row[0]} style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+				<View key={row[0]} style={{ flexDirection: "row", gap: spacing.sm }}>
 					{row.map((label) => (
-						<Pressable
-							key={label}
-							accessibilityRole="button"
-							accessibilityLabel={label}
-							onPress={() => onSend(label)}
-							style={{
-								backgroundColor: colors.surface,
-								borderWidth: 1,
-								borderColor: colors.border,
-								borderRadius: radius.pill,
-								paddingHorizontal: 14,
-								paddingVertical: 10,
-							}}
-						>
-							<Text variant="body">{label}</Text>
-						</Pressable>
+						<Suggestion key={label} label={label} onSend={onSend} />
 					))}
 				</View>
 			))}
