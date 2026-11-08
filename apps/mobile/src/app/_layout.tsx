@@ -44,6 +44,12 @@ function Routes() {
 				<Stack.Screen name="configuracoes/arquivos" />
 				<Stack.Screen name="configuracoes/importar" />
 				<Stack.Screen name="configuracoes/primeira-vez" />
+				<Stack.Screen name="configuracoes/perfil" />
+				<Stack.Screen name="configuracoes/preferencias" />
+				<Stack.Screen name="configuracoes/notificacoes" />
+				<Stack.Screen name="configuracoes/exportar" />
+				<Stack.Screen name="configuracoes/backup" />
+				<Stack.Screen name="configuracoes/reportar" />
 			</Stack.Protected>
 			<Stack.Protected guard={state.status === "out"}>
 				<Stack.Screen name="conectar" />

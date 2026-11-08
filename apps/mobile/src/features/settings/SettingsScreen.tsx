@@ -3,11 +3,16 @@ import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
+import { usePrivacy } from "../../lib/privacy.tsx";
 import { useSession } from "../../lib/session.tsx";
 import { Icon, IconButton, LetterAvatar, OrbitaAvatar, Screen, Text, TOP_FADE } from "../../ui/index.ts";
 import { useLock } from "../lock/LockProvider.tsx";
 import { useOnboardingPhase } from "../onboarding/flag.ts";
 import { showsSetupInSettings } from "../onboarding/model.ts";
+import { openRepoLink } from "./open-link.ts";
+import { useProfile } from "./preferences-queries.ts";
+import { avatarInitial } from "./profile-model.ts";
+import { REPO_URL } from "./report-model.ts";
 import { SettingsRow, SettingsSection, StaticSwitch } from "./SettingsRows.tsx";
 import { SignOutDialog } from "./SignOutDialog.tsx";
 
@@ -18,8 +23,8 @@ function hostOf(baseUrl: string | null): string | undefined {
 }
 
 /**
- * Tela "Configurações" (Figma 41:605). "Bancos e cartões", "Comprovantes e arquivos" (importar extrato) e "Servidor e chaves" têm tela; os outros itens aparecem como no
- * Figma, esmaecidos, com "Em breve" e sem toque, até existirem. Quem já usava o app e não fez a configuração inicial vê essa entrada;
+ * Tela "Configurações" (Figma 41:605). Só "Agentes" ainda aparece como no Figma, esmaecido, com "Em breve" e sem
+ * toque, até existir; os demais itens têm tela. Quem já usava o app e não fez a configuração inicial vê essa entrada;
  * depois de feita, ela some. O que o Figma mostra com número de exemplo (4 bancos, 3 apps…) não aparece.
  */
 export function SettingsScreen() {
@@ -29,6 +34,9 @@ export function SettingsScreen() {
 	const lock = useLock();
 	const [lockBusy, setLockBusy] = useState(false);
 	const [lockMessage, setLockMessage] = useState<string | null>(null);
+	const { hideOnOpen, setHideOnOpen } = usePrivacy();
+	const profileQ = useProfile();
+	const [linkMessage, setLinkMessage] = useState<string | null>(null);
 	const version = Constants.expoConfig?.version;
 	const phase = useOnboardingPhase();
 	const showSetup = phase !== "loading" && showsSetupInSettings(phase);
@@ -43,6 +51,11 @@ export function SettingsScreen() {
 		} finally {
 			setLockBusy(false);
 		}
+	};
+
+	const openGithub = async () => {
+		setLinkMessage(null);
+		if (!(await openRepoLink(REPO_URL))) setLinkMessage("Não consegui abrir o navegador.");
 	};
 
 	return (
@@ -64,7 +77,7 @@ export function SettingsScreen() {
 				</View>
 
 				<View style={{ alignItems: "center", gap: spacing.md, paddingBottom: spacing.sm }}>
-					<LetterAvatar letter="V" size={spacing.xxxl * 3} />
+					<LetterAvatar letter={avatarInitial(profileQ.data?.displayName)} size={spacing.xxxl * 3} />
 					<Text variant="numberMedium" accessibilityRole="header">
 						Configurações
 					</Text>
@@ -88,7 +101,12 @@ export function SettingsScreen() {
 						title="Bancos e cartões"
 						onPress={() => router.push("/configuracoes/bancos")}
 					/>
-					<SettingsRow icon="notificacao" title="Notificações do celular" soon />
+					<SettingsRow
+						icon="notificacao"
+						title="Notificações do celular"
+						caption="Ainda não lê as notificações do banco"
+						onPress={() => router.push("/configuracoes/notificacoes")}
+					/>
 					<SettingsRow
 						icon="escanear"
 						title="Comprovantes e arquivos"
@@ -115,8 +133,18 @@ export function SettingsScreen() {
 				</SettingsSection>
 
 				<SettingsSection title="Conta">
-					<SettingsRow icon="usuario" title="Perfil" soon />
-					<SettingsRow icon="ajustes" title="Preferências" soon last />
+					<SettingsRow
+						icon="usuario"
+						title="Perfil"
+						value={profileQ.data?.displayName ?? undefined}
+						onPress={() => router.push("/configuracoes/perfil")}
+					/>
+					<SettingsRow
+						icon="ajustes"
+						title="Preferências"
+						onPress={() => router.push("/configuracoes/preferencias")}
+						last
+					/>
 				</SettingsSection>
 
 				<SettingsSection title="Segurança">
@@ -135,7 +163,9 @@ export function SettingsScreen() {
 						icon="olho"
 						title="Esconder valores ao abrir"
 						chevron={false}
-						trailing={<StaticSwitch on={false} />}
+						toggled={hideOnOpen}
+						onPress={() => setHideOnOpen(!hideOnOpen)}
+						trailing={<StaticSwitch on={hideOnOpen} />}
 					/>
 					<SettingsRow
 						icon="chave"
@@ -147,14 +177,33 @@ export function SettingsScreen() {
 				</SettingsSection>
 
 				<SettingsSection title="Seus dados">
-					<SettingsRow icon="baixar" title="Exportar tudo" soon />
-					<SettingsRow icon="banco-de-dados" title="Backup" soon last />
+					<SettingsRow
+						icon="baixar"
+						title="Exportar tudo"
+						onPress={() => router.push("/configuracoes/exportar")}
+					/>
+					<SettingsRow
+						icon="banco-de-dados"
+						title="Backup"
+						onPress={() => router.push("/configuracoes/backup")}
+						last
+					/>
 				</SettingsSection>
 
 				<SettingsSection title="Sobre">
-					<SettingsRow icon="codigo" title="Código no GitHub" soon />
-					<SettingsRow icon="alerta" title="Reportar um problema" soon last />
+					<SettingsRow icon="codigo" title="Código no GitHub" onPress={() => void openGithub()} />
+					<SettingsRow
+						icon="alerta"
+						title="Reportar um problema"
+						onPress={() => router.push("/configuracoes/reportar")}
+						last
+					/>
 				</SettingsSection>
+				{linkMessage ? (
+					<Text variant="caption" tone="secondary" accessibilityRole="alert" accessibilityLiveRegion="polite">
+						{linkMessage}
+					</Text>
+				) : null}
 
 				<Pressable
 					accessibilityRole="button"
