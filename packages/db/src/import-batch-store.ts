@@ -44,6 +44,8 @@ export interface ImportBatchStore {
 		now: Date;
 		staleBefore: Date;
 	}): Promise<ImportBegin>;
+	/** Só consulta (não reserva): o que já se sabe deste arquivo para este destino. */
+	find(fileHash: string, targetKey: string): Promise<ImportBatchRecord | null>;
 	/** Guarda o resultado da reserva em andamento. */
 	complete(id: string, summary: ImportSummary): Promise<void>;
 	/** Desfaz uma reserva sem resultado (a importação falhou), para poder tentar de novo. */

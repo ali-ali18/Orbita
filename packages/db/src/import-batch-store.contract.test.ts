@@ -43,6 +43,13 @@ describe.each(contractSuites())("ImportBatchStore (%s)", (_name, make) => {
 		expect(again.outcome === "existing" && again.batch.summary).toEqual(summary);
 	});
 
+	it("find só consulta, sem reservar", async () => {
+		expect(await imports.find(HASH, "account:a1")).toBeNull();
+		expect(await imports.find(HASH, "account:a1")).toBeNull();
+		await begin();
+		expect(await imports.find(HASH, "account:a1")).toMatchObject({ summary: null });
+	});
+
 	it("o mesmo arquivo em outro destino, ou outro arquivo no mesmo destino, é outra importação", async () => {
 		await begin();
 		expect((await begin({ target: "card:c1" })).outcome).toBe("started");

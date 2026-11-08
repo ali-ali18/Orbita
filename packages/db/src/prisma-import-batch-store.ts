@@ -60,6 +60,11 @@ export function createPrismaImportBatchStore(db: Db): ImportBatchStore {
 			return { outcome: "existing", batch: toRecord(row) };
 		},
 
+		async find(fileHash, targetKey) {
+			const row = await db.importBatch.findUnique({ where: { fileHash_targetKey: { fileHash, targetKey } } });
+			return row ? toRecord(row) : null;
+		},
+
 		async complete(id, summary) {
 			await db.importBatch.updateMany({
 				where: { id },

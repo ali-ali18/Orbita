@@ -17,6 +17,10 @@ export function createMemoryImportBatchStore(): ImportBatchStore {
 			rows.set(id, { id, fileHash, targetKey, format, createdAt: now, summary: null });
 			return { outcome: "started", id };
 		},
+		async find(fileHash, targetKey) {
+			const row = find(fileHash, targetKey);
+			return row ? { ...row } : null;
+		},
 		async complete(id, summary) {
 			const row = rows.get(id);
 			if (row) row.summary = { ...summary };

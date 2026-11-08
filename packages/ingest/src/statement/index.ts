@@ -1,6 +1,18 @@
 export { parseAmount } from "./amount.ts";
 export { parseCsv } from "./csv.ts";
 export { parseStatementDate } from "./date.ts";
+export {
+	IMPORT_SOURCE,
+	type ImportDeps,
+	type ImportRequest,
+	type ImportResult,
+	type ImportTarget,
+	importStatement,
+	type PreviewItem,
+	type PreviewResult,
+	previewStatement,
+	type StatementPreview,
+} from "./import.ts";
 export { parseOfx } from "./ofx.ts";
 export { parseStatement, STATEMENT_EXTENSIONS } from "./parse.ts";
 export { parsePdf, parsePdfLines } from "./pdf.ts";
