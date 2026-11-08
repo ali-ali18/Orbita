@@ -246,8 +246,6 @@ export const monthSummaryResponse = z.object({
 		incomeCents: cents,
 		/** Aplicações do mês (investimentos): à parte; não entram em `spentCents` nem em `byCategory`. */
 		investedCents: cents,
-		/** Parte de `spentCents` que é estimativa (parcela da fatura que o banco ainda não lançou). */
-		projectedCents: cents,
 		refundCreditCents: cents,
 		/** Por id de categoria. */
 		byCategory: z.record(z.string(), cents),
@@ -279,7 +277,7 @@ export const monthSummaryResponse = z.object({
 export type MonthSummaryResponse = z.infer<typeof monthSummaryResponse>;
 
 /** De onde vem cada linha do Gasto: conta (pela data), cartão (pela fatura) ou parcela estimada da fatura. */
-export const SPENDING_BRANCHES = ["account", "card", "projected"] as const;
+export const SPENDING_BRANCHES = ["account", "card"] as const;
 export type SpendingBranch = (typeof SPENDING_BRANCHES)[number];
 
 /** "Como chegamos nesse número": todo lançamento que somou (ou, no estorno, abateu) o Gasto do mês. */
@@ -289,9 +287,18 @@ export const spendingBreakdownResponse = z.object({
 	spentCents: cents,
 	/** Soma simples de `deltaCents` das linhas: difere de `spentCents` só quando um estorno passa do gasto da categoria. */
 	rowsCents: cents,
-	projectedCents: cents,
 	branches: z.array(
 		z.object({ branch: z.enum(SPENDING_BRANCHES), count: z.number().int(), subtotalCents: cents }),
+	),
+	/** O ramo do cartão aberto por cartão (nome, final e subtotal), para conferir cada fatura com a do banco. */
+	cards: z.array(
+		z.object({
+			cardId: z.string(),
+			name: z.string(),
+			last4: z.string().nullable(),
+			count: z.number().int(),
+			subtotalCents: cents,
+		}),
 	),
 	rows: z.array(
 		z.object({
@@ -310,8 +317,6 @@ export const spendingBreakdownResponse = z.object({
 			cardId: z.string().nullable(),
 			accountId: z.string().nullable(),
 			status: z.enum(TRANSACTION_STATUSES),
-			/** Parcela que o banco ainda não lançou. */
-			estimated: z.boolean(),
 		}),
 	),
 });

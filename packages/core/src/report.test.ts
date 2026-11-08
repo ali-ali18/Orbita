@@ -213,68 +213,61 @@ describe("monthReport", () => {
 	});
 });
 
-describe("monthReport: gasto por fatura e investido", () => {
+describe("monthReport: gasto pela data da compra e investido", () => {
 	const txs = [
-		// Fatura que vence em novembro (comprada em outubro).
+		// Compras de novembro no cartão (faturas de novembro e dezembro) e na conta.
 		tx({
 			kind: "expense",
 			amountCents: 51000,
-			date: "2026-10-30",
-			budgetMonth: "2026-10",
-			invoiceMonth: "2026-11",
+			date: "2026-11-02",
+			invoiceMonth: "2026-12",
 			categoryId: "lazer",
 		}),
 		tx({
 			kind: "expense",
 			amountCents: 8687,
-			date: "2026-09-05",
-			budgetMonth: "2026-11",
+			date: "2026-11-03",
+			invoiceMonth: "2026-12",
+			categoryId: "lazer",
+		}),
+		tx({ kind: "expense", amountCents: 5150, date: "2026-11-12", categoryId: "mercado" }),
+		tx({ kind: "investment", amountCents: 200000, date: "2026-11-04", categoryId: "investimentos" }),
+		tx({ kind: "income", amountCents: 1234, date: "2026-11-06", categoryId: "investimentos" }),
+		// Outubro: compra de cartão cuja fatura vence em novembro NÃO é gasto de novembro.
+		tx({
+			kind: "expense",
+			amountCents: 30000,
+			date: "2026-10-30",
+			budgetMonth: "2026-10",
 			invoiceMonth: "2026-11",
 			categoryId: "lazer",
 		}),
-		// Fatura aberta, vence em dezembro.
-		tx({
-			kind: "expense",
-			amountCents: 5150,
-			date: "2026-11-12",
-			invoiceMonth: "2026-12",
-			categoryId: "mercado",
-		}),
-		tx({ kind: "investment", amountCents: 200000, date: "2026-11-04", categoryId: "investimentos" }),
-		tx({ kind: "income", amountCents: 1234, date: "2026-11-06", categoryId: "investimentos" }),
-		// Outubro: gasto de cartão que vence em outubro e a aplicação de outubro.
-		tx({
-			kind: "expense",
-			amountCents: 10000,
-			date: "2026-09-20",
-			invoiceMonth: "2026-10",
-			categoryId: "mercado",
-		}),
+		tx({ kind: "expense", amountCents: 10000, date: "2026-10-20", categoryId: "mercado" }),
 		tx({ kind: "investment", amountCents: 50000, date: "2026-10-04", categoryId: "investimentos" }),
 	];
 	const report = monthReport({ ...base, month: "2026-11", transactions: txs });
 
-	it("totais por fatura; investido fora do gasto e do saldo", () => {
+	it("totais pela data; investido fora do gasto e do saldo", () => {
 		expect(report.totals).toEqual({
 			incomeCents: 1234,
-			spentCents: 59687,
+			spentCents: 64837,
 			investedCents: 200000,
-			balanceCents: 1234 - 59687,
+			balanceCents: 1234 - 64837,
 			refundCreditCents: 0,
 		});
 		expect(report.topCategories.map((c) => c.categoryId)).toEqual(["lazer", "mercado"]);
 		expect(report.topCategories[1]).toMatchObject({
 			categoryId: "mercado",
-			spentCents: 0,
+			spentCents: 5150,
 			previousCents: 10000,
 		});
 	});
 
-	it("maiores despesas seguem o mês da fatura", () => {
-		expect(report.biggestExpenses.map((e) => e.amountCents)).toEqual([51000, 8687]);
+	it("maiores despesas seguem o mês da compra", () => {
+		expect(report.biggestExpenses.map((e) => e.amountCents)).toEqual([51000, 8687, 5150]);
 	});
 
 	it("o investido não entra na comparação do gasto", () => {
-		expect(report.vsPrevious?.spent).toMatchObject({ referenceCents: 10000, deltaCents: 49687 });
+		expect(report.vsPrevious?.spent).toMatchObject({ referenceCents: 40000, deltaCents: 24837 });
 	});
 });

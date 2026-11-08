@@ -23,6 +23,12 @@ export {
 	NON_SPENDING_SLUGS,
 	restoreBudgets,
 } from "./income-plan.ts";
+export {
+	type CardInvoicesLine,
+	type InvoiceLine,
+	type InvoicesOverview,
+	invoicesOverview,
+} from "./invoices-overview.ts";
 export { reportForMonth } from "./report.ts";
 export { loadSetupAnalysis, STALE_SETUP_MESSAGE, verifyAgainstAnalysis } from "./setup.ts";
 export {

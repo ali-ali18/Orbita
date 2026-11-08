@@ -17,7 +17,7 @@ import { DataError, type Stores, TOTAL_BUDGET_SCOPE, toMonthlyRecurrence } from 
 import type { BudgetBefore, BudgetSuggestionResponse, BudgetsChangeResponse, PlanDto } from "@orbita/shared";
 import { listGoals } from "./goals.ts";
 import { toCoreIncome } from "./income.ts";
-import { isProjectedRow, loadSpendingMonth, monthSummary } from "./summary.ts";
+import { isProjectedRow, loadSpendingMonth, monthSummary, plannedInstallments } from "./summary.ts";
 
 /*
  * O plano da renda do mês. Aqui só se JUNTA o que o engine pede (renda, recorrências, parcelas da fatura, histórico,
@@ -38,19 +38,21 @@ const PAST_PLAN_MESSAGE = "Só dá para aplicar o plano do mês atual ou de um m
 
 /**
  * Compromissos do mês: recorrências de despesa que caem nele e parcelas que vencem na fatura dele. As parcelas vêm do
- * MESMO conjunto do "Gasto do mês" (`loadSpendingMonth`: cartão pela fatura que vence no mês, mais as parcelas que o
- * banco ainda não lançou), então plano, Início e relatório nunca discordam. Sem categoria (ou arquivada) cai em Outros.
+ * MESMO conjunto do "Gasto do mês" (`loadSpendingMonth`: cada parcela no seu mês) mais as parcelas que o
+ * banco ainda não lançou (`plannedInstallments`), então plano, Início e relatório nunca discordam. Sem categoria (ou arquivada) cai em Outros.
  */
 async function collectCommitments(
 	stores: Stores,
 	month: MonthKey,
 	today: LocalDate,
 ): Promise<PlanCommitment[]> {
-	const [recurrences, rows, categories] = await Promise.all([
+	const [recurrences, real, planned, categories] = await Promise.all([
 		stores.recurrences.list(),
 		loadSpendingMonth(stores, month, today),
+		plannedInstallments(stores, month, today),
 		stores.categories.list(),
 	]);
+	const rows = [...real, ...planned];
 	const active = new Set(categories.filter((c) => c.archivedAt === null).map((c) => c.id));
 	const outros = categories.find((c) => c.slug === "outros" && c.archivedAt === null)?.id ?? null;
 	const category = (id: string | null) => (id !== null && active.has(id) ? id : outros);

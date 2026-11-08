@@ -270,7 +270,6 @@ export const getMonthSummary = defineTool({
 				spent: money(s.spentCents),
 				income: money(s.incomeCents),
 				invested: money(s.investedCents),
-				spentIncludesEstimatedInstallments: money(s.projectedCents),
 				refundCredit: money(s.refundCreditCents),
 				incomeMinusSpent: money(resultCents),
 				safeToSpend: summary.safeToSpend
