@@ -119,6 +119,13 @@ Telas de Configurações com módulos próprios na API:
 - **Avisar quando passar de X%:** `budgetAlertPercent` (1 a 100, padrão 80) fica em `AppPreferences`. `passedThreshold` (core, só inteiros) decide, e o resumo do mês devolve `alert` por limite. **O push não existe ainda**: o aviso aparece só dentro do app (linha no card do Início e na tela Orçamento).
 - **Sobra do mês vai para:** `leftoverAccountId` (conta ativa ou nenhuma) em `AppPreferences`. Só a escolha é guardada; nenhum dinheiro é movido. Metas ainda não existem ("Metas: em breve").
 
+## Relatório do mês
+
+`monthReport` (`packages/core/src/report.ts`) é a função pura que monta o relatório; ela não acha nem soma nada que o engine já calcula: o resumo de cada mês é o `summarizeMonth`, o orçamento é o `budgetStatus` e a fatura é a `invoiceComposition`. Entrega totais (entrou, saiu, sobra), a comparação com o mês anterior e com a **média dos até 3 meses anteriores que tiveram movimento** (mês vazio não puxa a média para baixo), as categorias com variação, as maiores despesas, o total de assinaturas (lançamentos que nasceram de recorrência), a aderência ao orçamento e a fatura de cada cartão. Percentuais são inteiros (`percentChange`, arredondamento simétrico, `null` sem referência).
+
+- **API** (`apps/api/src/modules/reports/`): `GET /v1/reports` lista os meses com lançamento (`TransactionStore.listBudgetMonths`) e `GET /v1/reports/:month` (AAAA-MM) devolve o relatório. O serviço lê com o mesmo mapeamento de categoria do Início (`toCoreTransaction`), então os totais batem com `/v1/summary/:month`. Nada é pré-calculado nem guardado: o worker não tem job para isso.
+- **App** (`features/report/`): tela Relatório (Início → "Relatório do mês"), seletor de meses, barras por categoria contra o mês anterior, e "Exportar" leva à tela de exportação existente. O texto "Fechamento" é um **modelo fixo** (`narrative`, em `report-model.ts`) feito só com os números do relatório; o `TODO(ia-resumo)` marca onde o resumo por IA entra depois. O botão "Mover para a meta" do Figma fica de fora até existirem metas.
+
 ## Pagar a fatura e lembrete de assinatura
 
 - **Marcar como paga:** `POST /v1/cards/:id/invoices/:month/pay` (`{ accountId }`, aceita `Idempotency-Key`) cria o `card_payment` do que falta da fatura. O valor (total menos o já pago) e a situação vêm do engine (`paidForInvoice`, `paymentStatus`); o cliente só escolhe a conta. Recusa fatura aberta (400) e já paga (409). A data é hoje, limitada à janela de pagamentos da fatura (`paymentWindow`), para que o engine a atribua à fatura certa. Pagamento parcial fica fora (o Figma só tem o botão). "Desfazer" é o `DELETE /v1/transactions/:id` de sempre; a fatura volta a "não paga". No app: `features/card/PayInvoice.tsx`.
