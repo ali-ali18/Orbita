@@ -1,3 +1,4 @@
+import { type ChatRequestBody, SETUP_USER_MESSAGE, type SetupSelection } from "@orbita/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
@@ -13,6 +14,7 @@ import { streamChat } from "./chat-client.ts";
 import { chatFetch } from "./chat-fetch.ts";
 import { chatReducer, initialChatState } from "./chat-model.ts";
 import { pickLocalFile } from "./pick-file.ts";
+import { isAffectedBySetup } from "./setup-card-model.ts";
 
 /**
  * Chat da Órbita. O servidor responde (a IA consulta o engine por ferramentas) e guarda o histórico; aqui só se
@@ -27,10 +29,13 @@ export function ChatScreen() {
 		agentId,
 		conversationId: openId,
 		opened,
+		intent,
 	} = useLocalSearchParams<{
 		agentId?: string;
 		conversationId?: string;
 		opened?: string;
+		/** `setup`: abre já rodando "Configurar com a Órbita" (a tarefa é fixa do servidor, não digitada). */
+		intent?: string;
 	}>();
 	const { api, baseUrl, state: session, handleQueryError } = useSession();
 	const queryClient = useQueryClient();
@@ -57,20 +62,17 @@ export function ChatScreen() {
 		});
 	}, [baseUrl, queryClient]);
 
-	const send = async (text: string) => {
+	/** Manda um pedido ao chat e desenha o fluxo. `label` é o que aparece como fala do dono. */
+	const stream = async (label: string, body: ChatRequestBody) => {
 		if (session.status !== "in" || stateRef.current.busy) return;
 		const abort = new AbortController();
 		controller.current = abort;
-		dispatch({ type: "sent", text, userId: nextId(), assistantId: nextId() });
+		dispatch({ type: "sent", text: label, userId: nextId(), assistantId: nextId() });
 		try {
 			await streamChat({
 				baseUrl: session.baseUrl,
 				token: session.token,
-				body: {
-					message: text,
-					...(typeof agentId === "string" && agentId ? { agentId } : {}),
-					...(stateRef.current.conversationId ? { conversationId: stateRef.current.conversationId } : {}),
-				},
+				body,
 				fetchImpl: chatFetch,
 				signal: abort.signal,
 				onEvent: (event) => dispatch({ type: "event", event }),
@@ -90,21 +92,53 @@ export function ChatScreen() {
 		}
 	};
 
-	const answerProposal = async (action: ProposalAction, proposal: { id: string }) => {
+	const send = (text: string) =>
+		stream(text, {
+			message: text,
+			...(typeof agentId === "string" && agentId ? { agentId } : {}),
+			...(stateRef.current.conversationId ? { conversationId: stateRef.current.conversationId } : {}),
+		});
+
+	// "Configurar com a Órbita": abre a tela já rodando a tarefa, uma vez só (voltar ao chat não reinicia).
+	const startedSetup = useRef(false);
+	const setupRef = useRef(stream);
+	setupRef.current = stream;
+	useEffect(() => {
+		if (intent !== "setup" || startedSetup.current || session.status !== "in") return;
+		startedSetup.current = true;
+		void setupRef.current(SETUP_USER_MESSAGE, { intent: "setup" });
+	}, [intent, session.status]);
+
+	const answerProposal = async (
+		action: ProposalAction,
+		proposal: { id: string; kind: string },
+		selection?: SetupSelection,
+	) => {
 		if (!api || busyProposalId) return;
 		setBusyProposalId(proposal.id);
 		try {
 			const param = { id: proposal.id };
 			const result = await call(() =>
 				action === "confirm"
-					? api.v1.chat.proposals[":id"].confirm.$post({ param })
+					? api.v1.chat.proposals[":id"].confirm.$post({
+							param,
+							json: selection ? { setup: selection } : {},
+						})
 					: action === "cancel"
 						? api.v1.chat.proposals[":id"].cancel.$post({ param })
 						: api.v1.chat.proposals[":id"].undo.$post({ param }),
 			);
 			dispatch({ type: "proposal", proposal: result.proposal });
-			// Confirmar e desfazer mexem no dinheiro; cancelar não.
-			if (action !== "cancel") refreshMoney();
+			// Confirmar e desfazer mexem no dinheiro; cancelar não. A configuração mexe em quase tudo (assinaturas, renda, regras, orçamento).
+			if (action !== "cancel") {
+				if (proposal.kind === "setup" && baseUrl) {
+					void queryClient.invalidateQueries({
+						predicate: (query) => isAffectedBySetup(query.queryKey, baseUrl),
+					});
+				} else {
+					refreshMoney();
+				}
+			}
 		} catch (error) {
 			handleQueryError(error);
 			dispatch({
@@ -176,7 +210,7 @@ export function ChatScreen() {
 				onHistory={() => setHistoryOpen(true)}
 				onSend={(text) => void send(text)}
 				onAttach={(kind) => void attach(kind)}
-				onProposal={(action, proposal) => void answerProposal(action, proposal)}
+				onProposal={(action, proposal, selection) => void answerProposal(action, proposal, selection)}
 				onOpenTransaction={(id) => router.push(`/lancamento/${id}`)}
 				onOpenServer={() => router.push("/configuracoes/servidor")}
 				displayName={profileQ.data?.displayName ?? null}

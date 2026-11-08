@@ -31,6 +31,7 @@ import { DaysSheet, ModelSheet, ScheduleSheet } from "./AgentSheets.tsx";
 import {
 	ALERT_EMPTY,
 	ALERT_EMPTY_OFF,
+	SETUP_ENTRY_NOTE,
 	type SettingRow,
 	scheduleLabel,
 	settingOn,
@@ -151,6 +152,20 @@ export function AgentScreen() {
 					icon="brilho"
 					onPress={() => router.push({ pathname: "/chat", params: { agentId: agent.id } })}
 				/>
+
+				{agent.builtinKey === "orbita" ? (
+					<View style={{ gap: spacing.sm }}>
+						<Button
+							label="Configurar com a Órbita"
+							variant="secondary"
+							icon="brilho"
+							onPress={() => router.push({ pathname: "/chat", params: { intent: "setup" } })}
+						/>
+						<Text variant="caption" tone="secondary" style={{ textAlign: "center" }}>
+							{SETUP_ENTRY_NOTE}
+						</Text>
+					</View>
+				) : null}
 
 				{agent.builtinKey === null ? (
 					<SettingsSection title="Instruções">
