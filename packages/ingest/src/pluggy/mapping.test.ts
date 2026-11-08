@@ -827,6 +827,22 @@ describe("mapPluggyTransaction: Pix para si mesmo pelo nome do titular", () => {
 		}
 	});
 
+	it("com um destino conhecido, a saída vira transferência (a entrada fica de fora, para não contar duas vezes)", () => {
+		const known = { ...withOwner, counterpartAccountId: "acc-2" };
+		expect(
+			mapPluggyTransaction(pix({ description: "Pix enviado - Maria de Souza Silva" }), known),
+		).toMatchObject({
+			action: "upsert",
+			input: { kind: "transfer", accountId: "acc-1", counterpartAccountId: "acc-2" },
+		});
+		const received = pix({
+			type: "CREDIT",
+			amount: 80,
+			paymentData: { payer: { name: "Maria de Souza Silva" } },
+		});
+		expect(mapPluggyTransaction(received, known)).toEqual({ action: "skip", reason: "own_transfer" });
+	});
+
 	it("sem o nome do titular, nada é presumido", () => {
 		expect(
 			mapPluggyTransaction(pix({ description: "Pix enviado - Maria de Souza Silva" }), bankCtx),

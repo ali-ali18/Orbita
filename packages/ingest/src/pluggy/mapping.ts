@@ -308,6 +308,11 @@ export interface TransactionContext {
 	/** Nome do titular da conta (`owner`), para reconhecer Pix para si mesmo quando o banco não manda o CPF. */
 	ownerName?: string | null;
 	/**
+	 * A única outra conta do dono conhecida (não arquivada). Só com ela a saída para si mesmo vira `transfer`
+	 * (o engine exige origem e destino); com zero ou várias, o destino é incerto e o lançamento fica de fora.
+	 */
+	counterpartAccountId?: string | null;
+	/**
 	 * Quais lançamentos são pagamento de fatura, já casados um a um (`assignBillPayments`), por id do lançamento.
 	 * Mais confiável que o nome da categoria.
 	 */
@@ -558,6 +563,20 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 			isOwnTransferByName(tx, description, ctx.ownerName) ||
 			family === "own_transfer"
 		) {
+			// Só a SAÍDA vira transferência: a entrada correspondente seria a mesma movimentação contada duas vezes.
+			if (tx.type === "DEBIT" && ctx.counterpartAccountId) {
+				return {
+					action: "upsert",
+					externalId: tx.id,
+					input: {
+						...base,
+						kind: "transfer",
+						accountId: ctx.accountId,
+						counterpartAccountId: ctx.counterpartAccountId,
+						categoryId: choose().categoryId,
+					},
+				};
+			}
 			return { action: "skip", reason: "own_transfer" };
 		}
 		// Rendimento de investimento é receita de verdade (o principal que volta, não: ver acima).

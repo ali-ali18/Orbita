@@ -1094,19 +1094,24 @@ describe("syncPluggy: corrige o que foi gravado errado antes", () => {
 		category: "Transfer - PIX",
 	});
 
-	it("transferência para si mesma que já contava como gasto sai; Pix para terceiro fica", async () => {
-		// 1ª rodada: o Pluggy ainda não dizia o titular da conta, então o Pix para si entrou como despesa.
-		const before = setup({
-			transactions: { [BANK_ACCOUNT_ID]: [pixToSelf, pixToThird], [CARD_ACCOUNT_ID]: [] },
-		});
+	it("Pix para si que já contava como gasto vira transferência no lugar; Pix para terceiro fica", async () => {
+		const second = { ...bankAccount, id: "0f1d2c3b-aaaa-4bbb-8ccc-000000000003", name: "Mercado Pago" };
+		const txs = { [BANK_ACCOUNT_ID]: [pixToSelf, pixToThird], [second.id]: [], [CARD_ACCOUNT_ID]: [] };
+		// 1ª rodada: o titular da conta ainda não batia com o Pix, então ele entrou como despesa.
+		const before = setup({ accounts: [bankAccount, second, cardAccount], transactions: txs });
 		await before.stores.pluggyConnections.add({ id: ITEM_ID, label: "Mercado Pago" });
 		await before.run();
-		expect((await everything(before.stores)).map((r) => r.externalId).sort()).toEqual(["p-self", "p-third"]);
+		expect((await everything(before.stores)).map((r) => [r.externalId, r.kind]).sort()).toEqual([
+			["p-self", "expense"],
+			["p-third", "expense"],
+		]);
+		const [first] = await before.stores.accounts.list();
+		const original = (await everything(before.stores)).find((r) => r.externalId === "p-self");
 
-		// 2ª rodada, mesmo banco: agora a conta traz o titular.
+		// 2ª rodada: a conta traz o titular certo.
 		const fake = fakePluggy({
-			accounts: [{ ...bankAccount, owner: "MARIA DE SOUZA SILVA" }, cardAccount],
-			transactions: { [BANK_ACCOUNT_ID]: [pixToSelf, pixToThird], [CARD_ACCOUNT_ID]: [] },
+			accounts: [{ ...bankAccount, owner: "MARIA DE SOUZA SILVA" }, second, cardAccount],
+			transactions: txs,
 		});
 		const again = () =>
 			syncPluggy({
@@ -1117,13 +1122,45 @@ describe("syncPluggy: corrige o que foi gravado errado antes", () => {
 			});
 		const result = await again();
 		expect(result.connections[0]?.reclassified).toBe(1);
-		expect((await everything(before.stores)).map((r) => [r.externalId, r.kind])).toEqual([
-			["p-third", "expense"],
-		]);
+		const rows = await everything(before.stores);
+		const self = rows.find((r) => r.externalId === "p-self");
+		// Mesmo lançamento (continua nas Atividades), agora transferência, com categoria mantida e a nota.
+		expect(self).toMatchObject({
+			id: original?.id,
+			kind: "transfer",
+			amountCents: 40_000,
+			categoryId: original?.categoryId,
+			note: "Recalculado: transferência entre contas suas.",
+		});
+		expect(self?.counterpartAccountId).not.toBeNull();
+		expect(self?.counterpartAccountId).not.toBe(self?.accountId);
+		expect(first).toBeDefined();
+		expect(rows.find((r) => r.externalId === "p-third")).toMatchObject({ kind: "expense" });
 
-		// 3ª rodada: nada muda e a transferência apagada não volta.
+		// 3ª rodada: nada muda.
 		expect((await again()).connections[0]?.reclassified).toBeUndefined();
-		expect(await everything(before.stores)).toHaveLength(1);
+		expect(await everything(before.stores)).toHaveLength(2);
+	});
+
+	it("um Pix para si novo entra como transferência, sem destino conhecido fica de fora", async () => {
+		const second = { ...bankAccount, id: "0f1d2c3b-aaaa-4bbb-8ccc-000000000003", name: "Mercado Pago" };
+		const mine = { ...bankAccount, owner: "Maria de Souza Silva" };
+		const both = setup({
+			accounts: [mine, second, cardAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [pixToSelf], [second.id]: [], [CARD_ACCOUNT_ID]: [] },
+		});
+		await both.stores.pluggyConnections.add({ id: ITEM_ID, label: "Mercado Pago" });
+		await both.run();
+		expect((await everything(both.stores)).map((r) => r.kind)).toEqual(["transfer"]);
+
+		const alone = setup({
+			accounts: [mine, cardAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [pixToSelf], [CARD_ACCOUNT_ID]: [] },
+		});
+		await alone.stores.pluggyConnections.add({ id: ITEM_ID, label: "Mercado Pago" });
+		const result = await alone.run();
+		expect(result.connections[0]?.skipped.own_transfer).toBe(1);
+		expect(await everything(alone.stores)).toEqual([]);
 	});
 
 	it("receita gravada como despesa volta a ser receita", async () => {

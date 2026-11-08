@@ -381,6 +381,7 @@ async function syncConnection(
 				card: target.card ? { id: target.card.id, config: toCardConfig(target.card) } : null,
 				ownerTaxNumber: target.taxNumber,
 				ownerName: target.ownerName,
+				counterpartAccountId: soleOtherAccount(linked, target),
 				billPaymentMatches: matches,
 				billTotals,
 				billMonths,
@@ -586,7 +587,7 @@ async function storeTransactions(
 		...mappedAll.filter((m) => m.mapped?.action !== "refund"),
 		...mappedAll.filter((m) => m.mapped?.action === "refund"),
 	];
-	for (const { tx, mapped } of ordered) {
+	for (const { mapped } of ordered) {
 		try {
 			if (mapped === null) {
 				result.failed += 1;
@@ -594,9 +595,6 @@ async function storeTransactions(
 			}
 			if (mapped.action === "skip") {
 				bump(result.skipped, mapped.reason);
-				if (mapped.reason === "own_transfer" && (await dropStaleOwnTransfer(transactions, tx.id))) {
-					result.reclassified = (result.reclassified ?? 0) + 1;
-				}
 				continue;
 			}
 			if (mapped.action === "upsert") {
@@ -653,32 +651,48 @@ async function storeTransactions(
 	}
 }
 
+/** A única outra conta (não arquivada) ligada à conexão, ou `null` se não há nenhuma ou há mais de uma. */
+function soleOtherAccount(linked: readonly Linked[], self: Linked): string | null {
+	const others = linked.flatMap((l) =>
+		l !== self && l.account && !l.account.archivedAt ? [l.account.id] : [],
+	);
+	return others.length === 1 ? (others[0] ?? null) : null;
+}
+
 /**
  * Recálculo do que já foi gravado errado (a sincronização é idempotente e nunca mexia no tipo). Só dois casos, ambos
  * sem ambiguidade e nunca sobre lançamento que o dono mexeu na categoria:
  * - entrou dinheiro (o Pluggy diz CREDIT, o mapeamento diz `income`) e está gravado como despesa → vira receita;
- * - hoje o mapeamento reconhece transferência para si mesmo e o lançamento está como despesa → é apagado (o
- *   identificador fica reservado, então a próxima sincronização não o recria).
+ * - hoje o mapeamento reconhece transferência para si mesmo (com destino conhecido) e o lançamento está como
+ *   despesa → vira `transfer` no lugar, com a categoria mantida e a observação avisando. Continua na lista de
+ *   Atividades e deixa de contar como gasto.
  */
 async function fixKind(
 	transactions: SyncPluggyDeps["stores"]["transactions"],
 	current: { id: string; kind: string; categoryEditedByOwner: boolean },
-	next: { kind: string; categoryId?: string | null | undefined },
+	next: {
+		kind: string;
+		categoryId?: string | null | undefined;
+		counterpartAccountId?: string | null | undefined;
+	},
 ): Promise<boolean> {
-	if (current.categoryEditedByOwner || current.kind !== "expense" || next.kind !== "income") return false;
-	await transactions.update(current.id, { kind: "income", categoryId: next.categoryId ?? null });
-	return true;
+	if (current.categoryEditedByOwner || current.kind !== "expense") return false;
+	if (next.kind === "income") {
+		await transactions.update(current.id, { kind: "income", categoryId: next.categoryId ?? null });
+		return true;
+	}
+	if (next.kind === "transfer" && next.counterpartAccountId) {
+		await transactions.update(current.id, {
+			kind: "transfer",
+			counterpartAccountId: next.counterpartAccountId,
+			note: RECOMPUTED_NOTE,
+		});
+		return true;
+	}
+	return false;
 }
 
-async function dropStaleOwnTransfer(
-	transactions: SyncPluggyDeps["stores"]["transactions"],
-	externalId: string,
-): Promise<boolean> {
-	const current = await transactions.findByExternal(PLUGGY_SOURCE, externalId);
-	if (current?.kind !== "expense" || current.categoryEditedByOwner) return false;
-	return transactions.softDelete(current.id);
-}
-
+const RECOMPUTED_NOTE = "Recalculado: transferência entre contas suas.";
 const NO_SOURCE_CATEGORY = "sem categoria do banco";
 const OTHERS_SHOWN = 8;
 
