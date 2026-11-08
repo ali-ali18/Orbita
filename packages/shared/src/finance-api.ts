@@ -192,6 +192,10 @@ export const budgetSuggestionResponse = z.object({
 });
 export type BudgetSuggestionResponse = z.infer<typeof budgetSuggestionResponse>;
 
+/** "Marcar como paga": o valor (o que falta da fatura) é do engine; o cliente só diz de qual conta sai. */
+export const invoicePayBody = z.object({ accountId: idSchema }).strict();
+export type InvoicePayBody = z.infer<typeof invoicePayBody>;
+
 export const installmentsQuery = z.object({ from: monthKeySchema.optional() });
 
 const cents = z.number().int();
