@@ -41,6 +41,7 @@ Regras que o engine garante, todas com teste:
 - **Dinheiro em centavos, inteiro.** Nunca `float`.
 - **Fatura**: cada cartão tem dia de fechamento e de vencimento; a compra cai na fatura certa pela data no fuso `America/Sao_Paulo`.
 - **Parcelamento**: 1 compra → N parcelas, cada uma na sua fatura. Juros/IOF são lançamentos separados.
+- **Gasto do cartão pela fatura, aplicação fora do gasto**: ver [Definições](#definições).
 - **Pagamento de fatura não é gasto**: é transferência conta → cartão. Contar como gasto conta tudo duas vezes.
 - **Transferência entre contas suas** não é gasto nem receita.
 - **Estorno** fica ligado à compra original.
@@ -48,6 +49,17 @@ Regras que o engine garante, todas com teste:
 - **Melhor dia de compra** por cartão.
 
 Modelo de dados mínimo: `accounts`, `cards`, `transactions` (valor em centavos, tipo, categoria, conta ou cartão, `invoiceMonth`, `installmentOf`, `status`), `categories`, `rules`, `budgets`, `recurrences`, `goals`, `agents`, `alerts`, `raw_events`.
+
+## Definições
+
+Os números do app seguem estas definições, todas no engine (`packages/core`) e usadas igual no Início, no relatório, na sugestão de orçamento, nos avisos e nas ferramentas da IA (`monthSummary` do `@orbita/ledger`).
+
+- **Gasto do mês.** O que o dono paga naquele mês. **Cartão: pela fatura**, no mês em que ela vence (`invoiceMonth`), não pela data da compra; cada parcela pesa na sua própria fatura, e o estorno no cartão segue a fatura dele. **Conta (débito, Pix, boleto): pela data** (`budgetMonth`). A fatura aberta pesa no mês em que vence, não antes. Pagamento de fatura e transferência não entram. O conjunto vem de `listForSpendingMonth` e a soma de `summarizeMonth`.
+  - Parcela que o banco ainda não lançou, de um grupo de parcelas já visto, **conta na fatura do mês dela como estimada** (`projectedCents`), só de hoje em diante (mês passado fica como foi gravado). Assim a fatura de dezembro já aparece no mês certo antes de o banco fechá-la.
+- **Investido.** Aplicação: dinheiro que sai da conta para ações, cripto, CDB, caixinha (tipo `investment`). **Não é gasto**: não reduz o "Dá pra gastar", não entra no Gasto, no % do orçamento nem em "Gastos por categoria". Aparece à parte, "Investido R$ X". Rendimento e resgate continuam **receita**. Despesa de conta lançada à mão na categoria Investimentos vira `investment`; no cartão continua despesa.
+- **Transferência própria.** Dinheiro entre contas do próprio dono (`transfer`): nem gasto nem receita. Pix para outra pessoa não é isso: é gasto em Transferências.
+- **Pagamento de fatura.** Transferência conta → cartão (`card_payment`): não é gasto, porque as compras já pesaram na fatura.
+- **Dá pra gastar** (mês atual) = orçamento total do mês − Gasto do mês − recorrências ainda por lançar. Como o cartão pesa pela fatura, a compra feita hoje no cartão reduz o mês em que a fatura vence, não o de hoje; o Investido não entra na conta. A projeção usa o mesmo Gasto, mais as recorrências pendentes, mais o ritmo diário do que sai da conta (a fatura que vence no mês é compromisso fechado e não é estendida pelos dias restantes).
 
 ## Ingestão (`packages/ingest`)
 

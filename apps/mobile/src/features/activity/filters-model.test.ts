@@ -170,6 +170,11 @@ describe("toQueryParams", () => {
 		});
 	});
 
+	it("investimentos filtra só a aplicação, à parte das saídas", () => {
+		expect(toQueryParams(f({ types: ["invest"] }), TODAY).kinds).toBe("investment");
+		expect(toQueryParams(f({ types: ["out"] }), TODAY).kinds).toBe("expense");
+	});
+
 	it("transferência inclui pagamento de fatura", () => {
 		expect(toQueryParams(f({ types: ["transfer"] }), TODAY).kinds).toBe("transfer,card_payment");
 	});

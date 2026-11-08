@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountTone, transactionIcon } from "./transaction-model.ts";
+import { amountTone, signedAmount, transactionIcon } from "./transaction-model.ts";
 
 describe("transactionIcon", () => {
 	it("despesa segue a categoria pelo slug", () => {
@@ -35,5 +35,13 @@ describe("amountTone", () => {
 
 	it("transferência entre contas próprias é neutra", () => {
 		expect(amountTone("transfer")).toBe("secondary");
+	});
+});
+
+describe("investimento (aplicação)", () => {
+	it("sai do saldo, mas não é gasto: valor negativo, cor neutra e ícone de gráfico", () => {
+		expect(signedAmount({ kind: "investment", amountCents: 200000 })).toBe(-200000);
+		expect(amountTone("investment")).toBe("secondary");
+		expect(transactionIcon("investment", undefined)).toBe("grafico");
 	});
 });
