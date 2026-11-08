@@ -215,3 +215,14 @@ export const byDateAsc = (a: TransactionRecord, b: TransactionRecord) =>
 /** Ordem de "recentes" e do cursor: data e id, do maior para o menor. */
 export const byRecent = (a: TransactionRecord, b: TransactionRecord) =>
 	b.date.localeCompare(a.date) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+
+/** Conta OU cartão (um só). */
+export function checkTarget(target: { accountId?: string | undefined; cardId?: string | undefined }): {
+	accountId?: string;
+	cardId?: string;
+} {
+	const hasAccount = target.accountId !== undefined;
+	const hasCard = target.cardId !== undefined;
+	if (hasAccount === hasCard) throw invalid("Informe a conta ou o cartão (apenas um dos dois).");
+	return hasAccount ? { accountId: target.accountId as string } : { cardId: target.cardId as string };
+}

@@ -335,3 +335,22 @@ model IdempotencyKey {
   @@index([expiresAt])
   @@map("idempotency_keys")
 }
+
+/// Arquivo de extrato já importado (só o hash dele e os números do resultado; o arquivo nunca é guardado). Repetir o envio do mesmo arquivo para o mesmo destino não cria nada de novo.
+model ImportBatch {
+  id                     String   @id @default(cuid())
+  /// SHA-256 (hex) dos bytes do arquivo.
+  fileHash               String   @map("file_hash")
+  /// "account:<id>" ou "card:<id>".
+  targetKey              String   @map("target_key")
+  format                 String
+  createdAt              DateTime @default(now()) @map("created_at")
+  /// Nulos enquanto a importação ainda roda.
+  createdCount           Int?     @map("created_count")
+  duplicateCount         Int?     @map("duplicate_count")
+  possibleDuplicateCount Int?     @map("possible_duplicate_count")
+  unrecognizedCount      Int?     @map("unrecognized_count")
+
+  @@unique([fileHash, targetKey])
+  @@map("import_batches")
+}

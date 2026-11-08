@@ -10,6 +10,7 @@ import { cleanMonth } from "./rules.ts";
 import {
 	changedColumns,
 	checkRecentOptions,
+	checkTarget,
 	cleanIds,
 	cleanLimit,
 	DEFAULT_PENDING_LIMIT,
@@ -266,6 +267,20 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 					where: {
 						cardId,
 						kind: "card_payment",
+						date: { gte: toDbDate(from), lte: toDbDate(to) },
+						deletedAt: null,
+					},
+					orderBy: [...ORDER_BY_DATE],
+				}),
+			);
+		},
+
+		async listByTarget(target, { from, to }) {
+			const { accountId, cardId } = checkTarget(target);
+			return await many(
+				db.transaction.findMany({
+					where: {
+						...(accountId !== undefined ? { accountId } : { cardId }),
 						date: { gte: toDbDate(from), lte: toDbDate(to) },
 						deletedAt: null,
 					},

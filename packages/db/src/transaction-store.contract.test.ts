@@ -717,6 +717,31 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect(found.map((t) => t.id)).toEqual([edgeFrom.id, mid.id, edgeTo.id]);
 		});
 
+		it("listByTarget traz os vivos da conta ou do cartão no intervalo, de qualquer origem", async () => {
+			const inside = await tx.create(expense({ date: "2026-11-05", source: "import", externalId: "i1" }));
+			const edge = await tx.create(expense({ date: "2026-11-10", status: "pending" }));
+			await tx.create(expense({ date: "2026-11-11" }));
+			await tx.create(expense({ date: "2026-11-04", amountCents: 5 }));
+			await tx.create(expense({ date: "2026-11-06", accountId: b.savings.id }));
+			const card = await tx.create(cardPurchase({ date: "2026-11-06" }));
+			const gone = await tx.create(expense({ date: "2026-11-07" }));
+			await tx.softDelete(gone.id);
+			const range = { from: "2026-11-05", to: "2026-11-10" };
+			expect((await tx.listByTarget({ accountId: b.checking.id }, range)).map((t) => t.id)).toEqual([
+				inside.id,
+				edge.id,
+			]);
+			expect((await tx.listByTarget({ cardId: b.card.id }, range)).map((t) => t.id)).toEqual([card.id]);
+		});
+
+		it("listByTarget exige conta ou cartão, um só", async () => {
+			const range = { from: "2026-11-05", to: "2026-11-10" };
+			await expect(tx.listByTarget({}, range)).rejects.toMatchObject({ code: "invalid" });
+			await expect(
+				tx.listByTarget({ accountId: b.checking.id, cardId: b.card.id }, range),
+			).rejects.toMatchObject({ code: "invalid" });
+		});
+
 		it("listPending só traz os pendentes, do mais recente ao mais antigo", async () => {
 			const old = await tx.create(expense({ status: "pending", date: "2026-11-01" }));
 			const recent = await tx.create(expense({ status: "pending", date: "2026-11-09" }));

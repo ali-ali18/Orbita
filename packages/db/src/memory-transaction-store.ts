@@ -8,6 +8,7 @@ import {
 	byRecent,
 	changedColumns,
 	checkRecentOptions,
+	checkTarget,
 	cleanIds,
 	cleanLimit,
 	DEFAULT_PENDING_LIMIT,
@@ -197,6 +198,19 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 		async listCardPayments(cardId, { from, to }) {
 			return live()
 				.filter((t) => t.kind === "card_payment" && t.cardId === cardId && t.date >= from && t.date <= to)
+				.map(view)
+				.sort(byDateAsc);
+		},
+
+		async listByTarget(target, { from, to }) {
+			const { accountId, cardId } = checkTarget(target);
+			return live()
+				.filter(
+					(t) =>
+						t.date >= from &&
+						t.date <= to &&
+						(accountId !== undefined ? t.accountId === accountId : t.cardId === cardId),
+				)
 				.map(view)
 				.sort(byDateAsc);
 		},
