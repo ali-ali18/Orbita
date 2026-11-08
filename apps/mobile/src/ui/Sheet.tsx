@@ -9,6 +9,7 @@ import {
 	Platform,
 	Pressable,
 	ScrollView,
+	useWindowDimensions,
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -38,14 +39,28 @@ export function Sheet({
 	const drag = useRef(new Animated.Value(0)).current;
 	const closeRef = useRef(onClose);
 	closeRef.current = onClose;
+	const windowHeight = useWindowDimensions().height;
+	// 0 = fora da tela e sem fundo, 1 = aberta. O fundo só esmaece; só o painel desliza.
+	const progress = useRef(new Animated.Value(0)).current;
+	const [mounted, setMounted] = useState(visible);
 	const [height, setHeight] = useState(0);
 	const heightRef = useRef(0);
 	heightRef.current = height;
 
 	// A cada abertura o painel volta ao repouso (um arrasto anterior pode tê-lo deixado fora da tela).
 	useEffect(() => {
-		if (visible) drag.setValue(0);
-	}, [visible, drag]);
+		if (visible) {
+			drag.setValue(0);
+			setMounted(true);
+			Animated.timing(progress, { toValue: 1, duration: 260, useNativeDriver: native }).start();
+			return;
+		}
+		Animated.timing(progress, { toValue: 0, duration: 200, useNativeDriver: native }).start(
+			({ finished }) => {
+				if (finished) setMounted(false);
+			},
+		);
+	}, [visible, drag, progress]);
 
 	useEffect(() => {
 		if (!visible || Platform.OS !== "android") return;
@@ -77,12 +92,11 @@ export function Sheet({
 	).current;
 
 	return (
-		<Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+		<Modal visible={mounted} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
 			{/* A gaveta sobe com o teclado (campo de data digitada, por exemplo). */}
 			<KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: "flex-end" }}>
-				<Pressable
-					accessibilityLabel="Fechar"
-					onPress={onClose}
+				<Animated.View
+					pointerEvents="box-none"
 					style={{
 						position: "absolute",
 						top: 0,
@@ -90,9 +104,11 @@ export function Sheet({
 						right: 0,
 						bottom: 0,
 						backgroundColor: colors.background,
-						opacity: 0.7,
+						opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 0.7] }),
 					}}
-				/>
+				>
+					<Pressable accessibilityLabel="Fechar" onPress={onClose} style={{ flex: 1 }} />
+				</Animated.View>
 				<Animated.View
 					accessibilityViewIsModal
 					onLayout={(e) => setHeight(e.nativeEvent.layout.height)}
@@ -103,7 +119,17 @@ export function Sheet({
 						paddingHorizontal: spacing.lg,
 						paddingBottom: Math.max(insets.bottom, layout.homeIndicator),
 						maxHeight: "80%",
-						transform: [{ translateY: drag }],
+						transform: [
+							{
+								translateY: Animated.add(
+									drag,
+									progress.interpolate({
+										inputRange: [0, 1],
+										outputRange: [Math.max(height, windowHeight), 0],
+									}),
+								),
+							},
+						],
 					}}
 				>
 					<View
