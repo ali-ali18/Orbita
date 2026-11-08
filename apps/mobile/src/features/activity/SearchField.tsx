@@ -6,7 +6,18 @@ import { familyByWeight, Icon } from "../../ui/index.ts";
 const WEB_NO_OUTLINE: object = { outlineStyle: "none" };
 
 /** Campo de busca do Figma ("buscar": 48 de altura, pílula, contorno `border`). */
-export function SearchField({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+export function SearchField({
+	value,
+	onChange,
+	placeholder = "Buscar por nome, valor ou categoria",
+	label = "Buscar lançamentos por nome, valor ou categoria",
+}: {
+	value: string;
+	onChange: (next: string) => void;
+	placeholder?: string;
+	/** Rótulo para leitor de tela. */
+	label?: string;
+}) {
 	return (
 		<View
 			style={{
@@ -25,9 +36,9 @@ export function SearchField({ value, onChange }: { value: string; onChange: (nex
 			<TextInput
 				value={value}
 				onChangeText={onChange}
-				placeholder="Buscar por nome, valor ou categoria"
+				placeholder={placeholder}
 				placeholderTextColor={colors.textSecondary}
-				accessibilityLabel="Buscar lançamentos por nome, valor ou categoria"
+				accessibilityLabel={label}
 				returnKeyType="search"
 				autoCorrect={false}
 				autoCapitalize="none"
