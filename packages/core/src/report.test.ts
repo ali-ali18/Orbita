@@ -58,6 +58,7 @@ describe("monthReport", () => {
 		expect(report.totals).toEqual({
 			incomeCents: 420000,
 			spentCents: 200200,
+			investedCents: 0,
 			balanceCents: 219800,
 			refundCreditCents: 0,
 		});

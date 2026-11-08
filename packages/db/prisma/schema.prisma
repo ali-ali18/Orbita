@@ -62,6 +62,7 @@ enum TransactionKind {
   transfer
   card_payment
   refund
+  investment
 
   @@map("transaction_kind")
 }
