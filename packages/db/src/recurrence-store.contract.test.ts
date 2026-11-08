@@ -291,6 +291,16 @@ describe.each(contractSuites())("RecurrenceStore (%s)", (_name, make) => {
 			expect(await stores.recurrences.listPostings("2026-11")).toEqual([done.posting]);
 		});
 
+		it("apagar o lançamento libera o posting e o mês pode ser lançado de novo", async () => {
+			const r = await stores.recurrences.create(rent());
+			const first = await stores.recurrences.postWithTransaction(input(r.id));
+			await stores.transactions.softDelete(first.transaction.id);
+			expect(await stores.recurrences.listPostings("2026-11")).toEqual([]);
+			const second = await stores.recurrences.postWithTransaction(input(r.id));
+			expect(second.transaction.id).not.toBe(first.transaction.id);
+			expect(await stores.recurrences.listPostings("2026-11")).toEqual([second.posting]);
+		});
+
 		it("segunda vez no mês é duplicate e não deixa lançamento órfão", async () => {
 			const r = await stores.recurrences.create(rent());
 			await stores.recurrences.postWithTransaction(input(r.id));
