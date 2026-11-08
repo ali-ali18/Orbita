@@ -1,12 +1,4 @@
-import {
-	addDays,
-	addMonths,
-	daysBetween,
-	decimalToCents,
-	type LocalDate,
-	type MonthKey,
-	toLocalDate,
-} from "@orbita/core";
+import { addDays, addMonths, decimalToCents, type MonthKey, toLocalDate } from "@orbita/core";
 import {
 	type AccountRecord,
 	type CardRecord,
@@ -20,9 +12,17 @@ import { detectBankName, findKnownBank, hasMeuPluggyPrefix, isWeakCardName } fro
 import { buildCategoryIndex, type CategoryIndex } from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
 import { chooseConnectionLabel } from "./connection-label.ts";
+import {
+	isPaymentNote,
+	type OwnTransferLeg,
+	pairOwnTransfers,
+	RECOMPUTED_TRANSFER_NOTE,
+	reconcileAcrossConnections,
+} from "./cross.ts";
 import { PluggyError, safeErrorMessage } from "./errors.ts";
 import {
 	assignBillPayments,
+	type BillInfo,
 	type BillPayment,
 	type BillTotal,
 	isEstimatedCardDates,
@@ -40,6 +40,8 @@ import {
 	transactionFacts,
 } from "./mapping.ts";
 import type { PluggyAccount, PluggyBill, PluggyTransaction } from "./schemas.ts";
+
+export { type OwnTransferLeg, pairOwnTransfers };
 
 export const PLUGGY_SYNC_QUEUE = "sincronizacao";
 /** Job agendado (todo dia, 06:00 em São Paulo). */
@@ -150,13 +152,15 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 	const startedAt = now();
 	const lookups = createLookups(deps, client);
 	const results: ConnectionSyncResult[] = [];
+	const shared: RunShared = { cards: [], bills: [] };
 	for (const connection of connections) {
-		const result = await syncConnection(deps, client, connection, startedAt, lookups);
+		const result = await syncConnection(deps, client, connection, startedAt, lookups, shared);
 		results.push(await finish(deps, connection, result, startedAt));
 		log(
 			`pluggy: ${result.status} contas=${result.accounts} novos=${result.created} existentes=${result.existing}`,
 		);
 	}
+	await crossConnections(deps, shared, startedAt, results);
 	const statuses = new Set(results.map((r) => r.status));
 	const status: PluggySyncStatus = statuses.has("error")
 		? statuses.size === 1
@@ -166,6 +170,41 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 			? "partial"
 			: "ok";
 	return { status, connections: results };
+}
+
+/** O que as conexões já sincronizadas desta rodada sabem dos cartões e das faturas (para as conexões seguintes e o passo final). */
+interface RunShared {
+	cards: { id: string; name: string; last4: string | null }[];
+	bills: BillInfo[];
+}
+
+/** Passo final, com todas as conexões já gravadas: pagamento de fatura e transferência entre contas de conexões diferentes. */
+async function crossConnections(
+	deps: SyncPluggyDeps,
+	shared: RunShared,
+	startedAt: Date,
+	results: ConnectionSyncResult[],
+): Promise<void> {
+	const target = results.find((r) => r.status !== "error") ?? null;
+	if (target === null) return;
+	try {
+		const done = await reconcileAcrossConnections({
+			transactions: deps.stores.transactions,
+			today: toLocalDate(startedAt),
+			cards: shared.cards,
+			bills: shared.bills,
+		});
+		const n = done.billPayments + done.ownTransfers;
+		if (n > 0) {
+			target.reclassified = (target.reclassified ?? 0) + n;
+			target.notes.push(
+				`${n} lançamento(s) foram corrigidos olhando todas as conexões (pagamento de fatura de outro banco, transferência entre contas suas).`,
+			);
+		}
+	} catch (e) {
+		if (e instanceof PluggyError && (e.code === "auth" || e.code === "rate_limit")) throw e;
+		target.notes.push("Não deu para conferir as transferências e faturas entre conexões agora.");
+	}
 }
 
 /** Categorias que valem para a rodada inteira: buscadas uma vez, só se algum lançamento chegar a precisar delas. */
@@ -239,6 +278,7 @@ async function syncConnection(
 	connection: PluggyConnectionRecord,
 	startedAt: Date,
 	lookups: Lookups,
+	shared: RunShared,
 ): Promise<ConnectionSyncResult> {
 	const result = blank(connection.id, "ok", null);
 	// Motivos para a conexão terminar `partial`: não avança `lastSyncAt`, então a próxima rodada refaz a janela.
@@ -315,12 +355,26 @@ async function syncConnection(
 				if (due !== null) billMonths.set(bill.id, due.slice(0, 7));
 				const total = centsOrNull(bill.totalAmount);
 				if (total !== null) billTotals.push({ cardId, amountCents: total });
+				if (total !== null) {
+					const paid = bill.payments.reduce((sum, p) => sum + (centsOrNull(p.amount) ?? 0), 0);
+					shared.bills.push({
+						cardId,
+						totalCents: total,
+						remainingCents: Math.max(total - paid, 0),
+						dueDate: due,
+					});
+				}
 				for (const p of bill.payments) {
 					const date = pluggyDateToLocal(p.paymentDate);
 					const amountCents = centsOrNull(p.amount);
 					if (date === null || amountCents === null || (p.currencyCode && p.currencyCode !== "BRL")) continue;
 					billPayments.push({ cardId, amountCents, date });
 				}
+			}
+		}
+		for (const l of liveCards) {
+			if (l.card && !shared.cards.some((c) => c.id === l.card?.id)) {
+				shared.cards.push({ id: l.card.id, name: l.card.name, last4: l.card.last4 });
 			}
 		}
 		if (billsUnavailable) {
@@ -395,9 +449,9 @@ async function syncConnection(
 			ownerName: target.ownerName,
 			billPaymentMatches: matches,
 			billTotals,
-			cards: liveCards.flatMap((l) =>
-				l.card ? [{ id: l.card.id, name: l.card.name, last4: l.card.last4 }] : [],
-			),
+			// Cartões e faturas de todas as conexões já vistas: o pagamento sai de uma conta e pode ser de cartão de outro banco.
+			cards: shared.cards,
+			bills: shared.bills,
 			billMonths,
 			billsUnavailable,
 			...(categoryIndex ? { categoryIndex } : {}),
@@ -533,6 +587,10 @@ async function linkAccounts(
 				// mexeu no nome, então troca uma vez; depois do nome novo isto não roda de novo.
 				account = await accounts.update(account.id, { name: mapped.input.name });
 			}
+			// Emissor pela conexão (ISPB): a conta antiga, sem banco, ganha uma vez; o que o dono escolheu fica.
+			if (account && account.archivedAt === null && account.bankCode === null && mapped.input.bankCode) {
+				account = await accounts.update(account.id, { bankCode: mapped.input.bankCode });
+			}
 			out.push({
 				pluggyId: pa.id,
 				taxNumber: pa.taxNumber ?? null,
@@ -581,6 +639,19 @@ async function linkAccounts(
 			card.archivedAt === null &&
 			card.name !== mapped.input.name &&
 			(hasMeuPluggyPrefix(card.name) || (isWeakCardName(card.name) && !isWeakCardName(mapped.input.name)))
+		) {
+			card = await cards.update(card.id, { name: mapped.input.name });
+		}
+		// Emissor pela conexão: o cartão gravado antes de saber o banco ("FREE VISA" sem "Santander") ganha o ISPB, uma vez,
+		// e o nome que é só o do Pluggy ganha o banco na frente. O nome que o dono trocou não é tocado.
+		if (card && card.archivedAt === null && card.bankCode === null && mapped.input.bankCode) {
+			card = await cards.update(card.id, { bankCode: mapped.input.bankCode });
+		}
+		if (
+			card &&
+			card.archivedAt === null &&
+			card.name !== mapped.input.name &&
+			mapped.input.name.toLowerCase().endsWith(` ${card.name.toLowerCase()}`)
 		) {
 			card = await cards.update(card.id, { name: mapped.input.name });
 		}
@@ -654,6 +725,24 @@ async function storeTransactions(
 						await transactions.update(res.transaction.id, { invoiceMonth: mapped.input.invoiceMonth });
 						result.reclassified = (result.reclassified ?? 0) + 1;
 					}
+					// Compra no cartão: o gasto pesa pela data da compra. Linha gravada quando o gasto seguia a fatura (ou
+					// com o dia do lançamento da fatura) volta para a data e o mês certos; a do dono editada fica como está.
+					if (
+						ctx.card &&
+						res.transaction &&
+						res.transaction.kind === "expense" &&
+						mapped.input.kind === "expense" &&
+						!res.transaction.categoryEditedByOwner &&
+						mapped.input.budgetMonth != null &&
+						(res.transaction.date !== mapped.input.date ||
+							res.transaction.budgetMonth !== mapped.input.budgetMonth)
+					) {
+						await transactions.update(res.transaction.id, {
+							date: mapped.input.date,
+							budgetMonth: mapped.input.budgetMonth,
+						});
+						result.reclassified = (result.reclassified ?? 0) + 1;
+					}
 					const nextCategoryId = mapped.input.categoryId ?? null;
 					if (
 						res.transaction &&
@@ -694,42 +783,6 @@ async function storeTransactions(
 			else throw e;
 		}
 	}
-}
-
-/** Uma ponta de transferência própria: o dinheiro que saiu (`out`) ou entrou (`in`) numa conta do Órbita. */
-export interface OwnTransferLeg {
-	id: string;
-	accountId: string;
-	direction: "in" | "out";
-	amountCents: number;
-	date: LocalDate;
-}
-
-/**
- * Pareia saída e entrada da mesma transferência: mesmo valor, contas diferentes, mesmo dia ou dia seguinte. Só vale
- * quando o par é ÚNICO dos dois lados (a saída tem exatamente uma entrada candidata e vice-versa); na dúvida não pareia.
- * Devolve `id da ponta → conta da outra ponta`.
- */
-export function pairOwnTransfers(legs: readonly OwnTransferLeg[]): Map<string, string> {
-	const candidates = (leg: OwnTransferLeg) =>
-		legs.filter(
-			(other) =>
-				other.direction !== leg.direction &&
-				other.accountId !== leg.accountId &&
-				other.amountCents === leg.amountCents &&
-				Math.abs(daysBetween(leg.date, other.date)) <= 1,
-		);
-	const paired = new Map<string, string>();
-	for (const leg of legs) {
-		if (leg.direction !== "out") continue;
-		const [only, ...rest] = candidates(leg);
-		if (!only || rest.length > 0) continue;
-		const back = candidates(only);
-		if (back.length !== 1 || back[0]?.id !== leg.id) continue;
-		paired.set(leg.id, only.accountId);
-		paired.set(only.id, leg.accountId);
-	}
-	return paired;
 }
 
 /**
@@ -816,10 +869,7 @@ async function fixKind(
 	return false;
 }
 
-const isPaymentNote = (note: string | null) =>
-	note === PAYMENT_UNCONNECTED_NOTE || note === PAYMENT_REVIEW_NOTE;
-
-const RECOMPUTED_NOTE = "Recalculado: transferência entre contas suas.";
+const RECOMPUTED_NOTE = RECOMPUTED_TRANSFER_NOTE;
 const NO_SOURCE_CATEGORY = "sem categoria do banco";
 const OTHERS_SHOWN = 8;
 

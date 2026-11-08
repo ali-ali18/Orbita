@@ -77,6 +77,8 @@ export function tx(id: string, extra: Json): Json {
 export interface FakePluggyOptions {
 	item?: Json | (() => Json);
 	accounts?: Json[];
+	/** Outras conexões (itemId → contas e dados do item), para testar vários bancos na mesma rodada. */
+	otherItems?: Record<string, { accounts: Json[]; item?: Json }>;
 	/** Por accountId. */
 	transactions?: Record<string, Json[]>;
 	/** Faturas por accountId do cartão (`GET /bills`). Ausente = 404, como num conector sem faturas. */
@@ -146,6 +148,20 @@ export function fakePluggy(options: FakePluggyOptions = {}) {
 				...item,
 			});
 		}
+		const other = Object.entries(options.otherItems ?? {}).find(([id]) => url.pathname === `/items/${id}`);
+		if (other) {
+			return json({
+				id: other[0],
+				status: "UPDATED",
+				executionStatus: "SUCCESS",
+				lastUpdatedAt: "2026-11-07T08:00:00.000Z",
+				createdAt: "2026-11-01T08:00:00.000Z",
+				connector: { id: 613, name: "MeuPluggy", isSandbox: false },
+				...other[1].item,
+			});
+		}
+		const otherAccounts = options.otherItems?.[url.searchParams.get("itemId") ?? ""];
+		if (url.pathname === "/accounts" && otherAccounts) return paged(otherAccounts.accounts, url);
 		if (url.pathname === "/accounts" && url.searchParams.get("itemId") === ITEM_ID) {
 			return paged(options.accounts ?? [bankAccount, cardAccount], url);
 		}
