@@ -1,4 +1,14 @@
 export type { AccountInput, AccountPatch, AccountRecord, AccountStore } from "./account-store.ts";
+export type {
+	AgentPatch,
+	AgentRecord,
+	AgentStore,
+	AlertDraft,
+	AlertQuery,
+	AlertRecord,
+	BuiltinAgentSeed,
+	CustomAgentInput,
+} from "./agent-store.ts";
 export {
 	type AiModelChoice,
 	type AiUsageInput,

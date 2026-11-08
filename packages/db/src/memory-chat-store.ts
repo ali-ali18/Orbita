@@ -12,34 +12,44 @@ import type { Clock } from "./memory-state.ts";
 const clone = <T>(value: T): T => structuredClone(value);
 
 /** Implementação em memória, para testes. Segue as mesmas regras da versão Prisma. */
-export function createMemoryChatStore(now: Clock): ChatStore {
+export function createMemoryChatStore(
+	now: Clock,
+	agentExists: (id: string) => boolean = () => true,
+): ChatStore {
 	const conversations = new Map<string, ChatConversationRecord>();
 	const messages = new Map<string, ChatMessageRecord[]>();
 	const proposals = new Map<string, ChatProposalRecord>();
+	// Agente apagado: a conversa volta a ser da Órbita (no banco, a chave estrangeira faz o mesmo).
+	const view = (row: ChatConversationRecord): ChatConversationRecord => ({
+		...row,
+		agentId: row.agentId !== null && agentExists(row.agentId) ? row.agentId : null,
+	});
 
 	return {
-		async createConversation(title) {
+		async createConversation(title, options = {}) {
+			if (options.agentId && !agentExists(options.agentId)) throw notFound("Agente", "o");
 			const at = now();
 			const row: ChatConversationRecord = {
 				id: randomUUID(),
 				title: cleanChatTitle(title),
 				createdAt: at,
 				updatedAt: at,
+				agentId: options.agentId ?? null,
 			};
 			conversations.set(row.id, row);
 			messages.set(row.id, []);
-			return { ...row };
+			return view(row);
 		},
 		async getConversation(id) {
 			const row = conversations.get(id);
-			return row ? { ...row } : null;
+			return row ? view(row) : null;
 		},
 		async listConversations(options = {}) {
 			const limit = Math.min(Math.max(options.limit ?? 30, 1), 100);
 			return [...conversations.values()]
 				.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || (a.id < b.id ? 1 : -1))
 				.slice(0, limit)
-				.map((c) => ({ ...c }));
+				.map(view);
 		},
 		async deleteConversation(id) {
 			if (!conversations.delete(id)) return false;
