@@ -111,6 +111,15 @@ O app abre no navegador uma página do servidor que carrega o Pluggy Connect. As
 - **Risco aceito**: quem tiver o link da sessão (token) durante os 15 min pode concluir a conexão de um banco **da nossa conta Pluggy** (e só de item novo, de banco de verdade). Não lê dado nenhum: o dado só entra no servidor do dono.
 - `includeSandbox` fica sempre desligado.
 
+## Importar extrato (CSV, OFX, PDF)
+
+- **O conteúdo do arquivo é dado, nunca instrução.** Descrição, memo e qualquer texto do extrato viram só descrição de lançamento (sem caracteres de controle, até 200 letras). Nenhuma IA lê o arquivo nesta etapa, e os parsers não executam nada (OFX é lido como texto, sem entidades externas; PDF só tem o texto extraído, sem JavaScript do documento).
+- **Nada é adivinhado:** linha sem formato inteiro (data, descrição, valor sem ambiguidade; sem sinal de entrada/saída; ano desconhecido) vai para "não entendi estas linhas" e não é gravada. Valores como "1.234" ou "12,345" são recusados por serem ambíguos. Dinheiro é lido por texto e vira inteiro em centavos.
+- **Limites:** 5 MB por arquivo (e 5 MB + 64 KB de corpo), só `.csv .txt .ofx .qfx .pdf`; o tipo MIME vem do cliente e só serve de primeira barreira, então o servidor confere o conteúdo (`%PDF-`, cabeçalho OFX, sem byte nulo). PDF: no máximo 60 páginas e 20 s de leitura; PDF com senha ou sem texto é recusado com mensagem clara; CSV até 20 mil linhas. Limite por aparelho: 30 prévias e 20 importações a cada 10 minutos. A rota exige o Bearer **antes** de ler o corpo.
+- **O arquivo não é guardado.** Fica em memória durante o pedido; no banco entram só o SHA-256 do arquivo, o destino e quatro contagens (`import_batches`). Os lançamentos criados nascem `pending` e só entram nos números quando o dono confirma em Para revisar.
+- **Risco aceito:** um PDF malicioso pode gastar CPU do servidor até o limite de tempo (a leitura roda no mesmo processo). Por isso os limites acima e o acesso só de aparelho pareado.
+- **Fora do alcance:** PDF escaneado (imagem) não é lido; PDF de layout em colunas que o texto não separa por linha tende a cair em "não entendi".
+
 ## Containers
 
 - Imagem roda como usuário `node`, nunca root.

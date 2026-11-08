@@ -15,7 +15,7 @@ packages/
   security/   Derivação de chaves, criptografia de segredos, limite de requisições.
   ota/        Atualização OTA do app: layout do diretório, manifesto, assinatura e o CLI que roda no CI.
   db/         Prisma e as implementações das "stores" e o cofre das chaves.
-  ingest/     Fontes de lançamentos: cliente e sincronização do Meu Pluggy (ver pluggy.md).
+  ingest/     Fontes de lançamentos: Meu Pluggy (ver pluggy.md) e extratos CSV/OFX/PDF (statement/).
   core/       Engine financeiro: funções puras (próxima fase).
 ```
 
@@ -85,6 +85,18 @@ Se algum passo não se aplica, pule. Se a feature não tem regra de dinheiro, n�
 ## Filtros da lista de lançamentos
 
 `GET /v1/transactions` (e `GET /v1/transactions/count`, que só conta) aceitam filtros opcionais, combinados com E; listas vão separadas por vírgula e o `cursor` continua valendo sobre o resultado filtrado: `from`/`to` (AAAA-MM-DD, inclusivos), `kinds`, `accountIds`, `cardIds`, `categoryIds`, `sources`, `statuses`, `minCents`/`maxCents` (centavos inteiros, inclusivos). `accountIds` e `cardIds` juntos valem como OU, e a conta também casa com o destino de uma transferência. O schema está em `@orbita/shared` (`transactionFilterFields`), a regra em `TransactionStore.listRecent`/`countMatching` (Prisma e memória, mesmo contrato). No app, `features/activity/filters-model.ts` converte o que o dono marcou na gaveta nesses parâmetros; o estado fica em `filters-store.ts` (memória do app, sobrevive à navegação).
+
+## Importação de extrato
+
+`packages/ingest/src/statement/` lê CSV, OFX e PDF e devolve itens `{ date, amountCents (negativo = saída), description, externalId }` mais avisos e a lista "não entendi estas linhas". É tudo função pura sobre bytes (`parseCsv`, `parseOfx`, `parsePdfLines`); só `parsePdf` faz I/O, ao extrair o texto com o `unpdf` (pdf.js sem worker, MIT). O formato é decidido pelo **conteúdo** (`%PDF-`, cabeçalho OFX), nunca só pela extensão.
+
+- **CSV:** acha o separador (`;` `,` tab) e o cabeçalho pelos nomes das colunas (Nubank, Inter, Itaú, Bradesco, BB, Santander, C6, Caixa). Se data, descrição e valor (ou saída/entrada) não ficam claros, devolve `needs_mapping` com colunas e amostra, e o app pergunta ao dono; a escolha volta no campo `mapping`.
+- **Sinal:** em conta, negativo é saída. Em cartão (`cardId`), o valor positivo da fatura é compra; entradas do cartão (pagamento, estorno) não são importadas. `invertSign` troca tudo quando o banco usa o contrário.
+- **Identificador:** FITID/coluna de id do banco quando é único no arquivo; senão um hash de data + valor + descrição + "ocorrência" (o enésimo item igual), que não muda se o banco reexportar um período diferente. O `externalId` gravado é `account:<id>:` ou `card:<id>:` + esse id, porque o mesmo FITID pode existir em duas contas.
+- **Serviço** (`previewStatement`, `importStatement`): confere o destino, lê, classifica cada item (`new`, `duplicate` por `existsByExternal("import", …)`, `possible_duplicate` por mesma data e valor via `TransactionStore.listByTarget`), aplica as regras de categoria aprendidas e grava com `upsertByExternal` como `pending` e origem `import`. Compra no cartão ganha a fatura pelo engine (`invoiceFor`). Possíveis duplicatas só entram se o dono pedir (`includePossibleDuplicates`).
+- **Idempotência do arquivo:** `ImportBatchStore` (Prisma e memória, mesmo teste de contrato) guarda o SHA-256 do arquivo + destino e os números do resultado. Reenviar o mesmo arquivo devolve o resumo anterior (`already_imported`); envios simultâneos: um importa, os outros veem a reserva (409 `em_andamento`); se a importação falha, a reserva é desfeita.
+- **API** (`apps/api/src/modules/imports/`): `POST /v1/imports/preview` e `POST /v1/imports`, multipart (`file`, `accountId` ou `cardId`, `mapping`, `invertSign`, `includePossibleDuplicates`). O limite global de 16 KB não vale para `/v1/imports*`; o módulo aplica 5 MB depois de autenticar.
+- **App:** Configurações → Comprovantes e arquivos (`/configuracoes/arquivos`) → Importar extrato (`/configuracoes/importar`): arquivo (`expo-document-picker`) → conta ou cartão → resumo do servidor → colunas, se preciso → "Importar N". Termina em **Para revisar** (`/revisao`), que confirma os pendentes. `expo-document-picker` é módulo nativo: precisa de **APK novo** (não chega por OTA; o `runtimeVersion` muda).
 
 ## Tarefas em segundo plano
 
