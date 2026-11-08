@@ -60,9 +60,9 @@ function talk(): ChatBubble[] {
 const noop = () => {};
 
 export function ChatEmptyPreview() {
-	return <ChatView messages={[]} onClose={noop} onReset={noop} onNew={noop} onSend={noop} />;
+	return <ChatView messages={[]} onClose={noop} onReset={noop} onSend={noop} />;
 }
 
 export function ChatTalkPreview() {
-	return <ChatView messages={talk()} onClose={noop} onReset={noop} onNew={noop} onSend={noop} />;
+	return <ChatView messages={talk()} onClose={noop} onReset={noop} onSend={noop} />;
 }

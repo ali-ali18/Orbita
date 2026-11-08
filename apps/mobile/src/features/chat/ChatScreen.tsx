@@ -9,6 +9,7 @@ import { useSession } from "../../lib/session.tsx";
 import { useAccounts, useCards, useCategories, useSummary } from "../summary/queries.ts";
 import { isAffectedByNewTransaction } from "../transactions/new-transaction-model.ts";
 import { type ChatBubble, ChatView } from "./ChatView.tsx";
+import { pickLocalFile } from "./pick-file.ts";
 import { answerChat, type ChatFacts, type ChatReply, type ChatSource } from "./reply.ts";
 
 let nextId = 0;
@@ -153,13 +154,31 @@ export function ChatScreen() {
 		setMessages((current) => [...current, fromReply(reply)]);
 	};
 
+	const attach = async (kind: "receipt" | "photo") => {
+		if (typeof document === "undefined") {
+			setMessages((current) => [
+				...current,
+				textBubble("Ainda não dá para escolher o arquivo neste aparelho."),
+			]);
+			return;
+		}
+		const picked = await pickLocalFile(kind);
+		if (!picked) return;
+		const label = kind === "receipt" ? "Comprovante" : "Foto";
+		setMessages((current) => [
+			...current,
+			{ id: nextMessageId(), kind: "user", text: label },
+			textBubble("Recebi. Ainda não leio comprovante nem foto: o valor dá para lançar por escrito."),
+		]);
+	};
+
 	return (
 		<ChatView
 			messages={messages}
 			onClose={() => router.back()}
 			onReset={() => setMessages([])}
-			onNew={() => router.push("/novo")}
 			onSend={send}
+			onAttach={(kind) => void attach(kind)}
 		/>
 	);
 }

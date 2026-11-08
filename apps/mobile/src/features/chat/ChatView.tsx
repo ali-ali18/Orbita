@@ -3,7 +3,7 @@ import { chart, colors, radius, spacing } from "@orbita/tokens";
 import { useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { percentOf } from "../../lib/format.ts";
-import { Icon, IconButton, OrbitaAvatar, Screen, Text } from "../../ui/index.ts";
+import { Icon, IconButton, type IconName, OrbitaAvatar, Screen, Sheet, Text } from "../../ui/index.ts";
 import type { MonthRow } from "./reply.ts";
 
 const SUGGESTIONS = [
@@ -208,16 +208,18 @@ export function ChatView({
 	messages,
 	onClose,
 	onReset,
-	onNew,
 	onSend,
+	onAttach,
 }: {
 	messages: readonly ChatBubble[];
 	onClose: () => void;
 	onReset: () => void;
-	onNew: () => void;
 	onSend: (text: string) => void;
+	/** Comprovante ou foto, depois que a folha fecha. */
+	onAttach?: (kind: "receipt" | "photo") => void;
 }) {
 	const [draft, setDraft] = useState("");
+	const [attachOpen, setAttachOpen] = useState(false);
 	const empty = messages.length === 0;
 	const send = () => {
 		const text = draft.trim();
@@ -263,10 +265,62 @@ export function ChatView({
 						))}
 					</ScrollView>
 				)}
-				{empty ? <Suggestions onSend={onSend} /> : null}
-				<Composer draft={draft} onChange={setDraft} onSend={send} onNew={onNew} />
+				{empty ? <Suggestions onSend={onSend} onAttach={() => setAttachOpen(true)} /> : null}
+				<Composer draft={draft} onChange={setDraft} onSend={send} onAttach={() => setAttachOpen(true)} />
 			</View>
+			<AttachSheet
+				visible={attachOpen}
+				onClose={() => setAttachOpen(false)}
+				onChoose={(kind) => {
+					setAttachOpen(false);
+					onAttach?.(kind);
+				}}
+			/>
 		</Screen>
+	);
+}
+
+function AttachChoice({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+	return (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={label}
+			onPress={onPress}
+			style={{
+				flex: 1,
+				height: 88,
+				borderRadius: radius.group,
+				backgroundColor: colors.surface2,
+				alignItems: "center",
+				justifyContent: "center",
+				gap: 6,
+			}}
+		>
+			<Icon name={icon} size={24} />
+			<Text variant="caption">{label}</Text>
+		</Pressable>
+	);
+}
+
+/** Folha de baixo. Os dois botões pedem o arquivo; o tamanho segue o anexo do Grok. */
+function AttachSheet({
+	visible,
+	onClose,
+	onChoose,
+}: {
+	visible: boolean;
+	onClose: () => void;
+	onChoose: (kind: "receipt" | "photo") => void;
+}) {
+	return (
+		<Sheet visible={visible} title="Comprovante ou foto" onClose={onClose}>
+			<View
+				style={{ flexDirection: "row", gap: spacing.md, paddingTop: spacing.lg, paddingBottom: spacing.sm }}
+			>
+				<AttachChoice icon="escanear" label="Comprovante" onPress={() => onChoose("receipt")} />
+				<AttachChoice icon="foto" label="Foto" onPress={() => onChoose("photo")} />
+			</View>
+		</Sheet>
 	);
 }
 
@@ -277,31 +331,37 @@ function Suggestion({ label, onSend }: { label: string; onSend: (text: string) =
 			accessibilityLabel={label}
 			onPress={() => onSend(label)}
 			style={{
-				flexShrink: 0,
+				flexShrink: 1,
+				minWidth: 0,
+				maxWidth: "48%",
 				backgroundColor: colors.surface,
 				borderWidth: 1,
 				borderColor: colors.border,
 				borderRadius: radius.pill,
-				paddingHorizontal: 14,
-				paddingVertical: 10,
+				paddingHorizontal: 12,
+				paddingVertical: 6,
 			}}
 		>
-			<Text variant="body" numberOfLines={1}>
+			<Text variant="caption" numberOfLines={1} ellipsizeMode="tail">
 				{label}
 			</Text>
 		</Pressable>
 	);
 }
 
-/** Duas linhas, sem quebrar: a segunda sugestão da primeira linha encosta na borda, como no desenho. */
-function Suggestions({ onSend }: { onSend: (text: string) => void }) {
+/** Duas linhas menores. O que não cabe na pílula termina em reticências. */
+function Suggestions({ onSend, onAttach }: { onSend: (text: string) => void; onAttach: () => void }) {
 	const rows = [SUGGESTIONS.slice(0, 2), SUGGESTIONS.slice(2)];
 	return (
-		<View style={{ alignSelf: "stretch", gap: spacing.sm, overflow: "hidden" }}>
+		<View style={{ alignSelf: "stretch", gap: spacing.sm }}>
 			{rows.map((row) => (
 				<View key={row[0]} style={{ flexDirection: "row", gap: spacing.sm }}>
 					{row.map((label) => (
-						<Suggestion key={label} label={label} onSend={onSend} />
+						<Suggestion
+							key={label}
+							label={label}
+							onSend={label === "Ler um comprovante" ? () => onAttach() : onSend}
+						/>
 					))}
 				</View>
 			))}
@@ -313,17 +373,17 @@ function Composer({
 	draft,
 	onChange,
 	onSend,
-	onNew,
+	onAttach,
 }: {
 	draft: string;
 	onChange: (text: string) => void;
 	onSend: () => void;
-	onNew: () => void;
+	onAttach: () => void;
 }) {
 	const ready = draft.trim().length > 0;
 	return (
 		<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-			<IconButton icon="mais" label="Novo lançamento" size={52} iconSize={22} bordered onPress={onNew} />
+			<IconButton icon="mais" label="Anexar" size={52} iconSize={22} bordered onPress={onAttach} />
 			<View
 				style={{
 					flex: 1,

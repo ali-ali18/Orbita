@@ -31,6 +31,14 @@ const bodies = {
 			<Path d="M7 12h10" />
 		</>
 	),
+	/** Foto do gasto, no mesmo traço do conjunto. Não está na página de ícones do Figma. */
+	foto: (
+		<>
+			<Rect x="3" y="3" width="18" height="18" rx="2" />
+			<Circle cx="9" cy="9" r="2" />
+			<Path d="m21 15-5-5L6 21" />
+		</>
+	),
 	revisar: (
 		<>
 			<Path d="M22 12h-6l-2 3h-4l-2-3H2" />
