@@ -3,6 +3,8 @@ import { useState } from "react";
 import { View } from "react-native";
 import { toLoadable } from "../../lib/loadable.ts";
 import { ErrorState, LetterAvatar, Skeleton, Text } from "../../ui/index.ts";
+import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
+import { isUnreachableQuery } from "../server/server-model.ts";
 import { Note, SubScreen, TextEditSheet } from "./parts.tsx";
 import { useProfile, useUpdateProfile } from "./preferences-queries.ts";
 import { avatarInitial, parseDeviceName, parseDisplayName } from "./profile-model.ts";
@@ -20,6 +22,10 @@ export function ProfileScreen() {
 	const update = useUpdateProfile();
 	const [editing, setEditing] = useState<Editing>(null);
 	const profile = toLoadable(profileQ);
+
+	if (isUnreachableQuery(profileQ)) {
+		return <ServerDownScreen onRetry={() => profileQ.refetch()} />;
+	}
 
 	return (
 		<SubScreen title="Perfil">

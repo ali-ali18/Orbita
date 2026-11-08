@@ -8,6 +8,8 @@ import { money } from "../../lib/format.ts";
 import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { ErrorState, IconButton, Screen, Skeleton, Text, TOP_FADE } from "../../ui/index.ts";
+import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
+import { isUnreachableQuery } from "../server/server-model.ts";
 import { useCategories, useSummary } from "../summary/queries.ts";
 import { categoryDot } from "../transactions/new-transaction-model.ts";
 import { BudgetSheet } from "./BudgetSheet.tsx";
@@ -236,6 +238,10 @@ export function BudgetScreen() {
 			</>
 		);
 	};
+
+	if (isUnreachableQuery(budgetsQ)) {
+		return <ServerDownScreen onRetry={() => budgetsQ.refetch()} />;
+	}
 
 	return (
 		<Screen fadeTop>

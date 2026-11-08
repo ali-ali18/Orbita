@@ -21,6 +21,8 @@ import {
 } from "../../ui/index.ts";
 import { usePendingTransactions } from "../review/queries.ts";
 import { ReviewBanner } from "../review/ReviewScreen.tsx";
+import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
+import { isUnreachableQuery } from "../server/server-model.ts";
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { TransactionDisc } from "../summary/TransactionDisc.tsx";
@@ -265,6 +267,10 @@ export function ActivityScreen() {
 			Fim da lista
 		</Text>
 	) : null;
+
+	if (isUnreachableQuery(q)) {
+		return <ServerDownScreen onRetry={() => q.refetch()} />;
+	}
 
 	return (
 		<Screen
