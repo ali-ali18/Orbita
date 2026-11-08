@@ -19,6 +19,7 @@ function Routes() {
 	const { state } = useSession();
 	return (
 		<Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+			<Stack.Screen name="previa" />
 			<Stack.Protected guard={state.status === "in"}>
 				<Stack.Screen name="index" />
 				<Stack.Screen
@@ -35,6 +36,7 @@ function Routes() {
 				<Stack.Screen name="configuracoes/servidor" />
 				<Stack.Screen name="configuracoes/bancos" />
 				<Stack.Screen name="configuracoes/orcamento" />
+				<Stack.Screen name="configuracoes/primeira-vez" />
 			</Stack.Protected>
 			<Stack.Protected guard={state.status === "out"}>
 				<Stack.Screen name="conectar" />

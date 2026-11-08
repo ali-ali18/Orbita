@@ -8,6 +8,7 @@ import { ApiError, claimPairing } from "../../lib/api.ts";
 import { useSession } from "../../lib/session.tsx";
 import { getItem, KEYS } from "../../lib/storage.ts";
 import { Button, familyByWeight, Screen, Text } from "../../ui/index.ts";
+import { ProgressHeader } from "../onboarding/parts.tsx";
 import { CodeInput } from "./CodeInput.tsx";
 import { isCodeComplete, normalizeServerUrl } from "./pairing-model.ts";
 
@@ -29,11 +30,23 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 	);
 }
 
-export function PairingForm() {
+export function PairingForm({
+	setup = false,
+	onBack,
+	initialCode = "",
+	preview = false,
+}: {
+	/** Primeira vez: progresso "1 de 4" e o texto do terminal do Figma. */
+	setup?: boolean;
+	onBack?: () => void;
+	initialCode?: string;
+	/** Prévia: não tenta conectar. */
+	preview?: boolean;
+}) {
 	const router = useRouter();
 	const { signIn, notice, clearNotice } = useSession();
 	const [serverText, setServerText] = useState("");
-	const [code, setCode] = useState("");
+	const [code, setCode] = useState(initialCode);
 	const [message, setMessage] = useState<string | null>(null);
 	const [serverFocused, setServerFocused] = useState(false);
 
@@ -58,7 +71,7 @@ export function PairingForm() {
 
 	const ready = serverText.trim().length > 0 && isCodeComplete(code);
 	const submit = () => {
-		if (!ready || claim.isPending) return;
+		if (preview || !ready || claim.isPending) return;
 		setMessage(null);
 		clearNotice();
 		claim.mutate();
@@ -68,7 +81,12 @@ export function PairingForm() {
 		<Screen
 			footer={
 				<View style={{ paddingHorizontal: spacing.xl }}>
-					<Button label="Conectar" onPress={submit} disabled={!ready} loading={claim.isPending} />
+					<Button
+						label="Conectar"
+						onPress={submit}
+						disabled={preview ? false : !ready}
+						loading={claim.isPending}
+					/>
 				</View>
 			}
 		>
@@ -81,7 +99,8 @@ export function PairingForm() {
 					}}
 					keyboardShouldPersistTaps="handled"
 				>
-					<View style={{ paddingTop: spacing.md, gap: spacing.sm }}>
+					{setup ? <ProgressHeader step={1} onBack={onBack ?? (() => {})} /> : null}
+					<View style={{ paddingTop: setup ? 0 : spacing.md, gap: spacing.sm }}>
 						<Text variant="greeting" accessibilityRole="header">
 							Onde ficam seus dados?
 						</Text>
@@ -160,25 +179,39 @@ export function PairingForm() {
 
 					<View
 						style={{
-							padding: spacing.md,
+							padding: 14,
 							borderRadius: radius.inner,
 							backgroundColor: colors.surface,
 							gap: spacing.xs,
 						}}
 					>
-						<Text variant="caption" tone="secondary">
-							Onde pegar o código
-						</Text>
-						<Text variant="caption">
-							O código aparece sozinho nos logs do servidor. No Dokploy: aba Logs do serviço api.
-						</Text>
-						<Text variant="caption" tone="secondary">
-							Vale por 10 minutos e é renovado automaticamente enquanto nenhum aparelho estiver conectado.
-						</Text>
-						<Text variant="caption" tone="secondary">
-							Numa VPS com terminal, também dá para gerar um na hora:
-						</Text>
-						<Text variant="caption">docker compose exec api parear</Text>
+						{setup ? (
+							<>
+								<Text variant="caption" tone="secondary">
+									Na sua VPS, rode:
+								</Text>
+								<Text variant="caption">docker compose up -d{"\n"}docker compose exec api parear</Text>
+								<Text variant="caption" tone="secondary">
+									O código aparece no terminal e vale por 10 minutos.
+								</Text>
+							</>
+						) : (
+							<>
+								<Text variant="caption" tone="secondary">
+									Onde pegar o código
+								</Text>
+								<Text variant="caption">
+									O código aparece sozinho nos logs do servidor. No Dokploy: aba Logs do serviço api.
+								</Text>
+								<Text variant="caption" tone="secondary">
+									Vale por 10 minutos e é renovado automaticamente enquanto nenhum aparelho estiver conectado.
+								</Text>
+								<Text variant="caption" tone="secondary">
+									Numa VPS com terminal, também dá para gerar um na hora:
+								</Text>
+								<Text variant="caption">docker compose exec api parear</Text>
+							</>
+						)}
 					</View>
 				</ScrollView>
 			</KeyboardAvoidingView>

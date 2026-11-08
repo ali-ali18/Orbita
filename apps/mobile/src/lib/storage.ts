@@ -54,4 +54,9 @@ export const KEYS = {
 	baseUrl: "orbita.baseUrl",
 	token: "orbita.token",
 	hideValues: "orbita.hideValues",
+	/**
+	 * "pending" quando a pessoa começou agora (os passos abrem depois de parear).
+	 * "done" quando terminou. Ausente: já usava o app; a entrada fica nas configurações.
+	 */
+	onboarding: "orbita.onboarding",
 } as const;
