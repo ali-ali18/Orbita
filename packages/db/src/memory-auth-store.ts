@@ -60,6 +60,12 @@ export function createMemoryAuthStore(): AuthStore & {
 			const d = devices.find((x) => x.id === deviceId);
 			if (d && d.revokedAt === null) d.revokedAt = now;
 		},
+		async renameDevice({ deviceId, name }) {
+			const d = devices.find((x) => x.id === deviceId);
+			if (!d || d.revokedAt !== null) return null;
+			d.name = name;
+			return { ...d };
+		},
 		async countActiveDevices() {
 			return devices.filter((d) => d.revokedAt === null).length;
 		},

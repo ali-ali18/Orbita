@@ -49,6 +49,8 @@ export interface AuthStore {
 	findDeviceById(id: string): Promise<DeviceRecord | null>;
 	touchDevice(input: { deviceId: string; now: Date }): Promise<void>;
 	revokeDevice(input: { deviceId: string; now: Date }): Promise<void>;
+	/** Troca o nome do aparelho (já limpo por quem chama). `null` se o aparelho não existe ou foi revogado. */
+	renameDevice(input: { deviceId: string; name: string }): Promise<DeviceRecord | null>;
 	/** Aparelhos ainda conectados (não revogados). Zero significa servidor sem dono. */
 	countActiveDevices(): Promise<number>;
 	/** Apaga códigos usados ou expirados antes de `before`. Devolve quantos apagou. */

@@ -17,12 +17,14 @@ import { createMemoryIdempotencyStore } from "./memory-idempotency-store.ts";
 import { createMemoryImportBatchStore } from "./memory-import-batch-store.ts";
 import { createMemoryPluggyConnectSessionStore } from "./memory-pluggy-connect-session-store.ts";
 import { createMemoryPluggyConnectionStore } from "./memory-pluggy-connection-store.ts";
+import { createMemoryPreferencesStore } from "./memory-preferences-store.ts";
 import { createMemoryRecurrenceStore } from "./memory-recurrence-store.ts";
 import { createMemorySecretStore } from "./memory-secret-store.ts";
 import { type Clock, createMemoryState } from "./memory-state.ts";
 import { createMemoryTransactionStore } from "./memory-transaction-store.ts";
 import type { PluggyConnectSessionStore } from "./pluggy-connect-session-store.ts";
 import type { PluggyConnectionStore } from "./pluggy-connection-store.ts";
+import type { PreferencesStore } from "./preferences-store.ts";
 import { createPrismaAccountStore } from "./prisma-account-store.ts";
 import { createPrismaAuthStore } from "./prisma-auth-store.ts";
 import { createPrismaBudgetStore } from "./prisma-budget-store.ts";
@@ -33,6 +35,7 @@ import { createPrismaIdempotencyStore } from "./prisma-idempotency-store.ts";
 import { createPrismaImportBatchStore } from "./prisma-import-batch-store.ts";
 import { createPrismaPluggyConnectSessionStore } from "./prisma-pluggy-connect-session-store.ts";
 import { createPrismaPluggyConnectionStore } from "./prisma-pluggy-connection-store.ts";
+import { createPrismaPreferencesStore } from "./prisma-preferences-store.ts";
 import { createPrismaRecurrenceStore } from "./prisma-recurrence-store.ts";
 import { createPrismaSecretStore } from "./prisma-secret-store.ts";
 import { createPrismaTransactionStore } from "./prisma-transaction-store.ts";
@@ -54,6 +57,7 @@ export interface Stores {
 	pluggyConnectSessions: PluggyConnectSessionStore;
 	idempotency: IdempotencyStore;
 	imports: ImportBatchStore;
+	preferences: PreferencesStore;
 }
 
 export interface StoresOptions {
@@ -78,6 +82,7 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		pluggyConnectSessions: createPrismaPluggyConnectSessionStore(db),
 		idempotency: createPrismaIdempotencyStore(db),
 		imports: createPrismaImportBatchStore(db),
+		preferences: createPrismaPreferencesStore(db),
 	};
 }
 
@@ -98,5 +103,6 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		pluggyConnectSessions: createMemoryPluggyConnectSessionStore(),
 		idempotency: createMemoryIdempotencyStore(),
 		imports: createMemoryImportBatchStore(),
+		preferences: createMemoryPreferencesStore(state),
 	};
 }

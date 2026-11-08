@@ -34,6 +34,24 @@ describe.each(suites)("AuthStore (%s)", (_name, make) => {
 		store = await make();
 	});
 
+	it("renomeia o aparelho conectado e ignora o revogado ou inexistente", async () => {
+		const c = await store.replaceActivePairingCode({ codeHash: "a", expiresAt: at(10), now: t0 });
+		const device = await store.consumePairingCode({
+			codeId: c.id,
+			now: at(1),
+			deviceName: "A",
+			tokenHash: "t",
+		});
+		if (!device) throw new Error("aparelho não criado");
+		const renamed = await store.renameDevice({ deviceId: device.id, name: "Galaxy" });
+		expect(renamed).toMatchObject({ id: device.id, name: "Galaxy" });
+		expect((await store.findDeviceById(device.id))?.name).toBe("Galaxy");
+		expect(await store.renameDevice({ deviceId: "inexistente", name: "X" })).toBeNull();
+		await store.revokeDevice({ deviceId: device.id, now: at(2) });
+		expect(await store.renameDevice({ deviceId: device.id, name: "Outro" })).toBeNull();
+		expect((await store.findDeviceById(device.id))?.name).toBe("Galaxy");
+	});
+
 	it("mantém um só código ativo", async () => {
 		const a = await store.replaceActivePairingCode({ codeHash: "a", expiresAt: at(10), now: t0 });
 		const b = await store.replaceActivePairingCode({ codeHash: "b", expiresAt: at(11), now: at(1) });

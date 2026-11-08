@@ -56,6 +56,11 @@ export function createPrismaAuthStore(db: Db): AuthStore {
 			await db.device.updateMany({ where: { id: deviceId, revokedAt: null }, data: { revokedAt: now } });
 		},
 
+		async renameDevice({ deviceId, name }) {
+			const res = await db.device.updateMany({ where: { id: deviceId, revokedAt: null }, data: { name } });
+			return res.count === 1 ? db.device.findUnique({ where: { id: deviceId } }) : null;
+		},
+
 		countActiveDevices() {
 			return db.device.count({ where: { revokedAt: null } });
 		},

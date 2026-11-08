@@ -37,6 +37,12 @@ export type {
 	PluggyConnectionStore,
 	PluggySyncResult,
 } from "./pluggy-connection-store.ts";
+export {
+	DEFAULT_PREFERENCES,
+	type PreferencesPatch,
+	type PreferencesRecord,
+	type PreferencesStore,
+} from "./preferences-store.ts";
 export { createPrismaAuthStore } from "./prisma-auth-store.ts";
 export {
 	type RecurrenceInput,
