@@ -111,6 +111,7 @@ model Account {
   preferences         AppPreferences[] @relation("DefaultAccount")
   leftoverPreferences AppPreferences[] @relation("LeftoverAccount")
   goals               Goal[]
+  incomeSources       IncomeSource[]
 
   @@unique([source, externalId])
   @@map("accounts")
@@ -300,6 +301,29 @@ model Goal {
   preferences   AppPreferences[]   @relation("LeftoverGoal")
 
   @@map("goals")
+}
+
+/// Fonte de renda: o salário (recorrente) ou uma entrada avulsa (freela) de um mês. O plano do mês é do engine.
+model IncomeSource {
+  id          String    @id @default(cuid())
+  name        String
+  /// Líquido, em centavos.
+  amountCents Int       @map("amount_cents")
+  /// Dia do mês (1..31); em mês curto o engine cai no último dia.
+  payday      Int
+  /// Conta onde o dinheiro cai (só informação).
+  accountId   String?   @map("account_id")
+  /// true = todo mês; false = só em `month`.
+  recurring   Boolean   @default(true)
+  /// Mês da renda avulsa (AAAA-MM); nulo nas recorrentes.
+  month       String?   @db.Char(7)
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@map("income_sources")
 }
 
 /// Um "Guardar": valor somado ao guardado da meta. Opcionalmente aponta o lançamento que o originou (só referência).

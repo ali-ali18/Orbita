@@ -211,8 +211,23 @@ export const budgetSuggestionResponse = z.object({
 	/** Quantos deles tinham gasto e entraram na conta; 0 = sem histórico para sugerir. */
 	monthsUsed: z.number().int(),
 	totalCents: z.number().int(),
-	/** Por id de categoria, em reais inteiros. */
+	/** Por id de categoria, em centavos (reais inteiros quando não há renda cadastrada). */
 	byCategory: z.record(z.string(), z.number().int()),
+	/**
+	 * Com renda cadastrada a sugestão nunca passa dela. `incomeCents` é a renda do mês, `wantedCents` o que o
+	 * histórico pedia e `capCents` o teto que coube; `null`/ausente = não precisou cortar (ou não há renda).
+	 */
+	cap: z
+		.object({
+			incomeCents: z.number().int(),
+			wantedCents: z.number().int(),
+			capCents: z.number().int(),
+			message: z.string(),
+		})
+		.nullable()
+		.optional(),
+	/** Avisos do plano (ex.: compromissos acima da renda). */
+	warnings: z.array(z.string()).optional(),
 });
 export type BudgetSuggestionResponse = z.infer<typeof budgetSuggestionResponse>;
 

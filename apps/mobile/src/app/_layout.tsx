@@ -50,6 +50,8 @@ function Routes() {
 				<Stack.Screen name="configuracoes/index" />
 				<Stack.Screen name="configuracoes/servidor" />
 				<Stack.Screen name="configuracoes/bancos" />
+				<Stack.Screen name="configuracoes/renda" />
+				<Stack.Screen name="nova-renda" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
 				<Stack.Screen name="configuracoes/orcamento" />
 				<Stack.Screen name="configuracoes/categorias" />
 				<Stack.Screen name="configuracoes/arquivos" />

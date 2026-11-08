@@ -59,7 +59,7 @@ export function SuggestionLine({
 					<OrbitaAvatar size={18} />
 				</View>
 				<Text variant="caption" tone="secondary" style={{ flex: 1 }}>
-					{suggestionCaption(suggestion, amount)}
+					{suggestionCaption(suggestion, amount, hidden)}
 				</Text>
 			</View>
 			{pending.length > 0 ? (

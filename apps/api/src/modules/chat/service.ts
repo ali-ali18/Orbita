@@ -150,7 +150,7 @@ export async function confirmProposal(deps: ChatServiceDeps, id: string): Promis
 	if (!claimed) throw alreadyAnswered(current, "confirmar");
 	try {
 		const action = envelope.parse(claimed.payload).action;
-		const applied = await applyProposal(claimed.kind, action, createAgentWriter(deps.stores));
+		const applied = await applyProposal(claimed.kind, action, createAgentWriter(deps.stores, deps.now));
 		const done = await transition(deps, id, "confirmed", "confirmed", applied.result);
 		return toProposalDto(done ?? claimed);
 	} catch (error) {
@@ -173,7 +173,7 @@ export async function undoConfirmedProposal(deps: ChatServiceDeps, id: string): 
 	const claimed = await transition(deps, id, "confirmed", "undone");
 	if (!claimed) throw alreadyAnswered(current, "desfazer");
 	try {
-		await undoProposal(claimed.kind, claimed.result, createAgentWriter(deps.stores));
+		await undoProposal(claimed.kind, claimed.result, createAgentWriter(deps.stores, deps.now));
 		return toProposalDto(claimed);
 	} catch (error) {
 		await transition(deps, id, "undone", "confirmed");

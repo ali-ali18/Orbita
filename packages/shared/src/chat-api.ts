@@ -63,6 +63,7 @@ export const PROPOSAL_KINDS = [
 	"create_transaction",
 	"categorize_transaction",
 	"confirm_transaction",
+	"apply_plan",
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 
