@@ -3,6 +3,7 @@ import type { SystemBlock } from "./model.ts";
 import type { PromptContext } from "./prompt.ts";
 import { buildSystem } from "./prompt.ts";
 import { READ_TOOLS } from "./read-tools.ts";
+import { SETUP_INSTRUCTIONS } from "./setup-prompt.ts";
 import type { Tool } from "./tool.ts";
 import { ALL_TOOLS } from "./tools.ts";
 import { untrusted } from "./untrusted.ts";
@@ -105,6 +106,17 @@ export function resolvePersona(source: PersonaSource): ResolvedPersona {
 		`INSTRUÇÕES DO DONO: ${untrusted(source.instructions ?? "", 1000)}`,
 	].join("\n\n");
 	return { roleText, tools: READ_TOOLS.filter((t) => source.tools.includes(t.name)) };
+}
+
+/** Ferramentas da tarefa fixa "Configurar com a Órbita": a análise, a proposta e o catálogo de categorias. */
+export const SETUP_TOOL_NAMES = ["analyze_history", "propose_setup", "list_catalog"] as const;
+
+/** A Órbita nesta tarefa: só estas ferramentas e o bloco de instruções dedicado. */
+export function resolveSetupPersona(): ResolvedPersona {
+	return {
+		roleText: SETUP_INSTRUCTIONS,
+		tools: ALL_TOOLS.filter((t) => (SETUP_TOOL_NAMES as readonly string[]).includes(t.name)),
+	};
 }
 
 /** O prompt do sistema com o papel do agente depois do trecho estável e do contexto. */

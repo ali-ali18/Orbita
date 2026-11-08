@@ -1,4 +1,4 @@
-import type { ChatCard, ChatRowsCard, ProposalDto } from "@orbita/shared";
+import type { ChatCard, ChatRowsCard, ProposalDto, SetupSelection } from "@orbita/shared";
 import { chart, colors, radius, spacing } from "@orbita/tokens";
 import { useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
@@ -16,6 +16,7 @@ import {
 } from "../../ui/index.ts";
 import { hello } from "../settings/profile-model.ts";
 import { type ChatBubble, NO_KEY_ACTION_LABEL, PROPOSAL_STATUS_LABEL, proposalAmount } from "./chat-model.ts";
+import { SetupCard } from "./SetupCard.tsx";
 
 const SUGGESTIONS = [
 	"Quanto gastei com delivery?",
@@ -209,10 +210,23 @@ function CardView({
 }: {
 	card: ChatCard;
 	busyProposalId: string | null;
-	onProposal: (action: ProposalAction, proposal: ProposalDto) => void;
+	onProposal: (action: ProposalAction, proposal: ProposalDto, selection?: SetupSelection) => void;
 	onOpenTransaction?: ((id: string) => void) | undefined;
 }) {
 	if (card.type === "rows") return <RowsCard card={card} />;
+	const { proposal } = card;
+	if (proposal.kind === "setup" && proposal.setup) {
+		return (
+			<SetupCard
+				proposal={proposal}
+				setup={proposal.setup}
+				busy={busyProposalId === proposal.id}
+				onConfirm={(selection) => onProposal("confirm", proposal, selection)}
+				onCancel={() => onProposal("cancel", proposal)}
+				onUndo={() => onProposal("undo", proposal)}
+			/>
+		);
+	}
 	return (
 		<ProposalCard
 			proposal={card.proposal}
@@ -232,7 +246,7 @@ function Bubble({
 }: {
 	message: ChatBubble;
 	busyProposalId: string | null;
-	onProposal: (action: ProposalAction, proposal: ProposalDto) => void;
+	onProposal: (action: ProposalAction, proposal: ProposalDto, selection?: SetupSelection) => void;
 	onOpenTransaction?: ((id: string) => void) | undefined;
 	onOpenServer?: (() => void) | undefined;
 }) {
@@ -312,7 +326,7 @@ export function ChatView({
 	onSend: (text: string) => void;
 	/** Comprovante ou foto, depois que a folha fecha. */
 	onAttach?: (kind: "receipt" | "photo") => void;
-	onProposal: (action: ProposalAction, proposal: ProposalDto) => void;
+	onProposal: (action: ProposalAction, proposal: ProposalDto, selection?: SetupSelection) => void;
 	onOpenTransaction?: (id: string) => void;
 	onOpenServer?: () => void;
 	/** Como a Órbita chama o dono ("Olá, Alisson"); sem nome, só "Olá". */

@@ -24,6 +24,17 @@ export {
 	restoreBudgets,
 } from "./income-plan.ts";
 export { reportForMonth } from "./report.ts";
+export { loadSetupAnalysis, STALE_SETUP_MESSAGE, verifyAgainstAnalysis } from "./setup.ts";
+export {
+	analyzeHistory,
+	SETUP_INCOME_MIN_OCCURRENCES,
+	SETUP_MAX_CANDIDATES,
+	SETUP_MAX_RECURRING,
+	SETUP_MIN_GROUP_COUNT,
+	type SetupAnalysisInput,
+	type SetupTransaction,
+} from "./setup-analysis.ts";
+export { applySetup, undoSetup } from "./setup-apply.ts";
 export {
 	activeInstallments,
 	cardInvoice,

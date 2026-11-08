@@ -12,4 +12,5 @@ export * from "./pairing.ts";
 export * from "./pluggy-api.ts";
 export * from "./preferences-api.ts";
 export * from "./settings-api.ts";
+export * from "./setup-api.ts";
 export * from "./transaction-rules.ts";

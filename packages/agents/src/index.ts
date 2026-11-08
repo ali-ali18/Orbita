@@ -88,6 +88,8 @@ export {
 	type PersonaSource,
 	type ResolvedPersona,
 	resolvePersona,
+	resolveSetupPersona,
+	SETUP_TOOL_NAMES,
 } from "./personas.ts";
 export {
 	costMicroUsd,
@@ -100,6 +102,15 @@ export {
 export { buildContextBlock, buildSystem, type PromptContext, STABLE_PROMPT } from "./prompt.ts";
 export { type AppliedProposal, applyProposal, undoProposal } from "./proposals.ts";
 export { READ_TOOLS } from "./read-tools.ts";
+export { SETUP_INSTRUCTIONS, SETUP_TASK_TEXT } from "./setup-prompt.ts";
+export {
+	analyzeHistoryTool,
+	proposeSetup,
+	SETUP_PROPOSAL_TITLE,
+	templateName,
+	templateSetupDraft,
+	templateSetupProposal,
+} from "./setup-tools.ts";
 export {
 	defineTool,
 	type ProposalDraft,

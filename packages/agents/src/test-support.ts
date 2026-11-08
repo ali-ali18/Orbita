@@ -4,6 +4,8 @@ import type {
 	MonthSummaryResponse,
 	PlanDto,
 	RecurrenceDto,
+	SetupAnalysis,
+	SetupUndo,
 	TransactionDto,
 } from "@orbita/shared";
 import type { AgentReader, AgentWriter, Catalog, InvoiceData, TransactionQuery } from "./backend.ts";
@@ -134,6 +136,94 @@ export const PLAN_PREVIOUS: BudgetBefore[] = [
 	{ scope: "cat-mer", limitCents: null },
 ];
 
+/** O histórico do dono do caso real: Unip (4 meses), Netflix (3), salário (3) e uma padaria sem categoria. */
+export function setupAnalysis(overrides: Partial<SetupAnalysis> = {}): SetupAnalysis {
+	return {
+		from: "2025-12-01",
+		to: TODAY,
+		monthsOfHistory: 4,
+		limitedHistory: false,
+		transactionCount: 27,
+		hasIncome: false,
+		recurring: [
+			{
+				key: "rec:unip",
+				merchant: "UNIP*MENSALIDADE 0423",
+				amountCents: 48000,
+				dayOfMonth: 8,
+				occurrences: 4,
+				firstDate: "2026-07-08",
+				lastDate: "2026-10-08",
+				startDate: "2026-11-01",
+				accountId: "acc-1",
+				cardId: null,
+				registered: false,
+				knownService: null,
+				categoryId: null,
+			},
+			{
+				key: "rec:netflix",
+				merchant: "NETFLIX.COM",
+				amountCents: 4490,
+				dayOfMonth: 10,
+				occurrences: 3,
+				firstDate: "2026-08-10",
+				lastDate: "2026-10-10",
+				startDate: "2026-11-01",
+				accountId: null,
+				cardId: "card-1",
+				registered: false,
+				knownService: "Netflix",
+				categoryId: "cat-out",
+			},
+			{
+				key: "rec:spotify",
+				merchant: "Spotify AB",
+				amountCents: 2190,
+				dayOfMonth: 3,
+				occurrences: 3,
+				firstDate: "2026-08-03",
+				lastDate: "2026-10-03",
+				startDate: "2026-11-01",
+				accountId: null,
+				cardId: "card-1",
+				registered: true,
+				knownService: "Spotify",
+				categoryId: null,
+			},
+		],
+		categoryCandidates: [
+			{
+				key: "cat:padaria sao jose",
+				pattern: "padaria sao jose",
+				merchant: "PADARIA SAO JOSE 1234",
+				count: 3,
+				totalCents: 7000,
+				lastDate: "2026-11-03",
+				categoryId: null,
+			},
+		],
+		income: {
+			key: "inc:acme ltda",
+			payer: "PIX RECEBIDO ACME LTDA",
+			amountCents: 500000,
+			payday: 5,
+			occurrences: 3,
+			lastDate: "2026-10-05",
+			accountId: "acc-1",
+		},
+		...overrides,
+	};
+}
+
+export const SETUP_UNDO: SetupUndo = {
+	recurrenceIds: ["rec-1"],
+	rules: [],
+	recategorized: [],
+	incomeId: null,
+	previousBudgets: null,
+};
+
 export interface FakeReaderData {
 	transactions: TransactionDto[];
 	summaries: Record<string, MonthSummaryResponse>;
@@ -142,6 +232,7 @@ export interface FakeReaderData {
 	goals: GoalsListResponse;
 	plan: PlanDto;
 	catalog: Catalog;
+	setup: SetupAnalysis;
 }
 
 export function fakeReader(data: Partial<FakeReaderData> = {}) {
@@ -153,6 +244,7 @@ export function fakeReader(data: Partial<FakeReaderData> = {}) {
 		goals: { goals: [], totals: { savedCents: 0, targetCents: 0 } },
 		plan: plan(),
 		catalog: CATALOG,
+		setup: setupAnalysis(),
 		...data,
 	};
 	const queries: TransactionQuery[] = [];
@@ -214,6 +306,9 @@ export function fakeReader(data: Partial<FakeReaderData> = {}) {
 			planCalls.push([month, reservePercent]);
 			return { ...state.plan, month };
 		},
+		async setupAnalysis() {
+			return state.setup;
+		},
 	};
 	return { reader, state, queries, planCalls };
 }
@@ -253,6 +348,13 @@ export function fakeWriter() {
 		},
 		async restoreBudgets(previous) {
 			calls.push(["restoreBudgets", previous]);
+		},
+		async applySetup(input) {
+			calls.push(["applySetup", input]);
+			return SETUP_UNDO;
+		},
+		async undoSetup(undo) {
+			calls.push(["undoSetup", undo]);
 		},
 	};
 	return { writer, calls };
