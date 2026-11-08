@@ -9,6 +9,8 @@ import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { BottomBar, Screen, Text, TOP_FADE, useBottomBarHeight } from "../../ui/index.ts";
 import { usePluggyHomeWatch } from "../banks/queries.ts";
+import { usePendingTransactions } from "../review/queries.ts";
+import { ReviewBanner } from "../review/ReviewScreen.tsx";
 import { CategoriesCard } from "./CategoriesCard.tsx";
 import { HeroCard } from "./HeroCard.tsx";
 import { HomeHeader } from "./HomeHeader.tsx";
@@ -46,6 +48,7 @@ export function HomeScreen() {
 	const accountsQ = useAccounts();
 	const installmentsQ = useInstallments();
 	const recentQ = useRecentTransactions(4);
+	const pendingQ = usePendingTransactions();
 
 	const cards = toLoadable(cardsQ);
 	const firstCard = cards.phase === "ready" ? cards.data.cards.find((c) => c.archivedAt === null) : undefined;
@@ -106,6 +109,13 @@ export function HomeScreen() {
 				</View>
 
 				<HeroCard state={summaryWithCategories} hidden={hidden} />
+				{pendingQ.data && pendingQ.data.transactions.length > 0 ? (
+					<ReviewBanner
+						count={pendingQ.data.transactions.length}
+						hasMore={pendingQ.data.hasMore}
+						onPress={() => router.push("/revisao")}
+					/>
+				) : null}
 				<View style={{ flexDirection: "row", gap: spacing.md }}>
 					<InvoiceSquare
 						cards={cards}
