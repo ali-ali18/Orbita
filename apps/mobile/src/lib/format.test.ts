@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	arrivedLabel,
 	dayMonth,
 	formatWholeReais,
 	greetingFor,
@@ -69,5 +70,10 @@ describe("datas de fatura", () => {
 	});
 	it("monthYear escreve o mês por extenso em minúsculas", () => {
 		expect(monthYear("2027-08")).toBe("agosto de 2027");
+	});
+	it("hora de chegada em São Paulo: hoje só a hora, ontem com o dia", () => {
+		expect(arrivedLabel("2026-11-06T15:40:00.000Z", "2026-11-06")).toBe("12:40");
+		expect(arrivedLabel("2026-11-06T01:10:00.000Z", "2026-11-06")).toBe("ontem, 22:10");
+		expect(arrivedLabel("não é data", "2026-11-06")).toBe("");
 	});
 });

@@ -17,6 +17,8 @@ import {
 	Text,
 	useBottomBarHeight,
 } from "../../ui/index.ts";
+import { usePendingTransactions } from "../review/queries.ts";
+import { ReviewBanner } from "../review/ReviewScreen.tsx";
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { TransactionDisc } from "../summary/TransactionDisc.tsx";
@@ -39,7 +41,7 @@ import { SearchField } from "./SearchField.tsx";
 /**
  * Tela "Atividades" (Figma 24:142): todos os lançamentos por dia, com rolagem infinita. A API só pagina
  * (não filtra), então Tudo/Saídas/Entradas/Cartão e a busca valem sobre o que já foi carregado. A gaveta
- * "Filtros" (51:918) e o aviso "para revisar" ainda não existem.
+ * A gaveta "Filtros" (51:918) ainda não existe. O aviso "para revisar" abre a tela quando há pendência.
  */
 export function ActivityScreen() {
 	const router = useRouter();
@@ -50,6 +52,7 @@ export function ActivityScreen() {
 	const [query, setQuery] = useState("");
 
 	const q = useActivityTransactions();
+	const pending = usePendingTransactions();
 	const accountsQ = useAccounts();
 	const cardsQ = useCards();
 	const categoriesQ = useCategories();
@@ -107,6 +110,13 @@ export function ActivityScreen() {
 			</Text>
 			<SearchField value={query} onChange={setQuery} />
 			<FilterChips value={filter} onChange={setFilter} />
+			{pending.data && pending.data.transactions.length > 0 ? (
+				<ReviewBanner
+					count={pending.data.transactions.length}
+					hasMore={pending.data.hasMore}
+					onPress={() => router.push("/revisao")}
+				/>
+			) : null}
 		</View>
 	);
 
