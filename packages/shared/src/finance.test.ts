@@ -11,6 +11,7 @@ import {
 	recurrenceCreateBody,
 	transactionCreateBody,
 	transactionInvariantError,
+	transactionSplitBody,
 	transactionUpdateBody,
 } from "./index.ts";
 
@@ -137,5 +138,29 @@ describe("limites de ano e receita no cartão", () => {
 			"estorno",
 		);
 		expect(transactionInvariantError({ ...income, accountId: "a1" })).toBeNull();
+	});
+});
+
+describe("divisão de lançamento", () => {
+	const part = (amountCents: number, extra: object = {}) => ({ amountCents, ...extra });
+	it("aceita de 2 a 20 partes com centavos inteiros positivos", () => {
+		expect(
+			transactionSplitBody.safeParse({ parts: [part(3000, { categoryId: "c1" }), part(1690)] }).success,
+		).toBe(true);
+		expect(transactionSplitBody.safeParse({ parts: [part(100)] }).success).toBe(false);
+		expect(transactionSplitBody.safeParse({ parts: Array.from({ length: 21 }, () => part(1)) }).success).toBe(
+			false,
+		);
+		expect(transactionSplitBody.safeParse({ parts: Array.from({ length: 20 }, () => part(1)) }).success).toBe(
+			true,
+		);
+	});
+	it("rejeita valor fracionado, zero, negativo e campo desconhecido", () => {
+		for (const bad of [10.5, 0, -5]) {
+			expect(transactionSplitBody.safeParse({ parts: [part(bad), part(10)] }).success).toBe(false);
+		}
+		expect(transactionSplitBody.safeParse({ parts: [part(10, { kind: "income" }), part(10)] }).success).toBe(
+			false,
+		);
 	});
 });
