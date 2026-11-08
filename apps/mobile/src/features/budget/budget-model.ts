@@ -147,6 +147,8 @@ export interface SuggestionLike {
 	monthsUsed: number;
 	totalCents: Cents;
 	byCategory: Readonly<Record<string, Cents>>;
+	/** Com renda cadastrada: o corte feito para a sugestão caber nela (a mensagem vem do servidor). */
+	cap?: { message: string } | null | undefined;
 }
 
 /**
@@ -182,11 +184,19 @@ export function replacedCount(requests: readonly SetRequest[], budgets: readonly
 	return requests.filter((r) => current.has(r.scope)).length;
 }
 
+export const HIDDEN_CAP_TEXT = "Ajustei os limites para caber na sua renda.";
+
 /** "Sugestão da Órbita: R$ 2.800, pela mediana dos últimos 3 meses". `amount` já vem formatado (e mascarado). */
 export function suggestionCaption(
-	suggestion: Pick<SuggestionLike, "monthsUsed" | "months">,
+	suggestion: Pick<SuggestionLike, "monthsUsed" | "months" | "cap">,
 	amount: string,
+	hidden = false,
 ): string {
+	// Reduzida para caber na renda: o servidor explica o corte (histórico, renda e teto). Com o olho fechado
+	// a explicação traz números, então vira a versão sem valores.
+	if (suggestion.cap) {
+		return `Sugestão da Órbita: ${amount}. ${hidden ? HIDDEN_CAP_TEXT : suggestion.cap.message}`;
+	}
 	const { monthsUsed: n, months } = suggestion;
 	const basis =
 		n === 1

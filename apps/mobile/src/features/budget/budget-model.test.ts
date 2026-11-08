@@ -169,6 +169,19 @@ describe("sugestão da Órbita", () => {
 		expect(suggestionCaption({ months: 3, monthsUsed: 1 }, "R$ 2.800")).toContain("único mês fechado");
 	});
 
+	it("sugestão reduzida pela renda mostra a explicação do servidor; com o olho fechado, sem valores", () => {
+		const cap = {
+			message:
+				"Seu histórico de gastos é R$ 2.775,00, acima do que cabe na renda; ajustei os limites para caber em R$ 2.070,00.",
+		};
+		expect(suggestionCaption({ months: 3, monthsUsed: 3, cap }, "R$ 2.070")).toBe(
+			`Sugestão da Órbita: R$ 2.070. ${cap.message}`,
+		);
+		const hidden = suggestionCaption({ months: 3, monthsUsed: 3, cap }, "R$ ••••", true);
+		expect(hidden).toBe("Sugestão da Órbita: R$ ••••. Ajustei os limites para caber na sua renda.");
+		expect(hidden).not.toMatch(/\d/);
+	});
+
 	it("linha avisa só quando passou do percentual sem estourar", () => {
 		const alerts = new Set(["mercado", "lazer"]);
 		const rows = budgetRows(
