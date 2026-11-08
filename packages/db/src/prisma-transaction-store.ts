@@ -308,6 +308,16 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			);
 		},
 
+		async listBudgetMonths() {
+			const rows = await db.transaction.findMany({
+				where: { deletedAt: null },
+				distinct: ["budgetMonth"],
+				select: { budgetMonth: true },
+				orderBy: { budgetMonth: "desc" },
+			});
+			return rows.map((r) => r.budgetMonth);
+		},
+
 		async listByInvoice(cardId, invoiceMonth) {
 			cleanMonth(invoiceMonth, "O mês da fatura");
 			return await many(

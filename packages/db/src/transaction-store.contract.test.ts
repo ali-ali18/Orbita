@@ -681,6 +681,17 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			await expect(tx.listByBudgetMonth("2026-1")).rejects.toMatchObject({ code: "invalid" });
 		});
 
+		it("listBudgetMonths devolve os meses com lançamento vivo, do mais recente ao mais antigo", async () => {
+			expect(await tx.listBudgetMonths()).toEqual([]);
+			await tx.create(expense({ date: "2026-09-02" }));
+			await tx.create(expense({ date: "2026-11-20" }));
+			const gone = await tx.create(expense({ date: "2026-12-01" }));
+			await tx.create(expense({ date: "2026-11-02" }));
+			await tx.create(expense({ date: "2026-10-30", budgetMonth: "2026-11" }));
+			await tx.softDelete(gone.id);
+			expect(await tx.listBudgetMonths()).toEqual(["2026-11", "2026-09"]);
+		});
+
 		it("listByInvoice filtra por cartão e fatura", async () => {
 			const other = await stores.cards.create({ name: "Inter", closingDay: 1, dueDay: 8 });
 			const a = await tx.create(cardPurchase({ date: "2026-11-03" }));

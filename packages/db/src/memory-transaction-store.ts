@@ -201,6 +201,10 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 				.sort(byDateAsc);
 		},
 
+		async listBudgetMonths() {
+			return [...new Set(live().map((t) => t.budgetMonth))].sort().reverse();
+		},
+
 		async listByInvoice(cardId, invoiceMonth) {
 			cleanMonth(invoiceMonth, "O mês da fatura");
 			return live()
