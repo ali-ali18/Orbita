@@ -2,6 +2,7 @@ export * from "./budget.ts";
 export * from "./budget-suggestion.ts";
 export * from "./classification.ts";
 export * from "./dates.ts";
+export * from "./goals.ts";
 export * from "./installments.ts";
 export * from "./invoice.ts";
 export * from "./invoice-composition.ts";
