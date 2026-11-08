@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { idSchema } from "./finance-primitives.ts";
+import { setupProposalSchema } from "./setup-api.ts";
 
 /*
  * Chat com a Órbita. O app manda a mensagem, o servidor responde em SSE (texto aos poucos + cards) e guarda
@@ -64,6 +65,7 @@ export const PROPOSAL_KINDS = [
 	"categorize_transaction",
 	"confirm_transaction",
 	"apply_plan",
+	"setup",
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 
@@ -79,6 +81,11 @@ export const proposalSchema = z.object({
 	lines: z.array(z.object({ label: z.string(), value: z.string() })),
 	/** Lançamento criado ou alterado (depois de confirmar); `null` antes. */
 	transactionId: z.string().nullable(),
+	/**
+	 * Só na proposta `setup`: os itens do card. Pendente = tudo que foi proposto; confirmada ou desfeita = só o que o
+	 * dono aplicou, com os nomes e categorias que ele deixou.
+	 */
+	setup: setupProposalSchema.optional(),
 });
 export type ProposalDto = z.infer<typeof proposalSchema>;
 
