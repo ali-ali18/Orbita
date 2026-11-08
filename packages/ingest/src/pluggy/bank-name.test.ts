@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	bankIspb,
 	cardDisplayName,
 	cleanBankName,
 	detectBankName,
@@ -105,5 +106,32 @@ describe("banco e nome de cartão", () => {
 		expect(cardDisplayName("Ultravioleta", "Nubank")).toBe("Nubank Ultravioleta");
 		expect(cardDisplayName("Nubank Ultravioleta", "Nubank")).toBe("Nubank Ultravioleta");
 		expect(cardDisplayName("G", null)).toBe("G");
+	});
+});
+
+describe("Santander (conector Santander PF, cartão FREE VISA)", () => {
+	it("variações do nome do conector viram Santander", () => {
+		for (const raw of [
+			"Santander",
+			"Santander PF",
+			"Banco Santander (Brasil) S.A.",
+			"SANTANDER PARTICULARES",
+		]) {
+			expect(cleanBankName(raw)).toBe("Santander");
+		}
+	});
+
+	it("produtos do Santander sem o nome do banco são reconhecidos pelo nome inteiro", () => {
+		expect(findKnownBank("FREE VISA")).toBe("Santander");
+		expect(findKnownBank("Unlimited Mastercard")).toBe("Santander");
+		expect(findKnownBank("Free")).toBe("Santander");
+		expect(findKnownBank("Free Shop Cartão")).toBeNull();
+	});
+
+	it("ISPB do emissor pelo nome curto", () => {
+		expect(bankIspb("Santander")).toBe("90400888");
+		expect(bankIspb("Nubank")).toBe("18236120");
+		expect(bankIspb("Banco Desconhecido")).toBeNull();
+		expect(bankIspb(null)).toBeNull();
 	});
 });

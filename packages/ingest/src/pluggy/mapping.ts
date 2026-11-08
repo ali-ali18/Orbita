@@ -22,7 +22,7 @@ import {
 	normalizeMerchantName,
 	pickCategoryRule,
 } from "@orbita/shared";
-import { cardDisplayName, cleanBankName, isMeuPluggyConnector } from "./bank-name.ts";
+import { bankIspb, cardDisplayName, cleanBankName, isMeuPluggyConnector } from "./bank-name.ts";
 import {
 	type CategoryIndex,
 	categoryChain,
@@ -172,6 +172,7 @@ export function mapPluggyAccount(
 			input: {
 				name,
 				kind: account.subtype === "SAVINGS_ACCOUNT" ? "savings" : "checking",
+				...(bankIspb(bankName) ? { bankCode: bankIspb(bankName) } : {}),
 				source: PLUGGY_SOURCE,
 				externalId: account.id,
 			},
@@ -190,6 +191,8 @@ export function mapPluggyAccount(
 					cardDisplayName(own, bank || null)
 						.slice(0, NAME_MAX)
 						.trim() || name,
+				// O emissor vem da conexão (ISPB), não do nome do cartão ("FREE VISA" não diz que é Santander).
+				...(bankIspb(bank) ? { bankCode: bankIspb(bank) } : {}),
 				last4: digits.length >= 4 ? digits.slice(-4) : null,
 				closingDay: dates.closingDay,
 				dueDay: dates.dueDay,
@@ -256,6 +259,17 @@ export interface BillTotal {
 	amountCents: number;
 }
 
+/** Pagamento da fatura pode cair até 5 dias antes ou depois do vencimento (fim de semana, compensação, atraso curto). */
+export const BILL_DUE_DAYS = 5;
+
+/** Uma fatura de um cartão conectado (de qualquer conexão): total, o que falta pagar e o vencimento. */
+export interface BillInfo {
+	cardId: string;
+	totalCents: number;
+	remainingCents: number;
+	dueDate: LocalDate | null;
+}
+
 export const CARD_BILL_SLUG = "fatura-cartao";
 export const PAYMENT_UNCONNECTED_NOTE = "Pagamento de fatura: cartão não conectado.";
 export const PAYMENT_REVIEW_NOTE =
@@ -305,10 +319,20 @@ export type PaymentCardMatch = { kind: "one"; cardId: string } | { kind: "ambigu
 export function matchPaymentCard(
 	amountCents: number,
 	description: string,
-	ctx: Pick<TransactionContext, "billTotals" | "cards">,
+	ctx: Pick<TransactionContext, "billTotals" | "cards" | "bills">,
+	date?: LocalDate,
 ): PaymentCardMatch {
+	// Faturas de QUALQUER conexão: o valor é o total ou o que faltava pagar, e o dia cai a até 5 dias do vencimento.
+	const billHits = (ctx.bills ?? []).filter(
+		(b) =>
+			(b.totalCents === amountCents || (b.remainingCents > 0 && b.remainingCents === amountCents)) &&
+			(date === undefined || b.dueDate === null || Math.abs(daysBetween(b.dueDate, date)) <= BILL_DUE_DAYS),
+	);
 	const byTotal = [
-		...new Set((ctx.billTotals ?? []).filter((b) => b.amountCents === amountCents).map((b) => b.cardId)),
+		...new Set([
+			...(ctx.billTotals ?? []).filter((b) => b.amountCents === amountCents).map((b) => b.cardId),
+			...billHits.map((b) => b.cardId),
+		]),
 	];
 	const named = cardsNamedIn(description, ctx.cards ?? []);
 	if (byTotal.length === 1 && byTotal[0] !== undefined) {
@@ -390,6 +414,8 @@ export interface TransactionContext {
 	billPaymentMatches?: ReadonlyMap<string, BillPayment>;
 	/** Totais das faturas (plano B por categoria). */
 	billTotals?: readonly BillTotal[];
+	/** Faturas de todos os cartões conectados, de qualquer conexão (total, falta pagar e vencimento). */
+	bills?: readonly BillInfo[];
 	/** Os cartões vivos da conexão (nome e final), para ler o emissor na descrição do pagamento da fatura. */
 	cards?: readonly { id: string; name: string; last4: string | null }[];
 	/** Mês de cada fatura (`billId` → mês do vencimento): vale mais que o cálculo pelo dia de fechamento. */
@@ -428,30 +454,91 @@ function personName(value: string | null | undefined): string {
 	return name.split(" ").length >= 2 ? name : "";
 }
 
-/** "Pix enviado - Fulano de Tal" → "Fulano de Tal": a ponta que o banco escreveu na descrição. */
-const COUNTERPART_IN_DESCRIPTION = /^(?:pix|ted|doc|transfer[^-–]*)[^-–]*[-–]\s*(.+)$/i;
-/** O mesmo sem hífen ("Pix recebido ALISSON ALVES"): o banco só cola o nome depois do verbo. */
-const COUNTERPART_NO_DASH =
-	/^(?:pix|ted|doc|transferencia)\s+(?:enviado|enviada|recebido|recebida|efetuado|efetuada)\s+(?:de\s+|para\s+)?(.+)$/i;
+/** O banco cortou o nome no limite do campo e marcou ("Alisson …", "ALISSON ALV..."). */
+const TRUNCATION_MARK = /…|\.{2,}/;
+
+/** Palavras de abertura de Pix/TED/transferência que vêm antes do nome da outra ponta. */
+const TRANSFER_LEAD_WORDS = new Set([
+	"pix",
+	"ted",
+	"doc",
+	"transf",
+	"transfer",
+	"transferencia",
+	"transferencias",
+	"enviado",
+	"enviada",
+	"enviados",
+	"recebido",
+	"recebida",
+	"recebidos",
+	"efetuado",
+	"efetuada",
+	"realizado",
+	"realizada",
+	"pelo",
+	"pela",
+	"via",
+	"para",
+	"de",
+	"do",
+	"da",
+	"a",
+	"o",
+	"entre",
+	"contas",
+	"remetente",
+	"destinatario",
+	"favorecido",
+	"pagador",
+	"recebedor",
+]);
 
 /**
- * Transferência para si mesmo pelo NOME: a outra ponta (`paymentData`, ou o que vem depois do hífen em "Pix enviado -
- * Nome") é igual ao titular da conta, palavra por palavra. É mais fraco que o CPF, por isso só vale com igualdade exata
- * de um nome com pelo menos duas palavras: homônimo parcial ("Maria Silva" x "Maria Souza Silva") continua sendo gasto.
+ * O texto é o nome do titular? Tolerante ao jeito de cada banco escrever: sem caixa, sem acento, com espaços a mais,
+ * com o prefixo "PIX ENVIADO/RECEBIDO", "TED", "TRANSF…" na frente e com o nome cortado no fim. Regras:
+ * - precisa de ao menos duas palavras (primeiro nome + um sobrenome), todas na ordem do nome do titular;
+ * - nome inteiro e igual: vale;
+ * - nome mais curto que o do titular só vale se o banco o cortou (reticências) ou se a última palavra é um pedaço da
+ *   palavra do titular com pelo menos três palavras ("Alisson Alves Do" para "Alisson Alves Dos Santos");
+ * - homônimo parcial ("Maria Silva" x "Maria de Souza Silva"; "Alisson Souza" x "Alisson Alves") não vale.
+ */
+export function looksLikeOwnerName(
+	text: string | null | undefined,
+	ownerName: string | null | undefined,
+): boolean {
+	const owner = personName(ownerName).split(" ").filter(Boolean);
+	if (owner.length < 2 || !text) return false;
+	const truncated = TRUNCATION_MARK.test(text);
+	const words = plain(text)
+		.replace(/[^a-z\s]/g, " ")
+		.split(/\s+/)
+		.filter(Boolean);
+	let from = 0;
+	while (from < words.length && TRANSFER_LEAD_WORDS.has(words[from] as string)) from += 1;
+	const name = words.slice(from);
+	if (name.length < 2 || name.length > owner.length) return false;
+	const last = name.length - 1;
+	for (let i = 0; i < last; i += 1) if (name[i] !== owner[i]) return false;
+	const tail = name[last] as string;
+	const ownerTail = owner[last] as string;
+	if (tail === ownerTail) return name.length === owner.length || truncated;
+	return ownerTail.startsWith(tail) && tail.length >= 2 && (truncated || name.length >= 3);
+}
+
+/**
+ * Transferência para si mesmo pelo NOME: a outra ponta (`paymentData`, ou o que vem na descrição depois de "Pix
+ * enviado/recebido", "TED", "TRANSF…") é o titular da conta (`looksLikeOwnerName`). É mais fraco que o CPF, por isso
+ * exige nome e sobrenome: homônimo parcial continua sendo gasto.
  */
 function isOwnTransferByName(
 	tx: PluggyTransaction,
 	description: string,
 	ownerName: string | null | undefined,
 ): boolean {
-	const owner = personName(ownerName);
-	if (owner === "") return false;
-	const names = [
-		tx.type === "DEBIT" ? tx.paymentData?.receiver?.name : tx.paymentData?.payer?.name,
-		COUNTERPART_IN_DESCRIPTION.exec(description.trim())?.[1],
-		COUNTERPART_NO_DASH.exec(plain(description))?.[1],
-	];
-	return names.some((name) => personName(name) === owner);
+	if (personName(ownerName) === "") return false;
+	const side = tx.type === "DEBIT" ? tx.paymentData?.receiver?.name : tx.paymentData?.payer?.name;
+	return looksLikeOwnerName(side, ownerName) || looksLikeOwnerName(description, ownerName);
 }
 
 /** Valor (centavos) e dia de um lançamento, ou `null` se o Órbita não aceita. Base do casamento com as faturas. */
@@ -629,7 +716,7 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 		// gasto); sem cartão nenhum que combine, é o único rastro daquela fatura: conta como "Fatura de cartão".
 		if (isCardPayment) {
 			if (tx.type === "CREDIT") return { action: "skip", reason: "card_payment" };
-			const found = matchPaymentCard(amount, description, ctx);
+			const found = matchPaymentCard(amount, description, ctx, date);
 			if (found.kind === "one") {
 				return {
 					action: "upsert",
@@ -715,6 +802,8 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 	if (tx.type === "DEBIT") {
 		const choice = choose();
 		const purchaseDate = meta?.purchaseDate ? pluggyDateToLocal(meta.purchaseDate) : null;
+		// A data da compra só vale se não vier depois do lançamento (compra no futuro é dado torto).
+		const purchaseDay = purchaseDate !== null && purchaseDate <= date ? purchaseDate : null;
 		const number = meta?.installmentNumber ?? null;
 		const count = meta?.totalInstallments ?? null;
 		const grouped =
@@ -749,7 +838,10 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 			externalId: tx.id,
 			input: {
 				...base,
-				...(groupInput ? { date: groupInput.date, budgetMonth: groupInput.budgetMonth } : {}),
+				// Data e mês do gasto pela COMPRA, nunca pelo dia em que a fatura lançou (o `date` do Pluggy no cartão pode ser
+				// a data da fatura): parcela = mês da compra + n − 1; compra à vista = mês da compra.
+				date: groupInput ? groupInput.date : (purchaseDay ?? date),
+				budgetMonth: groupInput ? groupInput.budgetMonth : monthOf(purchaseDay ?? date),
 				kind: "expense",
 				cardId: ctx.card.id,
 				invoiceMonth,

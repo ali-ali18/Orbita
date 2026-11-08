@@ -46,12 +46,14 @@ const SAME_BRAND: Readonly<Record<string, BankLogoKey>> = {
 /**
  * Nomes que identificam o banco, já sem acento nem maiúsculas, procurados como palavras inteiras ("inter" não casa
  * "internacional"). Prefixo `=` = o nome inteiro tem que ser igual (evita "Caixa" de dinheiro virar Caixa Econômica).
+ * Prefixo `~` = o texto aparece em qualquer parte, até colado em outra palavra ("BancoSantanderPF"). Cartões que só um
+ * banco tem ("FREE VISA" é do Santander) entram como nome inteiro (`=`).
  * Ordem importa: o primeiro banco que casa vence ("banco inter" antes de "inter", "itau" só depois de "santander").
  */
 const NAME_ALIASES: readonly (readonly [BankLogoKey, readonly string[]])[] = [
 	["18236120", ["nubank", "nu pagamentos", "nu financeira", "nu conta"]],
 	["00416968", ["banco inter", "inter"]],
-	["90400888", ["santander"]],
+	["90400888", ["santander", "~santander"]],
 	["10573521", ["mercado pago", "mercadopago"]],
 	["60701190", ["itau", "itaubank"]],
 	["60746948", ["bradesco"]],
@@ -107,7 +109,14 @@ export function bankLogoKey(bank: {
 	const padded = ` ${name} `;
 	for (const [key, aliases] of NAME_ALIASES) {
 		for (const alias of aliases) {
-			if (alias.startsWith("=") ? name === alias.slice(1) : padded.includes(` ${alias} `)) return key;
+			if (
+				alias.startsWith("=")
+					? name === alias.slice(1)
+					: alias.startsWith("~")
+						? name.includes(alias.slice(1))
+						: padded.includes(` ${alias} `)
+			)
+				return key;
 		}
 	}
 	return null;

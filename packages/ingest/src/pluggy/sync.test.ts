@@ -1271,6 +1271,18 @@ describe("syncPluggy: corrige o que foi gravado errado antes", () => {
 		});
 		await before.stores.pluggyConnections.add({ id: ITEM_ID, label: "Mercado Pago" });
 		await before.run();
+		// (Hoje o passo entre contas já pareia as duas pontas na 1ª rodada; volta ao que a gravação antiga deixava.)
+		for (const [ext, kind] of [
+			["p-in", "income"],
+			["p-self", "expense"],
+		] as const) {
+			const row = await accountIdOf(ext, before.stores);
+			await before.stores.transactions.update(row?.id ?? "", {
+				kind,
+				counterpartAccountId: null,
+				note: null,
+			});
+		}
 		expect((await everything(before.stores)).map((r) => [r.externalId, r.kind]).sort()).toEqual([
 			["p-in", "income"],
 			["p-self", "expense"],

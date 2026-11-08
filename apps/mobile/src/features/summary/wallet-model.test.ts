@@ -66,6 +66,14 @@ describe("bandLook", () => {
 		expect(bandLook({ name: "Banco Inter", bankCode: "00416968" }).band).toBe("#EA7100");
 		expect(bandLook({ name: "Banco Desconhecido" })).toMatchObject({ band: "#3A3A3A", logo: null });
 	});
+
+	it("Santander: o emissor da conexão (ISPB) vence o nome do cartão 'FREE VISA'", () => {
+		const red = { band: "#EC0000", text: "#FFFFFF", logo: "90400888" };
+		expect(bandLook({ name: "FREE VISA", bankCode: "90400888" })).toMatchObject(red);
+		expect(bandLook({ name: "Santander PF", bankCode: null })).toMatchObject(red);
+		expect(bandLook({ name: "Banco Santander (Brasil) S.A." })).toMatchObject(red);
+		expect(bandLook({ name: "Santander FREE VISA", bankCode: "90400888" }).initial).toBe("S");
+	});
 });
 
 describe("textos", () => {
