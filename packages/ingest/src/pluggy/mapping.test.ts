@@ -159,17 +159,69 @@ describe("mapPluggyTransaction: conta", () => {
 			action: "upsert",
 			input: { kind: "card_payment", accountId: "acc-1", cardId: "card-1", amountCents: 83_010 },
 		});
-		const skipped = { action: "skip", reason: "card_payment_unlinked" };
-		// Sem faturas, total diferente ou dois cartões com o mesmo total: não adivinha.
-		expect(mapPluggyTransaction(payment, bankCtx)).toEqual(skipped);
-		expect(
-			mapPluggyTransaction(payment, { ...bankCtx, billTotals: [{ cardId: "c", amountCents: 1 }] }),
-		).toEqual(skipped);
+		// Total diferente: nenhum cartão combina, o pagamento é o único rastro e conta como "Fatura de cartão".
+		const unconnected = mapPluggyTransaction(payment, {
+			...bankCtx,
+			billTotals: [{ cardId: "c", amountCents: 1 }],
+			categoryIds: new Map([["fatura-cartao", "cat-fatura"]]),
+		});
+		expect(unconnected).toMatchObject({
+			action: "upsert",
+			input: {
+				kind: "expense",
+				categoryId: "cat-fatura",
+				note: "Pagamento de fatura: cartão não conectado.",
+				status: "confirmed",
+			},
+		});
+		// Dois cartões com o mesmo total e nada que desempate: não adivinha, fica pendente para revisão.
 		const both = [
 			{ cardId: "card-1", amountCents: 83_010 },
 			{ cardId: "card-2", amountCents: 83_010 },
 		];
-		expect(mapPluggyTransaction(payment, { ...bankCtx, billTotals: both })).toEqual(skipped);
+		expect(mapPluggyTransaction(payment, { ...bankCtx, billTotals: both })).toMatchObject({
+			action: "upsert",
+			input: { kind: "expense", status: "pending" },
+		});
+	});
+
+	it("pagamento de fatura que o banco chama de Transferência: a descrição manda, e o emissor desempata", () => {
+		const payment = parse({
+			category: "Transfers",
+			description: "Pagamento de fatura Cartão Mercado Pago",
+			amount: -148.38,
+		});
+		const cards = [
+			{ id: "card-mp", name: "Mercado Pago", last4: "1111" },
+			{ id: "card-inter", name: "Inter", last4: "2222" },
+		];
+		// Total bate com um cartão só: card_payment (0 no gasto), não Transferências.
+		expect(
+			mapPluggyTransaction(payment, {
+				...bankCtx,
+				cards,
+				billTotals: [{ cardId: "card-mp", amountCents: 14_838 }],
+			}),
+		).toMatchObject({ input: { kind: "card_payment", cardId: "card-mp", amountCents: 14_838 } });
+		// Sem a fatura no Pluggy (ainda), o emissor na descrição liga ao cartão.
+		expect(mapPluggyTransaction(payment, { ...bankCtx, cards })).toMatchObject({
+			input: { kind: "card_payment", cardId: "card-mp" },
+		});
+		// Total e emissor discordam: ambíguo, revisão.
+		expect(
+			mapPluggyTransaction(payment, {
+				...bankCtx,
+				cards,
+				billTotals: [{ cardId: "card-inter", amountCents: 14_838 }],
+			}),
+		).toMatchObject({ input: { kind: "expense", status: "pending" } });
+		// Fatura de outra coisa (telefone) não é cartão.
+		expect(
+			mapPluggyTransaction(parse({ description: "Pagamento de fatura Vivo", amount: -99 }), {
+				...bankCtx,
+				cards,
+			}),
+		).toMatchObject({ input: { kind: "expense", status: "confirmed" } });
 	});
 
 	it("transferência entre contas do próprio dono não é gasto nem receita", () => {

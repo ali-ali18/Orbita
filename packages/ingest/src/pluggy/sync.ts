@@ -29,6 +29,8 @@ import {
 	type MappedTransaction,
 	mapPluggyAccount,
 	mapPluggyTransaction,
+	PAYMENT_REVIEW_NOTE,
+	PAYMENT_UNCONNECTED_NOTE,
 	type PaymentCandidate,
 	PLUGGY_SOURCE,
 	pluggyDateToLocal,
@@ -393,6 +395,9 @@ async function syncConnection(
 			ownerName: target.ownerName,
 			billPaymentMatches: matches,
 			billTotals,
+			cards: liveCards.flatMap((l) =>
+				l.card ? [{ id: l.card.id, name: l.card.name, last4: l.card.last4 }] : [],
+			),
 			billMonths,
 			billsUnavailable,
 			...(categoryIndex ? { categoryIndex } : {}),
@@ -745,14 +750,48 @@ async function fixKind(
 		categoryEditedByOwner: boolean;
 		note: string | null;
 		counterpartAccountId: string | null;
+		cardId?: string | null;
 	},
 	next: {
 		kind: string;
 		categoryId?: string | null | undefined;
 		counterpartAccountId?: string | null | undefined;
+		cardId?: string | null | undefined;
+		status?: string | undefined;
+		note?: string | null | undefined;
 	},
 ): Promise<boolean> {
 	if (current.categoryEditedByOwner) return false;
+	// Pagamento de fatura: gravado como gasto/transferência (ou "Fatura de cartão"/revisão) e agora o mapeamento sabe de
+	// qual cartão é → vira `card_payment` (0 no gasto). Idempotente: depois de virar, `current.kind` já é card_payment.
+	if (
+		next.kind === "card_payment" &&
+		next.cardId &&
+		(current.kind === "expense" || current.kind === "transfer")
+	) {
+		await transactions.update(current.id, {
+			kind: "card_payment",
+			cardId: next.cardId,
+			counterpartAccountId: null,
+			categoryId: null,
+			status: "confirmed",
+			note: isPaymentNote(current.note) ? null : current.note,
+		});
+		return true;
+	}
+	// Pagamento de fatura sem cartão que combine: rotula (uma vez só: a nota marca que já foi tratado).
+	const flagged = next.note === PAYMENT_UNCONNECTED_NOTE || next.note === PAYMENT_REVIEW_NOTE;
+	if (flagged && next.kind === "expense" && current.note === null && current.kind !== "card_payment") {
+		if (current.kind !== "expense" && current.kind !== "transfer") return false;
+		await transactions.update(current.id, {
+			kind: "expense",
+			counterpartAccountId: null,
+			note: next.note ?? null,
+			...(next.status === "pending" ? { status: "pending" as const } : {}),
+			...(next.categoryId ? { categoryId: next.categoryId } : {}),
+		});
+		return true;
+	}
 	if (current.kind === "expense" && next.kind === "investment") {
 		await transactions.update(current.id, { kind: "investment", categoryId: next.categoryId ?? null });
 		return true;
@@ -776,6 +815,9 @@ async function fixKind(
 	}
 	return false;
 }
+
+const isPaymentNote = (note: string | null) =>
+	note === PAYMENT_UNCONNECTED_NOTE || note === PAYMENT_REVIEW_NOTE;
 
 const RECOMPUTED_NOTE = "Recalculado: transferência entre contas suas.";
 const NO_SOURCE_CATEGORY = "sem categoria do banco";

@@ -53,6 +53,12 @@ const anyMatch = (chain: readonly string[], pattern: RegExp) => chain.some((c) =
 // ---------------------------------------------------------------- famílias que não são consumo
 
 const CARD_PAYMENT = /\b(credit card payment|pagamento de (cartao|fatura)|pagamento fatura)/;
+/**
+ * Descrição de pagamento de fatura de CARTÃO (a categoria do banco às vezes diz só "Transferência"). Exige a palavra
+ * cartão/crédito: "pagamento de fatura Vivo" é conta de telefone, não cartão.
+ */
+const CARD_PAYMENT_DESCRIPTION =
+	/\b(pagamento|pagto|pag)\.? (da |de |do )?(fatura|cartao|cart)\b.*\b(cartao|credito|card)\b|\b(pagamento|pagto|pag)\.? (de )?cartao( de credito)?\b|\bfatura (do )?cartao\b/;
 const OWN_TRANSFER = /\b(same ownership|same person|mesma titularidade|mesmo titular)/;
 /** Raiz ou folha de investimento (aplicar, resgatar, guardar). "Retirement" sozinho é aposentadoria, receita. */
 const INVESTMENT =
@@ -120,6 +126,12 @@ export function classifyFamily(input: {
 }): PluggyFamily {
 	const { chain, direction } = input;
 	if (anyMatch(chain, CARD_PAYMENT)) return "card_payment";
+	if (
+		input.allowDescriptionFallback &&
+		direction === "out" &&
+		CARD_PAYMENT_DESCRIPTION.test(plain(input.description))
+	)
+		return "card_payment";
 	if (anyMatch(chain, OWN_TRANSFER)) return "own_transfer";
 	if (direction === "in" && anyMatch(chain, YIELD)) return "yield";
 	if (anyMatch(chain, INVESTMENT)) return "investment";

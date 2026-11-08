@@ -256,6 +256,76 @@ export interface BillTotal {
 	amountCents: number;
 }
 
+export const CARD_BILL_SLUG = "fatura-cartao";
+export const PAYMENT_UNCONNECTED_NOTE = "Pagamento de fatura: cartão não conectado.";
+export const PAYMENT_REVIEW_NOTE =
+	"Pagamento de fatura: não deu para saber de qual cartão. Confira e ligue ao cartão.";
+
+/** Palavras do nome do cartão que não dizem o emissor. */
+const GENERIC_CARD_WORDS = new Set([
+	"cartao",
+	"credito",
+	"card",
+	"mastercard",
+	"visa",
+	"elo",
+	"gold",
+	"platinum",
+	"black",
+	"infinite",
+	"standard",
+	"internacional",
+	"nacional",
+	"banco",
+	"pagamento",
+	"conta",
+]);
+
+/** Cartões cujo nome (ou final) aparece na descrição do pagamento. */
+function cardsNamedIn(description: string, cards: NonNullable<TransactionContext["cards"]>): string[] {
+	const text = plain(description);
+	return cards
+		.filter((card) => {
+			if (card.last4 && text.includes(card.last4)) return true;
+			const words = plain(card.name)
+				.split(/[^a-z0-9]+/)
+				.filter((w) => w.length >= 4 && !GENERIC_CARD_WORDS.has(w));
+			return words.length > 0 && words.every((w) => text.includes(w));
+		})
+		.map((card) => card.id);
+}
+
+export type PaymentCardMatch = { kind: "one"; cardId: string } | { kind: "ambiguous" } | { kind: "none" };
+
+/**
+ * De qual cartão é um pagamento de fatura saído da conta. Sinais, do mais seguro ao menos: o total da fatura é
+ * igual ao valor (um só cartão); entre vários de mesmo total, o emissor na descrição; sem total, o emissor sozinho.
+ * Mais de um candidato sem desempate = `ambiguous` (revisão); nenhum = `none` (cartão não conectado).
+ */
+export function matchPaymentCard(
+	amountCents: number,
+	description: string,
+	ctx: Pick<TransactionContext, "billTotals" | "cards">,
+): PaymentCardMatch {
+	const byTotal = [
+		...new Set((ctx.billTotals ?? []).filter((b) => b.amountCents === amountCents).map((b) => b.cardId)),
+	];
+	const named = cardsNamedIn(description, ctx.cards ?? []);
+	if (byTotal.length === 1 && byTotal[0] !== undefined) {
+		// O emissor da descrição nomeia OUTRO cartão: os dois sinais discordam, não adivinha.
+		if (named.length > 0 && !named.includes(byTotal[0])) return { kind: "ambiguous" };
+		return { kind: "one", cardId: byTotal[0] };
+	}
+	if (byTotal.length > 1) {
+		const both = named.filter((id) => byTotal.includes(id));
+		return both.length === 1 && both[0] !== undefined
+			? { kind: "one", cardId: both[0] }
+			: { kind: "ambiguous" };
+	}
+	if (named.length === 1 && named[0] !== undefined) return { kind: "one", cardId: named[0] };
+	return named.length > 1 ? { kind: "ambiguous" } : { kind: "none" };
+}
+
 /** Um lançamento que pode ser pagamento de fatura (débito da conta ou crédito do cartão). */
 export interface PaymentCandidate {
 	id: string;
@@ -320,6 +390,8 @@ export interface TransactionContext {
 	billPaymentMatches?: ReadonlyMap<string, BillPayment>;
 	/** Totais das faturas (plano B por categoria). */
 	billTotals?: readonly BillTotal[];
+	/** Os cartões vivos da conexão (nome e final), para ler o emissor na descrição do pagamento da fatura. */
+	cards?: readonly { id: string; name: string; last4: string | null }[];
 	/** Mês de cada fatura (`billId` → mês do vencimento): vale mais que o cálculo pelo dia de fechamento. */
 	billMonths?: ReadonlyMap<string, string>;
 	/** As faturas não carregaram: débito da conta e crédito do cartão ficam de fora até carregarem. */
@@ -548,19 +620,42 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 		}
 		// Sem as faturas não dá para distinguir pagamento de fatura de gasto, e o upsert nunca corrige depois.
 		if (tx.type === "DEBIT" && ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
-		// 3) Sem pagamento para casar: o nome da categoria (suposição). Só liga a um cartão se o valor bate com o total
-		// de uma fatura de um único cartão; senão fica de fora (o Órbita não tem pagamento de fatura "sem cartão").
+		// 3) Sem pagamento para casar: pagamento de fatura pelo texto (categoria ou descrição). Liga ao cartão pelo
+		// total da fatura (±valor exato) e pelo emissor na descrição; na dúvida, fica para revisão (pendente, fora do
+		// gasto); sem cartão nenhum que combine, é o único rastro daquela fatura: conta como "Fatura de cartão".
 		if (isCardPayment) {
 			if (tx.type === "CREDIT") return { action: "skip", reason: "card_payment" };
-			const cards = new Set(
-				(ctx.billTotals ?? []).filter((b) => b.amountCents === amount).map((b) => b.cardId),
-			);
-			const [only] = [...cards];
-			if (cards.size !== 1 || only === undefined) return { action: "skip", reason: "card_payment_unlinked" };
+			const found = matchPaymentCard(amount, description, ctx);
+			if (found.kind === "one") {
+				return {
+					action: "upsert",
+					externalId: tx.id,
+					input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: found.cardId },
+				};
+			}
+			if (found.kind === "ambiguous") {
+				return {
+					action: "upsert",
+					externalId: tx.id,
+					input: {
+						...base,
+						kind: "expense",
+						accountId: ctx.accountId,
+						status: "pending" as const,
+						note: PAYMENT_REVIEW_NOTE,
+					},
+				};
+			}
 			return {
 				action: "upsert",
 				externalId: tx.id,
-				input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: only },
+				input: {
+					...base,
+					kind: "expense",
+					accountId: ctx.accountId,
+					note: PAYMENT_UNCONNECTED_NOTE,
+					categoryId: ctx.categoryIds?.get(CARD_BILL_SLUG) ?? null,
+				},
 			};
 		}
 		if (
