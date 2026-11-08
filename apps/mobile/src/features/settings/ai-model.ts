@@ -107,3 +107,16 @@ export function modelRowValue(settings: AiSettingsResponse): string {
 export function fastModelRowValue(settings: AiSettingsResponse): string {
 	return modelLabel(settings.modelOptions, settings.chatModelFast);
 }
+
+/**
+ * Qual opção a gaveta marca: o modelo em vigor, que é o salvo pelo dono ou, sem escolha, o padrão do servidor (o
+ * servidor já devolve o resultado em `chatModel`/`chatModelFast`). Rápido desligado (`null`) marca "Desligado".
+ */
+export function currentChoiceId(
+	settings: AiSettingsResponse | undefined,
+	which: "main" | "fast",
+): string | null {
+	if (!settings) return null;
+	if (which === "main") return settings.chatModel;
+	return settings.chatModelFast ?? FAST_OFF_ID;
+}

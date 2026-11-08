@@ -22,7 +22,16 @@ export function ChatScreen() {
 	const profileQ = useProfile();
 	const router = useRouter();
 	// "Conversar com o agente": a tela do agente abre o chat com o id dele; sem id, é a Órbita.
-	const { agentId } = useLocalSearchParams<{ agentId?: string }>();
+	// A tela "Conversas" volta para cá com `conversationId` (e `opened`, que muda a cada toque: abrir de novo a mesma conversa conta).
+	const {
+		agentId,
+		conversationId: openId,
+		opened,
+	} = useLocalSearchParams<{
+		agentId?: string;
+		conversationId?: string;
+		opened?: string;
+	}>();
 	const { api, baseUrl, state: session, handleQueryError } = useSession();
 	const queryClient = useQueryClient();
 	const aiQ = useAiSettings();
@@ -125,6 +134,18 @@ export function ChatScreen() {
 		}
 	};
 
+	// Chegou pedido para abrir uma conversa (vindo da lista completa): carrega o histórico dela.
+	const openRef = useRef(openConversation);
+	openRef.current = openConversation;
+	const requested = typeof openId === "string" && openId ? `${openId}:${opened ?? ""}` : null;
+	const handledRequest = useRef<string | null>(null);
+	useEffect(() => {
+		if (requested === null || !api || typeof openId !== "string" || handledRequest.current === requested)
+			return;
+		handledRequest.current = requested;
+		void openRef.current(openId);
+	}, [requested, openId, api]);
+
 	const attach = async (kind: "receipt" | "photo") => {
 		if (typeof document === "undefined") {
 			dispatch({
@@ -170,6 +191,10 @@ export function ChatScreen() {
 					setHistoryOpen(false);
 				}}
 				onPick={(id) => void openConversation(id)}
+				onSeeAll={() => {
+					setHistoryOpen(false);
+					router.push("/conversas");
+				}}
 			/>
 		</>
 	);

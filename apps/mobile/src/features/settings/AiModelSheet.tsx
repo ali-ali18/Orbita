@@ -20,7 +20,7 @@ export function AiModelSheet({
 	title: string;
 	hint: string;
 	choices: readonly ModelChoice[];
-	currentId: string;
+	currentId: string | null;
 	/** Foi o dono que escolheu (e não o padrão do servidor): habilita "Voltar ao padrão". */
 	isCustom: boolean;
 	/** `null` = voltar ao padrão do servidor. */
@@ -55,7 +55,9 @@ export function AiModelSheet({
 						<SheetRow
 							key={c.id}
 							label={c.label}
-							caption={c.price ? `${c.description} ${c.price}` : c.description}
+							variant="detailed"
+							caption={c.description}
+							note={c.price}
 							selected={c.id === currentId}
 							role="radio"
 							onPress={() => void pick(c.id)}

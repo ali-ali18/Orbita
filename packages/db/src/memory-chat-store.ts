@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { cleanChatMessage, cleanChatTitle } from "./chat-rules.ts";
+import { cleanChatMessage, cleanRenamedTitle, deriveChatTitle } from "./chat-rules.ts";
 import type {
 	ChatConversationRecord,
 	ChatMessageRecord,
@@ -31,7 +31,7 @@ export function createMemoryChatStore(
 			const at = now();
 			const row: ChatConversationRecord = {
 				id: randomUUID(),
-				title: cleanChatTitle(title),
+				title: deriveChatTitle(title, at),
 				createdAt: at,
 				updatedAt: at,
 				agentId: options.agentId ?? null,
@@ -46,10 +46,26 @@ export function createMemoryChatStore(
 		},
 		async listConversations(options = {}) {
 			const limit = Math.min(Math.max(options.limit ?? 30, 1), 100);
+			const needle = options.query?.trim().toLowerCase() ?? "";
+			const { before } = options;
 			return [...conversations.values()]
+				.filter((row) => needle === "" || row.title.toLowerCase().includes(needle))
 				.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || (a.id < b.id ? 1 : -1))
+				.filter(
+					(row) =>
+						!before ||
+						row.updatedAt.getTime() < before.updatedAt.getTime() ||
+						(row.updatedAt.getTime() === before.updatedAt.getTime() && row.id < before.id),
+				)
 				.slice(0, limit)
 				.map(view);
+		},
+		async renameConversation(id, title) {
+			const clean = cleanRenamedTitle(title);
+			const row = conversations.get(id);
+			if (!row) return null;
+			row.title = clean;
+			return view(row);
 		},
 		async deleteConversation(id) {
 			if (!conversations.delete(id)) return false;

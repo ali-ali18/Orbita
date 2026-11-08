@@ -1,15 +1,16 @@
 import type { ChatModelConfig } from "@orbita/agents";
 import { describeModelError, type ModelClient } from "@orbita/agents";
-import type { SecretVault } from "@orbita/db";
+import type { ChatConversationRecord, SecretVault } from "@orbita/db";
 import { createRateLimiter } from "@orbita/security";
-import { chatRequestBody, idParam } from "@orbita/shared";
+import { chatConversationRenameBody, chatConversationsQuery, chatRequestBody, idParam } from "@orbita/shared";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { apiError } from "../../http/errors.ts";
+import { apiError, orNotFound } from "../../http/errors.ts";
 import type { ModuleDeps } from "../../http/module-deps.ts";
 import { rateLimit } from "../../http/rate-limit.ts";
 import type { AppEnv } from "../../http/require-device.ts";
 import { validate } from "../../http/validate.ts";
+import { decodeConversationCursor, encodeConversationCursor } from "./conversation-cursor.ts";
 import {
 	ChatPreconditionError,
 	type ChatServiceDeps,
@@ -28,6 +29,13 @@ export type ChatRoutesDeps = ModuleDeps & {
 	/** Pedidos de chat por aparelho a cada 10 minutos (cada um pode custar dinheiro). */
 	rateLimitPerWindow?: number;
 };
+
+const toConversationDto = (r: ChatConversationRecord) => ({
+	id: r.id,
+	title: r.title,
+	updatedAt: r.updatedAt.toISOString(),
+	agentId: r.agentId,
+});
 
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 export const DEFAULT_CHAT_RATE_LIMIT = 30;
@@ -99,10 +107,23 @@ export function routes(deps: ChatRoutesDeps) {
 				});
 			},
 		)
-		.get("/v1/chat/conversations", async (c) => {
-			const rows = await stores.chat.listConversations({ limit: 30 });
+		.get("/v1/chat/conversations", validate("query", chatConversationsQuery), async (c) => {
+			const { cursor, limit, q } = c.req.valid("query");
+			const before = cursor === undefined ? undefined : decodeConversationCursor(cursor);
+			// Pede um a mais só para saber se há outra página (o "Ver todas" da gaveta usa limit=3).
+			const rows = await stores.chat.listConversations({
+				limit: limit + 1,
+				...(before ? { before } : {}),
+				...(q ? { query: q } : {}),
+			});
+			const page = rows.slice(0, limit);
+			const last = page.at(-1);
 			return c.json({
-				conversations: rows.map((r) => ({ id: r.id, title: r.title, updatedAt: r.updatedAt.toISOString() })),
+				conversations: page.map(toConversationDto),
+				nextCursor:
+					rows.length > limit && last
+						? encodeConversationCursor({ updatedAt: last.updatedAt, id: last.id })
+						: null,
 			});
 		})
 		.get("/v1/chat/conversations/:id", validate("param", idParam), async (c) => {
@@ -111,14 +132,22 @@ export function routes(deps: ChatRoutesDeps) {
 			if (!conversation) return c.json(apiError("nao_encontrado", "Conversa não encontrada."), 404);
 			const messages = await stores.chat.listMessages(id);
 			return c.json({
-				conversation: {
-					id: conversation.id,
-					title: conversation.title,
-					updatedAt: conversation.updatedAt.toISOString(),
-				},
+				conversation: toConversationDto(conversation),
 				messages: await hydrateMessages(service, messages),
 			});
 		})
+		.patch(
+			"/v1/chat/conversations/:id",
+			validate("param", idParam),
+			validate("json", chatConversationRenameBody),
+			async (c) => {
+				const renamed = await stores.chat.renameConversation(
+					c.req.valid("param").id,
+					c.req.valid("json").title,
+				);
+				return c.json({ conversation: toConversationDto(orNotFound(renamed, "Conversa")) });
+			},
+		)
 		.delete("/v1/chat/conversations/:id", validate("param", idParam), async (c) =>
 			c.json({ deleted: await stores.chat.deleteConversation(c.req.valid("param").id) }),
 		)

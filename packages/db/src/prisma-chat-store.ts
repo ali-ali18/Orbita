@@ -1,5 +1,5 @@
 import type { ProposalKind, ProposalStatus } from "@orbita/shared";
-import { cleanChatMessage, cleanChatTitle } from "./chat-rules.ts";
+import { cleanChatMessage, cleanRenamedTitle, deriveChatTitle } from "./chat-rules.ts";
 import type {
 	ChatConversationRecord,
 	ChatMessageRecord,
@@ -80,7 +80,7 @@ export function createPrismaChatStore(db: Db, now: Clock): ChatStore {
 				return toConversation(
 					await db.chatConversation.create({
 						data: {
-							title: cleanChatTitle(title),
+							title: deriveChatTitle(title, at),
 							createdAt: at,
 							updatedAt: at,
 							agentId: options.agentId ?? null,
@@ -98,11 +98,33 @@ export function createPrismaChatStore(db: Db, now: Clock): ChatStore {
 		},
 		async listConversations(options = {}) {
 			const take = Math.min(Math.max(options.limit ?? 30, 1), 100);
+			// O Prisma não escapa os curingas do LIKE: "%" e "_" digitados são texto comum, como na memória.
+			const needle = (options.query?.trim() ?? "").replace(/[\\%_]/g, "\\$&");
+			const { before } = options;
 			const rows = await db.chatConversation.findMany({
+				where: {
+					...(needle === "" ? {} : { title: { contains: needle, mode: "insensitive" } }),
+					...(before
+						? {
+								OR: [
+									{ updatedAt: { lt: before.updatedAt } },
+									{ updatedAt: before.updatedAt, id: { lt: before.id } },
+								],
+							}
+						: {}),
+				},
 				orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
 				take,
 			});
 			return rows.map(toConversation);
+		},
+		async renameConversation(id, title) {
+			const clean = cleanRenamedTitle(title);
+			// `updateMany` não falha quando a conversa não existe; a ordem (`updatedAt`) fica como está.
+			const res = await db.chatConversation.updateMany({ where: { id }, data: { title: clean } });
+			if (res.count === 0) return null;
+			const row = await db.chatConversation.findUnique({ where: { id } });
+			return row ? toConversation(row) : null;
 		},
 		async deleteConversation(id) {
 			const res = await db.chatConversation.deleteMany({ where: { id } });

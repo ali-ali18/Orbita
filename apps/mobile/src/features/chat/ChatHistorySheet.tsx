@@ -2,23 +2,28 @@ import { spacing } from "@orbita/tokens";
 import { View } from "react-native";
 import { errorMessage } from "../../lib/loadable.ts";
 import { Sheet, SheetGroup, SheetRow, Skeleton, Text } from "../../ui/index.ts";
-import { conversationLabel } from "./chat-model.ts";
-import { useConversations } from "./chat-queries.ts";
+import { useRecentConversations } from "./chat-queries.ts";
+import { conversationTitle, RECENT_COUNT, showSeeAll } from "./conversations-model.ts";
 
-/** Gaveta com as conversas guardadas no servidor e "Nova conversa". */
+/**
+ * Gaveta do chat: "Nova conversa", as 3 conversas mais recentes e, só quando existem mais, "Ver todas" (a tela
+ * "Conversas" tem a lista completa, com busca). O servidor entrega só 3: uma conta com 500 conversas abre igual.
+ */
 export function ChatHistorySheet({
 	visible,
 	onClose,
 	onNew,
 	onPick,
+	onSeeAll,
 }: {
 	visible: boolean;
 	onClose: () => void;
 	onNew: () => void;
 	onPick: (id: string) => void;
+	onSeeAll: () => void;
 }) {
-	const q = useConversations(visible);
-	const list = q.data?.conversations ?? [];
+	const q = useRecentConversations(visible);
+	const list = (q.data?.conversations ?? []).slice(0, RECENT_COUNT);
 	return (
 		<Sheet visible={visible} title="Conversas" onClose={onClose}>
 			<SheetGroup gap={false}>
@@ -38,16 +43,23 @@ export function ChatHistorySheet({
 					Nenhuma conversa ainda.
 				</Text>
 			) : (
-				<SheetGroup gap={false}>
-					{list.map((conversation) => (
-						<SheetRow
-							key={conversation.id}
-							icon="relogio"
-							label={conversationLabel(conversation.title)}
-							onPress={() => onPick(conversation.id)}
-						/>
-					))}
-				</SheetGroup>
+				<View style={{ paddingTop: spacing.md }}>
+					<SheetGroup gap={false}>
+						{[
+							...list.map((conversation) => (
+								<SheetRow
+									key={conversation.id}
+									icon="relogio"
+									label={conversationTitle(conversation.title)}
+									onPress={() => onPick(conversation.id)}
+								/>
+							)),
+							...(showSeeAll(q.data?.nextCursor)
+								? [<SheetRow key="see-all" icon="reticencias" label="Ver todas" onPress={onSeeAll} />]
+								: []),
+						]}
+					</SheetGroup>
+				</View>
 			)}
 		</Sheet>
 	);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	aiCostCaption,
 	aiCostLabel,
+	currentChoiceId,
 	fastModelChoices,
 	limitFieldValue,
 	limitValueLabel,
@@ -120,5 +121,23 @@ describe("modelo do chat", () => {
 		expect(mainModelChoices(options).map((c) => c.id)).toEqual(["claude-sonnet-5-5", "claude-haiku-5-5"]);
 		expect(fastModelChoices(options).map((c) => c.id)).toEqual(["claude-haiku-5-5", "off"]);
 		expect(fastModelChoices(options).at(-1)?.price).toBeNull();
+	});
+});
+
+describe("opção marcada na gaveta", () => {
+	it("marca o modelo em vigor: o escolhido pelo dono, senão o padrão do servidor", () => {
+		const chosen = { ...settings, chatModel: "claude-haiku-5-5", chatModelCustom: true };
+		expect(currentChoiceId(chosen, "main")).toBe("claude-haiku-5-5");
+		expect(mainModelChoices(options).find((c) => c.id === currentChoiceId(chosen, "main"))?.label).toBe(
+			"Haiku 5.5",
+		);
+		expect(currentChoiceId(settings, "main")).toBe("claude-sonnet-5-5");
+	});
+
+	it("no rápido, desligado marca 'Desligado' e sem dados não marca nada", () => {
+		expect(currentChoiceId({ ...settings, chatModelFast: null }, "fast")).toBe("off");
+		expect(currentChoiceId(settings, "fast")).toBe("claude-haiku-5-5");
+		expect(currentChoiceId(undefined, "main")).toBeNull();
+		expect(currentChoiceId(undefined, "fast")).toBeNull();
 	});
 });
