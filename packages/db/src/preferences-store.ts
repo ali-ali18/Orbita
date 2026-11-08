@@ -10,6 +10,10 @@ export interface PreferencesRecord {
 	notificationCapture: boolean;
 	notificationApps: NotificationApp[];
 	notificationToReview: boolean;
+	/** Avisar quando o gasto passar deste percentual do limite (1 a 100). O push ainda não existe. */
+	budgetAlertPercent: number;
+	/** Conta que recebe a sobra do mês; `null` = nenhuma. Só a escolha é guardada: nada é movido. */
+	leftoverAccountId: string | null;
 }
 
 export type PreferencesPatch = Partial<PreferencesRecord>;
@@ -20,14 +24,16 @@ export const DEFAULT_PREFERENCES: PreferencesRecord = {
 	notificationCapture: false,
 	notificationApps: [],
 	notificationToReview: true,
+	budgetAlertPercent: 80,
+	leftoverAccountId: null,
 };
 
 export interface PreferencesStore {
 	/** Sempre devolve algo: sem registro ainda, são os padrões. */
 	get(): Promise<PreferencesRecord>;
 	/**
-	 * Grava só os campos enviados e devolve o resultado. `invalid` para nome vazio/longo ou app desconhecido;
-	 * `bad_reference` para conta que não existe ou está arquivada.
+	 * Grava só os campos enviados e devolve o resultado. `invalid` para nome vazio/longo, app desconhecido ou percentual fora de 1 a 100;
+	 * `bad_reference` para conta (padrão ou da sobra) que não existe ou está arquivada.
 	 */
 	update(patch: PreferencesPatch): Promise<PreferencesRecord>;
 }

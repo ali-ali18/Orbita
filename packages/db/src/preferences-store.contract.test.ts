@@ -15,6 +15,8 @@ describe.each(contractSuites())("PreferencesStore (%s)", (_name, make) => {
 			notificationCapture: false,
 			notificationApps: [],
 			notificationToReview: true,
+			budgetAlertPercent: 80,
+			leftoverAccountId: null,
 		});
 	});
 
@@ -31,6 +33,8 @@ describe.each(contractSuites())("PreferencesStore (%s)", (_name, make) => {
 			// Ordem fixa e sem repetição, qualquer que seja a ordem enviada.
 			notificationApps: ["nubank", "inter"],
 			notificationToReview: true,
+			budgetAlertPercent: 80,
+			leftoverAccountId: null,
 		});
 		expect(await stores.preferences.get()).toEqual(next);
 	});
@@ -66,5 +70,37 @@ describe.each(contractSuites())("PreferencesStore (%s)", (_name, make) => {
 		});
 		expect((await stores.preferences.get()).defaultAccountId).toBe(account.id);
 		expect((await stores.preferences.update({ defaultAccountId: null })).defaultAccountId).toBeNull();
+	});
+
+	it("guarda o percentual do aviso de orçamento (1 a 100) e recusa o resto", async () => {
+		expect((await stores.preferences.update({ budgetAlertPercent: 90 })).budgetAlertPercent).toBe(90);
+		for (const bad of [0, 101, -5, 80.5, Number.NaN]) {
+			await expect(stores.preferences.update({ budgetAlertPercent: bad })).rejects.toMatchObject({
+				code: "invalid",
+				message: "O aviso vai de 1% a 100%.",
+			});
+		}
+		expect((await stores.preferences.get()).budgetAlertPercent).toBe(90);
+		// Outros campos não mexem no percentual.
+		expect((await stores.preferences.update({ displayName: "Ana" })).budgetAlertPercent).toBe(90);
+	});
+
+	it("a conta da sobra do mês precisa existir e estar ativa, e é independente da conta padrão", async () => {
+		const account = await stores.accounts.create({ name: "Reserva", kind: "savings" });
+		const other = await stores.accounts.create({ name: "Corrente", kind: "checking" });
+		await stores.preferences.update({ defaultAccountId: other.id });
+		const next = await stores.preferences.update({ leftoverAccountId: account.id });
+		expect(next.leftoverAccountId).toBe(account.id);
+		expect(next.defaultAccountId).toBe(other.id);
+		await expect(stores.preferences.update({ leftoverAccountId: "fantasma" })).rejects.toMatchObject({
+			code: "bad_reference",
+		});
+		const old = await stores.accounts.create({ name: "Antiga", kind: "savings" });
+		await stores.accounts.archive(old.id);
+		await expect(stores.preferences.update({ leftoverAccountId: old.id })).rejects.toMatchObject({
+			code: "bad_reference",
+		});
+		expect((await stores.preferences.get()).leftoverAccountId).toBe(account.id);
+		expect((await stores.preferences.update({ leftoverAccountId: null })).leftoverAccountId).toBeNull();
 	});
 });

@@ -16,8 +16,9 @@ export function createMemoryPreferencesStore(state: MemoryState): PreferencesSto
 		},
 		async update(patch) {
 			const clean = cleanPreferencesPatch(patch);
-			if (clean.defaultAccountId) {
-				const account = state.accounts.get(clean.defaultAccountId);
+			for (const id of [clean.defaultAccountId, clean.leftoverAccountId]) {
+				if (!id) continue;
+				const account = state.accounts.get(id);
 				if (!account) throw badReference();
 				if (account.archivedAt !== null) throw archivedAccount();
 			}

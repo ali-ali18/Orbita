@@ -104,10 +104,11 @@ model Account {
   createdAt  DateTime          @default(now()) @map("created_at")
   updatedAt  DateTime          @updatedAt @map("updated_at")
 
-  transactions  Transaction[] @relation("TransactionAccount")
-  counterpartOf Transaction[] @relation("TransactionCounterpart")
-  recurrences   Recurrence[]
-  preferences   AppPreferences[]
+  transactions        Transaction[]    @relation("TransactionAccount")
+  counterpartOf       Transaction[]    @relation("TransactionCounterpart")
+  recurrences         Recurrence[]
+  preferences         AppPreferences[] @relation("DefaultAccount")
+  leftoverPreferences AppPreferences[] @relation("LeftoverAccount")
 
   @@unique([source, externalId])
   @@map("accounts")
@@ -275,7 +276,13 @@ model AppPreferences {
   displayName          String?  @map("display_name")
   /// Conta já marcada em "Novo lançamento".
   defaultAccountId     String?  @map("default_account_id")
-  defaultAccount       Account? @relation(fields: [defaultAccountId], references: [id], onDelete: SetNull)
+  defaultAccount       Account? @relation("DefaultAccount", fields: [defaultAccountId], references: [id], onDelete: SetNull)
+  /// Avisar quando o gasto de uma categoria (ou do mês) passar deste percentual do limite (1 a 100). O aviso por push
+  /// ainda não existe: vale para o indicador dentro do app.
+  budgetAlertPercent   Int      @default(80) @map("budget_alert_percent")
+  /// Para onde vai a sobra do mês; null = nenhum destino. Só a escolha é guardada: nenhum dinheiro é movido.
+  leftoverAccountId    String?  @map("leftover_account_id")
+  leftoverAccount      Account? @relation("LeftoverAccount", fields: [leftoverAccountId], references: [id], onDelete: SetNull)
   /// Escolhas da tela Notificações do celular. A captura ainda não existe: são só preferências guardadas.
   notificationCapture  Boolean  @default(false) @map("notification_capture")
   notificationApps     String[] @default([]) @map("notification_apps")
