@@ -1,6 +1,6 @@
-import { createMemoryAuthStore } from "@orbita/db";
+import { createMemoryAuthStore, createMemoryStores } from "@orbita/db";
 import { describe, expect, it } from "vitest";
-import { cleanPairingCodes } from "./maintenance.ts";
+import { cleanIdempotencyKeys, cleanPairingCodes } from "./maintenance.ts";
 
 describe("cleanPairingCodes", () => {
 	it("apaga só o que venceu há mais de um dia", async () => {
@@ -21,5 +21,18 @@ describe("cleanPairingCodes", () => {
 		const { deleted } = await cleanPairingCodes({ store, now: () => now });
 		expect(deleted).toBe(1);
 		expect(store.codes.map((c) => c.codeHash)).toEqual(["recente"]);
+	});
+});
+
+describe("cleanIdempotencyKeys", () => {
+	it("apaga só as chaves que já expiraram", async () => {
+		const { idempotency: store } = createMemoryStores();
+		const now = new Date("2026-11-06T12:00:00Z");
+		const at = (ms: number) => new Date(now.getTime() + ms);
+		const base = { deviceId: "d1", requestHash: "h", now, staleBefore: now };
+		await store.begin({ ...base, key: "vencida", expiresAt: at(-1000) });
+		await store.begin({ ...base, key: "viva", expiresAt: at(60_000) });
+		expect(await cleanIdempotencyKeys({ store, now: () => now })).toEqual({ deleted: 1 });
+		expect(await cleanIdempotencyKeys({ store, now: () => now })).toEqual({ deleted: 0 });
 	});
 });
