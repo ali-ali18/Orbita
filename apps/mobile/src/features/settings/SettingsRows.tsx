@@ -3,13 +3,18 @@ import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { Icon, type IconName, Text } from "../../ui/index.ts";
 
-/** Seção do Figma: legenda em `textSecondary` e, embaixo, um bloco `surface` com as linhas (raio `group`). */
-export function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * Seção do Figma: legenda em `textSecondary` (se houver `title`) e, embaixo, um bloco `surface` com as
+ * linhas (raio `group`). Sem `title` é só o bloco, para telas em que o nome já aparece em outro campo.
+ */
+export function SettingsSection({ title, children }: { title?: string; children: ReactNode }) {
 	return (
 		<View style={{ gap: spacing.sm, paddingTop: spacing.sm }}>
-			<Text variant="caption" tone="secondary" accessibilityRole="header">
-				{title}
-			</Text>
+			{title ? (
+				<Text variant="caption" tone="secondary" accessibilityRole="header">
+					{title}
+				</Text>
+			) : null}
 			<View
 				style={{
 					backgroundColor: colors.surface,

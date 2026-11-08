@@ -297,7 +297,7 @@ export function NewSubscriptionScreen() {
 								</View>
 							)}
 
-							<SettingsSection title={current.name.trim() || "Assinatura"}>
+							<SettingsSection>
 								<SettingsRow
 									title="Valor"
 									value={formatAmount(current.amountCents)}
