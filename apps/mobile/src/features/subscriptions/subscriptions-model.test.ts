@@ -31,6 +31,7 @@ const rec = (over: Partial<RecurrenceLike> & { id: string }): RecurrenceLike => 
 	categoryId: null,
 	accountId: null,
 	cardId: "c1",
+	remindDayBefore: false,
 	archivedAt: null,
 	...over,
 });
@@ -108,7 +109,14 @@ describe("situação do mês", () => {
 
 describe("formulário", () => {
 	it("começa com o dia de hoje e valor zero", () => {
-		expect(initialForm(TODAY)).toEqual({ name: "", amountCents: 0, dayOfMonth: 6, sourceKey: null });
+		expect(initialForm(TODAY)).toEqual({
+			name: "",
+			amountCents: 0,
+			dayOfMonth: 6,
+			sourceKey: null,
+			remindDayBefore: false,
+			categoryName: null,
+		});
 	});
 
 	it("volta do registro para o formulário", () => {
@@ -124,7 +132,14 @@ describe("formulário", () => {
 	});
 
 	it("valida os limites com mensagem em pt-BR", () => {
-		const ok = { name: "Netflix", amountCents: 4490, dayOfMonth: 18, sourceKey: "card:c1" };
+		const ok = {
+			name: "Netflix",
+			amountCents: 4490,
+			dayOfMonth: 18,
+			sourceKey: "card:c1",
+			remindDayBefore: false,
+			categoryName: null,
+		};
 		const src = { type: "card", id: "c1" } as const;
 		expect(validateForm(ok, src)).toBeNull();
 		expect(validateForm({ ...ok, name: "  " }, src)).toBe("Informe o nome da assinatura.");
@@ -145,7 +160,14 @@ describe("formulário", () => {
 });
 
 describe("buildRequest", () => {
-	const form = { name: " Netflix ", amountCents: 4490, dayOfMonth: 18, sourceKey: "card:c1" };
+	const form = {
+		name: " Netflix ",
+		amountCents: 4490,
+		dayOfMonth: 18,
+		sourceKey: "card:c1",
+		remindDayBefore: false,
+		categoryName: null,
+	};
 
 	it("cria despesa no cartão, começando hoje, com a categoria Assinaturas", () => {
 		const built = buildRequest({
@@ -165,6 +187,7 @@ describe("buildRequest", () => {
 					amountCents: 4490,
 					dayOfMonth: 18,
 					startDate: TODAY,
+					remindDayBefore: false,
 					categoryId: "cat1",
 					cardId: "c1",
 					accountId: null,
@@ -201,9 +224,43 @@ describe("buildRequest", () => {
 			request: {
 				type: "update",
 				id: "r9",
-				body: { name: "Netflix", amountCents: 4490, dayOfMonth: 18, accountId: "a1", cardId: null },
+				body: {
+					name: "Netflix",
+					amountCents: 4490,
+					dayOfMonth: 18,
+					remindDayBefore: false,
+					accountId: "a1",
+					cardId: null,
+				},
 			},
 		});
+	});
+
+	it("leva o lembrete de 1 dia antes ao criar e ao editar", () => {
+		const on = { ...form, remindDayBefore: true };
+		const created = buildRequest({
+			form: on,
+			source: { type: "card", id: "c1" },
+			today: TODAY,
+			categoryId: null,
+			editingId: null,
+		});
+		expect(created.ok && created.request.type === "create" && created.request.body.remindDayBefore).toBe(
+			true,
+		);
+		const edited = buildRequest({
+			form: on,
+			source: { type: "card", id: "c1" },
+			today: TODAY,
+			categoryId: null,
+			editingId: "r9",
+		});
+		expect(edited.ok && edited.request.type === "update" && edited.request.body.remindDayBefore).toBe(true);
+	});
+
+	it("a edição volta do registro com o lembrete que estava guardado", () => {
+		expect(formFromRecurrence(rec({ id: "a", remindDayBefore: true })).remindDayBefore).toBe(true);
+		expect(formFromRecurrence(rec({ id: "a" })).remindDayBefore).toBe(false);
 	});
 
 	it("devolve a mensagem de validação", () => {

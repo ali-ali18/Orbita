@@ -1179,4 +1179,209 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			});
 		});
 	});
+	describe("splitTransaction", () => {
+		const parts = (...cents: number[]) => cents.map((amountCents) => ({ amountCents }));
+
+		it("troca o original por partes que somam o mesmo valor, com categorias próprias", async () => {
+			const lazer = await stores.categories.create({ slug: "lazer", name: "Lazer", chartSlot: 4 });
+			const original = await tx.create(expense({ amountCents: 4690, description: "Mercadão", note: "mês" }));
+			const created = await tx.splitTransaction(original.id, [
+				{ amountCents: 3000, categoryId: b.food.id },
+				{ amountCents: 1690, categoryId: lazer.id, description: "Cinema" },
+			]);
+			expect(created.map((t) => [t.amountCents, t.description, t.categoryId])).toEqual([
+				[3000, "Mercadão", b.food.id],
+				[1690, "Cinema", lazer.id],
+			]);
+			expect(created.reduce((sum, t) => sum + t.amountCents, 0)).toBe(4690);
+			const [first, second] = created;
+			expect(first?.splitGroupId).not.toBeNull();
+			expect(second?.splitGroupId).toBe(first?.splitGroupId);
+			for (const t of created) {
+				expect(t).toMatchObject({
+					kind: "expense",
+					date: "2026-11-05",
+					accountId: b.checking.id,
+					budgetMonth: "2026-11",
+					status: "confirmed",
+					source: "manual",
+					note: "mês",
+					categoryEditedByOwner: true,
+					installmentGroupId: null,
+				});
+			}
+			// O original some das buscas; só as partes ficam.
+			expect(await tx.get(original.id)).toBeNull();
+			const listed = await tx.listRecent({ limit: 10 });
+			expect(listed.map((t) => t.id).sort()).toEqual(created.map((t) => t.id).sort());
+			expect(await tx.countMatching()).toBe(2);
+		});
+
+		it("compra no cartão: as partes ficam na mesma fatura e conservam a situação", async () => {
+			const original = await tx.create(cardPurchase({ amountCents: 10001, status: "pending" }));
+			const created = await tx.splitTransaction(original.id, parts(5000, 3333, 1668));
+			expect(created).toHaveLength(3);
+			for (const t of created) {
+				expect(t).toMatchObject({ cardId: b.card.id, invoiceMonth: "2026-11", status: "pending" });
+			}
+			expect(await tx.listByInvoice(b.card.id, "2026-11")).toHaveLength(3);
+		});
+
+		it("a identidade externa do original continua reservada: a ingestão não recria o lançamento", async () => {
+			const { transaction } = await tx.upsertByExternal("pluggy", "tx-9", {
+				kind: "expense",
+				amountCents: 900,
+				date: "2026-11-05",
+				description: "Padaria",
+				accountId: b.checking.id,
+			});
+			const created = await tx.splitTransaction(transaction?.id ?? "", parts(400, 500));
+			expect(created.every((t) => t.externalId === null && t.source === "pluggy")).toBe(true);
+			expect(await tx.existsByExternal("pluggy", "tx-9")).toBe(true);
+			const again = await tx.upsertByExternal("pluggy", "tx-9", {
+				kind: "expense",
+				amountCents: 900,
+				date: "2026-11-05",
+				description: "Padaria",
+				accountId: b.checking.id,
+			});
+			expect(again).toEqual({ created: false, transaction: null });
+		});
+
+		it("dividir uma parte de novo mantém o mesmo grupo", async () => {
+			const original = await tx.create(expense({ amountCents: 1000 }));
+			const [a, c] = await tx.splitTransaction(original.id, parts(600, 400));
+			const again = await tx.splitTransaction(a?.id ?? "", parts(300, 300));
+			expect(
+				again.every((t) => t.splitGroupId === a?.splitGroupId && t.splitGroupId === c?.splitGroupId),
+			).toBe(true);
+		});
+
+		it("receita também pode ser dividida", async () => {
+			const original = await tx.create({
+				kind: "income",
+				amountCents: 1000,
+				date: "2026-11-05",
+				description: "Freela",
+				accountId: b.checking.id,
+			});
+			expect(await tx.splitTransaction(original.id, parts(700, 300))).toHaveLength(2);
+		});
+
+		it.each([
+			["soma menor", [3000, 1000], "As partes precisam somar exatamente o valor do lançamento."],
+			["soma maior", [3000, 2000], "As partes precisam somar exatamente o valor do lançamento."],
+			["uma parte só", [4690], "Divida em 2 a 20 partes."],
+			["parte zerada", [4690, 0], "Cada parte precisa ter valor maior que zero."],
+			["parte negativa", [5000, -310], "Cada parte precisa ter valor maior que zero."],
+			["dinheiro fracionado", [4690.5, 0], "Valor da parte inválido."],
+		])("rejeita %s e não muda nada", async (_label, cents, message) => {
+			const original = await tx.create(expense({ amountCents: 4690 }));
+			await expect(tx.splitTransaction(original.id, parts(...cents))).rejects.toMatchObject({
+				code: "invalid",
+				message,
+			});
+			expect(await tx.get(original.id)).toEqual(original);
+			expect(await tx.countMatching()).toBe(1);
+		});
+
+		it("rejeita mais de 20 partes", async () => {
+			const original = await tx.create(expense({ amountCents: 100 }));
+			await expect(
+				tx.splitTransaction(original.id, parts(...Array.from({ length: 21 }, () => 1))),
+			).rejects.toMatchObject({ code: "invalid" });
+		});
+
+		it("não divide parcela, transferência, pagamento de fatura nem estorno", async () => {
+			const [installment] = await tx.createInstallmentGroup(
+				[1, 2].map((n) => ({
+					...cardPurchase({ invoiceMonth: `2026-${10 + n}`, amountCents: 1000 }),
+					installmentNumber: n,
+					installmentCount: 2,
+				})),
+			);
+			const transfer = await tx.create({
+				kind: "transfer",
+				amountCents: 1000,
+				date: "2026-11-05",
+				description: "Para poupança",
+				accountId: b.checking.id,
+				counterpartAccountId: b.savings.id,
+			});
+			const payment = await tx.create({
+				kind: "card_payment",
+				amountCents: 1000,
+				date: "2026-11-17",
+				description: "Fatura",
+				accountId: b.checking.id,
+				cardId: b.card.id,
+			});
+			const base = await tx.create(expense({ amountCents: 1000 }));
+			const refund = await tx.create({
+				kind: "refund",
+				amountCents: 1000,
+				date: "2026-11-06",
+				description: "Estorno",
+				accountId: b.checking.id,
+				refundOfId: base.id,
+			});
+			for (const t of [installment, transfer, payment, refund]) {
+				await expect(tx.splitTransaction(t?.id ?? "", parts(600, 400))).rejects.toMatchObject({
+					code: "invalid",
+				});
+			}
+			// O gasto com estorno vivo também não: o estorno ficaria apontando para uma despesa apagada.
+			await expect(tx.splitTransaction(base.id, parts(600, 400))).rejects.toMatchObject({
+				code: "invalid",
+				message: "Este gasto tem estornos: apague os estornos antes de dividir.",
+			});
+			expect(await tx.get(base.id)).toEqual(base);
+		});
+
+		it("not_found para id que não existe ou já foi apagado", async () => {
+			await expect(tx.splitTransaction("nada", parts(1, 1))).rejects.toMatchObject({ code: "not_found" });
+			const t = await tx.create(expense({ amountCents: 1000 }));
+			await tx.softDelete(t.id);
+			await expect(tx.splitTransaction(t.id, parts(600, 400))).rejects.toMatchObject({ code: "not_found" });
+		});
+
+		it("categoria arquivada ou inexistente em qualquer parte: nada muda (tudo ou nada)", async () => {
+			const archived = await stores.categories.create({ slug: "velha", name: "Velha" });
+			await stores.categories.archive(archived.id);
+			const original = await tx.create(expense({ amountCents: 1000 }));
+			await expect(
+				tx.splitTransaction(original.id, [
+					{ amountCents: 600, categoryId: b.food.id },
+					{ amountCents: 400, categoryId: archived.id },
+				]),
+			).rejects.toMatchObject({ code: "bad_reference" });
+			await expect(
+				tx.splitTransaction(original.id, [
+					{ amountCents: 600, categoryId: b.food.id },
+					{ amountCents: 400, categoryId: "nao-existe" },
+				]),
+			).rejects.toMatchObject({ code: "bad_reference" });
+			expect(await tx.get(original.id)).toEqual(original);
+			expect(await tx.countMatching()).toBe(1);
+		});
+
+		it("a ligação do original com uma recorrência é desfeita (ele foi apagado)", async () => {
+			const rec = await stores.recurrences.create({
+				kind: "expense",
+				name: "Padaria",
+				amountCents: 1000,
+				dayOfMonth: 5,
+				startDate: "2026-01-05",
+				accountId: b.checking.id,
+			});
+			const original = await tx.create(expense({ amountCents: 1000, description: "Padaria" }));
+			await stores.recurrences.recordPosting({
+				recurrenceId: rec.id,
+				month: "2026-11",
+				transactionId: original.id,
+			});
+			await tx.splitTransaction(original.id, parts(600, 400));
+			expect(await stores.recurrences.listPostings("2026-11")).toEqual([]);
+		});
+	});
 });

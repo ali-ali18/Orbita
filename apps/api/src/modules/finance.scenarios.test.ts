@@ -239,6 +239,119 @@ describe("fatura paga", () => {
 	});
 });
 
+describe("marcar fatura como paga", () => {
+	// Mesmo cenário de "fatura paga": a fatura 2026-11 (R$ 1.000,00) fechou 10/11; hoje = 15/11/2026.
+	async function withNovInvoice() {
+		const ctx = await withRent();
+		await ctx.api.post("/v1/transactions", {
+			kind: "expense",
+			amountCents: 100_000,
+			date: "2026-10-20",
+			description: "TV",
+			cardId: ctx.card.id,
+		});
+		const payUrl = (month: string) => `/v1/cards/${ctx.card.id}/invoices/${month}/pay`;
+		const inv = async (month: string) =>
+			(await ctx.api.get(`/v1/cards/${ctx.card.id}/invoices/${month}`)).body.invoice;
+		return { ...ctx, payUrl, inv };
+	}
+
+	it("paga o total da fatura fechada, da conta escolhida, e a fatura passa a paga", async () => {
+		const { api, account, card, payUrl, inv } = await withNovInvoice();
+		const res = await api.post(payUrl("2026-11"), { accountId: account.id });
+		expect(res.status).toBe(201);
+		expect(res.body.transaction).toMatchObject({
+			kind: "card_payment",
+			amountCents: 100_000,
+			date: "2026-11-15",
+			accountId: account.id,
+			cardId: card.id,
+		});
+		expect(await inv("2026-11")).toMatchObject({ paidCents: 100_000, paymentStatus: "paid" });
+	});
+
+	it("paga só o que falta quando já houve pagamento em parte", async () => {
+		const { api, account, card, payUrl, inv } = await withNovInvoice();
+		await api.post("/v1/transactions", {
+			kind: "card_payment",
+			amountCents: 40_000,
+			date: "2026-11-12",
+			description: "Fatura",
+			accountId: account.id,
+			cardId: card.id,
+		});
+		const res = await api.post(payUrl("2026-11"), { accountId: account.id });
+		expect(res.body.transaction.amountCents).toBe(60_000);
+		expect(await inv("2026-11")).toMatchObject({ paidCents: 100_000, paymentStatus: "paid" });
+	});
+
+	it("Desfazer: apagar o pagamento devolve a fatura a não paga", async () => {
+		const { api, account, payUrl, inv } = await withNovInvoice();
+		const { transaction } = (await api.post(payUrl("2026-11"), { accountId: account.id })).body;
+		expect((await api.delete(`/v1/transactions/${transaction.id}`)).status).toBe(200);
+		expect(await inv("2026-11")).toMatchObject({ paidCents: 0, paymentStatus: "unpaid" });
+	});
+
+	it("não paga duas vezes: a segunda tentativa é conflito e nada é criado", async () => {
+		const { api, account, payUrl, inv } = await withNovInvoice();
+		await api.post(payUrl("2026-11"), { accountId: account.id });
+		const again = await api.post(payUrl("2026-11"), { accountId: account.id });
+		expect(again.status).toBe(409);
+		expect(again.body.error.message).toBe("A fatura já está paga.");
+		expect((await inv("2026-11")).paidCents).toBe(100_000);
+	});
+
+	it("recusa fatura ainda aberta, conta que não existe e corpo inválido", async () => {
+		const { api, account, payUrl } = await withNovInvoice();
+		const open = await api.post(payUrl("2026-12"), { accountId: account.id });
+		expect(open.status).toBe(400);
+		expect(open.body.error.message).toBe(
+			"A fatura ainda está aberta: só dá para pagar depois que ela fecha.",
+		);
+		expect((await api.post(payUrl("2026-11"), { accountId: "nao-existe" })).status).toBe(404);
+		expect((await api.post(payUrl("2026-11"), {})).status).toBe(400);
+		expect((await api.post(payUrl("2026-11"), { accountId: account.id, amountCents: 1 })).status).toBe(400);
+	});
+
+	it("fatura antiga: o pagamento cai na janela dela, não na da fatura seguinte", async () => {
+		const { api, account, card, payUrl, inv } = await withNovInvoice();
+		// A fatura de outubro (compra de 20/09) fechou 10/10; hoje (15/11) já é da janela de novembro.
+		await api.post("/v1/transactions", {
+			kind: "expense",
+			amountCents: 30_000,
+			date: "2026-09-20",
+			description: "Geladeira",
+			cardId: card.id,
+		});
+		const res = await api.post(payUrl("2026-10"), { accountId: account.id });
+		expect(res.status).toBe(201);
+		expect(res.body.transaction.date).toBe("2026-11-09");
+		expect(await inv("2026-10")).toMatchObject({ paidCents: 30_000, paymentStatus: "paid" });
+		expect(await inv("2026-11")).toMatchObject({ paidCents: 0, paymentStatus: "unpaid" });
+	});
+
+	it("o mesmo Idempotency-Key devolve o pagamento já feito em vez de repetir", async () => {
+		const { app, token, account, payUrl, inv } = await withNovInvoice();
+		const send = async () => {
+			const res = await app.request(payUrl("2026-11"), {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${token}`,
+					"content-type": "application/json",
+					"idempotency-key": "7b1f1c0e-5d9a-4f55-9b0e-3a2c8d1e4f10",
+				},
+				body: JSON.stringify({ accountId: account.id }),
+			});
+			return { status: res.status, body: (await res.json()) as { transaction: { id: string } } };
+		};
+		const first = await send();
+		const second = await send();
+		expect(second.status).toBe(201);
+		expect(second.body.transaction.id).toBe(first.body.transaction.id);
+		expect((await inv("2026-11")).paidCents).toBe(100_000);
+	});
+});
+
 describe("estorno, pagamento de fatura e transferência", () => {
 	it("estorno de compra do mês passado abate a categoria da compra original", async () => {
 		const { api, account, category } = await withRent();

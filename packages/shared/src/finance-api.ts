@@ -73,6 +73,30 @@ export const installmentCreateBody = z
 	});
 export type InstallmentCreateBody = z.infer<typeof installmentCreateBody>;
 
+/** Uma parte da divisão: valor em centavos, categoria própria e, se quiser, outro nome. */
+export const transactionSplitPart = z
+	.object({
+		amountCents: positiveCentsSchema,
+		categoryId: idSchema.nullish(),
+		description: descriptionSchema.optional(),
+	})
+	.strict();
+export type TransactionSplitPart = z.infer<typeof transactionSplitPart>;
+
+/**
+ * Dividir um lançamento em partes com categorias diferentes. A soma das partes precisa fechar exatamente no
+ * valor do original: quem confere é o engine (`checkSplit`), no servidor.
+ */
+export const transactionSplitBody = z
+	.object({
+		parts: z
+			.array(transactionSplitPart)
+			.min(2, "Divida em 2 a 20 partes.")
+			.max(20, "Divida em 2 a 20 partes."),
+	})
+	.strict();
+export type TransactionSplitBody = z.infer<typeof transactionSplitBody>;
+
 /** Máximo de itens numa lista de filtro (ids de contas, cartões, categorias). */
 export const MAX_FILTER_ITEMS = 50;
 
@@ -180,6 +204,22 @@ export type RecurrencePostBody = z.infer<typeof recurrencePostBody>;
 
 // ---------------------------------------------------------------- resumo
 
+/** `GET /v1/budgets/suggestion`: sugestão da Órbita, calculada pelo engine com o gasto dos últimos meses fechados. */
+export const budgetSuggestionResponse = z.object({
+	/** Quantos meses fechados foram olhados. */
+	months: z.number().int(),
+	/** Quantos deles tinham gasto e entraram na conta; 0 = sem histórico para sugerir. */
+	monthsUsed: z.number().int(),
+	totalCents: z.number().int(),
+	/** Por id de categoria, em reais inteiros. */
+	byCategory: z.record(z.string(), z.number().int()),
+});
+export type BudgetSuggestionResponse = z.infer<typeof budgetSuggestionResponse>;
+
+/** "Marcar como paga": o valor (o que falta da fatura) é do engine; o cliente só diz de qual conta sai. */
+export const invoicePayBody = z.object({ accountId: idSchema }).strict();
+export type InvoicePayBody = z.infer<typeof invoicePayBody>;
+
 export const installmentsQuery = z.object({ from: monthKeySchema.optional() });
 
 const cents = z.number().int();
@@ -202,8 +242,12 @@ export const monthSummaryResponse = z.object({
 			/** `null` quando o limite é zero e há gasto (a razão seria infinita). */
 			ratio: z.number().nullable(),
 			overBudget: z.boolean(),
+			/** Passou do percentual de aviso das preferências (calculado pelo engine). */
+			alert: z.boolean(),
 		}),
 	),
+	/** O percentual de aviso usado em `budgets[].alert`. */
+	budgetAlertPercent: z.number().int(),
 	/** `null` fora do mês atual ou sem orçamento total. */
 	safeToSpend: z
 		.object({ availableCents: cents, perDayCents: cents, remainingDays: z.number().int() })

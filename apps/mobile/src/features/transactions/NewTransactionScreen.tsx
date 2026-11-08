@@ -16,11 +16,14 @@ import {
 	Skeleton,
 	Text,
 } from "../../ui/index.ts";
+import { useCategoryRules } from "../categories/queries.ts";
 import { usePreferences } from "../settings/preferences-queries.ts";
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { AmountInput } from "./AmountInput.tsx";
 import { CategoryChips } from "./CategoryChips.tsx";
+import { CategorySuggestionLine } from "./CategorySuggestionLine.tsx";
+import { suggestCategory, suggestionState } from "./category-suggestion.ts";
 import { EntryTabs } from "./EntryTabs.tsx";
 import { FieldRow } from "./FieldRow.tsx";
 import { useCreateTransaction } from "./mutations.ts";
@@ -48,6 +51,8 @@ export function NewTransactionScreen() {
 	const [form, setForm] = useState<NewTransactionForm>(() => initialForm(today));
 	const [sheet, setSheet] = useState<OpenSheet>(null);
 	const [message, setMessage] = useState<string | null>(null);
+	// Sugestão que o dono mandou "Trocar": não volta a valer enquanto for a mesma.
+	const [dismissedSuggestion, setDismissedSuggestion] = useState<string | null>(null);
 	const create = useCreateTransaction();
 	// Uma chave por "salvar": igual enquanto o pedido é o mesmo (nova tentativa depois de rede caída), nova se o
 	// formulário mudar ou o salvamento der certo.
@@ -60,6 +65,19 @@ export function NewTransactionScreen() {
 	const categoriesQ = useCategories();
 	const sources = combineLoadables(toLoadable(accountsQ), toLoadable(cardsQ));
 	const categories = toLoadable(categoriesQ);
+	const rules = useCategoryRules().data?.rules;
+	// Só as regras que o dono já ensinou, sem IA: a sugestão acompanha o que ele digita na descrição.
+	const suggestion = suggestCategory({
+		kind: form.kind,
+		description: form.description,
+		rules: rules ?? [],
+		categories: categoriesQ.data?.categories ?? [],
+	});
+	const { shown: shownSuggestion, effectiveId: categoryId } = suggestionState({
+		suggestion,
+		chosenId: form.categoryId,
+		dismissedId: dismissedSuggestion,
+	});
 
 	const options =
 		sources.phase === "ready"
@@ -86,7 +104,7 @@ export function NewTransactionScreen() {
 
 	const submit = () => {
 		if (submitting.current) return;
-		const built = buildRequest({ ...form, installments }, source);
+		const built = buildRequest({ ...form, installments, categoryId }, source);
 		if (!built.ok) {
 			setMessage(built.message);
 			return;
@@ -243,14 +261,25 @@ export function NewTransactionScreen() {
 						{categories.phase === "ready" ? (
 							<CategoryChips
 								categories={categories.data.categories.filter((c) => c.archivedAt === null)}
-								selectedId={form.categoryId}
-								onSelect={(categoryId) => update({ ...form, categoryId })}
+								selectedId={categoryId}
+								onSelect={(id) => {
+									// Tocar na marcada pela sugestão (`id` nulo) a tira: era só uma sugestão; outra é escolha do dono.
+									if (shownSuggestion && id === null) setDismissedSuggestion(shownSuggestion.categoryId);
+									update({ ...form, categoryId: id });
+								}}
 							/>
 						) : categories.phase === "loading" ? (
 							<Skeleton height={36} />
 						) : (
 							<ErrorState message={categories.message} onRetry={categories.retry} />
 						)}
+						{shownSuggestion ? (
+							<CategorySuggestionLine
+								suggestion={shownSuggestion}
+								onAccept={() => update({ ...form, categoryId: shownSuggestion.categoryId })}
+								onChange={() => setDismissedSuggestion(shownSuggestion.categoryId)}
+							/>
+						) : null}
 					</View>
 				</ScrollView>
 

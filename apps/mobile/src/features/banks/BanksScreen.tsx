@@ -38,12 +38,15 @@ import {
 	syncCardText,
 	syncErrorMessage,
 } from "./banks-model.ts";
+import { ConnectExplainer } from "./ConnectExplainer.tsx";
 import { ConnectedScreen } from "./ConnectedScreen.tsx";
 import { AddConnectionSheet, ConnectionSheet, ReimportSheet } from "./ConnectionSheets.tsx";
+import { ConnectionUsageCard } from "./ConnectionUsageCard.tsx";
 import {
-	CONNECT_BUTTON,
 	canConnect,
+	connectButtonLabel,
 	connectionArrived,
+	connectionUsage,
 	isWaitingForConnect,
 	MANUAL_BUTTON,
 	returnedToApp,
@@ -111,7 +114,10 @@ export function BanksScreen() {
 
 	const connectionIds = (data?.connections ?? []).map((c) => c.id);
 	const {
-		start: startConnect,
+		ask: askConnect,
+		confirm: confirmConnect,
+		dismiss: dismissConnect,
+		explaining,
 		pending: connectPending,
 		message: connectMessage,
 		setMessage: setConnectMessage,
@@ -162,6 +168,17 @@ export function BanksScreen() {
 			syncLocked.current = false;
 		}
 	};
+
+	if (explaining) {
+		return (
+			<ConnectExplainer
+				bank={explaining.bank}
+				loading={connectPending}
+				onOpen={confirmConnect}
+				onClose={dismissConnect}
+			/>
+		);
+	}
 
 	if (isUnreachableQuery(statusQ)) return <ServerDownScreen onRetry={() => statusQ.refetch()} />;
 
@@ -221,7 +238,7 @@ export function BanksScreen() {
 								connection={c}
 								now={now}
 								loading={connectPending}
-								onReconnect={() => void startConnect()}
+								onReconnect={() => askConnect(connectionName(c))}
 							/>
 						))}
 						{!data.keysConfigured ? (
@@ -267,6 +284,8 @@ export function BanksScreen() {
 							</Panel>
 						) : null}
 
+						<ConnectionUsageCard usage={connectionUsage(data.connections.length)} />
+
 						{data.connections.length > 0 ? (
 							<SettingsSection title="Conexões">
 								{data.connections.map((c, i) => {
@@ -300,11 +319,11 @@ export function BanksScreen() {
 							</View>
 						) : null}
 						<Button
-							label={CONNECT_BUTTON}
+							label={connectButtonLabel(data.connections.length)}
 							icon="mais"
 							loading={connectPending}
 							disabled={!canConnect(data)}
-							onPress={() => void startConnect()}
+							onPress={() => askConnect()}
 						/>
 						<Button label={MANUAL_BUTTON} variant="secondary" onPress={() => setAdding(true)} />
 						{data.connections.length > 0 ? (

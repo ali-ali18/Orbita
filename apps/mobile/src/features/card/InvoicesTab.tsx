@@ -15,12 +15,14 @@ import {
 	monthWindow,
 	openInvoiceMonth,
 	type PaymentStatusLike,
+	payableCents,
 	paymentBadge,
 	statusOfMonth,
 } from "./card-model.ts";
 import { InvoiceComposition } from "./InvoiceComposition.tsx";
 import { InvoiceLines } from "./InvoiceLines.tsx";
 import { MonthChips } from "./MonthChips.tsx";
+import { PayInvoice } from "./PayInvoice.tsx";
 import { BigNumber, BleedRow, CardChip, Notice } from "./parts.tsx";
 import { useInvoiceTotals } from "./queries.ts";
 
@@ -115,6 +117,13 @@ export function InvoicesTab({
 						lines={invoice.data.transactions}
 						categories={categoriesQ.data?.categories ?? []}
 						filter={filter}
+						hidden={hidden}
+					/>
+					<PayInvoice
+						key={`${card.id}:${month}`}
+						cardId={card.id}
+						month={month}
+						remainingCents={payableCents(invoice.data.invoice, invoice.data.composition.totalCents)}
 						hidden={hidden}
 					/>
 				</>

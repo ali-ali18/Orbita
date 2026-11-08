@@ -28,6 +28,7 @@ export function createMemoryRecurrenceStore(state: MemoryState): RecurrenceStore
 				categoryId: input.categoryId ?? null,
 				accountId: input.accountId ?? null,
 				cardId: input.cardId ?? null,
+				remindDayBefore: input.remindDayBefore ?? false,
 			});
 			assertRefs(state, { accountIds: [data.accountId], cardId: data.cardId, categoryId: data.categoryId });
 			const now = state.now();

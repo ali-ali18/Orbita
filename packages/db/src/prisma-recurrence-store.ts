@@ -44,6 +44,7 @@ export function createPrismaRecurrenceStore(db: Db, now: Clock): RecurrenceStore
 				categoryId: input.categoryId ?? null,
 				accountId: input.accountId ?? null,
 				cardId: input.cardId ?? null,
+				remindDayBefore: input.remindDayBefore ?? false,
 			});
 			await checkReferences(db, {
 				accountIds: [data.accountId],

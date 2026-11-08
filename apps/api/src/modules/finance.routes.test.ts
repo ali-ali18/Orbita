@@ -156,6 +156,29 @@ describe("recorrências", () => {
 		expect((await api.get("/v1/recurrences")).body.recurrences).toHaveLength(0);
 	});
 
+	it("guarda o lembrete de 1 dia antes (desligado por padrão) e valida o tipo", async () => {
+		const { api, basics } = await setupFinance();
+		const { account } = await basics();
+		const base = {
+			kind: "expense",
+			name: "Netflix",
+			amountCents: 4490,
+			dayOfMonth: 18,
+			startDate: "2026-01-01",
+			accountId: account.id,
+		};
+		const plain = await api.post("/v1/recurrences", base);
+		expect(plain.body.recurrence.remindDayBefore).toBe(false);
+		const withReminder = await api.post("/v1/recurrences", { ...base, remindDayBefore: true });
+		expect(withReminder.body.recurrence.remindDayBefore).toBe(true);
+		const { id } = withReminder.body.recurrence;
+		expect(
+			(await api.patch(`/v1/recurrences/${id}`, { remindDayBefore: false })).body.recurrence.remindDayBefore,
+		).toBe(false);
+		expect((await api.get(`/v1/recurrences/${id}`)).body.recurrence.remindDayBefore).toBe(false);
+		expect((await api.post("/v1/recurrences", { ...base, remindDayBefore: "sim" })).status).toBe(400);
+	});
+
 	it("exige conta ou cartão (um só) e fim depois do início", async () => {
 		const { api, basics } = await setupFinance();
 		const { account, card } = await basics();

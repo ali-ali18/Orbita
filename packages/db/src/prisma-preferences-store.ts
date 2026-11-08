@@ -13,6 +13,8 @@ type Row = {
 	notificationCapture: boolean;
 	notificationApps: string[];
 	notificationToReview: boolean;
+	budgetAlertPercent: number;
+	leftoverAccountId: string | null;
 };
 
 const toRecord = (row: Row): PreferencesRecord => ({
@@ -21,6 +23,8 @@ const toRecord = (row: Row): PreferencesRecord => ({
 	notificationCapture: row.notificationCapture,
 	notificationApps: row.notificationApps as NotificationApp[],
 	notificationToReview: row.notificationToReview,
+	budgetAlertPercent: row.budgetAlertPercent,
+	leftoverAccountId: row.leftoverAccountId,
 });
 
 export function createPrismaPreferencesStore(db: Db): PreferencesStore {
@@ -31,11 +35,9 @@ export function createPrismaPreferencesStore(db: Db): PreferencesStore {
 		},
 		async update(patch) {
 			const clean = cleanPreferencesPatch(patch);
-			if (clean.defaultAccountId) {
-				const account = await db.account.findUnique({
-					where: { id: clean.defaultAccountId },
-					select: { archivedAt: true },
-				});
+			for (const id of [clean.defaultAccountId, clean.leftoverAccountId]) {
+				if (!id) continue;
+				const account = await db.account.findUnique({ where: { id }, select: { archivedAt: true } });
 				if (!account) throw badReference();
 				if (account.archivedAt !== null) throw archivedAccount();
 			}

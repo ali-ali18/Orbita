@@ -1,6 +1,7 @@
 import { categoryColor, chartSeries } from "@orbita/tokens";
 import { describe, expect, it } from "vitest";
 import {
+	budgetAlertNotice,
 	categoryShares,
 	currentInvoiceMonth,
 	FREE_KEY,
@@ -206,5 +207,27 @@ describe("heroBarParts", () => {
 			reservedCents: 0,
 		});
 		expect(heroBarParts(shares, hero).some((p) => p.key === RESERVED_KEY)).toBe(false);
+	});
+});
+
+describe("budgetAlertNotice", () => {
+	const names = [
+		{ id: "mer", name: "Mercado" },
+		{ id: "del", name: "Delivery" },
+	];
+	const b = (scope: string, alert: boolean) => ({ scope, alert });
+	it("sem limite acima do percentual, nada a avisar", () => {
+		expect(budgetAlertNotice([b("mer", false), b("total", false)], names, 80)).toBeNull();
+		expect(budgetAlertNotice([], names, 80)).toBeNull();
+	});
+	it("um limite: diz qual; o total tem texto próprio", () => {
+		expect(budgetAlertNotice([b("mer", true), b("del", false)], names, 80)).toBe(
+			"Mercado passou de 80% do limite",
+		);
+		expect(budgetAlertNotice([b("total", true)], names, 90)).toBe("O orçamento do mês passou de 90%");
+	});
+	it("vários limites: conta; categoria que sumiu não quebra", () => {
+		expect(budgetAlertNotice([b("mer", true), b("del", true)], names, 80)).toBe("2 limites passaram de 80%");
+		expect(budgetAlertNotice([b("fantasma", true)], names, 80)).toBe("1 limite passou de 80%");
 	});
 });

@@ -18,7 +18,11 @@ const toProfile = (p: PreferencesRecord, deviceName: string): ProfileDto => ({
 	deviceName,
 });
 
-const toPreferences = (p: PreferencesRecord): PreferencesDto => ({ defaultAccountId: p.defaultAccountId });
+const toPreferences = (p: PreferencesRecord): PreferencesDto => ({
+	defaultAccountId: p.defaultAccountId,
+	budgetAlertPercent: p.budgetAlertPercent,
+	leftoverAccountId: p.leftoverAccountId,
+});
 
 /** `active` é sempre `false`: a leitura das notificações do banco ainda não existe (o app avisa na tela). */
 const toNotifications = (p: PreferencesRecord): NotificationSettingsDto => ({

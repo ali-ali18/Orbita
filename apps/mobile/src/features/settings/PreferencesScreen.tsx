@@ -3,6 +3,8 @@ import { useState } from "react";
 import { View } from "react-native";
 import { errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { ErrorState, Sheet, SheetGroup, SheetRow, Skeleton, Text } from "../../ui/index.ts";
+import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
+import { isUnreachableQuery } from "../server/server-model.ts";
 import { useAccounts } from "../summary/queries.ts";
 import { Note, SubScreen } from "./parts.tsx";
 import { ALERTS_SOON, defaultAccountLabel, selectableAccounts } from "./preferences-model.ts";
@@ -33,6 +35,10 @@ export function PreferencesScreen() {
 	const ready = preferences.phase === "ready" && accounts.phase === "ready";
 	const failed = preferences.phase === "error" ? preferences : accounts.phase === "error" ? accounts : null;
 	const current = preferences.phase === "ready" ? preferences.data.defaultAccountId : null;
+
+	if (isUnreachableQuery(preferencesQ)) {
+		return <ServerDownScreen onRetry={() => preferencesQ.refetch()} />;
+	}
 
 	return (
 		<SubScreen title="Preferências">

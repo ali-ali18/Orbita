@@ -201,6 +201,8 @@ export const transactionDto = z.object({
 	merchantName: z.string().nullable().optional(),
 	/** O dono trocou a categoria à mão: regras novas não a reclassificam. */
 	categoryEditedByOwner: z.boolean().optional(),
+	/** Partes de uma compra dividida pelo dono dividem o mesmo grupo; `null` se não é parte de uma divisão. */
+	splitGroupId: z.string().nullable().optional(),
 	createdAt: timestampSchema,
 	updatedAt: timestampSchema,
 });
@@ -237,6 +239,7 @@ const recurrenceFields = {
 	categoryId: idSchema.nullish(),
 	accountId: idSchema.nullish(),
 	cardId: idSchema.nullish(),
+	remindDayBefore: z.boolean("O lembrete deve ser verdadeiro ou falso.").optional(),
 };
 
 export const recurrenceCreateBody = z
@@ -274,6 +277,7 @@ export const recurrenceDto = z.object({
 	categoryId: z.string().nullable(),
 	accountId: z.string().nullable(),
 	cardId: z.string().nullable(),
+	remindDayBefore: z.boolean(),
 	archivedAt: timestampSchema.nullable(),
 	createdAt: timestampSchema,
 	updatedAt: timestampSchema,

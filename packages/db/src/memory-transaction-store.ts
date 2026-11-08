@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DataError, invalid, notFound } from "./errors.ts";
 import { assertRefs, type MemoryState, type StoredTransaction } from "./memory-state.ts";
-import { HAS_REFUNDS_MESSAGE } from "./messages.ts";
+import { HAS_REFUNDS_MESSAGE, SPLIT_HAS_REFUNDS_MESSAGE } from "./messages.ts";
 import { cleanMonth } from "./rules.ts";
 import {
 	byDateAsc,
@@ -20,6 +20,7 @@ import {
 	mergeTransaction,
 	normalizeExternalInstallment,
 	normalizeInstallmentGroup,
+	normalizeSplit,
 	normalizeTransaction,
 	refundTargetError,
 } from "./transaction-data.ts";
@@ -146,6 +147,17 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 			const next: StoredTransaction = { ...current, ...data, updatedAt: state.now() };
 			state.transactions.set(id, next);
 			return view(next);
+		},
+
+		async splitTransaction(id, parts) {
+			const current = state.transactions.get(id);
+			if (!current || current.deletedAt !== null) throw notFound("Lançamento", "o");
+			const rows = normalizeSplit(dataOf(current), parts);
+			if (live().some((t) => t.refundOfId === id)) throw invalid(SPLIT_HAS_REFUNDS_MESSAGE);
+			for (const data of rows) checkReferences(data);
+			// Só grava depois de validar todas: ou entram todas (e o original sai) ou nada muda.
+			deleteCascade([id]);
+			return rows.map((data) => view(insert(data)));
 		},
 
 		async softDelete(id) {

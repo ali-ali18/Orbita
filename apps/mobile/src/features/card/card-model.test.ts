@@ -17,6 +17,7 @@ import {
 	invoiceDatesCaption,
 	invoiceLineCaption,
 	invoiceStatusTag,
+	isAffectedByInvoicePayment,
 	limitBar,
 	limitsOverview,
 	monthAbbrev,
@@ -25,6 +26,8 @@ import {
 	monthWindow,
 	openInvoiceMonth,
 	parseTab,
+	payableCents,
+	payerAccounts,
 	paymentBadge,
 	statusLabel,
 	statusOfMonth,
@@ -381,5 +384,48 @@ describe("fatura paga não 'venceu'", () => {
 		expect(invoiceStatusTag({ status: "closed", paymentStatus: "paid" })).toBe("Paga");
 		expect(invoiceStatusTag({ status: "overdue", paymentStatus: "unpaid" })).toBe("Venceu");
 		expect(invoiceStatusTag({ status: "open", paymentStatus: "open" })).toBe("Aberta");
+	});
+});
+
+describe("marcar como paga", () => {
+	const closed = { status: "closed", paymentStatus: "unpaid", paidCents: 0 } as const;
+
+	it("fatura fechada ou vencida com saldo: o valor é o que falta (total menos o pago)", () => {
+		expect(payableCents(closed, 39_163)).toBe(39_163);
+		expect(payableCents({ status: "overdue", paymentStatus: "unpaid", paidCents: 0 }, 39_163)).toBe(39_163);
+		expect(payableCents({ status: "closed", paymentStatus: "partial", paidCents: 10_000 }, 39_163)).toBe(
+			29_163,
+		);
+	});
+
+	it("sem botão: fatura aberta, já paga ou sem nada a pagar", () => {
+		expect(payableCents({ status: "open", paymentStatus: "open", paidCents: 0 }, 39_163)).toBe(0);
+		expect(payableCents({ status: "closed", paymentStatus: "paid", paidCents: 39_163 }, 39_163)).toBe(0);
+		expect(payableCents(closed, 0)).toBe(0);
+		expect(payableCents(closed, -500)).toBe(0);
+	});
+
+	it("só contas ativas pagam a fatura, na ordem original", () => {
+		const accounts = [
+			{ id: "a", archivedAt: null },
+			{ id: "b", archivedAt: "2026-01-01T00:00:00.000Z" },
+			{ id: "c", archivedAt: null },
+		];
+		expect(payerAccounts(accounts).map((a) => a.id)).toEqual(["a", "c"]);
+	});
+
+	it("pagar ou desfazer recarrega fatura, resumo, lançamentos e contas, só do servidor atual", () => {
+		for (const topic of [
+			"invoice",
+			"summary",
+			"transactions",
+			"month-transactions",
+			"installments",
+			"accounts",
+		]) {
+			expect(isAffectedByInvoicePayment(["https://x", topic], "https://x")).toBe(true);
+		}
+		expect(isAffectedByInvoicePayment(["https://x", "cards"], "https://x")).toBe(false);
+		expect(isAffectedByInvoicePayment(["https://y", "invoice"], "https://x")).toBe(false);
 	});
 });

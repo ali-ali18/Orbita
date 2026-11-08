@@ -13,6 +13,8 @@ import {
 	Text,
 	TOP_FADE,
 } from "../../ui/index.ts";
+import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
+import { isUnreachableQuery } from "../server/server-model.ts";
 import { categoryDot } from "../transactions/new-transaction-model.ts";
 import { type CategoryDraft, CategorySheet } from "./CategorySheet.tsx";
 import { checkName, nextFreeSlot, ruleRows, uniqueSlug } from "./categories-model.ts";
@@ -244,6 +246,10 @@ export function CategoriesScreen() {
 	const initial: CategoryDraft = editingCategory
 		? { name: editingCategory.name, chartSlot: editingCategory.chartSlot ?? nextFreeSlot(categories) }
 		: { name: "", chartSlot: nextFreeSlot(categories) };
+
+	if (isUnreachableQuery(categoriesQ)) {
+		return <ServerDownScreen onRetry={() => categoriesQ.refetch()} />;
+	}
 
 	return (
 		<Screen fadeTop>

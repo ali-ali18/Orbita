@@ -7,6 +7,8 @@ import { money } from "../../lib/format.ts";
 import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { Button, Card, ErrorState, IconButton, Screen, Skeleton, Text, TOP_FADE } from "../../ui/index.ts";
+import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
+import { isUnreachableQuery } from "../server/server-model.ts";
 import { useAccounts, useCards } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import {
@@ -223,6 +225,10 @@ export function SubscriptionsScreen() {
 			</>
 		);
 	};
+
+	if (isUnreachableQuery(recurrencesQ)) {
+		return <ServerDownScreen onRetry={() => recurrencesQ.refetch()} />;
+	}
 
 	return (
 		<Screen fadeTop>

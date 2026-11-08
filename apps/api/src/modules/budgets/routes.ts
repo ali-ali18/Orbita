@@ -1,3 +1,4 @@
+import { toLocalDate } from "@orbita/core";
 import type { BudgetRecord } from "@orbita/db";
 import { type BudgetDto, budgetScopeParam, budgetSetBody } from "@orbita/shared";
 import { Hono } from "hono";
@@ -5,6 +6,7 @@ import { orNotFound } from "../../http/errors.ts";
 import type { ModuleDeps } from "../../http/module-deps.ts";
 import type { AppEnv } from "../../http/require-device.ts";
 import { validate } from "../../http/validate.ts";
+import { budgetSuggestion } from "./service.ts";
 
 const toBudgetDto = (b: BudgetRecord): BudgetDto => ({
 	scope: b.scope,
@@ -13,11 +15,12 @@ const toBudgetDto = (b: BudgetRecord): BudgetDto => ({
 });
 
 /** Orçamento: um limite por escopo ("total" ou id de categoria). Criar e trocar são o mesmo PUT. */
-export function routes({ stores, requireDevice }: ModuleDeps) {
+export function routes({ stores, now, requireDevice }: ModuleDeps) {
 	const { budgets } = stores;
 	return new Hono<AppEnv>()
 		.use("/v1/budgets", requireDevice)
 		.use("/v1/budgets/*", requireDevice)
+		.get("/v1/budgets/suggestion", async (c) => c.json(await budgetSuggestion(stores, toLocalDate(now()))))
 		.get("/v1/budgets", async (c) => c.json({ budgets: (await budgets.list()).map(toBudgetDto) }))
 		.put("/v1/budgets", validate("json", budgetSetBody), async (c) => {
 			const { scope, limitCents } = c.req.valid("json");

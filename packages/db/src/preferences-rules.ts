@@ -11,6 +11,12 @@ export function cleanPreferencesPatch(patch: PreferencesPatch): PreferencesPatch
 			patch.displayName === null ? null : cleanText(patch.displayName, "o nome", DISPLAY_NAME_MAX);
 	}
 	if (patch.defaultAccountId !== undefined) out.defaultAccountId = patch.defaultAccountId;
+	if (patch.leftoverAccountId !== undefined) out.leftoverAccountId = patch.leftoverAccountId;
+	if (patch.budgetAlertPercent !== undefined) {
+		const p = patch.budgetAlertPercent;
+		if (!Number.isInteger(p) || p < 1 || p > 100) throw invalid("O aviso vai de 1% a 100%.");
+		out.budgetAlertPercent = p;
+	}
 	if (patch.notificationCapture !== undefined) out.notificationCapture = patch.notificationCapture === true;
 	if (patch.notificationToReview !== undefined)
 		out.notificationToReview = patch.notificationToReview === true;

@@ -17,7 +17,8 @@ export interface ConnectOpened {
 
 /**
  * O fluxo do Pluggy Connect (sessão no servidor, página no navegador), compartilhado por quem abre "Conectar banco":
- * a tela Bancos e o aviso de banco desconectado no Início. `ids` são as conexões de agora.
+ * a tela Bancos e o aviso de banco desconectado no Início. `ids` são as conexões de agora. `start` abre direto;
+ * `ask` e depois `confirm` passam antes pela explicação (`ConnectExplainer`).
  */
 export function useConnectLauncher(ids: readonly string[]) {
 	const { connect } = usePluggyActions();
@@ -25,6 +26,8 @@ export function useConnectLauncher(ids: readonly string[]) {
 	const opened = useRef<ConnectOpened | null>(null);
 	const locked = useRef(false);
 	const [message, setMessage] = useState<string | null>(null);
+	/** Explicação "Conectar o <banco>" aberta antes do Pluggy Connect; `bank` é null quando o banco ainda não é conhecido. */
+	const [explaining, setExplaining] = useState<{ bank: string | null } | null>(null);
 
 	const start = async () => {
 		if (locked.current || baseUrl === null) return;
@@ -49,5 +52,23 @@ export function useConnectLauncher(ids: readonly string[]) {
 		}
 	};
 
-	return { start, pending: connect.isPending, message, setMessage, opened };
+	/** Abre a explicação; o Pluggy Connect só abre quando a pessoa toca em "Abrir o Meu Pluggy" (`confirm`). */
+	const ask = (bank?: string | null) => setExplaining({ bank: bank ?? null });
+	const dismiss = () => setExplaining(null);
+	const confirm = () => {
+		setExplaining(null);
+		void start();
+	};
+
+	return {
+		start,
+		ask,
+		explaining,
+		dismiss,
+		confirm,
+		pending: connect.isPending,
+		message,
+		setMessage,
+		opened,
+	};
 }

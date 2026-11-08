@@ -205,3 +205,26 @@ export function heroBarParts(
 	if (hero.freeCents > 0) parts.push({ key: FREE_KEY, color: colors.surface3, weight: hero.freeCents });
 	return parts;
 }
+
+interface AlertBudget {
+	scope: string;
+	alert: boolean;
+}
+
+/**
+ * Aviso dentro do app, no lugar do push que ainda não existe: quais limites passaram do percentual das
+ * preferências. Quem decide é o engine (`alert` vem do servidor); aqui só vira texto. `null` = nada a avisar.
+ */
+export function budgetAlertNotice(
+	budgets: readonly AlertBudget[],
+	categories: readonly { id: string; name: string }[],
+	percent: number,
+): string | null {
+	const hit = budgets.filter((b) => b.alert);
+	if (hit.length === 0) return null;
+	if (hit.length > 1) return `${hit.length} limites passaram de ${percent}%`;
+	const only = hit[0] as AlertBudget;
+	if (only.scope === "total") return `O orçamento do mês passou de ${percent}%`;
+	const name = categories.find((c) => c.id === only.scope)?.name;
+	return name ? `${name} passou de ${percent}% do limite` : `1 limite passou de ${percent}%`;
+}

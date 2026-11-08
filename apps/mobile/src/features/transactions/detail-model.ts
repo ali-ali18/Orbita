@@ -29,6 +29,8 @@ export interface DetailTransaction {
 	/** Nome do estabelecimento e categoria que o banco mandou (só importados). */
 	merchantName?: string | null | undefined;
 	sourceCategory?: string | null | undefined;
+	/** Partes de um lançamento dividido compartilham o id. */
+	splitGroupId?: string | null | undefined;
 }
 
 export interface Editable {

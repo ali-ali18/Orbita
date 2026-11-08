@@ -31,6 +31,8 @@ export interface TransactionData {
 	merchantName: string | null;
 	/** O dono trocou a categoria à mão (PATCH): regras novas não reclassificam. */
 	categoryEditedByOwner: boolean;
+	/** Id das partes de uma compra dividida (todas as partes, e as partes de uma parte, compartilham o mesmo). */
+	splitGroupId: string | null;
 }
 
 /**
@@ -81,6 +83,13 @@ export interface TransactionInput {
 	merchantName?: string | null;
 }
 
+/** Uma parte da divisão de um lançamento. Sem `description`, vale a do original. */
+export interface SplitPartInput {
+	amountCents: number;
+	categoryId?: string | null;
+	description?: string | undefined;
+}
+
 /**
  * Item de um parcelamento. Parcela só nasce por `createInstallmentGroup`: o grupo é gerado
  * pelo store e número e total são obrigatórios.
@@ -109,6 +118,7 @@ export type TransactionPatch = Partial<
 		| "installmentCount"
 		| "sourceCategory"
 		| "merchantName"
+		| "splitGroupId"
 	>
 >;
 
@@ -196,6 +206,15 @@ export interface TransactionStore {
 	 * apaga os estornos vivos da despesa e solta as recorrências ligadas a qualquer um deles.
 	 */
 	softDelete(id: string): Promise<boolean>;
+	/**
+	 * Divide um lançamento em partes com categorias diferentes, numa operação só: o original é apagado (a
+	 * identidade externa dele fica reservada) e as partes nascem com o mesmo dia, conta/cartão, fatura, mês e
+	 * situação, o mesmo `splitGroupId` e categoria marcada como escolhida pelo dono. As partes precisam somar
+	 * EXATAMENTE o valor do original (`checkSplit` do engine). `invalid` para parcela, transferência, pagamento de
+	 * fatura, estorno, gasto com estornos vivos ou soma que não fecha; `not_found` se não existe. Devolve as partes,
+	 * na ordem recebida.
+	 */
+	splitTransaction(id: string, parts: readonly SplitPartInput[]): Promise<TransactionRecord[]>;
 	/** Apaga todas as parcelas do grupo (com a mesma cascata de `softDelete`). Devolve quantas parcelas. */
 	softDeleteGroup(groupId: string): Promise<number>;
 	/**

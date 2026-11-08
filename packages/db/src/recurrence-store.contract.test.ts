@@ -30,6 +30,18 @@ describe.each(contractSuites())("RecurrenceStore (%s)", (_name, make) => {
 			accountId: b.checking.id,
 		});
 
+	it("guarda o lembrete de 1 dia antes: desligado por padrão, liga e desliga por atualização", async () => {
+		const r = await stores.recurrences.create(rent());
+		expect(r.remindDayBefore).toBe(false);
+		const on = await stores.recurrences.create(rent({ name: "Netflix", remindDayBefore: true }));
+		expect(on.remindDayBefore).toBe(true);
+		expect((await stores.recurrences.get(on.id))?.remindDayBefore).toBe(true);
+		// Campo ausente no patch não mexe; `false` desliga.
+		expect((await stores.recurrences.update(on.id, { amountCents: 5_000 })).remindDayBefore).toBe(true);
+		expect((await stores.recurrences.update(on.id, { remindDayBefore: false })).remindDayBefore).toBe(false);
+		expect((await stores.recurrences.update(r.id, { remindDayBefore: true })).remindDayBefore).toBe(true);
+	});
+
 	it("cria, lê e lista só as ativas, com datas idênticas", async () => {
 		const r = await stores.recurrences.create(
 			rent({ startDate: "2024-02-29", endDate: "2026-12-31", categoryId: b.food.id }),

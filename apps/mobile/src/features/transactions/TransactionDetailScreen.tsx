@@ -1,4 +1,4 @@
-import { NOTE_MAX } from "@orbita/shared";
+import { NOTE_MAX, type TransactionSplitBody } from "@orbita/shared";
 import { colors, radius, spacing } from "@orbita/tokens";
 import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
@@ -17,6 +17,7 @@ import {
 	Skeleton,
 	Text,
 } from "../../ui/index.ts";
+import { useSaveSubscription } from "../subscriptions/queries.ts";
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { amountSignMode, amountTone, signedAmount, transactionIcon } from "../summary/transaction-model.ts";
@@ -47,12 +48,17 @@ import {
 	useApplyCategoryRule,
 	useConfirmTransaction,
 	useDeleteTransaction,
+	useSplitTransaction,
 	useUpdateTransaction,
 } from "./detail-mutations.ts";
 import { useTransactionDetail } from "./detail-queries.ts";
 import { formatEntryDate } from "./new-transaction-model.ts";
+import { RepeatSheet } from "./RepeatSheet.tsx";
+import { buildRepeat, repeatedMessage } from "./repeat-model.ts";
+import { SplitSheet } from "./SplitSheet.tsx";
+import { canSplit, SPLIT_NOTE } from "./split-model.ts";
 
-type OpenSheet = "category" | "description" | "note" | "more" | "delete" | null;
+type OpenSheet = "category" | "description" | "note" | "more" | "delete" | "split" | "repeat" | null;
 
 const SOURCE_ICON = {
 	manual: "usuario",
@@ -88,7 +94,15 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 	const confirm = useConfirmTransaction(id);
 	const remove = useDeleteTransaction(id);
 	const applyRule = useApplyCategoryRule(id);
-	const busy = update.isPending || confirm.isPending || remove.isPending || applyRule.isPending;
+	const split = useSplitTransaction(id);
+	const saveRecurrence = useSaveSubscription();
+	const busy =
+		update.isPending ||
+		confirm.isPending ||
+		remove.isPending ||
+		applyRule.isPending ||
+		split.isPending ||
+		saveRecurrence.isPending;
 
 	const close = () => (router.canGoBack() ? router.back() : router.replace("/"));
 
@@ -215,6 +229,32 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 		});
 	};
 	const doDelete = (scope: DeleteScope) => void run(() => remove.mutateAsync(scope), close);
+	// Dividir: o original sai e as partes entram; a tela dele deixa de existir, então volta para a lista.
+	const doSplit = (body: TransactionSplitBody, idempotencyKey: string) =>
+		void run(() => split.mutateAsync({ body, idempotencyKey }), close);
+	// Repetir: cria a recorrência (a mesma das Assinaturas) com o que o lançamento já tem.
+	const repeat = buildRepeat(t, today);
+	const doRepeat = () => {
+		if (!repeat.ok) {
+			setMessage(repeat.message);
+			return;
+		}
+		const { plan } = repeat;
+		void run(
+			() => saveRecurrence.mutateAsync({ type: "create", body: plan.body }),
+			() => {
+				setSheet(null);
+				setMessage(repeatedMessage(plan));
+			},
+		);
+	};
+	const repeatLines = [
+		{ label: "Nome", value: t.description },
+		{ label: "Valor", value: money(t.amountCents, hidden) },
+		{ label: "Cobrança", value: repeat.ok ? repeat.plan.dayLabel : "" },
+		{ label: "Conta", value: card ? `${card.name} · crédito` : (origin?.name ?? "") },
+		{ label: "Categoria", value: category?.name ?? "Sem categoria" },
+	];
 
 	const onRefresh = async () => {
 		setRefreshing(true);
@@ -354,11 +394,20 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 					</Text>
 				</Pressable>
 
+				{t.splitGroupId ? (
+					<Text variant="caption" tone="secondary" style={{ paddingHorizontal: spacing.xs }}>
+						{SPLIT_NOTE}
+					</Text>
+				) : null}
+
 				<DetailActions
 					pending={t.status === "pending"}
 					busy={busy}
+					splittable={canSplit(t) && categoryReady}
+					repeatable={repeat.ok}
 					onConfirm={() => void run(() => confirm.mutateAsync())}
-					onEditDescription={() => openSheet("description")}
+					onSplit={() => openSheet("split")}
+					onRepeat={() => openSheet("repeat")}
 					onDelete={askDelete}
 				/>
 
@@ -420,6 +469,25 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 				busy={busy}
 				message={message}
 				onChoose={doDelete}
+				onClose={() => setSheet(null)}
+			/>
+			<SplitSheet
+				visible={sheet === "split"}
+				totalCents={t.amountCents}
+				categoryId={t.categoryId}
+				categories={categories}
+				busy={busy}
+				message={message}
+				onSubmit={doSplit}
+				onClose={() => setSheet(null)}
+			/>
+			<RepeatSheet
+				visible={sheet === "repeat"}
+				lines={repeatLines}
+				startLabel={repeat.ok ? repeat.plan.startLabel : ""}
+				busy={busy}
+				message={message}
+				onConfirm={doRepeat}
 				onClose={() => setSheet(null)}
 			/>
 			<ConfirmDialog

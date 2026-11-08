@@ -3,8 +3,13 @@ import {
 	budgetRows,
 	buildSetRequest,
 	categoryLimitsSum,
+	changedByRequests,
 	isAffectedByBudget,
+	isAffectedByPreferences,
 	limitsExceedTotal,
+	replacedCount,
+	suggestionCaption,
+	suggestionRequests,
 	TOTAL_SCOPE,
 	totalLimit,
 	validateLimit,
@@ -109,5 +114,82 @@ describe("requisição", () => {
 		expect(isAffectedByBudget(["https://a", "budgets"], "https://a")).toBe(true);
 		expect(isAffectedByBudget(["https://a", "categories"], "https://a")).toBe(false);
 		expect(isAffectedByBudget(["https://b", "summary"], "https://a")).toBe(false);
+	});
+});
+
+describe("sugestão da Órbita", () => {
+	const suggestion = {
+		months: 3,
+		monthsUsed: 3,
+		totalCents: 130000,
+		byCategory: { mercado: 90000, lazer: 40000, velha: 5000 },
+	};
+
+	it("grava o total e um limite por categoria ativa com sugestão", () => {
+		expect(suggestionRequests(suggestion, categories)).toEqual([
+			{ scope: TOTAL_SCOPE, limitCents: 130000 },
+			{ scope: "lazer", limitCents: 40000 },
+			{ scope: "mercado", limitCents: 90000 },
+		]);
+	});
+
+	it("sem sugestão não há pedido", () => {
+		expect(
+			suggestionRequests({ months: 3, monthsUsed: 0, totalCents: 0, byCategory: {} }, categories),
+		).toEqual([]);
+	});
+
+	it("só muda o que é diferente do limite atual, e conta quantos limites seriam trocados", () => {
+		const reqs = suggestionRequests(suggestion, categories);
+		const budgets = [
+			{ scope: TOTAL_SCOPE, limitCents: 130000 },
+			{ scope: "mercado", limitCents: 50000 },
+		];
+		expect(changedByRequests(reqs, budgets)).toEqual([
+			{ scope: "lazer", limitCents: 40000 },
+			{ scope: "mercado", limitCents: 90000 },
+		]);
+		expect(replacedCount(changedByRequests(reqs, budgets), budgets)).toBe(1);
+		expect(
+			changedByRequests(reqs, [
+				...budgets,
+				{ scope: "lazer", limitCents: 40000 },
+				{ scope: "mercado", limitCents: 90000 },
+			]),
+		).toEqual([]);
+	});
+
+	it("legenda conforme quantos meses entraram", () => {
+		expect(suggestionCaption({ months: 3, monthsUsed: 3 }, "R$ 2.800")).toBe(
+			"Sugestão da Órbita: R$ 2.800, pela mediana dos últimos 3 meses",
+		);
+		expect(suggestionCaption({ months: 3, monthsUsed: 2 }, "R$ 2.800")).toBe(
+			"Sugestão da Órbita: R$ 2.800, pela mediana dos 2 últimos meses com gastos",
+		);
+		expect(suggestionCaption({ months: 3, monthsUsed: 1 }, "R$ 2.800")).toContain("único mês fechado");
+	});
+
+	it("linha avisa só quando passou do percentual sem estourar", () => {
+		const alerts = new Set(["mercado", "lazer"]);
+		const rows = budgetRows(
+			categories,
+			[
+				{ scope: "mercado", limitCents: 1000 },
+				{ scope: "lazer", limitCents: 1000 },
+			],
+			{ mercado: 900, lazer: 1500 },
+			alerts,
+		);
+		expect(Object.fromEntries(rows.map((r) => [r.id, [r.warn, r.over]]))).toMatchObject({
+			mercado: [true, false],
+			lazer: [false, true],
+			saude: [false, false],
+		});
+	});
+
+	it("salvar preferências e limites recarrega o resumo", () => {
+		expect(isAffectedByPreferences(["u", "summary", "2026-11"], "u")).toBe(true);
+		expect(isAffectedByPreferences(["u", "preferences"], "u")).toBe(true);
+		expect(isAffectedByPreferences(["u", "accounts"], "u")).toBe(false);
 	});
 });

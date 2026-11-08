@@ -1,7 +1,7 @@
-import { colors, radius, spacing, text as typography } from "@orbita/tokens";
+import { colors, radius, spacing } from "@orbita/tokens";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { type ElementRef, useRef, useState } from "react";
-import { KeyboardAvoidingView, Pressable, ScrollView, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Pressable, ScrollView, type TextInput, View } from "react-native";
 import { ApiError } from "../../lib/api.ts";
 import { useClock } from "../../lib/clock.tsx";
 import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.ts";
@@ -10,19 +10,21 @@ import {
 	Button,
 	ConfirmDialog,
 	ErrorState,
-	familyByWeight,
+	Icon,
 	IconButton,
 	LetterAvatar,
 	Screen,
 	Skeleton,
 	Text,
+	TextField,
 } from "../../ui/index.ts";
-import { SettingsRow, SettingsSection } from "../settings/SettingsRows.tsx";
+import { SettingsRow, SettingsSection, StaticSwitch } from "../settings/SettingsRows.tsx";
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { initialOf } from "../summary/transaction-model.ts";
 import { effectiveSource, formatAmount, sourceOptions } from "../transactions/new-transaction-model.ts";
 import { SourceSheet } from "../transactions/PickerSheets.tsx";
+import { categoryIdByName, featuredServices, searchServices, serviceByName } from "./catalog.ts";
 import {
 	useArchiveSubscription,
 	useMonthTransactions,
@@ -36,11 +38,20 @@ import {
 	formFromRecurrence,
 	initialForm,
 	monthStatus,
-	POPULAR_SERVICES,
 	parseSourceKey,
+	REMINDER_CAPTION,
 	type SubscriptionForm,
 	subscriptionsCategoryId,
 } from "./subscriptions-model.ts";
+
+/** Categoria do serviço escolhido no catálogo; sem ela (ou sem a categoria do dono), vale "Assinaturas". */
+function formCategoryId(
+	form: SubscriptionForm,
+	categories: readonly { id: string; name: string; archivedAt: string | null }[],
+): string | null {
+	const own = form.categoryName ? categoryIdByName(categories, form.categoryName) : null;
+	return own ?? subscriptionsCategoryId(categories);
+}
 
 type OpenSheet = "value" | "day" | "source" | null;
 
@@ -116,6 +127,12 @@ export function NewSubscriptionScreen() {
 	const current = form ?? initialForm(today);
 	const source = effectiveSource(current.sourceKey, options);
 
+	const setName = (name: string) =>
+		update({ ...current, name, categoryName: serviceByName(name)?.category ?? null });
+	const suggestions = editingId
+		? []
+		: searchServices(current.name).filter((s) => s.name !== current.name.trim());
+
 	const update = (next: SubscriptionForm) => {
 		setMessage(null);
 		setForm(next);
@@ -130,7 +147,7 @@ export function NewSubscriptionScreen() {
 			form,
 			source: parseSourceKey(source?.key),
 			today,
-			categoryId: subscriptionsCategoryId(categoriesQ.data?.categories ?? []),
+			categoryId: formCategoryId(form, categoriesQ.data?.categories ?? []),
 			editingId,
 		});
 		if (!built.ok) {
@@ -250,42 +267,58 @@ export function NewSubscriptionScreen() {
 						)
 					) : (
 						<>
-							<View
-								style={{
-									height: 48,
-									borderRadius: radius.card - 4,
-									backgroundColor: colors.surface,
-									paddingHorizontal: spacing.lg,
-									justifyContent: "center",
-								}}
-							>
-								<TextInput
-									ref={nameInput}
+							<View>
+								{editingId ? null : (
+									<View
+										pointerEvents="none"
+										style={{
+											position: "absolute",
+											left: spacing.lg,
+											top: 0,
+											bottom: 0,
+											justifyContent: "center",
+											zIndex: 1,
+										}}
+									>
+										<Icon name="buscar" size={20} color={colors.textSecondary} />
+									</View>
+								)}
+								<TextField
+									inputRef={nameInput}
 									value={current.name}
-									onChangeText={(name) => update({ ...current, name })}
-									placeholder="Nome do serviço"
-									placeholderTextColor={colors.textSecondary}
+									onChangeText={setName}
+									placeholder={editingId ? "Nome do serviço" : "Buscar serviço"}
 									maxLength={60}
-									accessibilityLabel="Nome da assinatura"
-									style={{
-										color: colors.text,
-										fontFamily: familyByWeight[400],
-										fontSize: typography.body.fontSize,
-										lineHeight: typography.body.lineHeight,
-										letterSpacing: typography.body.letterSpacing,
-										paddingVertical: 0,
-									}}
+									accessibilityLabel={editingId ? "Nome da assinatura" : "Buscar serviço ou digitar o nome"}
+									style={editingId ? null : { paddingLeft: spacing.lg + 20 + spacing.sm }}
 								/>
 							</View>
 
+							{suggestions.length > 0 ? (
+								<SettingsSection>
+									{suggestions.map((service, i) => (
+										<SettingsRow
+											key={service.id}
+											leading={
+												<LetterAvatar letter={initialOf(service.name)} size={32} color={colors.surface3} />
+											}
+											title={service.name}
+											chevron={false}
+											last={i === suggestions.length - 1}
+											onPress={() => setName(service.name)}
+										/>
+									))}
+								</SettingsSection>
+							) : null}
+
 							{editingId ? null : (
 								<View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 10, rowGap: 14 }}>
-									{POPULAR_SERVICES.map((name) => (
+									{featuredServices().map((service) => (
 										<ServiceChip
-											key={name}
-											name={name}
-											selected={current.name.trim().toLowerCase() === name.toLowerCase()}
-											onPress={() => update({ ...current, name })}
+											key={service.id}
+											name={service.shortName ?? service.name}
+											selected={serviceByName(current.name)?.id === service.id}
+											onPress={() => setName(service.name)}
 										/>
 									))}
 									<ServiceChip
@@ -297,7 +330,7 @@ export function NewSubscriptionScreen() {
 								</View>
 							)}
 
-							<SettingsSection>
+							<SettingsSection {...(current.name.trim() ? { title: current.name.trim() } : {})}>
 								<SettingsRow
 									title="Valor"
 									value={formatAmount(current.amountCents)}
@@ -311,7 +344,6 @@ export function NewSubscriptionScreen() {
 								{sources.phase === "ready" ? (
 									<SettingsRow
 										title={source?.type === "card" ? "Cartão" : "Conta"}
-										last
 										chevron
 										trailing={
 											source ? (
@@ -338,7 +370,18 @@ export function NewSubscriptionScreen() {
 										)}
 									</View>
 								)}
+								<SettingsRow
+									last
+									title="Lembrar 1 dia antes"
+									chevron={false}
+									toggled={current.remindDayBefore}
+									onPress={() => update({ ...current, remindDayBefore: !current.remindDayBefore })}
+									trailing={<StaticSwitch on={current.remindDayBefore} />}
+								/>
 							</SettingsSection>
+							<Text variant="caption" tone="secondary">
+								{REMINDER_CAPTION}
+							</Text>
 						</>
 					)}
 				</ScrollView>

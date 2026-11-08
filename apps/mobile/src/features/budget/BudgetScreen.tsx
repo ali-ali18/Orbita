@@ -8,8 +8,11 @@ import { money } from "../../lib/format.ts";
 import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { ErrorState, IconButton, Screen, Skeleton, Text, TOP_FADE } from "../../ui/index.ts";
+import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
+import { isUnreachableQuery } from "../server/server-model.ts";
 import { useCategories, useSummary } from "../summary/queries.ts";
 import { categoryDot } from "../transactions/new-transaction-model.ts";
+import { BudgetPreferences, SuggestionLine } from "./BudgetExtras.tsx";
 import { BudgetSheet } from "./BudgetSheet.tsx";
 import {
 	type BudgetRow,
@@ -18,6 +21,7 @@ import {
 	limitsExceedTotal,
 	TOTAL_SCOPE,
 	totalLimit,
+	warnText,
 	withUnassignedSpend,
 } from "./budget-model.ts";
 import { useBudgets, useRemoveBudget, useSetBudget } from "./queries.ts";
@@ -35,7 +39,17 @@ function LimitBar({ percent, color }: { percent: number; color: string }) {
 	);
 }
 
-function CategoryLine({ row, hidden, onPress }: { row: BudgetRow; hidden: boolean; onPress: () => void }) {
+function CategoryLine({
+	row,
+	hidden,
+	alertPercent,
+	onPress,
+}: {
+	row: BudgetRow;
+	hidden: boolean;
+	alertPercent: number;
+	onPress: () => void;
+}) {
 	const status =
 		row.limitCents === null
 			? "Sem limite"
@@ -43,7 +57,7 @@ function CategoryLine({ row, hidden, onPress }: { row: BudgetRow; hidden: boolea
 	return (
 		<Pressable
 			accessibilityRole="button"
-			accessibilityLabel={`${row.name}, ${status}${row.over ? ", passou do limite" : ""}. Mudar limite`}
+			accessibilityLabel={`${row.name}, ${status}${row.over ? ", passou do limite" : row.warn ? `, ${warnText(alertPercent).toLowerCase()}` : ""}. Mudar limite`}
 			onPress={onPress}
 			style={({ pressed }) => ({
 				gap: spacing.sm,
@@ -71,9 +85,9 @@ function CategoryLine({ row, hidden, onPress }: { row: BudgetRow; hidden: boolea
 			{row.limitCents !== null ? (
 				<LimitBar percent={row.fillPercent} color={categoryDot(row.chartSlot, row.slug)} />
 			) : null}
-			{row.over ? (
+			{row.over || row.warn ? (
 				<Text variant="micro" tone="secondary">
-					Passou do limite
+					{row.over ? "Passou do limite" : warnText(alertPercent)}
 				</Text>
 			) : null}
 		</Pressable>
@@ -84,7 +98,8 @@ type Target = { scope: string; title: string; hint?: string; initial: number; ha
 
 /**
  * Tela "Orçamento do mês" (Figma 43:868): o limite total e um limite por categoria. O gasto vem do resumo do mês.
- * "Sugestão da Órbita", "Avisar quando passar de" e "Sobra do mês vai para" do Figma não existem: a API ainda não tem esses dados.
+ * "Sugestão da Órbita" (mediana dos últimos meses fechados, calculada pelo servidor), "Avisar quando passar de" e
+ * "Sobra do mês vai para" só guardam a escolha: o push e as metas ainda não existem.
  */
 export function BudgetScreen() {
 	const router = useRouter();
@@ -155,48 +170,57 @@ export function BudgetScreen() {
 		if (state.phase === "error") return <ErrorState message={state.message} onRetry={state.retry} />;
 		const [[{ budgets }, { summary }], { categories }] = state.data;
 		const total = totalLimit(budgets);
-		const rows = withUnassignedSpend(budgetRows(categories, budgets, summary.byCategory), summary.spentCents);
+		const alerts = new Set(state.data[0][1].budgets.filter((b) => b.alert).map((b) => b.scope));
+		const rows = withUnassignedSpend(
+			budgetRows(categories, budgets, summary.byCategory, alerts),
+			summary.spentCents,
+		);
+		const alertPercent = state.data[0][1].budgetAlertPercent;
 		return (
 			<>
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel={
-						total === null
-							? "Quanto quero gastar por mês, sem limite. Definir"
-							: `Quanto quero gastar por mês, ${money(total, hidden, { sign: "never" })}. Mudar`
-					}
-					onPress={() =>
-						setTarget({
-							scope: TOTAL_SCOPE,
-							title: "Limite do mês",
-							hint: "Quanto você quer gastar por mês, no total.",
-							initial: total ?? 0,
-							hasLimit: total !== null,
-						})
-					}
-					style={({ pressed }) => ({
+				<View
+					style={{
 						backgroundColor: colors.surface,
 						borderRadius: radius.block,
 						padding: spacing.xl,
-						gap: 6,
-						opacity: pressed ? 0.8 : 1,
-					})}
+						gap: spacing.md,
+					}}
 				>
-					<Text variant="caption" tone="secondary">
-						Quanto quero gastar por mês
-					</Text>
-					<Text variant="numberLarge" tone={total === null ? "tertiary" : "primary"}>
-						{total === null ? "Definir limite" : money(total, hidden, { sign: "never" })}
-					</Text>
-					<Text variant="caption" tone="secondary">
-						Gasto {money(summary.spentCents, hidden, { sign: "never" })} neste mês
-					</Text>
-					{total !== null && limitsExceedTotal(rows, total) ? (
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel={
+							total === null
+								? "Quanto quero gastar por mês, sem limite. Definir"
+								: `Quanto quero gastar por mês, ${money(total, hidden, { sign: "never" })}. Mudar`
+						}
+						onPress={() =>
+							setTarget({
+								scope: TOTAL_SCOPE,
+								title: "Limite do mês",
+								hint: "Quanto você quer gastar por mês, no total.",
+								initial: total ?? 0,
+								hasLimit: total !== null,
+							})
+						}
+						style={({ pressed }) => ({ gap: 6, opacity: pressed ? 0.8 : 1 })}
+					>
 						<Text variant="caption" tone="secondary">
-							Os limites das categorias somam mais que o total do mês.
+							Quanto quero gastar por mês
 						</Text>
-					) : null}
-				</Pressable>
+						<Text variant="numberLarge" tone={total === null ? "tertiary" : "primary"}>
+							{total === null ? "Definir limite" : money(total, hidden, { sign: "never" })}
+						</Text>
+						<Text variant="caption" tone="secondary">
+							Gasto {money(summary.spentCents, hidden, { sign: "never" })} neste mês
+						</Text>
+						{total !== null && limitsExceedTotal(rows, total) ? (
+							<Text variant="caption" tone="secondary">
+								Os limites das categorias somam mais que o total do mês.
+							</Text>
+						) : null}
+					</Pressable>
+					<SuggestionLine budgets={budgets} categories={categories} hidden={hidden} />
+				</View>
 
 				<View style={{ gap: spacing.sm, paddingTop: 6 }}>
 					<Text variant="caption" tone="secondary" accessibilityRole="header">
@@ -220,6 +244,7 @@ export function BudgetScreen() {
 									key={r.id}
 									row={r}
 									hidden={hidden}
+									alertPercent={alertPercent}
 									onPress={() =>
 										setTarget({
 											scope: r.id,
@@ -233,9 +258,14 @@ export function BudgetScreen() {
 						)}
 					</View>
 				</View>
+				<BudgetPreferences />
 			</>
 		);
 	};
+
+	if (isUnreachableQuery(budgetsQ)) {
+		return <ServerDownScreen onRetry={() => budgetsQ.refetch()} />;
+	}
 
 	return (
 		<Screen fadeTop>

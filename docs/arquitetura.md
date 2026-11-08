@@ -86,6 +86,12 @@ Se algum passo não se aplica, pule. Se a feature não tem regra de dinheiro, n�
 
 `GET /v1/transactions` (e `GET /v1/transactions/count`, que só conta) aceitam filtros opcionais, combinados com E; listas vão separadas por vírgula e o `cursor` continua valendo sobre o resultado filtrado: `from`/`to` (AAAA-MM-DD, inclusivos), `kinds`, `accountIds`, `cardIds`, `categoryIds`, `sources`, `statuses`, `minCents`/`maxCents` (centavos inteiros, inclusivos). `accountIds` e `cardIds` juntos valem como OU, e a conta também casa com o destino de uma transferência. O schema está em `@orbita/shared` (`transactionFilterFields`), a regra em `TransactionStore.listRecent`/`countMatching` (Prisma e memória, mesmo contrato). No app, `features/activity/filters-model.ts` converte o que o dono marcou na gaveta nesses parâmetros; o estado fica em `filters-store.ts` (memória do app, sobrevive à navegação).
 
+## Categoria sugerida, dividir e repetir um lançamento
+
+- **Sugestão de categoria** (Novo lançamento): só regras, nunca IA. `features/transactions/category-suggestion.ts` aplica as regras aprendidas (`GET /v1/category-rules`, a mesma `pickCategoryRule` de `@orbita/shared` que o sync usa) à descrição digitada. A sugestão vem marcada; o dono aceita ("Aceitar"), troca ("Trocar") ou escolhe outra. Só vale para saída e para categoria ativa.
+- **Dividir** (Detalhe → Dividir): `POST /v1/transactions/:id/split` com `{ parts: [{ amountCents, categoryId?, description? }] }` (2 a 20 partes, aceita `Idempotency-Key`). A soma é conferida pelo engine (`checkSplit`, `packages/core/src/split.ts`) dentro do store, que valida de novo no servidor. `TransactionStore.splitTransaction` apaga o original (a identidade externa dele continua reservada, então a ingestão não o recria) e cria as partes numa operação só, com o mesmo `splitGroupId` (coluna `split_group_id`, sem unicidade; parcela usa `installmentGroupId`, que é outra coisa). Cada parte herda data, conta ou cartão, fatura, mês do orçamento, situação e origem; a categoria fica marcada como escolhida pelo dono. Só despesa e receita avulsas dividem (nada de parcela, transferência, pagamento de fatura, estorno, nem gasto com estornos vivos). Dividir uma parte de novo mantém o grupo.
+- **Repetir** (Detalhe → Repetir): usa o módulo `recurrences` (o das Assinaturas) sem rota nova: `features/transactions/repeat-model.ts` monta o `RecurrenceCreateBody` com nome, valor, categoria, conta ou cartão e dia do lançamento, começando no mês seguinte para não contar o lançamento atual duas vezes.
+
 ## Importação de extrato
 
 `packages/ingest/src/statement/` lê CSV, OFX e PDF e devolve itens `{ date, amountCents (negativo = saída), description, externalId }` mais avisos e a lista "não entendi estas linhas". É tudo função pura sobre bytes (`parseCsv`, `parseOfx`, `parsePdfLines`); só `parsePdf` faz I/O, ao extrair o texto com o `unpdf` (pdf.js sem worker, MIT). O formato é decidido pelo **conteúdo** (`%PDF-`, cabeçalho OFX), nunca só pela extensão.
@@ -106,6 +112,18 @@ Telas de Configurações com módulos próprios na API:
 - **Exportação** (`modules/export`): `GET /v1/export?format=csv|json&include=transactions,categories,accounts,subscriptions&from&to`. JSON com centavos inteiros e os mesmos DTOs da API; CSV (BOM, `;`, CRLF) com dinheiro formatado ("-46,90") e **um tipo de dado por arquivo**. Aparelho pareado obrigatório, 10 pedidos por 10 minutos por aparelho, `Cache-Control: no-store`. Nunca leva chaves do cofre, tokens nem aparelhos. No app: Configurações → Exportar tudo, que grava no cache e abre a folha de compartilhar (`expo-file-system` e `expo-sharing`, **módulos nativos novos: exigem APK novo**) ou baixa no navegador.
 - **Backup:** não há job no app nem na API. O backup do Postgres é do Dokploy (ver [servidor](servidor.md#backup)); a tela só explica e aponta para as instruções. O app não sabe se um backup rodou, e por isso não mostra "último backup".
 - **Reportar problema:** monta uma issue pré-preenchida (`ali-ali18/Orbita`) e abre no navegador; nada sai do app sozinho. Só versão, plataforma, sistema e modelo do aparelho, sem valores, nomes, nome do aparelho dado pelo dono nem endereço do servidor.
+
+## Orçamento: sugestão, aviso e sobra
+
+- **Sugestão da Órbita** (`GET /v1/budgets/suggestion`): `suggestBudget` (`packages/core`) pega a **mediana** do gasto de cada categoria nos 3 últimos meses **fechados** (o mês corrente fica de fora), em reais inteiros; mês sem gasto é ignorado. O gasto de cada mês vem do mesmo `monthSummary` do Início. Determinístico, sem IA. "Usar sugestão" grava o total e um limite por categoria (um PUT por limite) e pede confirmação se for trocar limites existentes.
+- **Avisar quando passar de X%:** `budgetAlertPercent` (1 a 100, padrão 80) fica em `AppPreferences`. `passedThreshold` (core, só inteiros) decide, e o resumo do mês devolve `alert` por limite. **O push não existe ainda**: o aviso aparece só dentro do app (linha no card do Início e na tela Orçamento).
+- **Sobra do mês vai para:** `leftoverAccountId` (conta ativa ou nenhuma) em `AppPreferences`. Só a escolha é guardada; nenhum dinheiro é movido. Metas ainda não existem ("Metas: em breve").
+
+## Pagar a fatura e lembrete de assinatura
+
+- **Marcar como paga:** `POST /v1/cards/:id/invoices/:month/pay` (`{ accountId }`, aceita `Idempotency-Key`) cria o `card_payment` do que falta da fatura. O valor (total menos o já pago) e a situação vêm do engine (`paidForInvoice`, `paymentStatus`); o cliente só escolhe a conta. Recusa fatura aberta (400) e já paga (409). A data é hoje, limitada à janela de pagamentos da fatura (`paymentWindow`), para que o engine a atribua à fatura certa. Pagamento parcial fica fora (o Figma só tem o botão). "Desfazer" é o `DELETE /v1/transactions/:id` de sempre; a fatura volta a "não paga". No app: `features/card/PayInvoice.tsx`.
+- **Lembrar 1 dia antes:** `Recurrence.remindDayBefore` (padrão `false`, nas duas stores, no schema e no DTO). Só guarda a escolha: **não há push ainda**, e a tela diz que o lembrete começa a valer quando as notificações existirem. Nada dispara aviso por esse campo.
+- **Buscar serviço:** `features/subscriptions/catalog.ts`, lista estática no app (nome, categoria padrão, apelidos), sem rede e sem valor sugerido.
 
 ## Tarefas em segundo plano
 

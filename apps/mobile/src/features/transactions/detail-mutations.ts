@@ -1,6 +1,7 @@
-import type { TransactionApiUpdateBody } from "@orbita/shared";
+import type { TransactionApiUpdateBody, TransactionSplitBody } from "@orbita/shared";
 import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import { call, type TransactionView } from "../../lib/api.ts";
+import { IDEMPOTENCY_HEADER } from "../../lib/idempotency.ts";
 import { useSession } from "../../lib/session.tsx";
 import type { DeleteScope } from "./detail-model.ts";
 import { isAffectedByNewTransaction } from "./new-transaction-model.ts";
@@ -71,6 +72,34 @@ export function useDeleteTransaction(id: string) {
 		mutationFn: (scope: DeleteScope) =>
 			call(() => api.v1.transactions[":id"].$delete({ param: { id }, query: { scope } })),
 		onSuccess: () => {
+			invalidateLists(queryClient, baseUrl);
+		},
+	});
+}
+
+/** Um "dividir": as partes e a chave de idempotência (a mesma em toda nova tentativa do mesmo pedido). */
+export interface SplitVariables {
+	body: TransactionSplitBody;
+	idempotencyKey: string;
+}
+
+/**
+ * Divide o lançamento em partes com categorias próprias. O original sai (o servidor o apaga na mesma operação),
+ * então o detalhe dele é esquecido e as listas recarregam. Com a chave, repetir depois de a rede cair não divide
+ * em dobro.
+ */
+export function useSplitTransaction(id: string) {
+	const { api, baseUrl, queryClient } = useDetailMutations();
+	return useMutation({
+		mutationFn: ({ body, idempotencyKey }: SplitVariables) =>
+			call(() =>
+				api.v1.transactions[":id"].split.$post(
+					{ param: { id }, json: body },
+					{ headers: { [IDEMPOTENCY_HEADER]: idempotencyKey } },
+				),
+			),
+		onSuccess: () => {
+			queryClient.removeQueries({ queryKey: [baseUrl, "transactions", "detail", id] });
 			invalidateLists(queryClient, baseUrl);
 		},
 	});
