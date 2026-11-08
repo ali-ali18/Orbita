@@ -3,7 +3,13 @@ import { PLUGGY_DAILY_JOB, PLUGGY_SYNC_QUEUE } from "@orbita/ingest";
 import { deriveKey } from "@orbita/security";
 import { Queue, Worker } from "bullmq";
 import { loadEnv } from "./env.ts";
-import { CLEAN_PAIRING_CODES, cleanPairingCodes, MAINTENANCE_QUEUE } from "./maintenance.ts";
+import {
+	CLEAN_IDEMPOTENCY_KEYS,
+	CLEAN_PAIRING_CODES,
+	cleanIdempotencyKeys,
+	cleanPairingCodes,
+	MAINTENANCE_QUEUE,
+} from "./maintenance.ts";
 import { PLUGGY_DAILY_PATTERN, PLUGGY_DAILY_TIME_ZONE, processSyncJob } from "./sincronizacao.ts";
 
 const env = loadEnv();
@@ -15,11 +21,18 @@ const connection = { url: env.REDIS_URL, maxRetriesPerRequest: null };
 
 const queue = new Queue(MAINTENANCE_QUEUE, { connection });
 await queue.upsertJobScheduler(CLEAN_PAIRING_CODES, { every: 60 * 60_000 }, { name: CLEAN_PAIRING_CODES });
+await queue.upsertJobScheduler(
+	CLEAN_IDEMPOTENCY_KEYS,
+	{ every: 60 * 60_000 },
+	{ name: CLEAN_IDEMPOTENCY_KEYS },
+);
 
 const worker = new Worker(
 	MAINTENANCE_QUEUE,
 	async (job) => {
 		if (job.name === CLEAN_PAIRING_CODES) return cleanPairingCodes({ store, now: () => new Date() });
+		if (job.name === CLEAN_IDEMPOTENCY_KEYS)
+			return cleanIdempotencyKeys({ store: stores.idempotency, now: () => new Date() });
 		throw new Error(`Tarefa desconhecida: ${job.name}`);
 	},
 	{ connection },

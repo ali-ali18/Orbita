@@ -18,6 +18,7 @@ export {
 } from "./category-store.ts";
 export { createDb, type Db } from "./client.ts";
 export { DataError, type DataErrorCode } from "./errors.ts";
+export type { IdempotencyBegin, IdempotencyRecord, IdempotencyStore } from "./idempotency-store.ts";
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
 export type {
