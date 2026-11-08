@@ -1,7 +1,7 @@
-import { chartSeries, colors, radius, spacing, text as typography } from "@orbita/tokens";
+import { chartSeries, colors, radius, spacing } from "@orbita/tokens";
 import { useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
-import { Button, familyByWeight, Sheet, Text } from "../../ui/index.ts";
+import { Pressable, View } from "react-native";
+import { Button, Sheet, Text, TextField } from "../../ui/index.ts";
 import { COLOR_SLOTS, NAME_MAX } from "./categories-model.ts";
 
 export interface CategoryDraft {
@@ -76,24 +76,13 @@ function Body({
 				<Text variant="caption" tone="secondary">
 					Nome
 				</Text>
-				<TextInput
+				<TextField
 					value={name}
 					onChangeText={setName}
 					maxLength={NAME_MAX}
 					autoFocus
 					placeholder="Ex.: Viagem"
-					placeholderTextColor={colors.textTertiary}
 					accessibilityLabel="Nome da categoria"
-					style={{
-						height: 52,
-						borderRadius: radius.inner,
-						backgroundColor: colors.surface2,
-						paddingHorizontal: spacing.lg,
-						color: colors.text,
-						fontFamily: familyByWeight[400],
-						fontSize: typography.body.fontSize,
-						lineHeight: typography.body.lineHeight,
-					}}
 				/>
 			</View>
 			<View style={{ gap: spacing.sm }}>
