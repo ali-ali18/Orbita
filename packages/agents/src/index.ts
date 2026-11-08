@@ -54,14 +54,28 @@ export {
 	ZERO_USAGE,
 } from "./model.ts";
 export {
+	CHAT_MODEL_OPTIONS,
 	type ChatModelConfig,
+	type ChatModelOption,
 	DEFAULT_CHAT_EFFORT,
 	DEFAULT_CHAT_MODEL,
 	DEFAULT_CHAT_MODEL_CONFIG,
 	DEFAULT_FAST_MODEL,
+	FAST_MODEL_OFF,
+	isFastModelChoice,
+	isMainModel,
 	pickModel,
+	resolveChatModels,
+	type SavedChatModels,
 } from "./models.ts";
-export { costMicroUsd, FALLBACK_PRICE, MODEL_PRICES, type ModelPrice, priceFor } from "./pricing.ts";
+export {
+	costMicroUsd,
+	FALLBACK_PRICE,
+	listPrice,
+	MODEL_PRICES,
+	type ModelPrice,
+	priceFor,
+} from "./pricing.ts";
 export { buildContextBlock, buildSystem, type PromptContext, STABLE_PROMPT } from "./prompt.ts";
 export { type AppliedProposal, applyProposal, undoProposal } from "./proposals.ts";
 export { READ_TOOLS } from "./read-tools.ts";

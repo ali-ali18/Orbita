@@ -10,6 +10,79 @@ export const DEFAULT_CHAT_MODEL = "claude-sonnet-5-5";
 export const DEFAULT_FAST_MODEL = "claude-haiku-5-5";
 export const DEFAULT_CHAT_EFFORT: Effort = "low";
 
+/** Valor de `chatModelFast` que desliga a rota barata. */
+export const FAST_MODEL_OFF = "off";
+
+export interface ChatModelOption {
+	id: string;
+	/** "Sonnet 5.5". */
+	label: string;
+	/** Uma linha em pt-BR para o dono escolher. */
+	description: string;
+	/** Pode ser o modelo principal / o modelo rápido. */
+	main: boolean;
+	fast: boolean;
+}
+
+/**
+ * Os modelos que o dono pode escolher no app. É A lista: para oferecer outro modelo, acrescente aqui e ponha o
+ * preço em `pricing.ts`. A API recusa (400) qualquer id fora dela.
+ */
+export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
+	{
+		id: "claude-sonnet-5-5",
+		label: "Sonnet 5.5",
+		description: "O padrão: equilibrado entre qualidade, velocidade e custo.",
+		main: true,
+		fast: false,
+	},
+	{
+		id: "claude-opus-5-5",
+		label: "Opus 5.5",
+		description: "Mais capaz, para perguntas difíceis; custa bem mais.",
+		main: true,
+		fast: false,
+	},
+	{
+		id: "claude-haiku-5-5",
+		label: "Haiku 5.5",
+		description: "O mais rápido e barato; ótimo para perguntas simples.",
+		main: true,
+		fast: true,
+	},
+	{
+		id: "claude-fable-5-1",
+		label: "Fable 5.1",
+		description: "O mais capaz da Anthropic, para raciocínio pesado; o mais caro.",
+		main: true,
+		fast: false,
+	},
+];
+
+export const isMainModel = (id: string): boolean => CHAT_MODEL_OPTIONS.some((o) => o.id === id && o.main);
+/** Vale "off" (desligado) ou um modelo rápido da lista. */
+export const isFastModelChoice = (id: string): boolean =>
+	id === FAST_MODEL_OFF || CHAT_MODEL_OPTIONS.some((o) => o.id === id && o.fast);
+
+/** O que o dono salvou no app; `null` = não escolheu (vale o padrão do servidor). */
+export interface SavedChatModels {
+	chatModel: string | null;
+	chatModelFast: string | null;
+}
+
+/**
+ * Precedência: o que o dono salvou no app vence; sem nada salvo, valem as variáveis de ambiente (`defaults`).
+ * Um valor salvo que saiu da lista é ignorado (volta ao padrão em vez de quebrar o chat).
+ */
+export function resolveChatModels(defaults: ChatModelConfig, saved: SavedChatModels): ChatModelConfig {
+	const main = saved.chatModel !== null && isMainModel(saved.chatModel) ? saved.chatModel : defaults.main;
+	let fast = defaults.fast;
+	if (saved.chatModelFast !== null && isFastModelChoice(saved.chatModelFast)) {
+		fast = saved.chatModelFast === FAST_MODEL_OFF ? null : saved.chatModelFast;
+	}
+	return { ...defaults, main, fast };
+}
+
 export interface ChatModelConfig {
 	/** Modelo das conversas em geral e de qualquer coisa que escreve. */
 	main: string;

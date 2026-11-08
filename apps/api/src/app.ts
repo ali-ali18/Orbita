@@ -101,7 +101,15 @@ export function createApp(deps: AppDeps) {
 				...(deps.chatRateLimit === undefined ? {} : { rateLimitPerWindow: deps.chatRateLimit }),
 			}),
 		)
-		.route("/", settings.routes({ ...finance, vault: deps.vault, version: deps.version }))
+		.route(
+			"/",
+			settings.routes({
+				...finance,
+				vault: deps.vault,
+				version: deps.version,
+				chatModels: deps.chatModels ?? DEFAULT_CHAT_MODEL_CONFIG,
+			}),
+		)
 		.route("/", updates.routes(deps))
 		.route(
 			"/",

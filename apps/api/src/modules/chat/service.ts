@@ -9,6 +9,7 @@ import {
 	type ModelMessage,
 	type ProposalDraft,
 	pickModel,
+	resolveChatModels,
 	runAgent,
 	ToolError,
 	undoProposal,
@@ -249,7 +250,9 @@ export interface ChatTurnInput {
 	conversationId?: string | undefined;
 	message: string;
 	ownerName: string | null;
-	emit: (event: AgentEvent | { type: "meta"; conversationId: string }) => void | Promise<void>;
+	emit: (
+		event: AgentEvent | { type: "meta"; conversationId: string; model?: string },
+	) => void | Promise<void>;
 	signal?: AbortSignal;
 }
 
@@ -284,7 +287,6 @@ export async function runChatTurn(
 			? await stores.chat.createConversation(input.message)
 			: await stores.chat.getConversation(pre.conversationId);
 	if (!conversation) throw new DataError("not_found", "Conversa não encontrada.");
-	await input.emit({ type: "meta", conversationId: conversation.id });
 
 	const before = await stores.chat.listMessages(conversation.id, { lastN: HISTORY_MESSAGES });
 	const history = toModelHistory(await hydrateMessages(deps, before));
@@ -294,10 +296,13 @@ export async function runChatTurn(
 	const month = monthOf(today);
 	const reader = createAgentReader(stores, deps.now);
 	let catalog: ReturnType<typeof reader.catalog> | undefined;
-	const { model, effort } = pickModel(deps.models, {
+	// O que o dono escolheu no app vence; sem escolha, valem as variáveis de ambiente (`deps.models`).
+	const models = resolveChatModels(deps.models, await stores.aiUsage.getModelChoice());
+	const { model, effort } = pickModel(models, {
 		text: input.message,
 		isFirstMessage: before.length === 0,
 	});
+	await input.emit({ type: "meta", conversationId: conversation.id, model });
 
 	const result = await runAgent(
 		{

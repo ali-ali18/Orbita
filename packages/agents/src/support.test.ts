@@ -5,8 +5,8 @@ import {
 	describeModelError,
 	type SdkLike,
 } from "./anthropic-client.ts";
-import { DEFAULT_CHAT_MODEL_CONFIG, pickModel } from "./models.ts";
-import { costMicroUsd, FALLBACK_PRICE, MODEL_PRICES, priceFor } from "./pricing.ts";
+import { CHAT_MODEL_OPTIONS, DEFAULT_CHAT_MODEL_CONFIG, pickModel, resolveChatModels } from "./models.ts";
+import { costMicroUsd, FALLBACK_PRICE, listPrice, MODEL_PRICES, priceFor } from "./pricing.ts";
 import { buildContextBlock, buildSystem, STABLE_PROMPT } from "./prompt.ts";
 import { applyProposal, undoProposal } from "./proposals.ts";
 import { fakeWriter } from "./test-support.ts";
@@ -263,5 +263,36 @@ describe("cliente da Anthropic", () => {
 			expect(info.code).toBe(code);
 			expect(info.message).not.toMatch(/sk-ant|boom|segredo/);
 		}
+	});
+});
+
+describe("modelos escolhíveis", () => {
+	it("todo modelo da lista tem preço conhecido (senão seria cobrado pelo maior)", () => {
+		for (const o of CHAT_MODEL_OPTIONS) expect(listPrice(o.id).known).toBe(true);
+		expect(listPrice("claude-opus-5-5")).toMatchObject({
+			inputMicroUsd: 4_000_000,
+			outputMicroUsd: 20_000_000,
+		});
+	});
+
+	it("o custo usa o preço do modelo escolhido", () => {
+		const usage = { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0 };
+		expect(costMicroUsd("claude-sonnet-5-5", usage)).toBe(4000);
+		expect(costMicroUsd("claude-opus-5-5", usage)).toBe(8000);
+		expect(costMicroUsd("claude-fable-5-1", usage)).toBe(20000);
+		expect(costMicroUsd("claude-haiku-5-5", usage)).toBe(200);
+	});
+
+	it("precedência: salvo vence o padrão; nulo ou fora da lista cai no padrão; off desliga o rápido", () => {
+		const env = { ...DEFAULT_CHAT_MODEL_CONFIG, main: "claude-opus-5-5" };
+		const none = { chatModel: null, chatModelFast: null };
+		expect(resolveChatModels(env, none)).toEqual(env);
+		expect(resolveChatModels(env, { ...none, chatModel: "claude-fable-5-1" }).main).toBe("claude-fable-5-1");
+		expect(resolveChatModels(env, { ...none, chatModel: "modelo-antigo" }).main).toBe("claude-opus-5-5");
+		expect(resolveChatModels(env, { ...none, chatModelFast: "off" }).fast).toBeNull();
+		// Opus não é opção de modelo rápido.
+		expect(resolveChatModels(env, { ...none, chatModelFast: "claude-opus-5-5" }).fast).toBe(
+			"claude-haiku-5-5",
+		);
 	});
 });

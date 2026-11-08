@@ -28,6 +28,8 @@ export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
 	// Até 100 mil tokens de prompt (acima disso a Anthropic cobra 0,50 / 2,50: o chat nunca chega lá).
 	"claude-haiku-5-5": { input: usd(0.1), output: usd(0.5), cacheRead: usd(0.01), cacheWrite: usd(0.125) },
 	"claude-opus-5-5": { input: usd(4), output: usd(20), cacheRead: usd(0.2), cacheWrite: usd(5) },
+	// Fable 5.1: US$ 10 / 50 por MTok, leitura de cache 0,25 (tabela da skill claude-api).
+	"claude-fable-5-1": { input: usd(10), output: usd(50), cacheRead: usd(0.25), cacheWrite: usd(12.5) },
 	"claude-opus-5": { input: usd(5), output: usd(25), cacheRead: usd(0.5), cacheWrite: usd(6.25) },
 };
 
@@ -38,6 +40,12 @@ export const FALLBACK_PRICE: ModelPrice = Object.values(MODEL_PRICES).reduce((wo
 	cacheRead: Math.max(worst.cacheRead, p.cacheRead),
 	cacheWrite: Math.max(worst.cacheWrite, p.cacheWrite),
 }));
+
+/** Preço por milhão de tokens (micro-dólares) para mostrar no app; `known: false` = cobrado pelo maior preço (conferir). */
+export function listPrice(model: string): { inputMicroUsd: number; outputMicroUsd: number; known: boolean } {
+	const { price, known } = priceFor(model);
+	return { inputMicroUsd: price.input, outputMicroUsd: price.output, known };
+}
 
 export function priceFor(model: string): { price: ModelPrice; known: boolean } {
 	const price = MODEL_PRICES[model];

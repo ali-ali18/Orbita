@@ -1,4 +1,4 @@
-import type { ModelBlock, ModelClient, ModelRequest, ModelUsage } from "@orbita/agents";
+import type { ChatModelConfig, ModelBlock, ModelClient, ModelRequest, ModelUsage } from "@orbita/agents";
 import { describe, expect, it } from "vitest";
 import { type Json, setupFinance } from "../../test-support.ts";
 
@@ -49,7 +49,7 @@ const say =
 	(t: string): Step =>
 	() => ({ content: [text(t)], stopReason: "end_turn", text: [t] });
 
-async function setup(steps: Step[], extra: { chatRateLimit?: number } = {}) {
+async function setup(steps: Step[], extra: { chatRateLimit?: number; chatModels?: ChatModelConfig } = {}) {
 	const model = scripted(steps);
 	const ctx = await setupFinance(undefined, undefined, { chatClient: model.factory, ...extra });
 	return { ...ctx, model };
@@ -518,5 +518,95 @@ describe("limite de pedidos", () => {
 		expect(third.res.status).toBe(429);
 		expect(Number(third.res.headers.get("retry-after"))).toBeGreaterThan(0);
 		expect(ctx.model.requests).toHaveLength(2);
+	});
+});
+
+describe("modelo do chat escolhido no app", () => {
+	it("sem escolha vale o padrão e a lista traz o preço por milhão de tokens", async () => {
+		const ctx = await setup([]);
+		const ai = (await ctx.api.get("/v1/settings/ai")).body;
+		expect(ai).toMatchObject({
+			chatModel: "claude-sonnet-5-5",
+			chatModelFast: "claude-haiku-5-5",
+			chatModelCustom: false,
+			chatModelFastCustom: false,
+		});
+		expect(ai.modelOptions.map((o: Json) => o.id)).toEqual([
+			"claude-sonnet-5-5",
+			"claude-opus-5-5",
+			"claude-haiku-5-5",
+			"claude-fable-5-1",
+		]);
+		expect(ai.modelOptions[1]).toMatchObject({
+			inputMicroUsdPerMTok: 4_000_000,
+			outputMicroUsdPerMTok: 20_000_000,
+			priceToConfirm: false,
+		});
+	});
+
+	it("o modelo salvo vence, responde no modelo escolhido e o custo usa o preço dele", async () => {
+		const ctx = await setup([say("a")]);
+		await ctx.vault.put("anthropic_api_key", KEY, "Teste");
+		const put = await ctx.api.put("/v1/settings/ai", { chatModel: "claude-opus-5-5" });
+		expect(put.body).toMatchObject({ chatModel: "claude-opus-5-5", chatModelCustom: true });
+		// Salvar o modelo não mexe no limite mensal.
+		expect(put.body.limitUsdCents).toBe(1000);
+		const { events } = await chat(
+			ctx,
+			"como está meu mês? 1 dúvida longa o bastante para ir no principal 123",
+		);
+		expect(events[0]).toMatchObject({ type: "meta", model: "claude-opus-5-5" });
+		expect(ctx.model.requests[0]?.model).toBe("claude-opus-5-5");
+		// 1000 tokens de entrada (US$ 4/MTok) + 200 de saída (US$ 20/MTok) = 8000 micro-dólares.
+		expect((await ctx.api.get("/v1/settings/ai")).body.costMicroUsd).toBe(8000);
+	});
+
+	it("precedência: o salvo vence a variável de ambiente; null volta para ela", async () => {
+		const env: ChatModelConfig = { main: "claude-opus-5-5", fast: null, effort: "low" };
+		const ctx = await setup([say("a"), say("b"), say("c")], { chatModels: env });
+		await ctx.vault.put("anthropic_api_key", KEY, "Teste");
+		expect((await ctx.api.get("/v1/settings/ai")).body).toMatchObject({
+			chatModel: "claude-opus-5-5",
+			chatModelFast: null,
+			chatModelCustom: false,
+		});
+		await chat(ctx, "oi");
+		await ctx.api.put("/v1/settings/ai", { chatModel: "claude-sonnet-5-5" });
+		await chat(ctx, "oi de novo");
+		await ctx.api.put("/v1/settings/ai", { chatModel: null });
+		await chat(ctx, "oi outra vez");
+		expect(ctx.model.requests.map((r) => r.model)).toEqual([
+			"claude-opus-5-5",
+			"claude-sonnet-5-5",
+			"claude-opus-5-5",
+		]);
+	});
+
+	it("modelo rápido: desligado manda tudo para o principal", async () => {
+		const ctx = await setup([say("a"), say("b")]);
+		await ctx.vault.put("anthropic_api_key", KEY, "Teste");
+		await chat(ctx, "Como está meu mês?");
+		await ctx.api.put("/v1/settings/ai", { chatModelFast: "off" });
+		await chat(ctx, "Como está meu mês?");
+		expect(ctx.model.requests.map((r) => r.model)).toEqual(["claude-haiku-5-5", "claude-sonnet-5-5"]);
+	});
+
+	it("modelo fora da lista é recusado com 400 e nada é gravado", async () => {
+		const ctx = await setup([]);
+		for (const body of [
+			{ chatModel: "gpt-9" },
+			{ chatModel: "claude-sonnet-4-6" },
+			{ chatModelFast: "claude-opus-5-5" },
+			{ chatModelFast: "qualquer" },
+			{ chatModel: "claude-opus-5-5", chatModelFast: "qualquer" },
+			{ chatModel: 7 },
+			{},
+		]) {
+			expect((await ctx.api.put("/v1/settings/ai", body)).status).toBe(400);
+		}
+		expect((await ctx.api.get("/v1/settings/ai")).body).toMatchObject({
+			chatModel: "claude-sonnet-5-5",
+			chatModelCustom: false,
+		});
 	});
 });

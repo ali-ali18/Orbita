@@ -86,7 +86,8 @@ export type ChatCard = z.infer<typeof chatCardSchema>;
 
 /** Eventos de `POST /v1/chat` (cada um é um `data:` JSON no fluxo SSE). */
 export const chatEventSchema = z.discriminatedUnion("type", [
-	z.object({ type: z.literal("meta"), conversationId: z.string() }),
+	/** `model`: o modelo que vai responder este turno (o app mostra no cabeçalho). */
+	z.object({ type: z.literal("meta"), conversationId: z.string(), model: z.string().optional() }),
 	z.object({ type: z.literal("text"), delta: z.string() }),
 	/** A IA começou a consultar algo (o app mostra "Consultando…"). */
 	z.object({ type: z.literal("tool"), name: z.string(), label: z.string() }),
@@ -119,7 +120,11 @@ export type ChatConversationDto = z.infer<typeof chatConversationDtoSchema>;
 /** Teto do limite que o dono pode digitar: US$ 10.000,00 (em centavos de dólar). */
 export const AI_LIMIT_MAX_USD_CENTS = 1_000_000;
 
-/** `PUT /v1/settings/ai`: `null` tira o limite. */
+/**
+ * `PUT /v1/settings/ai`: `monthlyLimitUsdCents` `null` tira o limite; `chatModel`/`chatModelFast` `null` voltam ao
+ * padrão do servidor (o id fora da lista permitida é recusado pela API). `chatModelFast` aceita "off" (desligado).
+ * Campo ausente fica como está; envie pelo menos um.
+ */
 export const aiSettingsPutBody = z
 	.object({
 		monthlyLimitUsdCents: z
@@ -127,9 +132,13 @@ export const aiSettingsPutBody = z
 			.int("O limite deve ser em centavos de dólar, inteiro.")
 			.min(0, "O limite não pode ser negativo.")
 			.max(AI_LIMIT_MAX_USD_CENTS, "O limite passa do máximo aceito (US$ 10.000).")
-			.nullable(),
+			.nullable()
+			.optional(),
+		chatModel: z.string({ error: "Modelo inválido." }).min(1).max(80).nullable().optional(),
+		chatModelFast: z.string({ error: "Modelo inválido." }).min(1).max(80).nullable().optional(),
 	})
-	.strict();
+	.strict()
+	.refine((v) => Object.values(v).some((x) => x !== undefined), "Envie o que mudar.");
 export type AiSettingsPutBody = z.infer<typeof aiSettingsPutBody>;
 
 /** `GET` e `PUT /v1/settings/ai`: o gasto do mês com a IA (em dólar, que é como a Anthropic cobra) e o limite. */
@@ -146,6 +155,26 @@ export const aiSettingsResponse = z.object({
 	blocked: z.boolean(),
 	/** A chave da Anthropic está cadastrada. */
 	keyConfigured: z.boolean(),
+	/** Modelos em uso agora (o salvo no app, ou o padrão do servidor). `chatModelFast` `null` = desligado. */
+	chatModel: z.string(),
+	chatModelFast: z.string().nullable(),
+	/** O dono escolheu no app (`true`) ou vale o padrão do servidor (`false`). */
+	chatModelCustom: z.boolean(),
+	chatModelFastCustom: z.boolean(),
+	/** Modelos que dá para escolher, com o preço por milhão de tokens (micro-dólares). */
+	modelOptions: z.array(
+		z.object({
+			id: z.string(),
+			label: z.string(),
+			description: z.string(),
+			main: z.boolean(),
+			fast: z.boolean(),
+			inputMicroUsdPerMTok: z.number().int(),
+			outputMicroUsdPerMTok: z.number().int(),
+			/** Preço ainda não conferido: o app cobra pelo maior valor conhecido. */
+			priceToConfirm: z.boolean(),
+		}),
+	),
 });
 export type AiSettingsResponse = z.infer<typeof aiSettingsResponse>;
 
