@@ -211,6 +211,11 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			return row !== null;
 		},
 
+		async findByExternal(source, externalId) {
+			const row = await db.transaction.findUnique({ where: { source_externalId: { source, externalId } } });
+			return row && row.deletedAt === null ? toRecord(row) : null;
+		},
+
 		async update(id, patch) {
 			return db.$transaction(async (tx) => {
 				// Trava a linha: duas edições ao mesmo tempo se enfileiram e a segunda lê o resultado da primeira.

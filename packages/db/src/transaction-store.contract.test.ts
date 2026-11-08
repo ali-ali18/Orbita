@@ -529,6 +529,15 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect(await tx.existsByExternal("pluggy", "e-1")).toBe(true);
 		});
 
+		it("findByExternal devolve só o vivo, por origem", async () => {
+			expect(await tx.findByExternal("pluggy", "f-1")).toBeNull();
+			const first = await tx.upsertByExternal("pluggy", "f-1", incoming());
+			expect((await tx.findByExternal("pluggy", "f-1"))?.id).toBe(first.transaction?.id);
+			expect(await tx.findByExternal("notification", "f-1")).toBeNull();
+			await tx.softDelete(first.transaction?.id ?? "");
+			expect(await tx.findByExternal("pluggy", "f-1")).toBeNull();
+		});
+
 		it("hardDeleteBySource apaga só a origem pedida, de verdade, com estornos e ligações", async () => {
 			const manual = await tx.create(expense({ description: "Manual" }));
 			const bought = await tx.upsertByExternal(
