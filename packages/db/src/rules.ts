@@ -147,6 +147,7 @@ export function normalizeRecurrence(data: RecurrenceData): RecurrenceData {
 		categoryId: data.categoryId ?? null,
 		accountId: data.accountId ?? null,
 		cardId: data.cardId ?? null,
+		remindDayBefore: data.remindDayBefore === true,
 	};
 }
 

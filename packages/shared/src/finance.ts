@@ -237,6 +237,7 @@ const recurrenceFields = {
 	categoryId: idSchema.nullish(),
 	accountId: idSchema.nullish(),
 	cardId: idSchema.nullish(),
+	remindDayBefore: z.boolean("O lembrete deve ser verdadeiro ou falso.").optional(),
 };
 
 export const recurrenceCreateBody = z
@@ -274,6 +275,7 @@ export const recurrenceDto = z.object({
 	categoryId: z.string().nullable(),
 	accountId: z.string().nullable(),
 	cardId: z.string().nullable(),
+	remindDayBefore: z.boolean(),
 	archivedAt: timestampSchema.nullable(),
 	createdAt: timestampSchema,
 	updatedAt: timestampSchema,

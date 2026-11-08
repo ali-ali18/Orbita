@@ -13,6 +13,7 @@ export function toRecurrenceDto(r: RecurrenceRecord): RecurrenceDto {
 		categoryId: r.categoryId,
 		accountId: r.accountId,
 		cardId: r.cardId,
+		remindDayBefore: r.remindDayBefore,
 		archivedAt: r.archivedAt?.toISOString() ?? null,
 		createdAt: r.createdAt.toISOString(),
 		updatedAt: r.updatedAt.toISOString(),

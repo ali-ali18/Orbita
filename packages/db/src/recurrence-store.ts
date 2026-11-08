@@ -13,6 +13,8 @@ export interface RecurrenceData {
 	categoryId: string | null;
 	accountId: string | null;
 	cardId: string | null;
+	/** "Lembrar 1 dia antes": só guarda a escolha; o aviso começa a valer quando existirem notificações. */
+	remindDayBefore: boolean;
 }
 
 export interface RecurrenceRecord extends RecurrenceData {
@@ -32,6 +34,7 @@ export interface RecurrenceInput {
 	categoryId?: string | null;
 	accountId?: string | null;
 	cardId?: string | null;
+	remindDayBefore?: boolean;
 }
 
 export type RecurrencePatch = Partial<RecurrenceData>;
