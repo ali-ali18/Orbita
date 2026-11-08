@@ -10,6 +10,7 @@ import {
 } from "@orbita/shared";
 import { Hono } from "hono";
 import { orNotFound } from "../../http/errors.ts";
+import { idempotent } from "../../http/idempotency.ts";
 import type { ModuleDeps } from "../../http/module-deps.ts";
 import type { AppEnv } from "../../http/require-device.ts";
 import { validate } from "../../http/validate.ts";
@@ -24,8 +25,9 @@ import {
 } from "./service.ts";
 
 // As rotas fixas (`month`, `pending`, `installments`) vêm antes de `/:id`.
-export function routes({ stores, requireDevice }: ModuleDeps) {
+export function routes({ stores, now, requireDevice }: ModuleDeps) {
 	const { transactions } = stores;
+	const idempotency = { store: stores.idempotency, now };
 	return new Hono<AppEnv>()
 		.use("/v1/transactions", requireDevice)
 		.use("/v1/transactions/*", requireDevice)
@@ -48,15 +50,22 @@ export function routes({ stores, requireDevice }: ModuleDeps) {
 			return c.json({ month, transactions: rows.map(toTransactionDto) });
 		})
 		.post("/v1/transactions", validate("json", transactionApiCreateBody), async (c) => {
-			const created = await createTransaction(stores, c.req.valid("json"));
-			return c.json({ transaction: toTransactionDto(created) }, 201);
+			const body = c.req.valid("json");
+			const result = await idempotent(c, idempotency, body, 201, async () => ({
+				transaction: toTransactionDto(await createTransaction(stores, body)),
+			}));
+			return c.json(result, 201);
 		})
 		.post("/v1/transactions/installments", validate("json", installmentCreateBody), async (c) => {
-			const created = await createInstallments(stores, c.req.valid("json"));
-			return c.json(
-				{ groupId: created[0]?.installmentGroupId ?? null, transactions: created.map(toTransactionDto) },
-				201,
-			);
+			const body = c.req.valid("json");
+			const result = await idempotent(c, idempotency, body, 201, async () => {
+				const created = await createInstallments(stores, body);
+				return {
+					groupId: created[0]?.installmentGroupId ?? null,
+					transactions: created.map(toTransactionDto),
+				};
+			});
+			return c.json(result, 201);
 		})
 		.get("/v1/transactions/:id", validate("param", idParam), async (c) => {
 			const found = orNotFound(await transactions.get(c.req.valid("param").id), "Lançamento", "o");

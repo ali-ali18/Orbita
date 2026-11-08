@@ -1,6 +1,6 @@
 import { createDb, createPrismaStores, type Db } from "@orbita/db";
 import { afterAll, describe, expect, it } from "vitest";
-import { setupFinance } from "./test-support.ts";
+import { type Json, setupFinance } from "./test-support.ts";
 
 // O mesmo app, agora sobre o Postgres de verdade (o CI sempre define DATABASE_URL_TEST).
 const url = process.env.DATABASE_URL_TEST;
@@ -198,5 +198,38 @@ describe.skipIf(!url)("API sobre Postgres", () => {
 			accountId: account.id,
 		});
 		expect(res.status).toBe(422);
+	});
+
+	it("Idempotency-Key: pedidos simultâneos criam um lançamento só e repetir devolve o original", async () => {
+		const { app, token, api, basics } = await setup();
+		const { account } = await basics();
+		const key = "7b0e6b1c-2f4a-4c1e-9d3a-5a8f1c2b3d4e";
+		const body = {
+			kind: "expense",
+			amountCents: 4590,
+			date: "2026-11-14",
+			description: "Mercado",
+			accountId: account.id,
+		};
+		const post = (payload: unknown) =>
+			app.request("/v1/transactions", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${token}`,
+					"content-type": "application/json",
+					"idempotency-key": key,
+				},
+				body: JSON.stringify(payload),
+			});
+		const results = await Promise.all(Array.from({ length: 8 }, () => post(body)));
+		expect(results.every((r) => r.status === 201 || r.status === 409)).toBe(true);
+		expect(results.some((r) => r.status === 201)).toBe(true);
+		const first = (await results.find((r) => r.status === 201)?.json()) as Json;
+		const again = await post(body);
+		expect(again.status).toBe(201);
+		expect(await again.json()).toEqual(first);
+		expect((await post({ ...body, amountCents: 1 })).status).toBe(422);
+		expect((await api.get("/v1/transactions?limit=100")).body.transactions).toHaveLength(1);
+		expect(await (db as Db).idempotencyKey.count()).toBe(1);
 	});
 });
