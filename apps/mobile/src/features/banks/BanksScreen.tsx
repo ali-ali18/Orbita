@@ -14,6 +14,8 @@ import {
 	Text,
 	TOP_FADE,
 } from "../../ui/index.ts";
+import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
+import { isUnreachableQuery } from "../server/server-model.ts";
 import { SettingsRow, SettingsSection } from "../settings/SettingsRows.tsx";
 import { bankBadge } from "../summary/summary-model.ts";
 import {
@@ -169,6 +171,8 @@ export function BanksScreen() {
 			syncLocked.current = false;
 		}
 	};
+
+	if (isUnreachableQuery(statusQ)) return <ServerDownScreen onRetry={() => statusQ.refetch()} />;
 
 	return (
 		<Screen fadeTop>

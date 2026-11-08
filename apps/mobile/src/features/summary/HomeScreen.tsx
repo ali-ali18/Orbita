@@ -11,6 +11,8 @@ import { BottomBar, Screen, Text, TOP_FADE, useBottomBarHeight } from "../../ui/
 import { usePluggyHomeWatch } from "../banks/queries.ts";
 import { usePendingTransactions } from "../review/queries.ts";
 import { ReviewBanner } from "../review/ReviewScreen.tsx";
+import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
+import { isUnreachableQuery } from "../server/server-model.ts";
 import { CategoriesCard } from "./CategoriesCard.tsx";
 import { HeroCard } from "./HeroCard.tsx";
 import { HomeHeader } from "./HomeHeader.tsx";
@@ -65,6 +67,11 @@ export function HomeScreen() {
 			setRefreshing(false);
 		}
 	};
+
+	// Sem dado nenhum e sem conseguir falar com o servidor: o estado "fora do ar" no lugar do erro genérico.
+	if (isUnreachableQuery(summaryQ)) {
+		return <ServerDownScreen onRetry={() => queryClient.refetchQueries({ type: "active" })} />;
+	}
 
 	return (
 		<Screen

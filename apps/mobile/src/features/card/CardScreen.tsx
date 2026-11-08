@@ -16,6 +16,8 @@ import {
 	Text,
 	TOP_FADE,
 } from "../../ui/index.ts";
+import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
+import { isUnreachableQuery } from "../server/server-model.ts";
 import { useCards } from "../summary/queries.ts";
 import { activeCards, CARD_TABS, type CardTab } from "./card-model.ts";
 import { InstallmentsTab } from "./InstallmentsTab.tsx";
@@ -30,7 +32,8 @@ export function CardScreen({ initialTab, initialCardId }: { initialTab: CardTab;
 	const { today } = useClock();
 	const [tab, setTab] = useState<CardTab>(initialTab);
 	const [refreshing, setRefreshing] = useState(false);
-	const cardsQ = toLoadable(useCards());
+	const cardsQuery = useCards();
+	const cardsQ = toLoadable(cardsQuery);
 
 	const onRefresh = async () => {
 		setRefreshing(true);
@@ -42,6 +45,10 @@ export function CardScreen({ initialTab, initialCardId }: { initialTab: CardTab;
 	};
 
 	const cards = cardsQ.phase === "ready" ? activeCards(cardsQ.data.cards) : [];
+
+	if (isUnreachableQuery(cardsQuery)) {
+		return <ServerDownScreen onRetry={() => cardsQuery.refetch()} />;
+	}
 
 	return (
 		<Screen fadeTop>
