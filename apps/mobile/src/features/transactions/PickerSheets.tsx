@@ -1,8 +1,8 @@
 import type { Cents, LocalDate } from "@orbita/core";
-import { colors, radius, spacing, text as typography } from "@orbita/tokens";
-import { type ReactNode, useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
-import { BankLogo, Button, familyByWeight, Icon, Sheet, Text } from "../../ui/index.ts";
+import { spacing } from "@orbita/tokens";
+import { useState } from "react";
+import { View } from "react-native";
+import { BankLogo, Button, Sheet, SheetGroup, SheetRow, Text, TextField } from "../../ui/index.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import {
 	formatEntryDate,
@@ -13,48 +13,6 @@ import {
 	quickDates,
 	type SourceOption,
 } from "./new-transaction-model.ts";
-
-/** Linha de escolha de uma gaveta: 56 de altura, marca de "escolhido" à direita. */
-function OptionRow({
-	selected,
-	label,
-	caption,
-	leading,
-	onPress,
-}: {
-	selected: boolean;
-	label: string;
-	caption?: string | null | undefined;
-	leading?: ReactNode;
-	onPress: () => void;
-}) {
-	return (
-		<Pressable
-			accessibilityRole="radio"
-			accessibilityLabel={caption ? `${label}, ${caption}` : label}
-			accessibilityState={{ checked: selected }}
-			onPress={onPress}
-			style={({ pressed }) => ({
-				minHeight: 56,
-				flexDirection: "row",
-				alignItems: "center",
-				gap: spacing.md,
-				opacity: pressed ? 0.8 : 1,
-			})}
-		>
-			{leading}
-			<View style={{ flex: 1 }}>
-				<Text variant="body">{label}</Text>
-				{caption ? (
-					<Text variant="caption" tone="secondary">
-						{caption}
-					</Text>
-				) : null}
-			</View>
-			{selected ? <Icon name="check" size={20} /> : null}
-		</Pressable>
-	);
-}
 
 export function SourceSheet({
 	visible,
@@ -71,16 +29,18 @@ export function SourceSheet({
 }) {
 	return (
 		<Sheet visible={visible} title="Conta ou cartão" onClose={onClose}>
-			{options.map((o) => (
-				<OptionRow
-					key={o.key}
-					selected={o.key === selectedKey}
-					label={o.label}
-					caption={o.detail}
-					leading={<BankLogo {...bankBadge(o)} size={32} />}
-					onPress={() => onSelect(o.key)}
-				/>
-			))}
+			<SheetGroup gap={false}>
+				{options.map((o) => (
+					<SheetRow
+						key={o.key}
+						selected={o.key === selectedKey}
+						label={o.label}
+						caption={o.detail}
+						leading={<BankLogo {...bankBadge(o)} size={32} />}
+						onPress={() => onSelect(o.key)}
+					/>
+				))}
+			</SheetGroup>
 		</Sheet>
 	);
 }
@@ -100,14 +60,16 @@ export function InstallmentsSheet({
 }) {
 	return (
 		<Sheet visible={visible} title="Parcelas" onClose={onClose}>
-			{INSTALLMENT_COUNTS.map((n) => (
-				<OptionRow
-					key={n}
-					selected={n === selected}
-					label={installmentLabel(n, totalCents)}
-					onPress={() => onSelect(n)}
-				/>
-			))}
+			<SheetGroup gap={false}>
+				{INSTALLMENT_COUNTS.map((n) => (
+					<SheetRow
+						key={n}
+						selected={n === selected}
+						label={installmentLabel(n, totalCents)}
+						onPress={() => onSelect(n)}
+					/>
+				))}
+			</SheetGroup>
 		</Sheet>
 	);
 }
@@ -130,37 +92,28 @@ export function DateSheet({
 	const showError = typed.replace(/\D/g, "").length === 8 && parsed === null;
 	return (
 		<Sheet visible={visible} title="Data" onClose={onClose}>
-			{quickDates(today).map((d) => (
-				<OptionRow
-					key={d}
-					selected={d === selected}
-					label={formatEntryDate(d, today)}
-					onPress={() => onSelect(d)}
-				/>
-			))}
+			<SheetGroup>
+				{quickDates(today).map((d) => (
+					<SheetRow
+						key={d}
+						selected={d === selected}
+						label={formatEntryDate(d, today)}
+						onPress={() => onSelect(d)}
+					/>
+				))}
+			</SheetGroup>
 			<View style={{ gap: spacing.sm, paddingVertical: spacing.md }}>
 				<Text variant="caption" tone="secondary">
 					Outra data
 				</Text>
-				<TextInput
+				<TextField
 					value={typed}
 					onChangeText={(t) => setTyped(maskBrDate(t))}
 					placeholder="DD/MM/AAAA"
-					placeholderTextColor={colors.textTertiary}
 					keyboardType="number-pad"
 					inputMode="numeric"
 					maxLength={10}
 					accessibilityLabel="Outra data, dia, mês e ano"
-					style={{
-						height: 52,
-						borderRadius: radius.inner,
-						backgroundColor: colors.surface2,
-						paddingHorizontal: spacing.lg,
-						color: colors.text,
-						fontFamily: familyByWeight[400],
-						fontSize: typography.body.fontSize,
-						lineHeight: typography.body.lineHeight,
-					}}
 				/>
 				{showError ? (
 					<Text variant="caption" tone="secondary" accessibilityRole="alert" accessibilityLiveRegion="polite">

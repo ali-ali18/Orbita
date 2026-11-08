@@ -1,10 +1,9 @@
 import { formatBRL } from "@orbita/core";
-import { chart, colors, layout, radius, spacing } from "@orbita/tokens";
-import { type ComponentRef, useCallback, useEffect, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { chart, colors, radius, spacing } from "@orbita/tokens";
+import { useState } from "react";
+import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { percentOf } from "../../lib/format.ts";
-import { Icon, IconButton, type IconName, OrbitaAvatar, Screen, Text } from "../../ui/index.ts";
+import { Icon, IconButton, OrbitaAvatar, Screen, Sheet, SheetGroup, SheetRow, Text } from "../../ui/index.ts";
 import type { MonthRow } from "./reply.ts";
 
 const SUGGESTIONS = [
@@ -281,37 +280,7 @@ export function ChatView({
 	);
 }
 
-function AttachChoice({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
-	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel={label}
-			onPress={onPress}
-			style={{
-				flex: 1,
-				height: 88,
-				borderRadius: radius.group,
-				backgroundColor: colors.surface2,
-				alignItems: "center",
-				justifyContent: "center",
-				gap: 6,
-			}}
-		>
-			<Icon name={icon} size={24} />
-			<Text variant="caption">{label}</Text>
-		</Pressable>
-	);
-}
-
-const SHEET_LIFT = 180;
-const SHEET_DISMISS = 72;
-
-function pageYOf(event: Event): number | null {
-	if ("pageY" in event && typeof event.pageY === "number") return event.pageY;
-	return null;
-}
-
-/** Folha de baixo, sem o X: a barrinha sobe ou desce o painel e, puxada para baixo, fecha. */
+/** Menu do "+": Comprovante ou Foto, na gaveta única do app (sobre o campo de mensagem e as sugestões). */
 function AttachSheet({
 	visible,
 	onClose,
@@ -321,132 +290,13 @@ function AttachSheet({
 	onClose: () => void;
 	onChoose: (kind: "receipt" | "photo") => void;
 }) {
-	const insets = useSafeAreaInsets();
-	const rest = useRef(0);
-	const [offset, setOffset] = useState(0);
-	const onCloseRef = useRef(onClose);
-	onCloseRef.current = onClose;
-	useEffect(() => {
-		if (visible) return;
-		rest.current = 0;
-		setOffset(0);
-	}, [visible]);
-	const drag = useRef({ y: 0, last: 0, time: 0, velocity: 0, active: false });
-	const begin = (pageY: number) => {
-		drag.current = { y: pageY, last: pageY, time: Date.now(), velocity: 0, active: true };
-	};
-	const slide = (pageY: number) => {
-		if (!drag.current.active) return;
-		const now = Date.now();
-		drag.current.velocity = (pageY - drag.current.last) / Math.max(1, now - drag.current.time);
-		drag.current.last = pageY;
-		drag.current.time = now;
-		setOffset(Math.min(SHEET_LIFT, rest.current - (pageY - drag.current.y)));
-	};
-	const end = () => {
-		if (!drag.current.active) return;
-		drag.current.active = false;
-		const next = rest.current - (drag.current.last - drag.current.y);
-		if (next < -SHEET_DISMISS || drag.current.velocity > 0.8) {
-			rest.current = 0;
-			setOffset(0);
-			onCloseRef.current();
-			return;
-		}
-		const settled = next > SHEET_LIFT / 2 ? SHEET_LIFT : 0;
-		rest.current = settled;
-		setOffset(settled);
-	};
-	const handlers = useRef({ begin, slide, end });
-	handlers.current = { begin, slide, end };
-	const detachDrag = useRef<(() => void) | null>(null);
-	const bindHandle = useCallback((node: ComponentRef<typeof View> | null) => {
-		detachDrag.current?.();
-		detachDrag.current = null;
-		const element = node as unknown as {
-			addEventListener?: (type: string, listener: (event: Event) => void) => void;
-			removeEventListener?: (type: string, listener: (event: Event) => void) => void;
-			ownerDocument?: {
-				addEventListener: (type: string, listener: (event: Event) => void) => void;
-				removeEventListener: (type: string, listener: (event: Event) => void) => void;
-			};
-		} | null;
-		if (!element?.addEventListener || !element.ownerDocument) return;
-		const documentNode = element.ownerDocument;
-		const down = (event: Event) => {
-			const pageY = pageYOf(event);
-			if (pageY === null) return;
-			handlers.current.begin(pageY);
-			const move = (pointer: Event) => {
-				const y = pageYOf(pointer);
-				if (y !== null) handlers.current.slide(y);
-			};
-			const up = () => {
-				documentNode.removeEventListener("pointermove", move);
-				documentNode.removeEventListener("pointerup", up);
-				handlers.current.end();
-			};
-			documentNode.addEventListener("pointermove", move);
-			documentNode.addEventListener("pointerup", up);
-		};
-		element.addEventListener("pointerdown", down);
-		detachDrag.current = () => element.removeEventListener?.("pointerdown", down);
-	}, []);
-	const lifted = Math.max(0, offset);
-	const pulled = Math.max(0, -offset);
 	return (
-		<Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-			<View style={{ flex: 1, justifyContent: "flex-end" }}>
-				<Pressable
-					accessibilityLabel="Fechar"
-					onPress={onClose}
-					style={{
-						position: "absolute",
-						top: 0,
-						left: 0,
-						right: 0,
-						bottom: 0,
-						backgroundColor: colors.background,
-						opacity: 0.7,
-					}}
-				/>
-				<View
-					accessibilityViewIsModal
-					style={{
-						backgroundColor: colors.surface,
-						borderTopLeftRadius: radius.card,
-						borderTopRightRadius: radius.card,
-						paddingHorizontal: spacing.xl,
-						paddingBottom: Math.max(insets.bottom, layout.homeIndicator),
-						transform: [{ translateY: pulled - lifted }],
-					}}
-				>
-					<View
-						ref={bindHandle}
-						accessibilityRole="adjustable"
-						accessibilityLabel="Mover a folha"
-						onTouchStart={(event) => begin(event.nativeEvent.pageY)}
-						onTouchMove={(event) => slide(event.nativeEvent.pageY)}
-						onTouchEnd={end}
-						onTouchCancel={end}
-						style={{ alignItems: "center", paddingTop: 10, paddingBottom: spacing.lg }}
-					>
-						<View
-							style={{
-								width: 36,
-								height: 4,
-								borderRadius: radius.pill,
-								backgroundColor: colors.textSecondary,
-							}}
-						/>
-					</View>
-					<View style={{ flexDirection: "row", gap: spacing.md, paddingBottom: spacing.sm }}>
-						<AttachChoice icon="escanear" label="Comprovante" onPress={() => onChoose("receipt")} />
-						<AttachChoice icon="foto" label="Foto" onPress={() => onChoose("photo")} />
-					</View>
-				</View>
-			</View>
-		</Modal>
+		<Sheet visible={visible} onClose={onClose}>
+			<SheetGroup gap={false}>
+				<SheetRow icon="escanear" label="Comprovante" onPress={() => onChoose("receipt")} />
+				<SheetRow icon="foto" label="Foto" onPress={() => onChoose("photo")} />
+			</SheetGroup>
+		</Sheet>
 	);
 }
 

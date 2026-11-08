@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSession } from "../../lib/session.tsx";
-import { Icon, IconButton, LetterAvatar, OrbitaAvatar, Screen, Text } from "../../ui/index.ts";
+import { Icon, IconButton, LetterAvatar, OrbitaAvatar, Screen, Text, TOP_FADE } from "../../ui/index.ts";
 import { useOnboardingPhase } from "../onboarding/flag.ts";
 import { showsSetupInSettings } from "../onboarding/model.ts";
 import { SettingsRow, SettingsSection, StaticSwitch } from "./SettingsRows.tsx";
@@ -18,7 +18,7 @@ function hostOf(baseUrl: string | null): string | undefined {
 
 /**
  * Tela "Configurações" (Figma 41:605). "Bancos e cartões" e "Servidor e chaves" têm tela; os outros itens aparecem como no
- * Figma, esmaecidos e sem toque, até existirem. Quem já usava o app e não fez a configuração inicial vê essa entrada;
+ * Figma, esmaecidos, com "Em breve" e sem toque, até existirem. Quem já usava o app e não fez a configuração inicial vê essa entrada;
  * depois de feita, ela some. O que o Figma mostra com número de exemplo (4 bancos, 3 apps…) não aparece.
  */
 export function SettingsScreen() {
@@ -33,6 +33,7 @@ export function SettingsScreen() {
 		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
+					paddingTop: TOP_FADE,
 					paddingHorizontal: spacing.lg,
 					paddingBottom: spacing.xxxl,
 					gap: spacing.md,
@@ -71,24 +72,29 @@ export function SettingsScreen() {
 						title="Bancos e cartões"
 						onPress={() => router.push("/configuracoes/bancos")}
 					/>
-					<SettingsRow icon="notificacao" title="Notificações do celular" />
-					<SettingsRow icon="escanear" title="Comprovantes e arquivos" last />
+					<SettingsRow icon="notificacao" title="Notificações do celular" soon />
+					<SettingsRow icon="escanear" title="Comprovantes e arquivos" soon last />
 				</SettingsSection>
 
 				<SettingsSection title="Organização">
-					<SettingsRow leading={<OrbitaAvatar size={20} />} title="Agentes" />
+					<SettingsRow leading={<OrbitaAvatar size={20} />} title="Agentes" soon />
 					<SettingsRow icon="assinatura" title="Assinaturas" onPress={() => router.push("/assinaturas")} />
 					<SettingsRow
 						icon="alvo"
 						title="Orçamento do mês"
 						onPress={() => router.push("/configuracoes/orcamento")}
 					/>
-					<SettingsRow icon="etiqueta" title="Categorias e regras" last />
+					<SettingsRow
+						icon="etiqueta"
+						title="Categorias e regras"
+						onPress={() => router.push("/configuracoes/categorias")}
+						last
+					/>
 				</SettingsSection>
 
 				<SettingsSection title="Conta">
-					<SettingsRow icon="usuario" title="Perfil" />
-					<SettingsRow icon="ajustes" title="Preferências" last />
+					<SettingsRow icon="usuario" title="Perfil" soon />
+					<SettingsRow icon="ajustes" title="Preferências" soon last />
 				</SettingsSection>
 
 				<SettingsSection title="Segurança">
@@ -115,13 +121,13 @@ export function SettingsScreen() {
 				</SettingsSection>
 
 				<SettingsSection title="Seus dados">
-					<SettingsRow icon="baixar" title="Exportar tudo" />
-					<SettingsRow icon="banco-de-dados" title="Backup" last />
+					<SettingsRow icon="baixar" title="Exportar tudo" soon />
+					<SettingsRow icon="banco-de-dados" title="Backup" soon last />
 				</SettingsSection>
 
 				<SettingsSection title="Sobre">
-					<SettingsRow icon="codigo" title="Código no GitHub" />
-					<SettingsRow icon="alerta" title="Reportar um problema" last />
+					<SettingsRow icon="codigo" title="Código no GitHub" soon />
+					<SettingsRow icon="alerta" title="Reportar um problema" soon last />
 				</SettingsSection>
 
 				<Pressable

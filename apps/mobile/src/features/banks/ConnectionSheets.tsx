@@ -1,8 +1,8 @@
 import type { PluggyConnectionDto } from "@orbita/shared";
-import { colors, layout, radius, spacing, text as typography } from "@orbita/tokens";
+import { layout, spacing } from "@orbita/tokens";
 import { type ComponentRef, type ReactNode, type Ref, useReducer, useRef, useState } from "react";
-import { Linking, Pressable, TextInput, View } from "react-native";
-import { Button, familyByWeight, Sheet, Text } from "../../ui/index.ts";
+import { Linking, Pressable, type TextInput, View } from "react-native";
+import { Button, Sheet, Text, TextField } from "../../ui/index.ts";
 import {
 	ADD_HINT,
 	connectionName,
@@ -55,35 +55,24 @@ function Field({
 	placeholder: string;
 	onSubmit?: () => void;
 	maxLength?: number;
-	inputRef?: Ref<ComponentRef<typeof TextInput>>;
+	inputRef?: Ref<ComponentRef<typeof TextInput>> | undefined;
 	returnKeyType?: "done" | "next";
 }) {
 	// Sem `contextMenuHidden` e sem `secureTextEntry`: o ID não é segredo e precisa aceitar "colar".
 	return (
-		<TextInput
-			ref={inputRef}
+		<TextField
+			inputRef={inputRef}
 			value={value}
 			onChangeText={onChangeText}
 			autoCorrect={false}
 			autoCapitalize="none"
 			spellCheck={false}
 			placeholder={placeholder}
-			placeholderTextColor={colors.textTertiary}
 			accessibilityLabel={label}
 			onSubmitEditing={onSubmit}
 			returnKeyType={returnKeyType}
 			submitBehavior={returnKeyType === "next" ? "submit" : "blurAndSubmit"}
 			{...(maxLength ? { maxLength } : {})}
-			style={{
-				height: 52,
-				borderRadius: radius.inner,
-				backgroundColor: colors.surface2,
-				paddingHorizontal: spacing.lg,
-				color: colors.text,
-				fontFamily: familyByWeight[400],
-				fontSize: typography.body.fontSize,
-				lineHeight: typography.body.lineHeight,
-			}}
 		/>
 	);
 }

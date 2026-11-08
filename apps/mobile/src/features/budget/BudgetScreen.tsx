@@ -7,7 +7,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { money } from "../../lib/format.ts";
 import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import { ErrorState, IconButton, Screen, Skeleton, Text } from "../../ui/index.ts";
+import { ErrorState, IconButton, Screen, Skeleton, Text, TOP_FADE } from "../../ui/index.ts";
 import { useCategories, useSummary } from "../summary/queries.ts";
 import { categoryDot } from "../transactions/new-transaction-model.ts";
 import { BudgetSheet } from "./BudgetSheet.tsx";
@@ -241,6 +241,7 @@ export function BudgetScreen() {
 		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
+					paddingTop: TOP_FADE,
 					paddingHorizontal: spacing.lg,
 					paddingBottom: spacing.xxxl,
 					gap: spacing.md,

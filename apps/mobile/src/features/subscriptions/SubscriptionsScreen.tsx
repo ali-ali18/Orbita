@@ -2,22 +2,29 @@ import { colors, spacing } from "@orbita/tokens";
 import { useRouter } from "expo-router";
 import { useMemo, useRef, useState } from "react";
 import { RefreshControl, ScrollView, View } from "react-native";
-import { ApiError } from "../../lib/api.ts";
 import { useClock } from "../../lib/clock.tsx";
 import { money } from "../../lib/format.ts";
 import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import { Button, ErrorState, IconButton, Screen, Skeleton, Text } from "../../ui/index.ts";
+import { Button, Card, ErrorState, IconButton, Screen, Skeleton, Text, TOP_FADE } from "../../ui/index.ts";
 import { useAccounts, useCards } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
-import { useMonthTransactions, usePostSubscription, useRecurrences } from "./queries.ts";
+import {
+	useMonthTransactions,
+	usePostAllSubscriptions,
+	useRecurrences,
+	useUndoPostedSubscriptions,
+} from "./queries.ts";
 import { SubscriptionRow } from "./SubscriptionRow.tsx";
 import {
+	batchMessage,
 	chargeCaption,
 	countLabel,
 	monthlyTotalCents,
 	monthStatus,
 	nextSummary,
+	pendingLabel,
+	pendingSummary,
 	sortSubscriptions,
 } from "./subscriptions-model.ts";
 
@@ -34,10 +41,12 @@ export function SubscriptionsScreen() {
 	const monthTxQ = useMonthTransactions(month);
 	const accountsQ = useAccounts();
 	const cardsQ = useCards();
-	const post = usePostSubscription();
-	const posting = useRef(false);
-	const [postingId, setPostingId] = useState<string | null>(null);
+	const postAll = usePostAllSubscriptions();
+	const undo = useUndoPostedSubscriptions();
+	// `isPending` só muda no próximo render; a trava em ref barra o segundo toque no mesmo instante.
+	const busy = useRef(false);
 	const [message, setMessage] = useState<string | null>(null);
+	const [undoIds, setUndoIds] = useState<string[]>([]);
 	const [refreshing, setRefreshing] = useState(false);
 
 	const state = combineLoadables(toLoadable(recurrencesQ), toLoadable(monthTxQ));
@@ -50,27 +59,40 @@ export function SubscriptionsScreen() {
 
 	const close = () => (router.canGoBack() ? router.back() : router.replace("/"));
 
-	const postNow = (id: string) => {
-		if (posting.current) return;
-		posting.current = true;
-		setPostingId(id);
+	const postPending = (ids: readonly string[]) => {
+		if (busy.current || ids.length === 0) return;
+		busy.current = true;
 		setMessage(null);
-		post.mutate(
-			{ id, month },
+		setUndoIds([]);
+		postAll.mutate(
+			{ ids, month },
 			{
-				// 409 = já estava lançada (por fora do app): a lista recarrega e a linha passa a "lançada".
-				onError: (error) =>
-					setMessage(
-						error instanceof ApiError && error.status === 409
-							? "Essa assinatura já estava lançada neste mês."
-							: errorMessage(error),
-					),
+				onSuccess: (result) => {
+					setMessage(batchMessage(result));
+					setUndoIds(result.transactionIds);
+				},
+				onError: (error) => setMessage(errorMessage(error)),
 				onSettled: () => {
-					posting.current = false;
-					setPostingId(null);
+					busy.current = false;
 				},
 			},
 		);
+	};
+
+	const undoPosted = () => {
+		if (busy.current || undoIds.length === 0) return;
+		busy.current = true;
+		const ids = undoIds;
+		undo.mutate(ids, {
+			onSuccess: () => {
+				setUndoIds([]);
+				setMessage("Lançamentos desfeitos.");
+			},
+			onError: (error) => setMessage(errorMessage(error)),
+			onSettled: () => {
+				busy.current = false;
+			},
+		});
 	};
 
 	const onRefresh = async () => {
@@ -98,6 +120,7 @@ export function SubscriptionsScreen() {
 		const list = sortSubscriptions(recurrences, today);
 		const total = monthlyTotalCents(recurrences, month);
 		const next = nextSummary(recurrences, today);
+		const pending = pendingSummary(recurrences, month, transactions);
 		return (
 			<>
 				<View style={{ paddingTop: spacing.sm, gap: spacing.xs }}>
@@ -112,11 +135,43 @@ export function SubscriptionsScreen() {
 					) : null}
 				</View>
 
+				{pending.count > 0 ? (
+					<Card style={{ gap: spacing.md, padding: spacing.lg }}>
+						<View style={{ gap: 2 }}>
+							<Text variant="bodyStrong" accessibilityRole="header">
+								{pendingLabel(pending.count)}
+							</Text>
+							<Text variant="caption" tone="secondary">
+								{money(pending.totalCents, hidden, { sign: "never" })}
+							</Text>
+						</View>
+						<Button
+							label="Lançar todas"
+							compact
+							loading={postAll.isPending}
+							onPress={() => postPending(pending.ids)}
+						/>
+					</Card>
+				) : null}
+
 				{message ? (
-					<View accessibilityRole="alert" accessibilityLiveRegion="polite">
-						<Text variant="caption" tone="secondary">
+					<View
+						accessibilityRole="alert"
+						accessibilityLiveRegion="polite"
+						style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}
+					>
+						<Text variant="caption" tone="secondary" style={{ flex: 1 }}>
 							{message}
 						</Text>
+						{undoIds.length > 0 ? (
+							<Button
+								label="Desfazer"
+								variant="secondary"
+								compact
+								loading={undo.isPending}
+								onPress={undoPosted}
+							/>
+						) : null}
 					</View>
 				) : null}
 
@@ -149,9 +204,7 @@ export function SubscriptionsScreen() {
 										value={money(r.amountCents, hidden, { sign: "never" })}
 										status={status}
 										bank={bank ? bankBadge(bank) : undefined}
-										posting={postingId === r.id}
 										onPress={() => router.push({ pathname: "/assinatura", params: { id: r.id } })}
-										onPostNow={() => postNow(r.id)}
 									/>
 								);
 							})}
@@ -175,6 +228,7 @@ export function SubscriptionsScreen() {
 		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
+					paddingTop: TOP_FADE,
 					paddingHorizontal: spacing.lg,
 					paddingBottom: spacing.xxxl,
 					gap: spacing.md,

@@ -15,6 +15,7 @@ import {
 	Screen,
 	Skeleton,
 	Text,
+	TOP_FADE,
 	useBottomBarHeight,
 } from "../../ui/index.ts";
 import { usePendingTransactions } from "../review/queries.ts";
@@ -239,7 +240,11 @@ export function ActivityScreen() {
 				onEndReachedThreshold={0.6}
 				keyboardShouldPersistTaps="handled"
 				keyboardDismissMode="on-drag"
-				contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: bottomBarHeight + spacing.lg }}
+				contentContainerStyle={{
+					paddingTop: TOP_FADE,
+					paddingHorizontal: spacing.lg,
+					paddingBottom: bottomBarHeight + spacing.lg,
+				}}
 				refreshControl={
 					<RefreshControl
 						refreshing={refreshing}

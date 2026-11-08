@@ -19,6 +19,8 @@ const DATA_ERROR_HTTP = {
 } as const satisfies Record<DataErrorCode, { status: 400 | 404 | 409 | 422; code: string }>;
 
 export function errorHandler(err: Error, c: Context) {
+	// Resposta pronta (ex.: chave de idempotência repetida): sai como está.
+	if (err instanceof HTTPException && err.res) return err.res;
 	// As mensagens dos stores já são pt-BR e feitas para o usuário.
 	if (err instanceof DataError) {
 		const { status, code } = DATA_ERROR_HTTP[err.code];

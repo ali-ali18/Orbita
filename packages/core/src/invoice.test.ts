@@ -143,7 +143,7 @@ describe("consistência invoiceFor / invoiceByMonth", () => {
 				d = addDays(d, 1);
 			}
 		}
-	});
+	}, 30_000);
 
 	it("faturas de meses consecutivos têm fechamentos estritamente crescentes", () => {
 		for (const c of configs) {

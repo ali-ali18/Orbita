@@ -1,8 +1,8 @@
 import { SECRET_LABELS, type SecretName } from "@orbita/shared";
-import { colors, radius, spacing, text as typography } from "@orbita/tokens";
+import { spacing } from "@orbita/tokens";
 import { useReducer, useRef } from "react";
-import { TextInput, View } from "react-native";
-import { Button, familyByWeight, Sheet, Text } from "../../ui/index.ts";
+import { View } from "react-native";
+import { Button, Sheet, Text, TextField } from "../../ui/index.ts";
 import { initialSecretForm, removeSecret, secretFormReducer, submitSecret } from "./secret-form-model.ts";
 import { pasteHint, removeConfirmMessage, removeConfirmTitle } from "./settings-model.ts";
 
@@ -106,7 +106,7 @@ function SecretForm({
 			<Text variant="caption" tone="secondary">
 				{pasteHint(name)}
 			</Text>
-			<TextInput
+			<TextField
 				value={form.value}
 				onChangeText={(text) => dispatch({ type: "typed", text })}
 				secureTextEntry
@@ -117,20 +117,9 @@ function SecretForm({
 				textContentType="none"
 				importantForAutofill="no"
 				placeholder={configured ? "Cole o novo valor" : "Cole o valor"}
-				placeholderTextColor={colors.textTertiary}
 				accessibilityLabel={`Valor de ${label}`}
 				onSubmitEditing={submit}
 				returnKeyType="done"
-				style={{
-					height: 52,
-					borderRadius: radius.inner,
-					backgroundColor: colors.surface2,
-					paddingHorizontal: spacing.lg,
-					color: colors.text,
-					fontFamily: familyByWeight[400],
-					fontSize: typography.body.fontSize,
-					lineHeight: typography.body.lineHeight,
-				}}
 			/>
 			{form.message ? (
 				<View accessibilityRole="alert" accessibilityLiveRegion="polite">

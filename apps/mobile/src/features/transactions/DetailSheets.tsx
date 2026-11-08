@@ -1,7 +1,7 @@
-import { colors, radius, spacing, text as typography } from "@orbita/tokens";
+import { spacing } from "@orbita/tokens";
 import { useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
-import { Button, familyByWeight, Icon, type IconName, Sheet, Text } from "../../ui/index.ts";
+import { View } from "react-native";
+import { Button, Sheet, SheetGroup, SheetRow, Text, TextField } from "../../ui/index.ts";
 import { CategoryChips, type CategoryOption } from "./CategoryChips.tsx";
 import { type DeleteChoice, deleteMessage } from "./detail-model.ts";
 
@@ -114,7 +114,7 @@ function TextEditBody({
 	const [value, setValue] = useState(initial);
 	return (
 		<View style={{ paddingTop: spacing.md, gap: spacing.md }}>
-			<TextInput
+			<TextField
 				value={value}
 				onChangeText={setValue}
 				multiline={multiline}
@@ -122,45 +122,10 @@ function TextEditBody({
 				autoFocus
 				accessibilityLabel={label}
 				placeholder={label}
-				placeholderTextColor={colors.textTertiary}
-				style={{
-					minHeight: multiline ? 104 : 52,
-					borderRadius: radius.inner,
-					backgroundColor: colors.surface2,
-					paddingHorizontal: spacing.lg,
-					paddingVertical: multiline ? spacing.md : 0,
-					textAlignVertical: multiline ? "top" : "center",
-					color: colors.text,
-					fontFamily: familyByWeight[400],
-					fontSize: typography.body.fontSize,
-					lineHeight: typography.body.lineHeight,
-					letterSpacing: typography.body.letterSpacing,
-				}}
 			/>
 			<ErrorLine message={message} />
 			<Button label="Salvar" onPress={() => onSave(value)} loading={busy} />
 		</View>
-	);
-}
-
-/** Linha de ação de uma gaveta (56 de altura, ícone à esquerda). */
-function ActionRow({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
-	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel={label}
-			onPress={onPress}
-			style={({ pressed }) => ({
-				minHeight: 56,
-				flexDirection: "row",
-				alignItems: "center",
-				gap: spacing.md,
-				opacity: pressed ? 0.8 : 1,
-			})}
-		>
-			<Icon name={icon} size={20} />
-			<Text variant="body">{label}</Text>
-		</Pressable>
 	);
 }
 
@@ -180,9 +145,11 @@ export function MoreSheet({
 }) {
 	return (
 		<Sheet visible={visible} title="Mais opções" onClose={onClose}>
-			<ActionRow icon="lapis" label="Editar descrição" onPress={onEditDescription} />
-			<ActionRow icon="etiqueta" label="Editar nota" onPress={onEditNote} />
-			<ActionRow icon="lixeira" label="Apagar lançamento" onPress={onDelete} />
+			<SheetGroup gap={false}>
+				<SheetRow icon="lapis" label="Editar descrição" onPress={onEditDescription} />
+				<SheetRow icon="etiqueta" label="Editar nota" onPress={onEditNote} />
+				<SheetRow icon="lixeira" label="Apagar lançamento" onPress={onDelete} />
+			</SheetGroup>
 		</Sheet>
 	);
 }

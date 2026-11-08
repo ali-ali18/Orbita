@@ -6,7 +6,16 @@ import { RefreshControl, ScrollView, View } from "react-native";
 import { useClock } from "../../lib/clock.tsx";
 import { toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import { Button, ErrorState, IconButton, Screen, Segmented, Skeleton, Text } from "../../ui/index.ts";
+import {
+	Button,
+	ErrorState,
+	IconButton,
+	Screen,
+	Segmented,
+	Skeleton,
+	Text,
+	TOP_FADE,
+} from "../../ui/index.ts";
 import { useCards } from "../summary/queries.ts";
 import { activeCards, CARD_TABS, type CardTab } from "./card-model.ts";
 import { InstallmentsTab } from "./InstallmentsTab.tsx";
@@ -38,6 +47,7 @@ export function CardScreen({ initialTab, initialCardId }: { initialTab: CardTab;
 		<Screen fadeTop>
 			<ScrollView
 				contentContainerStyle={{
+					paddingTop: TOP_FADE,
 					paddingHorizontal: spacing.lg,
 					paddingBottom: spacing.xxxl + spacing.lg,
 					gap: spacing.lg,

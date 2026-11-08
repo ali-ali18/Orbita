@@ -1,7 +1,7 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { call } from "../../lib/api.ts";
+import { ApiError, call } from "../../lib/api.ts";
 import { useSession } from "../../lib/session.tsx";
-import { isAffectedBySubscription, type SaveRequest } from "./subscriptions-model.ts";
+import { type BatchPostResult, isAffectedBySubscription, type SaveRequest } from "./subscriptions-model.ts";
 
 function useScoped() {
 	const { api, baseUrl } = useSession();
@@ -75,6 +75,53 @@ export function usePostSubscription() {
 			await call(() =>
 				api.v1.recurrences[":id"].post.$post({ param: { id: input.id }, json: { month: input.month } }),
 			);
+		},
+		onSettled: () => {
+			void refresh(queryClient, baseUrl);
+		},
+	});
+}
+
+/**
+ * "Lançar todas": uma por vez (o servidor decide o que já existe). 409 = já estava lançada, conta como
+ * sucesso; outro erro entra em `failed` e não impede as demais.
+ */
+export function usePostAllSubscriptions() {
+	const { api, baseUrl } = useSession();
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async (input: { ids: readonly string[]; month: string }): Promise<BatchPostResult> => {
+			if (!api) throw new Error("Assinatura sem sessão");
+			const result: BatchPostResult = { transactionIds: [], already: 0, failed: 0 };
+			for (const id of input.ids) {
+				try {
+					const created = await call(() =>
+						api.v1.recurrences[":id"].post.$post({ param: { id }, json: { month: input.month } }),
+					);
+					result.transactionIds.push(created.transaction.id);
+				} catch (error) {
+					if (error instanceof ApiError && error.status === 409) result.already += 1;
+					else result.failed += 1;
+				}
+			}
+			return result;
+		},
+		onSettled: () => {
+			void refresh(queryClient, baseUrl);
+		},
+	});
+}
+
+/** "Desfazer" do "Lançar todas": apaga só os lançamentos criados agora (o mesmo caminho do desfazer do chat). */
+export function useUndoPostedSubscriptions() {
+	const { api, baseUrl } = useSession();
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async (transactionIds: readonly string[]) => {
+			if (!api) throw new Error("Assinatura sem sessão");
+			for (const id of transactionIds) {
+				await call(() => api.v1.transactions[":id"].$delete({ param: { id }, query: { scope: "item" } }));
+			}
 		},
 		onSettled: () => {
 			void refresh(queryClient, baseUrl);

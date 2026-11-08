@@ -17,6 +17,7 @@ model Device {
   revokedAt  DateTime? @map("revoked_at")
 
   pluggyConnectSessions PluggyConnectSession[]
+  idempotencyKeys       IdempotencyKey[]
 
   @@map("devices")
 }
@@ -313,4 +314,24 @@ model PluggyConnectSession {
 
   @@index([usedAt, expiresAt])
   @@map("pluggy_connect_sessions")
+}
+
+/// Chave de idempotência (`Idempotency-Key`) de um pedido que cria algo: repetir o pedido devolve a resposta guardada em vez de criar de novo. Vale por aparelho e some depois de `expiresAt`.
+model IdempotencyKey {
+  id          String   @id @default(cuid())
+  key         String
+  deviceId    String   @map("device_id")
+  /// Hash de método + caminho + corpo: a mesma chave com outro pedido é recusada.
+  requestHash String   @map("request_hash")
+  /// Nulos enquanto o primeiro pedido ainda roda.
+  status      Int?
+  body        String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  expiresAt   DateTime @map("expires_at")
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
 }

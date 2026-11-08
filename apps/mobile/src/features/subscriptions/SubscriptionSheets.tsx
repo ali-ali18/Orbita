@@ -1,8 +1,8 @@
 import type { Cents } from "@orbita/core";
-import { colors, radius, spacing, text as typography } from "@orbita/tokens";
+import { spacing } from "@orbita/tokens";
 import { useState } from "react";
-import { TextInput, View } from "react-native";
-import { Button, familyByWeight, Sheet, Text } from "../../ui/index.ts";
+import { View } from "react-native";
+import { Button, Sheet, Text, TextField } from "../../ui/index.ts";
 import { AmountInput } from "../transactions/AmountInput.tsx";
 import { parseDay } from "./subscriptions-model.ts";
 
@@ -62,7 +62,7 @@ function DayBody({ initial, onDone }: { initial: number; onDone: (day: number) =
 			<Text variant="caption" tone="secondary">
 				De 1 a 31. Em mês mais curto, vale o último dia.
 			</Text>
-			<TextInput
+			<TextField
 				value={text}
 				onChangeText={(t) => setText(t.replace(/\D/g, "").slice(0, 2))}
 				keyboardType="number-pad"
@@ -71,16 +71,6 @@ function DayBody({ initial, onDone }: { initial: number; onDone: (day: number) =
 				autoFocus
 				selectTextOnFocus
 				accessibilityLabel="Dia do mês da cobrança"
-				style={{
-					height: 52,
-					borderRadius: radius.inner,
-					backgroundColor: colors.surface2,
-					paddingHorizontal: spacing.lg,
-					color: colors.text,
-					fontFamily: familyByWeight[400],
-					fontSize: typography.body.fontSize,
-					lineHeight: typography.body.lineHeight,
-				}}
 			/>
 			{text !== "" && parsed === null ? (
 				<Text variant="caption" tone="secondary" accessibilityRole="alert" accessibilityLiveRegion="polite">

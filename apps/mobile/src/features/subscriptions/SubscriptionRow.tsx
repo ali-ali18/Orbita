@@ -1,6 +1,6 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
-import { type BankBadge, BankLogo, Button, LetterAvatar, Text } from "../../ui/index.ts";
+import { type BankBadge, BankLogo, LetterAvatar, Text } from "../../ui/index.ts";
 import type { MonthStatus } from "./subscriptions-model.ts";
 
 /** Selo do banco no canto do círculo (Figma "Banco/Logo", 20 em (30, 30) de um círculo de 48). */
@@ -10,7 +10,7 @@ const LOGO = 48;
 
 /**
  * Linha da lista (Figma 28:488): círculo com a inicial e o selo da conta/cartão, nome, "Todo dia 12 · em 6 dias" e valor.
- * Pendente ganha o botão "Lançar agora" embaixo do texto. Tocar na linha abre a edição.
+ * Pendente ganha só um ponto discreto ao lado do nome (lançar é no card do topo ou na edição). Tocar na linha abre a edição.
  */
 export function SubscriptionRow({
 	name,
@@ -18,9 +18,7 @@ export function SubscriptionRow({
 	value,
 	status,
 	bank,
-	posting,
 	onPress,
-	onPostNow,
 }: {
 	name: string;
 	caption: string;
@@ -28,15 +26,14 @@ export function SubscriptionRow({
 	value: string;
 	status: MonthStatus;
 	bank?: BankBadge | undefined;
-	posting: boolean;
 	onPress: () => void;
-	onPostNow: () => void;
 }) {
+	const pending = status === "pending";
 	return (
-		<View style={{ gap: spacing.sm }}>
+		<View>
 			<Pressable
 				accessibilityRole="button"
-				accessibilityLabel={`${name}, ${caption}, ${value}. Editar`}
+				accessibilityLabel={`${name}, ${caption}${pending && !caption.includes("pendente") ? ", pendente" : ""}, ${value}. Editar`}
 				onPress={onPress}
 				style={({ pressed }) => ({
 					flexDirection: "row",
@@ -56,27 +53,29 @@ export function SubscriptionRow({
 					) : null}
 				</View>
 				<View style={{ flex: 1, gap: 2 }}>
-					<Text variant="bodyStrong" numberOfLines={1}>
-						{name}
-					</Text>
+					<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+						<Text variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>
+							{name}
+						</Text>
+						{pending ? (
+							<View
+								accessibilityElementsHidden
+								importantForAccessibility="no-hide-descendants"
+								style={{
+									width: 6,
+									height: 6,
+									borderRadius: radius.pill,
+									backgroundColor: colors.textSecondary,
+								}}
+							/>
+						) : null}
+					</View>
 					<Text variant="caption" tone="secondary" numberOfLines={1}>
 						{caption}
 					</Text>
 				</View>
 				<Text variant="bodyStrong">{value}</Text>
 			</Pressable>
-			{status === "pending" ? (
-				<View
-					style={{
-						alignSelf: "flex-start",
-						marginLeft: LOGO + spacing.md + 2,
-						borderRadius: radius.pill,
-						overflow: "hidden",
-					}}
-				>
-					<Button label="Lançar agora" variant="secondary" compact loading={posting} onPress={onPostNow} />
-				</View>
-			) : null}
 		</View>
 	);
 }

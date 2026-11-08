@@ -468,6 +468,14 @@ describe("lançar recorrência", () => {
 		expect(again.body.error.message).toBe("Esta recorrência já foi lançada neste mês.");
 		expect((await api.get("/v1/transactions/month/2026-11")).body.transactions).toHaveLength(1);
 
+		// Desfazer: apagar o lançamento libera o mês, e lançar de novo volta a dar 201 (não 409).
+		expect((await api.delete(`/v1/transactions/${posted.body.transaction.id}`)).status).toBe(200);
+		expect((await api.get("/v1/transactions/month/2026-11")).body.transactions).toHaveLength(0);
+		const reposted = await api.post(`/v1/recurrences/${rent.id}/post`, { month: "2026-11" });
+		expect(reposted.status).toBe(201);
+		expect(reposted.body.transaction.id).not.toBe(posted.body.transaction.id);
+		expect((await api.get("/v1/transactions/month/2026-11")).body.transactions).toHaveLength(1);
+
 		// Outro mês, com data e valor próprios.
 		const dec = await api.post(`/v1/recurrences/${rent.id}/post`, {
 			month: "2026-12",
