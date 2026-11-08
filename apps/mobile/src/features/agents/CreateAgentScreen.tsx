@@ -136,6 +136,8 @@ export function CreateAgentScreen() {
 										alignSelf: "flex-start",
 										minHeight: layout.touchTarget,
 										justifyContent: "center",
+										// Vertical: quando o exemplo quebra em duas linhas, o texto não encosta na borda.
+										paddingVertical: spacing.md,
 										paddingHorizontal: spacing.lg,
 										borderRadius: radius.pill,
 										borderWidth: 1,
