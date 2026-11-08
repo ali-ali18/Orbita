@@ -1,5 +1,5 @@
 import { colors, radius, spacing } from "@orbita/tokens";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { BankLogo, Button, Icon, Screen, Text } from "../../ui/index.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { type BankRow, connectionsUsedLabel } from "./model.ts";
@@ -35,11 +35,7 @@ export function BanksStep({
 						seus. Eu só leio: não consigo mover dinheiro.
 					</Text>
 				</View>
-				<ScrollView
-					style={{ flex: 1 }}
-					contentContainerStyle={{ flexGrow: 1 }}
-					showsVerticalScrollIndicator={false}
-				>
+				<View style={{ flex: 1, justifyContent: "center" }}>
 					<View style={{ backgroundColor: colors.surface, borderRadius: radius.block, overflow: "hidden" }}>
 						{rows.map((row, index) => (
 							<View
@@ -84,7 +80,7 @@ export function BanksStep({
 							</View>
 						))}
 					</View>
-				</ScrollView>
+				</View>
 				<Text variant="caption" tone="secondary">
 					{connectionsUsedLabel(used)}
 				</Text>
