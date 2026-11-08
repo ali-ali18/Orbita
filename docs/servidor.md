@@ -113,6 +113,8 @@ O app só aceita atualização do mesmo **`runtimeVersion`** do APK instalado. E
 | Dependência com código nativo (`expo-*`, `react-native-*`), versão do Expo/React Native, plugins, `app.json` nativo (permissões, ícone, nome), certificado OTA | **Sim**: o `runtimeVersion` muda e o APK antigo deixa de receber o JS novo |
 | Só o `version` do `app.json`                                                                                                                                   | Não (não entra na impressão digital)                                       |
 
+Exemplo: o **desbloqueio por biometria** (`expo-local-authentication` + permissão `USE_BIOMETRIC`) é nativo. Quem não instalar o APK novo continua no app anterior, sem o interruptor, mesmo com OTA publicada. Ao gerar o APK, avise nas notas da versão: "Desbloquear com digital: precisa instalar o APK novo".
+
 Você não precisa lembrar disso: o CI calcula o `runtimeVersion` do APK e da atualização com o mesmo comando (`node packages/ota/src/cli.ts runtime-version`), e um APK antigo com runtime diferente simplesmente não recebe o JS novo (continua funcionando com o que tem). Para ver o valor: abra o log do passo "Fixar o runtimeVersion do OTA" em `app-android.yml` e do passo de exportação em `release.yml`.
 
 ### Riscos e como o app se protege

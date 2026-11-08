@@ -34,7 +34,7 @@ Rotas sem Bearer: `GET /health`, `POST /v1/pairing/claim` (trocar código por to
 - **Um segredo mestre**, `APP_SECRET` (mínimo 32 caracteres; gere com `openssl rand -base64 48`). As senhas do Postgres e do Redis entram em URLs de conexão; gere-as com `openssl rand -hex 32` (base64 pode ter `/`, que quebra a URL). Cada uso deriva uma chave própria com **HKDF-SHA256** (`orbita/pairing-code/v1`, `orbita/secret-box/v1`), então uma chave nunca serve para outra finalidade.
 - **Segredos em repouso** (chave da Anthropic, credenciais do Meu Pluggy) são guardados com **AES-256-GCM**: IV aleatório por gravação, autenticação contra adulteração, e _AAD_ que amarra o valor ao campo (não dá para copiar o segredo cifrado de um campo para outro). O formato tem versão (`v1.`) para permitir troca de algoritmo.
 - **Em trânsito:** HTTPS no proxy. Dentro do compose, a rede é privada.
-- **No celular:** o token fica no armazenamento seguro do sistema (Keystore no Android, via `expo-secure-store`) e o app abre com biometria.
+- **No celular:** o token fica no armazenamento seguro do sistema (Keystore no Android, via `expo-secure-store`) e o app pode abrir com biometria (veja [Bloqueio do app](#bloqueio-do-app-biometria)).
 
 ### Trocar o `APP_SECRET`
 
@@ -56,6 +56,22 @@ Trocar invalida o código de pareamento ativo e torna ilegíveis os segredos cif
 - A chave (`Idempotency-Key`) vale **por aparelho**: outro aparelho, mesmo com a mesma chave, não lê a resposta guardada. A resposta guardada é a do próprio aparelho (um lançamento do dono), por 24 h, e some com o aparelho revogado e apagado (cascata) ou pela limpeza do worker.
 - A chave só pode repetir o **mesmo pedido** (método, caminho e corpo): reutilizá-la com outro conteúdo é recusado (422), então uma chave repetida nunca faz o servidor devolver a resposta de uma operação diferente.
 - Risco aceito: se o processo cair entre criar o lançamento e guardar a resposta, a reserva fica sem resposta e, depois de 60 s, uma nova tentativa pode criar de novo (duplicado raro, visível e apagável no app).
+
+## Bloqueio do app (biometria)
+
+Configurações → Segurança → "Desbloquear com digital" (`apps/mobile/src/features/lock/`, módulo nativo `expo-local-authentication`).
+
+- **Ligar** exige digital cadastrada no aparelho e uma autenticação bem-sucedida na hora. Sem leitor ou sem digital cadastrada, o app explica e deixa desligado. Desligar não pede nada (quem chegou às configurações já passou pelo bloqueio).
+- **Quando trava:** na abertura a frio e ao voltar do segundo plano depois de **30 s** (`GRACE_MS`); voltar antes disso não pede nada. O relógio que andou para trás conta como "passou o prazo".
+- **Como desbloqueia:** o aviso do sistema aceita digital/rosto e, como alternativa, o PIN ou padrão do aparelho. Na abertura a frio travada o app nem monta as telas (nada de dados por baixo); depois, uma tela opaca cobre o app ao travar e enquanto ele está em segundo plano.
+- **Preferência** guardada no `SecureStore` (`orbita.biometricLock`). Sair deste aparelho a desliga. Se o aparelho perder todo método de autenticação (digitais e PIN removidos), o app destrava e desliga o bloqueio em vez de trancar a pessoa fora.
+- Na web a opção não aparece.
+
+**O que protege:** alguém com o celular desbloqueado nas mãos (ou emprestado) não abre o Órbita nem vê seus dados.
+
+**O que não protege:** é uma trava de **interface**, local. O token do servidor continua no `SecureStore` (Keystore) e **não** fica atrás da biometria; quem tiver acesso root ao aparelho, ou ao backup dele, não passa por essa tela. A captura de tela não é bloqueada, e a miniatura em "apps recentes" só é coberta quando o sistema a tira depois de o app reagir (melhor esforço). Para anular um aparelho perdido, desconecte-o por Configurações → Servidor e chaves em outro aparelho, ou pelo servidor.
+
+**Exige APK novo:** é um módulo nativo (e a permissão `USE_BIOMETRIC`), então muda o `runtimeVersion`. A atualização OTA sozinha não liga o recurso em APK antigo; veja [servidor](servidor.md#quando-precisa-de-apk-novo-e-quando-não).
 
 ## Atualização OTA do app
 
