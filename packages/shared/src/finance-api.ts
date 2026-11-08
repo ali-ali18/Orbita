@@ -83,6 +83,10 @@ const csvList = <T extends z.ZodType>(item: T, max: number) =>
 		z.array(item).min(1).max(max, `Há itens demais no filtro (máximo ${max}).`).optional(),
 	);
 
+/** Parâmetro em branco (`from=`) é o mesmo que ausente. */
+const blankAsAbsent = <T extends z.ZodType>(schema: T) =>
+	z.preprocess((raw) => (raw === "" ? undefined : raw), schema.optional());
+
 const filterCents = (label: string) =>
 	z.coerce
 		.number(`${label} deve ser um número.`)
@@ -95,16 +99,16 @@ const filterCents = (label: string) =>
  * `accountIds` e `cardIds` valem juntos como OU ("estas contas ou estes cartões").
  */
 export const transactionFilterFields = {
-	from: localDateSchema.optional(),
-	to: localDateSchema.optional(),
+	from: blankAsAbsent(localDateSchema),
+	to: blankAsAbsent(localDateSchema),
 	kinds: csvList(z.enum(TRANSACTION_KINDS, "Tipo de lançamento inválido."), TRANSACTION_KINDS.length),
 	accountIds: csvList(idSchema, MAX_FILTER_ITEMS),
 	cardIds: csvList(idSchema, MAX_FILTER_ITEMS),
 	categoryIds: csvList(idSchema, MAX_FILTER_ITEMS),
 	sources: csvList(z.enum(TRANSACTION_SOURCES, "Origem inválida."), TRANSACTION_SOURCES.length),
 	statuses: csvList(z.enum(TRANSACTION_STATUSES, "Situação inválida."), TRANSACTION_STATUSES.length),
-	minCents: filterCents("O valor mínimo").optional(),
-	maxCents: filterCents("O valor máximo").optional(),
+	minCents: blankAsAbsent(filterCents("O valor mínimo")),
+	maxCents: blankAsAbsent(filterCents("O valor máximo")),
 };
 
 interface FilterRange {
