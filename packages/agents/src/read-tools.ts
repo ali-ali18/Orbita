@@ -477,6 +477,63 @@ export const listSubscriptions = defineTool({
 	},
 });
 
+// ------------------------------------------------------------------ metas
+
+const GOAL_STATUS_TEXT: Record<string, string> = {
+	reached: "alcançada",
+	no_deadline: "sem prazo",
+	on_track: "no ritmo",
+	behind: "atrasada",
+};
+
+export const getGoalsStatus = defineTool({
+	name: "goals_status",
+	label: "Olhando as metas…",
+	access: "read",
+	description:
+		"Metas de guardar dinheiro (viagem, reserva de emergência…): quanto já foi guardado, quanto falta, percentual, " +
+		"prazo, quanto guardar por mês e a situação (alcançada, no ritmo, atrasada, sem prazo), mais o total guardado. " +
+		"Use para 'como estão minhas metas', 'quanto falta para a viagem'.",
+	input: z.object({}),
+	async run(_input, ctx) {
+		const { goals, totals } = await ctx.reader.goals();
+		const rows = goals.map((g) => ({
+			id: g.id,
+			name: untrusted(g.name, 60),
+			target: money(g.targetCents),
+			saved: money(g.savedCents),
+			remaining: money(g.remainingCents),
+			percent: g.percent,
+			deadline: g.deadline,
+			monthsLeft: g.monthsLeft,
+			monthlyNeeded: g.monthlyNeededCents === null ? null : money(g.monthlyNeededCents),
+			projectedDate: g.projectedDate,
+			status: g.status,
+			statusText: GOAL_STATUS_TEXT[g.status] ?? g.status,
+		}));
+		return {
+			data: {
+				count: rows.length,
+				totalSaved: money(totals.savedCents),
+				totalTarget: money(totals.targetCents),
+				goals: rows,
+			},
+			card: {
+				type: "rows",
+				tool: "goals_status",
+				title: "Metas",
+				rows: rows.slice(0, 10).map((r) => ({
+					label: r.name,
+					caption: `${r.percent}% · ${r.statusText}${r.deadline ? ` · até ${r.deadline.split("-").reverse().join("/")}` : ""}`,
+					value: r.saved.text,
+					cents: r.saved.cents,
+				})),
+				total: { label: "Total guardado", value: formatBRL(totals.savedCents) },
+			},
+		};
+	},
+});
+
 // ------------------------------------------------- categorias e relatório
 
 export const getCategoryBreakdown = defineTool({
@@ -620,6 +677,7 @@ export const READ_TOOLS: readonly Tool[] = [
 	getBudgetStatus,
 	getCardInvoice,
 	listSubscriptions,
+	getGoalsStatus,
 	getCategoryBreakdown,
 	getMonthReport,
 	listCatalog,

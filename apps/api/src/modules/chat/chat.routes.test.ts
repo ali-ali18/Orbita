@@ -161,6 +161,23 @@ describe("POST /v1/chat", () => {
 		expect(JSON.parse(toolResult[0].content)).toMatchObject({ spent: { cents: 4690, text: "R$ 46,90" } });
 	});
 
+	it("goals_status lê as metas reais: o card traz o guardado calculado pelo engine", async () => {
+		const ctx = await setup([
+			() => ({ content: [use("t1", "goals_status", {})], stopReason: "tool_use" }),
+			say("Sua meta está em 25%."),
+		]);
+		await ctx.vault.put("anthropic_api_key", KEY, "Teste");
+		const created = await ctx.api.post("/v1/goals", { name: "Viagem", targetCents: 400000 });
+		await ctx.api.post(`/v1/goals/${created.body.goal.id}/contributions`, {
+			amountCents: 100000,
+		});
+		const { events } = await chat(ctx, "como estão minhas metas?");
+		const goalsCard = events.find((e) => e.type === "card")?.card;
+		expect(goalsCard.tool).toBe("goals_status");
+		expect(goalsCard.rows[0]).toMatchObject({ label: "Viagem", value: "R$ 1.000,00", cents: 100000 });
+		expect(goalsCard.total.value).toBe("R$ 1.000,00");
+	});
+
 	it("escrita é só proposta: nada é gravado até confirmar, e Desfazer apaga", async () => {
 		const ids = { card: "" };
 		const ctx = await setup([

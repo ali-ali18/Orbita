@@ -1,4 +1,4 @@
-import type { MonthSummaryResponse, RecurrenceDto, TransactionDto } from "@orbita/shared";
+import type { GoalsListResponse, MonthSummaryResponse, RecurrenceDto, TransactionDto } from "@orbita/shared";
 import type { AgentReader, AgentWriter, Catalog, InvoiceData, TransactionQuery } from "./backend.ts";
 import type { ModelClient, ModelRequest, ModelResponse, TurnHandlers } from "./model.ts";
 import type { ToolContext } from "./tool.ts";
@@ -92,6 +92,7 @@ export interface FakeReaderData {
 	summaries: Record<string, MonthSummaryResponse>;
 	invoice: InvoiceData | null;
 	recurrences: RecurrenceDto[];
+	goals: GoalsListResponse;
 	catalog: Catalog;
 }
 
@@ -101,6 +102,7 @@ export function fakeReader(data: Partial<FakeReaderData> = {}) {
 		summaries: { [MONTH]: summary() },
 		invoice: null,
 		recurrences: [],
+		goals: { goals: [], totals: { savedCents: 0, targetCents: 0 } },
 		catalog: CATALOG,
 		...data,
 	};
@@ -147,6 +149,9 @@ export function fakeReader(data: Partial<FakeReaderData> = {}) {
 		},
 		async recurrences() {
 			return state.recurrences;
+		},
+		async goals() {
+			return state.goals;
 		},
 	};
 	return { reader, state, queries };

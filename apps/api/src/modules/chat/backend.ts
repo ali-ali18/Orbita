@@ -3,6 +3,7 @@ import { monthOf, toLocalDate } from "@orbita/core";
 import { DataError, type Stores } from "@orbita/db";
 import { orNotFound } from "../../http/errors.ts";
 import { toCardDto } from "../cards/dto.ts";
+import { listGoals } from "../goals/service.ts";
 import { toRecurrenceDto } from "../recurrences/dto.ts";
 import { cardInvoice, monthSummary } from "../summary/service.ts";
 import { toTransactionDto } from "../transactions/dto.ts";
@@ -76,6 +77,7 @@ export function createAgentReader(stores: Stores, now: () => Date): AgentReader 
 		async recurrences() {
 			return (await stores.recurrences.list()).map(toRecurrenceDto);
 		},
+		goals: () => listGoals(stores, { today: today(), dayOf: (d) => toLocalDate(d) }),
 	};
 }
 

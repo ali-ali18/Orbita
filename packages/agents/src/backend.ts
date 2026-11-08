@@ -1,4 +1,5 @@
 import type {
+	GoalsListResponse,
 	MonthSummaryResponse,
 	RecurrenceDto,
 	TransactionApiCreateBody,
@@ -65,6 +66,8 @@ export interface AgentReader {
 	getTransaction(id: string): Promise<TransactionDto | null>;
 	cardInvoice(cardId: string, month: string): Promise<InvoiceData>;
 	recurrences(): Promise<RecurrenceDto[]>;
+	/** Metas ativas com guardado, percentual, valor mensal e situação (tudo do engine). */
+	goals(): Promise<GoalsListResponse>;
 }
 
 /** Escrita: só é chamada depois que o dono confirma uma proposta (nunca direto por uma ferramenta). */

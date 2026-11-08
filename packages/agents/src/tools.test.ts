@@ -25,6 +25,7 @@ describe("catálogo de ferramentas", () => {
 				"get_budget_status",
 				"get_card_invoice",
 				"list_subscriptions",
+				"goals_status",
 				"get_category_breakdown",
 				"get_month_report",
 				"propose_create_transaction",
@@ -71,6 +72,73 @@ describe("ferramentas de leitura", () => {
 			["Orçamento do mês", 52, false],
 			["Delivery", 133, true],
 		]);
+	});
+
+	it("metas: devolve o que o engine calculou, sem o modelo somar nada", async () => {
+		const goal = (over: Record<string, unknown>) => ({
+			id: "g1",
+			name: "Viagem",
+			targetCents: 500000,
+			deadline: "2027-06-01",
+			accountId: null,
+			icon: "plane",
+			chartSlot: 0,
+			archivedAt: null,
+			createdAt: "2026-01-01T00:00:00.000Z",
+			updatedAt: "2026-01-01T00:00:00.000Z",
+			savedCents: 125000,
+			remainingCents: 375000,
+			percent: 25,
+			reached: false,
+			monthsLeft: 7,
+			monthlyNeededCents: 53572,
+			paceCents: 40000,
+			projectedDate: null,
+			status: "behind",
+			...over,
+		});
+		const { reader } = fakeReader({
+			goals: {
+				goals: [
+					goal({}),
+					goal({
+						id: "g2",
+						name: "Reserva",
+						deadline: null,
+						status: "no_deadline",
+						monthlyNeededCents: null,
+						monthsLeft: null,
+						savedCents: 1000,
+						remainingCents: 9000,
+						targetCents: 10000,
+						percent: 10,
+					}),
+				] as never,
+				totals: { savedCents: 126000, targetCents: 510000 },
+			},
+		});
+		const out = await run("goals_status", {}, reader);
+		expect(out.data).toMatchObject({
+			count: 2,
+			totalSaved: { cents: 126000, text: "R$ 1.260,00" },
+			totalTarget: { cents: 510000 },
+		});
+		const goals = out.data.goals as Array<{
+			name: string;
+			percent: number;
+			statusText: string;
+			monthlyNeeded: { cents: number } | null;
+		}>;
+		expect(goals.map((g) => [g.percent, g.statusText, g.monthlyNeeded?.cents ?? null])).toEqual([
+			[25, "atrasada", 53572],
+			[10, "sem prazo", null],
+		]);
+		expect(out.card?.total?.value).toBe("R$ 1.260,00");
+	});
+
+	it("metas: sem nenhuma meta devolve lista vazia", async () => {
+		const out = await run("goals_status", {});
+		expect(out.data).toMatchObject({ count: 0, goals: [] });
 	});
 
 	it("detalhamento por categoria ordena do maior ao menor e dá a fatia em décimos", async () => {
