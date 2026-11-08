@@ -1,5 +1,5 @@
-import { PairingForm } from "../features/pairing/PairingForm.tsx";
+import { FirstRun } from "../features/onboarding/FirstRun.tsx";
 
 export default function ConectarRoute() {
-	return <PairingForm />;
+	return <FirstRun />;
 }

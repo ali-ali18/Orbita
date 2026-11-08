@@ -111,6 +111,8 @@ const bodies = {
 			<Path d="M8 12h8" />
 		</>
 	),
+	menos: <Path d="M5 12h14" />,
+	brilho: <Path d="M12 2.5 13.8 9.2 20.5 11 13.8 12.8 12 19.5 10.2 12.8 3.5 11 10.2 9.2Z" />,
 	transferir: (
 		<>
 			<Path d="m8 3-4 4 4 4" />

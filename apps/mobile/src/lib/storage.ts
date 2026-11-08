@@ -54,4 +54,6 @@ export const KEYS = {
 	baseUrl: "orbita.baseUrl",
 	token: "orbita.token",
 	hideValues: "orbita.hideValues",
+	/** "done" quando a primeira configuração (boas-vindas até orçamento) terminou ou foi pulada. */
+	onboarding: "orbita.onboarding",
 } as const;

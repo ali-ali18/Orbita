@@ -19,6 +19,7 @@ function Routes() {
 	const { state } = useSession();
 	return (
 		<Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+			<Stack.Screen name="previa" />
 			<Stack.Protected guard={state.status === "in"}>
 				<Stack.Screen name="index" />
 				<Stack.Screen
