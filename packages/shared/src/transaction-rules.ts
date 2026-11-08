@@ -58,8 +58,9 @@ export function transactionInvariantError(t: TransactionShape): string | null {
 			if (hasCounterpart) return "A conta de destino só vale para transferência.";
 			break;
 		case "transfer":
-			if (!hasAccount || !hasCounterpart) return "A transferência precisa de conta de origem e de destino.";
-			if (t.accountId === t.counterpartAccountId)
+			// Sem destino = "outra conta sua, não identificada" (Pix entre bancos diferentes: o outro lado não é conhecido).
+			if (!hasAccount) return "A transferência precisa de uma conta.";
+			if (hasCounterpart && t.accountId === t.counterpartAccountId)
 				return "Origem e destino da transferência devem ser contas diferentes.";
 			if (hasCard) return "Transferência não usa cartão.";
 			break;

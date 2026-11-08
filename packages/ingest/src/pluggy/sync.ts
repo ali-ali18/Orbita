@@ -1,4 +1,12 @@
-import { addDays, addMonths, decimalToCents, type MonthKey, toLocalDate } from "@orbita/core";
+import {
+	addDays,
+	addMonths,
+	daysBetween,
+	decimalToCents,
+	type LocalDate,
+	type MonthKey,
+	toLocalDate,
+} from "@orbita/core";
 import {
 	type AccountRecord,
 	type CardRecord,
@@ -374,22 +382,43 @@ async function syncConnection(
 
 		// 3) Grava. `others` conta, por categoria do Pluggy, o que caiu em "Outros" (diagnóstico; sem descrição nem valor).
 		const others = new Map<string, number>();
+		const contextOf = (
+			target: Linked,
+			ownTransferCounterparts?: ReadonlyMap<string, string>,
+		): TransactionContext => ({
+			accountType: target.account ? "BANK" : "CREDIT",
+			accountId: target.account?.id ?? null,
+			card: target.card ? { id: target.card.id, config: toCardConfig(target.card) } : null,
+			ownerTaxNumber: target.taxNumber,
+			ownerName: target.ownerName,
+			billPaymentMatches: matches,
+			billTotals,
+			billMonths,
+			billsUnavailable,
+			...(categoryIndex ? { categoryIndex } : {}),
+			...(ownTransferCounterparts ? { ownTransferCounterparts } : {}),
+			categoryIds,
+			categoryRules,
+		});
+		// Transferências próprias entre as contas desta conexão: pareia as pontas que casam sem dúvida.
+		const legs: OwnTransferLeg[] = [];
 		for (const { target, txs } of fetched) {
-			const ctx: TransactionContext = {
-				accountType: target.account ? "BANK" : "CREDIT",
-				accountId: target.account?.id ?? null,
-				card: target.card ? { id: target.card.id, config: toCardConfig(target.card) } : null,
-				ownerTaxNumber: target.taxNumber,
-				ownerName: target.ownerName,
-				counterpartAccountId: soleOtherAccount(linked, target),
-				billPaymentMatches: matches,
-				billTotals,
-				billMonths,
-				billsUnavailable,
-				...(categoryIndex ? { categoryIndex } : {}),
-				categoryIds,
-				categoryRules,
-			};
+			if (!target.account) continue;
+			for (const tx of txs) {
+				const mapped = safeMap(tx, contextOf(target));
+				if (mapped?.action !== "upsert" || mapped.input.kind !== "transfer") continue;
+				legs.push({
+					id: tx.id,
+					accountId: target.account.id,
+					direction: tx.type === "DEBIT" ? "out" : "in",
+					amountCents: mapped.input.amountCents,
+					date: mapped.input.date,
+				});
+			}
+		}
+		const counterparts = pairOwnTransfers(legs);
+		for (const { target, txs } of fetched) {
+			const ctx = contextOf(target, counterparts);
 			await storeTransactions(deps, txs, ctx, result, others);
 		}
 		if ((result.reclassified ?? 0) > 0) {
@@ -651,42 +680,81 @@ async function storeTransactions(
 	}
 }
 
-/** A única outra conta (não arquivada) ligada à conexão, ou `null` se não há nenhuma ou há mais de uma. */
-function soleOtherAccount(linked: readonly Linked[], self: Linked): string | null {
-	const others = linked.flatMap((l) =>
-		l !== self && l.account && !l.account.archivedAt ? [l.account.id] : [],
-	);
-	return others.length === 1 ? (others[0] ?? null) : null;
+/** Uma ponta de transferência própria: o dinheiro que saiu (`out`) ou entrou (`in`) numa conta do Órbita. */
+export interface OwnTransferLeg {
+	id: string;
+	accountId: string;
+	direction: "in" | "out";
+	amountCents: number;
+	date: LocalDate;
 }
 
 /**
- * Recálculo do que já foi gravado errado (a sincronização é idempotente e nunca mexia no tipo). Só dois casos, ambos
- * sem ambiguidade e nunca sobre lançamento que o dono mexeu na categoria:
+ * Pareia saída e entrada da mesma transferência: mesmo valor, contas diferentes, mesmo dia ou dia seguinte. Só vale
+ * quando o par é ÚNICO dos dois lados (a saída tem exatamente uma entrada candidata e vice-versa); na dúvida não pareia.
+ * Devolve `id da ponta → conta da outra ponta`.
+ */
+export function pairOwnTransfers(legs: readonly OwnTransferLeg[]): Map<string, string> {
+	const candidates = (leg: OwnTransferLeg) =>
+		legs.filter(
+			(other) =>
+				other.direction !== leg.direction &&
+				other.accountId !== leg.accountId &&
+				other.amountCents === leg.amountCents &&
+				Math.abs(daysBetween(leg.date, other.date)) <= 1,
+		);
+	const paired = new Map<string, string>();
+	for (const leg of legs) {
+		if (leg.direction !== "out") continue;
+		const [only, ...rest] = candidates(leg);
+		if (!only || rest.length > 0) continue;
+		const back = candidates(only);
+		if (back.length !== 1 || back[0]?.id !== leg.id) continue;
+		paired.set(leg.id, only.accountId);
+		paired.set(only.id, leg.accountId);
+	}
+	return paired;
+}
+
+/**
+ * Recálculo do que já foi gravado errado (a sincronização é idempotente e nunca mexia no tipo). Só quando o lançamento
+ * existente é despesa ou receita e o mapeamento de hoje diz o contrário, e nunca se o dono editou a categoria:
  * - entrou dinheiro (o Pluggy diz CREDIT, o mapeamento diz `income`) e está gravado como despesa → vira receita;
- * - hoje o mapeamento reconhece transferência para si mesmo (com destino conhecido) e o lançamento está como
- *   despesa → vira `transfer` no lugar, com a categoria mantida e a observação avisando. Continua na lista de
- *   Atividades e deixa de contar como gasto.
+ * - o mapeamento reconhece transferência para si mesmo e está gravado como despesa ou receita → vira `transfer` no
+ *   lugar (continua nas Atividades, categoria mantida, observação avisando) e deixa de contar como gasto ou renda;
+ * - já é `transfer` sem destino e agora há um par único → preenche o destino.
  */
 async function fixKind(
 	transactions: SyncPluggyDeps["stores"]["transactions"],
-	current: { id: string; kind: string; categoryEditedByOwner: boolean },
+	current: {
+		id: string;
+		kind: string;
+		categoryEditedByOwner: boolean;
+		note: string | null;
+		counterpartAccountId: string | null;
+	},
 	next: {
 		kind: string;
 		categoryId?: string | null | undefined;
 		counterpartAccountId?: string | null | undefined;
 	},
 ): Promise<boolean> {
-	if (current.categoryEditedByOwner || current.kind !== "expense") return false;
-	if (next.kind === "income") {
+	if (current.categoryEditedByOwner) return false;
+	if (current.kind === "expense" && next.kind === "income") {
 		await transactions.update(current.id, { kind: "income", categoryId: next.categoryId ?? null });
 		return true;
 	}
-	if (next.kind === "transfer" && next.counterpartAccountId) {
+	if (next.kind !== "transfer") return false;
+	if (current.kind === "expense" || current.kind === "income") {
 		await transactions.update(current.id, {
 			kind: "transfer",
-			counterpartAccountId: next.counterpartAccountId,
-			note: RECOMPUTED_NOTE,
+			counterpartAccountId: next.counterpartAccountId ?? null,
+			...(current.note === null ? { note: RECOMPUTED_NOTE } : {}),
 		});
+		return true;
+	}
+	if (current.kind === "transfer" && current.counterpartAccountId === null && next.counterpartAccountId) {
+		await transactions.update(current.id, { counterpartAccountId: next.counterpartAccountId });
 		return true;
 	}
 	return false;

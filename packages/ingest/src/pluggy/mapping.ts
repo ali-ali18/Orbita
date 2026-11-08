@@ -209,7 +209,6 @@ export type SkipReason =
 	| "pending" // ainda não efetivado: pode mudar de id ao efetivar
 	| "invalid" // valor, data ou tipo que o Órbita não aceita
 	| "foreign_currency"
-	| "own_transfer" // entre contas do próprio dono: não é gasto nem receita
 	| "investment" // aplicação, resgate, caixinha, poupança: o dinheiro só mudou de bolso (o Órbita não tem conta de investimento)
 	| "card_payment" // o lado do cartão do pagamento da fatura (o lado do banco é quem conta)
 	| "card_payment_unlinked" // pagamento de fatura que não dá para ligar a um cartão (o Órbita não tem pagamento "sem cartão")
@@ -308,10 +307,10 @@ export interface TransactionContext {
 	/** Nome do titular da conta (`owner`), para reconhecer Pix para si mesmo quando o banco não manda o CPF. */
 	ownerName?: string | null;
 	/**
-	 * A única outra conta do dono conhecida (não arquivada). Só com ela a saída para si mesmo vira `transfer`
-	 * (o engine exige origem e destino); com zero ou várias, o destino é incerto e o lançamento fica de fora.
+	 * Destino de cada transferência própria que o sync conseguiu PAREAR de forma única (id do lançamento do Pluggy →
+	 * conta do Órbita da outra ponta). Sem par, a transferência é gravada sem destino ("outra conta sua").
 	 */
-	counterpartAccountId?: string | null;
+	ownTransferCounterparts?: ReadonlyMap<string, string>;
 	/**
 	 * Quais lançamentos são pagamento de fatura, já casados um a um (`assignBillPayments`), por id do lançamento.
 	 * Mais confiável que o nome da categoria.
@@ -563,21 +562,19 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 			isOwnTransferByName(tx, description, ctx.ownerName) ||
 			family === "own_transfer"
 		) {
-			// Só a SAÍDA vira transferência: a entrada correspondente seria a mesma movimentação contada duas vezes.
-			if (tx.type === "DEBIT" && ctx.counterpartAccountId) {
-				return {
-					action: "upsert",
-					externalId: tx.id,
-					input: {
-						...base,
-						kind: "transfer",
-						accountId: ctx.accountId,
-						counterpartAccountId: ctx.counterpartAccountId,
-						categoryId: choose().categoryId,
-					},
-				};
-			}
-			return { action: "skip", reason: "own_transfer" };
+			// Entrada e saída viram `transfer` (nem gasto nem receita), cada uma na conta que a viu. O destino só é
+			// preenchido quando as duas pontas foram pareadas com certeza; senão fica vazio.
+			return {
+				action: "upsert",
+				externalId: tx.id,
+				input: {
+					...base,
+					kind: "transfer",
+					accountId: ctx.accountId,
+					counterpartAccountId: ctx.ownTransferCounterparts?.get(tx.id) ?? null,
+					categoryId: ctx.categoryIds?.get("transferencias") ?? null,
+				},
+			};
 		}
 		// Rendimento de investimento é receita de verdade (o principal que volta, não: ver acima).
 		if (tx.type === "CREDIT") {

@@ -625,6 +625,19 @@ describe("gastos por categoria: rendimento, fatura paga e transferência própri
 			counterpartAccountId: other.id,
 		});
 
+		// Pix de/para outra conta sua, sem saber qual: transferência sem destino, nos dois sentidos.
+		for (const description of ["Pix enviado - titular", "Pix recebido - titular"]) {
+			const res = await post({
+				kind: "transfer",
+				amountCents: 70_000,
+				date: "2026-11-11",
+				description,
+				categoryId: b.category("transferencias"),
+				accountId: b.account.id,
+			});
+			expect(res.status).toBe(201);
+		}
+
 		const body = (await ctx.api.get("/v1/summary/2026-11")).body;
 		expect(body.summary.byCategory).toEqual({
 			[b.category("mercado")]: 25_000,

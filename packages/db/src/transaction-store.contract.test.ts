@@ -161,9 +161,9 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 				"A conta de destino só vale para transferência.",
 			],
 			[
-				"transferência sem destino",
-				() => expense({ kind: "transfer" }),
-				"A transferência precisa de conta de origem e de destino.",
+				"transferência sem conta",
+				() => expense({ kind: "transfer", accountId: null }),
+				"A transferência precisa de uma conta.",
 			],
 			[
 				"transferência para a mesma conta",
@@ -246,11 +246,24 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect(await tx.get(t.id)).toEqual(u);
 		});
 
+		it("transferência sem destino conhecido é válida (outra conta sua, não identificada)", async () => {
+			const t = await tx.create(expense({ kind: "transfer" }));
+			expect(t).toMatchObject({ kind: "transfer", counterpartAccountId: null });
+			const e = await tx.create(expense());
+			const u = await tx.update(e.id, { kind: "transfer", counterpartAccountId: b.savings.id });
+			expect(u).toMatchObject({ kind: "transfer", counterpartAccountId: b.savings.id });
+			expect(await tx.update(e.id, { counterpartAccountId: null })).toMatchObject({
+				counterpartAccountId: null,
+			});
+		});
+
 		it("recusa patch que deixa o lançamento inválido e não grava nada", async () => {
 			const t = await tx.create(expense());
-			await expect(tx.update(t.id, { kind: "transfer" })).rejects.toMatchObject({
+			await expect(
+				tx.update(t.id, { kind: "transfer", counterpartAccountId: t.accountId }),
+			).rejects.toMatchObject({
 				code: "invalid",
-				message: "A transferência precisa de conta de origem e de destino.",
+				message: "Origem e destino da transferência devem ser contas diferentes.",
 			});
 			await expect(tx.update(t.id, { accountId: null })).rejects.toMatchObject({ code: "invalid" });
 			await expect(tx.update(t.id, { cardId: b.card.id })).rejects.toMatchObject({ code: "invalid" });
