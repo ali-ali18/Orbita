@@ -51,6 +51,12 @@ Trocar invalida o código de pareamento ativo e torna ilegíveis os segredos cif
   - `2`: Cloudflare (ou outro CDN) na frente do Traefik. Só funciona se o Traefik estiver configurado para confiar nos IPs da Cloudflare (`forwardedHeaders.trustedIPs`); senão ele descarta o cabeçalho e a API usa o endereço da conexão, e todos dividiriam o mesmo limite.
   - `0`: API exposta direto, ou desenvolvimento local (padrão fora do compose). Usa o endereço da conexão e ignora o cabeçalho.
 
+### Idempotência
+
+- A chave (`Idempotency-Key`) vale **por aparelho**: outro aparelho, mesmo com a mesma chave, não lê a resposta guardada. A resposta guardada é a do próprio aparelho (um lançamento do dono), por 24 h, e some com o aparelho revogado e apagado (cascata) ou pela limpeza do worker.
+- A chave só pode repetir o **mesmo pedido** (método, caminho e corpo): reutilizá-la com outro conteúdo é recusado (422), então uma chave repetida nunca faz o servidor devolver a resposta de uma operação diferente.
+- Risco aceito: se o processo cair entre criar o lançamento e guardar a resposta, a reserva fica sem resposta e, depois de 60 s, uma nova tentativa pode criar de novo (duplicado raro, visível e apagável no app).
+
 ## Atualização OTA do app
 
 O app aceita atualizações de JavaScript do próprio servidor, o que é uma via para executar código no celular. Por isso:

@@ -71,9 +71,20 @@ Se algum passo não se aplica, pule. Se a feature não tem regra de dinheiro, n�
 
 `packages/ota` é o contrato entre quem **gera** a atualização (o CLI `pnpm ota`, no GitHub Actions) e quem a **serve** (`apps/api/src/modules/updates/`): o formato do diretório `/app/ota`, os nomes de arquivo (hash no nome, nada de caminho vindo da URL) e a assinatura. O módulo da API segue o padrão de store com duas implementações (`createFsOtaStore` e `createMemoryOtaStore`); o diretório entra por `OTA_DIR` (padrão `/app/ota`), lido só em `env.ts`. Detalhes de uso e segurança em [servidor](servidor.md#atualizar-o-app-sem-apk) e [segurança](seguranca.md#atualização-ota-do-app).
 
+## Idempotência de pedidos que criam coisas
+
+`POST /v1/transactions` e `/v1/transactions/installments` aceitam o cabeçalho `Idempotency-Key` (UUID). A regra mora em `apps/api/src/http/idempotency.ts` (`idempotent(c, deps, body, status, run)`); os dados, na interface `IdempotencyStore` (`packages/db`, Prisma e memória, mesmo teste de contrato).
+
+- Primeira vez: reserva `(aparelho, chave)`, executa, guarda `status` + corpo por 24 h. Só sucesso fica guardado; se `run` falhar, a reserva é desfeita.
+- Mesma chave e mesmo pedido (método + caminho + corpo canônico, hash SHA-256): devolve a resposta guardada, com `Idempotent-Replayed: true`. Nada é criado.
+- Mesma chave com outro pedido: 422 `chave_reutilizada`. Mesma chave enquanto o primeiro ainda roda: 409 `em_andamento` (o app repete e recebe a resposta guardada).
+- Corrida: a unicidade `(device_id, key)` no banco decide quem executa; o outro pedido vê a reserva. Uma reserva sem resposta há mais de 60 s (processo caiu) é retomada.
+- Sem o cabeçalho, o pedido executa como antes. O worker apaga as chaves expiradas a cada hora (fila `manutencao`).
+- Para acrescentar a outro POST: envolva a criação em `idempotent(...)` na rota e mande o cabeçalho no app (`lib/idempotency.ts`).
+
 ## Tarefas em segundo plano
 
-O worker tem filas por assunto (`manutencao`, `sincronizacao`, depois `alertas`). Cada processador é uma função pura testável (`cleanPairingCodes({ store, now })`); o arquivo `index.ts` só liga fila → função. Decidir **se** algo deve acontecer (avisar, sincronizar) é código determinístico; a IA só escreve o texto.
+O worker tem filas por assunto (`manutencao`, `sincronizacao`, depois `alertas`). Cada processador é uma função pura testável (`cleanPairingCodes({ store, now })`, `cleanIdempotencyKeys`); o arquivo `index.ts` só liga fila → função. Decidir **se** algo deve acontecer (avisar, sincronizar) é código determinístico; a IA só escreve o texto.
 
 ## Configuração
 
