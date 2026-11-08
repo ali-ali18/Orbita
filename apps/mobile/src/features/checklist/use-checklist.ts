@@ -4,7 +4,9 @@ import { getItem, KEYS, setItem } from "../../lib/storage.ts";
 import { usePluggyStatusSnapshot } from "../banks/queries.ts";
 import { totalLimit } from "../budget/budget-model.ts";
 import { useBudgets } from "../budget/queries.ts";
-import { CHECKLIST_DISMISSED, type ChecklistFacts, isDismissed } from "./checklist-model.ts";
+import { useIncome } from "../income/queries.ts";
+import { useRecurrences } from "../subscriptions/queries.ts";
+import { CHECKLIST_DISMISSED, type ChecklistFacts, hasSetup, isDismissed } from "./checklist-model.ts";
 
 /** `null` enquanto o cofre não respondeu. Falha de leitura vale como "não dispensou". */
 export function useChecklistDismissed(): { dismissed: boolean | null; dismiss: () => void } {
@@ -46,9 +48,12 @@ function useBiometricOn(): boolean | undefined {
 export function useChecklistFacts(transactionCount: number | undefined): ChecklistFacts {
 	const pluggy = usePluggyStatusSnapshot();
 	const budgets = useBudgets();
+	const income = useIncome();
+	const recurrences = useRecurrences();
 	const biometricOn = useBiometricOn();
 	return {
 		connectionCount: pluggy.data?.connections.length,
+		hasSetup: hasSetup(income.data?.sources.length, recurrences.data?.recurrences),
 		hasBudget: budgets.data ? totalLimit(budgets.data.budgets) !== null : undefined,
 		transactionCount,
 		biometricOn,

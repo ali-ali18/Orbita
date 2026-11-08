@@ -182,6 +182,30 @@ describe.each(contractSuites())("ChatStore (%s)", (_name, make) => {
 		expect(await stores.chat.getProposal(p.id)).toBeNull();
 	});
 
+	it("proposta de configuração: guarda o payload aninhado e o resultado do Desfazer sem perder nada", async () => {
+		const c = await stores.chat.createConversation("Configurar com a Órbita");
+		const payload = {
+			action: {
+				source: "ai",
+				subscriptions: [{ key: "rec:unip", name: "Faculdade (Unip)", amountCents: 48000, dayOfMonth: 8 }],
+				categoryRules: [],
+				income: null,
+				plan: { reservePercent: 10 },
+			},
+			title: "Configurar com a Órbita",
+			lines: [{ label: "Assinaturas", value: "1" }],
+		};
+		const p = await stores.chat.createProposal(c.id, { kind: "setup", payload });
+		expect(p).toMatchObject({ kind: "setup", status: "pending", payload });
+		const result = {
+			applied: { subscriptions: [{ key: "rec:unip", name: "Faculdade", categoryId: "c1" }] },
+			undo: { recurrenceIds: ["r1"], rules: [], recategorized: [], incomeId: null, previousBudgets: null },
+		};
+		const done = await stores.chat.transitionProposal(p.id, "pending", "confirmed", { result });
+		expect(done?.result).toEqual(result);
+		expect((await stores.chat.getProposal(p.id))?.result).toEqual(result);
+	});
+
 	it("proposta: nasce pendente, guarda o payload e só muda de situação uma vez", async () => {
 		const c = await stores.chat.createConversation("Conversa");
 		const payload = { input: { amountCents: 4690 }, summary: { title: "Lançar gasto" } };

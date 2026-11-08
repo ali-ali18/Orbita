@@ -12,8 +12,11 @@ import {
 	pickModel,
 	resolveChatModels,
 	resolvePersona,
+	resolveSetupPersona,
 	runAgent,
+	SETUP_TASK_TEXT,
 	ToolError,
+	templateSetupDraft,
 	undoProposal,
 } from "@orbita/agents";
 import { monthOf, toLocalDate } from "@orbita/core";
@@ -27,12 +30,17 @@ import {
 } from "@orbita/db";
 import { budgetBlock, limitMessage } from "@orbita/ledger";
 import {
+	appliedView,
 	CHAT_ERROR_CODES,
 	type ChatCard,
 	type ChatMessageDto,
 	chatCardSchema,
 	type ProposalDto,
 	type ProposalStatus,
+	SETUP_USER_MESSAGE,
+	type SetupProposal,
+	setupProposalSchema,
+	setupSelectionSchema,
 } from "@orbita/shared";
 import { z } from "zod";
 import { createAgentReader, createAgentWriter } from "./backend.ts";
@@ -103,8 +111,24 @@ function resultTransactionId(result: Record<string, unknown> | null): string | n
 	return typeof id === "string" ? id : null;
 }
 
+/**
+ * Os itens do card "Configurar com a Órbita". Pendente ou cancelada: tudo que foi proposto. Confirmada ou desfeita: só
+ * o que o dono aplicou, com os nomes e categorias que ele deixou (guardados em `result.applied`).
+ */
+function setupView(p: ChatProposalRecord, action: Record<string, unknown>): SetupProposal | undefined {
+	if (p.kind !== "setup") return undefined;
+	const proposal = setupProposalSchema.safeParse(action);
+	if (!proposal.success) return undefined;
+	if (p.status === "confirmed" || p.status === "undone") {
+		const applied = setupSelectionSchema.safeParse(p.result?.applied);
+		if (applied.success) return appliedView(proposal.data, applied.data);
+	}
+	return proposal.data;
+}
+
 export function toProposalDto(p: ChatProposalRecord): ProposalDto {
 	const parsed = envelope.safeParse(p.payload);
+	const setup = parsed.success ? setupView(p, parsed.data.action) : undefined;
 	return {
 		id: p.id,
 		kind: p.kind,
@@ -112,6 +136,7 @@ export function toProposalDto(p: ChatProposalRecord): ProposalDto {
 		title: parsed.success ? parsed.data.title : "Proposta",
 		lines: parsed.success ? parsed.data.lines : [],
 		transactionId: p.status === "confirmed" ? resultTransactionId(p.result) : null,
+		...(setup ? { setup } : {}),
 	};
 }
 
@@ -143,14 +168,27 @@ function alreadyAnswered(p: ChatProposalRecord, wanted: string): DataError {
 }
 
 /** A IA nunca escreve sozinha: é aqui, quando o dono toca em "Confirmar", que a escrita acontece. */
-export async function confirmProposal(deps: ChatServiceDeps, id: string): Promise<ProposalDto> {
+export async function confirmProposal(
+	deps: ChatServiceDeps,
+	id: string,
+	selection?: unknown,
+): Promise<ProposalDto> {
 	const current = await loadProposal(deps, id);
+	// O que o dono marcou e editou só existe na proposta de configuração.
+	if (selection !== undefined && current.kind !== "setup") {
+		throw new DataError("invalid", "Esta proposta não tem itens para escolher.");
+	}
 	// Comparar e trocar: dois toques seguidos nunca executam duas vezes.
 	const claimed = await transition(deps, id, "pending", "confirmed");
 	if (!claimed) throw alreadyAnswered(current, "confirmar");
 	try {
 		const action = envelope.parse(claimed.payload).action;
-		const applied = await applyProposal(claimed.kind, action, createAgentWriter(deps.stores, deps.now));
+		const applied = await applyProposal(
+			claimed.kind,
+			action,
+			createAgentWriter(deps.stores, deps.now),
+			selection,
+		);
 		const done = await transition(deps, id, "confirmed", "confirmed", applied.result);
 		return toProposalDto(done ?? claimed);
 	} catch (error) {
@@ -236,7 +274,10 @@ export function toModelHistory(messages: ChatMessageDto[]): ModelMessage[] {
 
 export interface ChatTurnInput {
 	conversationId?: string | undefined;
-	message: string;
+	/** Ausente na tarefa fixa (`intent`). */
+	message?: string | undefined;
+	/** "Configurar com a Órbita": a tarefa vem do servidor, não do que o dono digitou. */
+	intent?: "setup" | undefined;
 	ownerName: string | null;
 	emit: (
 		event: AgentEvent | { type: "meta"; conversationId: string; model?: string },
@@ -245,17 +286,30 @@ export interface ChatTurnInput {
 }
 
 export interface ChatTurnPreflight {
-	apiKey: string;
+	/** `null` só na tarefa de configuração sem chave ou acima do limite: o servidor monta a lista sozinho, sem IA. */
+	apiKey: string | null;
+	/** Por que a configuração foi montada sem IA (pt-BR), ou `null` quando há IA. */
+	templateReason: string | null;
 	conversationId: string | null;
 	/** Agente da conversa (o da conversa existente, ou o pedido numa conversa nova); `null` = Órbita. */
 	agent: AgentRecord | null;
 }
 
-/** Tudo que pode recusar o pedido ANTES de abrir o fluxo: chave, limite do mês e conversa existente. */
+const TEMPLATE_REASONS = {
+	[CHAT_ERROR_CODES.noKey]: "Sem a chave da Anthropic cadastrada, montei a lista sem IA.",
+	[CHAT_ERROR_CODES.unreadableKey]: "Não consegui abrir a chave da Anthropic, então montei a lista sem IA.",
+	[CHAT_ERROR_CODES.monthlyLimit]: "O limite mensal da IA foi atingido, então montei a lista sem IA.",
+} as const;
+
+/**
+ * Tudo que pode recusar o pedido ANTES de abrir o fluxo: chave, limite do mês e conversa existente. Na tarefa de
+ * configuração (`setup`) a falta de chave ou o limite não recusam: o servidor monta a lista sozinho, sem IA.
+ */
 export async function preflightChat(
 	deps: ChatServiceDeps,
 	conversationId: string | undefined,
 	agentId?: string | undefined,
+	options: { setup?: boolean } = {},
 ): Promise<ChatTurnPreflight> {
 	const conversation =
 		conversationId === undefined ? null : await deps.stores.chat.getConversation(conversationId);
@@ -266,10 +320,17 @@ export async function preflightChat(
 	const wantedAgentId = conversation ? conversation.agentId : (agentId ?? null);
 	const agent = wantedAgentId === null ? null : await deps.stores.agents.get(wantedAgentId);
 	if (wantedAgentId !== null && !agent) throw new DataError("not_found", "Agente não encontrado.");
-	const apiKey = await requireApiKey(deps.vault);
-	const blocked = await budgetBlock(deps);
-	if (blocked) throw new ChatPreconditionError(403, CHAT_ERROR_CODES.monthlyLimit, blocked);
-	return { apiKey, conversationId: conversationId ?? null, agent };
+	try {
+		const apiKey = await requireApiKey(deps.vault);
+		const blocked = await budgetBlock(deps);
+		if (blocked) throw new ChatPreconditionError(403, CHAT_ERROR_CODES.monthlyLimit, blocked);
+		return { apiKey, templateReason: null, conversationId: conversationId ?? null, agent };
+	} catch (error) {
+		if (options.setup !== true || !(error instanceof ChatPreconditionError)) throw error;
+		const reason =
+			TEMPLATE_REASONS[error.code as keyof typeof TEMPLATE_REASONS] ?? TEMPLATE_REASONS.sem_chave_anthropic;
+		return { apiKey: null, templateReason: reason, conversationId: null, agent: null };
+	}
 }
 
 /** Uma volta do chat: grava a mensagem do dono, roda o agente e grava a resposta. Devolve o id da resposta. */
@@ -279,28 +340,46 @@ export async function runChatTurn(
 	input: ChatTurnInput,
 ): Promise<{ messageId: string }> {
 	const { stores } = deps;
+	const setup = input.intent === "setup";
+	// Na tarefa fixa, o que aparece como fala do dono é o rótulo do botão, e o que o modelo recebe é o texto da tarefa.
+	const shown = setup ? SETUP_USER_MESSAGE : (input.message ?? "");
 	const conversation =
 		pre.conversationId === null
-			? await stores.chat.createConversation(input.message, { agentId: pre.agent?.id ?? null })
+			? await stores.chat.createConversation(shown, { agentId: pre.agent?.id ?? null })
 			: await stores.chat.getConversation(pre.conversationId);
 	if (!conversation) throw new DataError("not_found", "Conversa não encontrada.");
 
 	const before = await stores.chat.listMessages(conversation.id, { lastN: HISTORY_MESSAGES });
 	const history = toModelHistory(await hydrateMessages(deps, before));
-	await stores.chat.appendMessage(conversation.id, { role: "user", text: input.message });
+	await stores.chat.appendMessage(conversation.id, { role: "user", text: shown });
 
 	const today = toLocalDate(deps.now());
 	const month = monthOf(today);
 	const reader = createAgentReader(stores, deps.now);
 	let catalog: ReturnType<typeof reader.catalog> | undefined;
+
+	// Sem IA (sem chave ou acima do limite): a mesma análise do engine, com os nomes do banco limpos.
+	if (setup && pre.apiKey === null) {
+		return runTemplateSetup(deps, conversation.id, reader, pre.templateReason, input);
+	}
+	if (pre.apiKey === null) {
+		throw new ChatPreconditionError(409, CHAT_ERROR_CODES.noKey, TEMPLATE_REASONS[CHAT_ERROR_CODES.noKey]);
+	}
+
 	// O que o dono escolheu no app vence; sem escolha, valem as variáveis de ambiente (`deps.models`).
 	const models = resolveChatModels(deps.models, await stores.aiUsage.getModelChoice());
 	// "Conversar com o agente": o papel e só as ferramentas dele. Sem agente (ou a Órbita), valem todas.
-	const persona = pre.agent ? resolvePersona(pre.agent) : { roleText: "", tools: ALL_TOOLS };
+	// A tarefa de configuração tem o próprio papel e só as três ferramentas dela.
+	const persona = setup
+		? resolveSetupPersona()
+		: pre.agent
+			? resolvePersona(pre.agent)
+			: { roleText: "", tools: ALL_TOOLS };
 	// O modelo escolhido para o agente vale; senão, a mesma escolha do chat (o barato só na Órbita, em pergunta curta).
-	const picked = pickModel(models, { text: input.message, isFirstMessage: before.length === 0 });
-	const { model, effort } =
-		pre.agent?.model && isMainModel(pre.agent.model)
+	const picked = pickModel(models, { text: shown, isFirstMessage: before.length === 0 });
+	const { model, effort } = setup
+		? { model: models.main, effort: models.effort }
+		: pre.agent?.model && isMainModel(pre.agent.model)
 			? { model: pre.agent.model, effort: models.effort }
 			: pre.agent && pre.agent.builtinKey !== "orbita"
 				? { model: models.main, effort: models.effort }
@@ -347,7 +426,7 @@ export async function runChatTurn(
 			effort,
 			system: buildAgentSystem({ today, month, ownerName: input.ownerName }, persona.roleText),
 			history,
-			userText: input.message,
+			userText: setup ? SETUP_TASK_TEXT : shown,
 			...(input.signal ? { signal: input.signal } : {}),
 			// O fluxo pode ter fechado (o app saiu da tela): escrever nele falha em silêncio, o turno segue e é gravado.
 			emit: (event) => {
@@ -361,5 +440,39 @@ export async function runChatTurn(
 		text: result.text,
 		cards: result.cards,
 	});
+	return { messageId: saved.id };
+}
+
+/** "Configurar com a Órbita" sem IA: a análise do engine vira o card com nomes limpos do banco, sem chamar o modelo. */
+async function runTemplateSetup(
+	deps: ChatServiceDeps,
+	conversationId: string,
+	reader: ReturnType<typeof createAgentReader>,
+	reason: string | null,
+	input: ChatTurnInput,
+): Promise<{ messageId: string }> {
+	const { stores } = deps;
+	await input.emit({ type: "meta", conversationId });
+	const [analysis, catalog] = await Promise.all([reader.setupAnalysis(), reader.catalog()]);
+	const draft = templateSetupDraft(analysis, catalog);
+	const months = `${analysis.monthsOfHistory} ${analysis.monthsOfHistory === 1 ? "mês" : "meses"}`;
+	const weak = analysis.limitedHistory
+		? " O histórico ainda é curto (menos de 3 meses), então o resultado é fraco."
+		: "";
+	const text = draft
+		? `${reason ?? ""} Olhei ${months} do seu histórico e montei a lista abaixo com os nomes que vieram do banco. Edite nomes e categorias, marque o que quiser e toque em Confirmar: nada foi gravado ainda.${weak}`
+		: `${reason ?? ""} Olhei ${months} do seu histórico e não achei assinaturas, renda nem estabelecimentos para configurar.${weak} Quando houver mais movimento, é só tocar de novo.`;
+	const cards: ChatCard[] = [];
+	if (draft) {
+		const record = await stores.chat.createProposal(conversationId, {
+			kind: draft.kind,
+			payload: { action: draft.payload, title: draft.title, lines: draft.lines },
+		});
+		cards.push({ type: "proposal", proposal: toProposalDto(record) });
+	}
+	const said = text.trim();
+	await input.emit({ type: "text", delta: said });
+	for (const card of cards) await input.emit({ type: "card", card });
+	const saved = await stores.chat.appendMessage(conversationId, { role: "assistant", text: said, cards });
 	return { messageId: saved.id };
 }

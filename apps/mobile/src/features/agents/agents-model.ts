@@ -267,3 +267,7 @@ export function toolsSummary(tools: readonly string[]): string {
 export function isAffectedByAgents(queryKey: readonly unknown[], baseUrl: string): boolean {
 	return queryKey[0] === baseUrl && (queryKey[1] === "agents" || queryKey[1] === "alerts");
 }
+
+/** Explica o botão "Configurar com a Órbita" da tela da Órbita. */
+export const SETUP_ENTRY_NOTE =
+	"Analiso o seu histórico e proponho assinaturas, categorias e renda. Você marca o que quer e confirma.";

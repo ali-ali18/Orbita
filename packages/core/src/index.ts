@@ -12,6 +12,7 @@ export * from "./installments.ts";
 export * from "./invoice.ts";
 export * from "./invoice-composition.ts";
 export * from "./invoice-payment.ts";
+export * from "./known-services.ts";
 export * from "./merchant.ts";
 export * from "./money.ts";
 export * from "./recurrence.ts";

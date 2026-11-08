@@ -1,4 +1,14 @@
-import { budgetBefore, monthKeySchema, transactionApiCreateBody } from "@orbita/shared";
+import {
+	budgetBefore,
+	fullSelection,
+	monthKeySchema,
+	resolveSetupSelection,
+	type SetupSelection,
+	setupProposalSchema,
+	setupSelectionSchema,
+	setupUndoSchema,
+	transactionApiCreateBody,
+} from "@orbita/shared";
 import { z } from "zod";
 import { type AgentWriter, ToolError } from "./backend.ts";
 
@@ -17,6 +27,8 @@ const applyPlanPayload = z.object({
 });
 const applyPlanResult = z.object({ previous: z.array(budgetBefore) });
 
+const setupResult = z.object({ undo: setupUndoSchema });
+
 const createResult = z.object({ transactionId: z.string().min(1) });
 const categorizeResult = z.object({
 	transactionId: z.string().min(1),
@@ -34,10 +46,15 @@ export interface AppliedProposal {
 
 const invalidPayload = () => new ToolError("A proposta está corrompida e não pode ser executada.");
 
+/**
+ * `selection`: o que o dono deixou marcado no card da proposta `setup` (nomes e categorias editados). Ausente = tudo
+ * como foi proposto. Valor, dia e data nunca vêm daqui: ficam os da proposta.
+ */
 export async function applyProposal(
 	kind: string,
 	payload: Record<string, unknown>,
 	writer: AgentWriter,
+	selection?: unknown,
 ): Promise<AppliedProposal> {
 	if (kind === "create_transaction") {
 		const parsed = createPayload.safeParse(payload);
@@ -65,7 +82,24 @@ export async function applyProposal(
 		const { previous } = await writer.applyPlan(parsed.data.month, parsed.data.reservePercent);
 		return { result: { previous }, transactionId: null };
 	}
+	if (kind === "setup") {
+		const parsed = setupProposalSchema.safeParse(payload);
+		if (!parsed.success) throw invalidPayload();
+		const chosen: SetupSelection | { error: string } =
+			selection === undefined ? fullSelection(parsed.data) : parseSelection(selection);
+		if ("error" in chosen) throw new ToolError(chosen.error);
+		const resolved = resolveSetupSelection(parsed.data, chosen);
+		if (!resolved.ok) throw new ToolError(resolved.message);
+		const undo = await writer.applySetup(resolved.input);
+		// `applied` é o que o card mostra depois (só o aplicado, com os nomes finais); `undo` é para o Desfazer.
+		return { result: { applied: chosen, undo }, transactionId: null };
+	}
 	throw invalidPayload();
+}
+
+function parseSelection(raw: unknown): SetupSelection | { error: string } {
+	const parsed = setupSelectionSchema.safeParse(raw);
+	return parsed.success ? parsed.data : { error: "A seleção enviada é inválida." };
 }
 
 /** Desfaz o que `applyProposal` fez. Não lança por "já estava assim": o Desfazer repetido não pode falhar. */
@@ -98,6 +132,12 @@ export async function undoProposal(
 		const parsed = applyPlanResult.safeParse(result);
 		if (!parsed.success) throw invalidPayload();
 		await writer.restoreBudgets(parsed.data.previous);
+		return;
+	}
+	if (kind === "setup") {
+		const parsed = setupResult.safeParse(result);
+		if (!parsed.success) throw invalidPayload();
+		await writer.undoSetup(parsed.data.undo);
 		return;
 	}
 	throw invalidPayload();

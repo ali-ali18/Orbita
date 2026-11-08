@@ -84,7 +84,7 @@ Fontes:
 - Laço de ferramentas sobre o SDK oficial da Anthropic (escrito à mão, para checar limite e custo a cada volta; ver [arquitetura](arquitetura.md#chat-com-a-ia-packagesagents--moduleschat)); ferramentas definidas com Zod.
 - Sonnet 5.5 por padrão e Haiku 5.5 para perguntas curtas só de leitura (trocáveis por variável de ambiente); custo do mês visível em _Configurações → Servidor e chaves_, com limite mensal.
 - **Ferramentas de leitura**: lançamentos, resumo do mês, fatura, orçamento, projeção.
-- **Ferramentas de escrita**: lançar, recategorizar, criar orçamento/meta/alerta. Toda escrita gera um card no chat com **Desfazer**.
+- **Ferramentas de escrita**: lançar, recategorizar, aplicar o plano da renda, configurar o app com o histórico (assinaturas, regras de categoria, renda), criar orçamento/meta/alerta. Toda escrita gera um card no chat com **Desfazer**.
 - Os avisos são decididos pelo **worker** (determinístico); o agente só escreve o texto em cima dos números prontos.
 
 | Agente          | Papel                                                                      |

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { idSchema } from "./finance-primitives.ts";
+import { setupProposalSchema } from "./setup-api.ts";
 
 /*
  * Chat com a Órbita. O app manda a mensagem, o servidor responde em SSE (texto aos poucos + cards) e guarda
@@ -27,13 +28,34 @@ export const chatRequestBody = z
 		 * existe vale o agente com que ela foi aberta.
 		 */
 		agentId: idSchema.optional(),
+		/**
+		 * Tarefa fixa do lado do servidor ("Configurar com a Órbita"): abre a conversa com a análise do histórico, sem
+		 * mensagem digitada. Com `intent` não há `message`; sem `intent`, a mensagem é obrigatória.
+		 */
+		intent: z.literal("setup").optional(),
 		message: z
 			.string({ error: "Escreva a mensagem." })
 			.trim()
 			.min(1, "Escreva a mensagem.")
-			.max(CHAT_MESSAGE_MAX, `A mensagem tem até ${CHAT_MESSAGE_MAX} letras.`),
+			.max(CHAT_MESSAGE_MAX, `A mensagem tem até ${CHAT_MESSAGE_MAX} letras.`)
+			.optional(),
 	})
-	.strict();
+	.strict()
+	.superRefine((v, ctx) => {
+		if (v.intent === undefined && v.message === undefined) {
+			ctx.addIssue({ code: "custom", path: ["message"], message: "Escreva a mensagem." });
+		}
+		if (v.intent !== undefined && v.message !== undefined) {
+			ctx.addIssue({ code: "custom", path: ["message"], message: "Esta tarefa não leva mensagem." });
+		}
+		if (v.intent !== undefined && (v.conversationId !== undefined || v.agentId !== undefined)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["intent"],
+				message: "Esta tarefa abre uma conversa nova com a Órbita.",
+			});
+		}
+	});
 export type ChatRequestBody = z.infer<typeof chatRequestBody>;
 
 // ---------------------------------------------------------------- cards
@@ -64,6 +86,7 @@ export const PROPOSAL_KINDS = [
 	"categorize_transaction",
 	"confirm_transaction",
 	"apply_plan",
+	"setup",
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 
@@ -79,6 +102,11 @@ export const proposalSchema = z.object({
 	lines: z.array(z.object({ label: z.string(), value: z.string() })),
 	/** Lançamento criado ou alterado (depois de confirmar); `null` antes. */
 	transactionId: z.string().nullable(),
+	/**
+	 * Só na proposta `setup`: os itens do card. Pendente = tudo que foi proposto; confirmada ou desfeita = só o que o
+	 * dono aplicou, com os nomes e categorias que ele deixou.
+	 */
+	setup: setupProposalSchema.optional(),
 });
 export type ProposalDto = z.infer<typeof proposalSchema>;
 
