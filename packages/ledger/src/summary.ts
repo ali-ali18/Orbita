@@ -114,7 +114,9 @@ export async function refundOriginalsOutside(stores: Stores, txs: readonly Trans
  *
  * Parcela estimada: grupo de parcelas conhecido (visto em outra fatura) cuja parcela deste mês o banco ainda não
  * lançou. Conta no mês, marcada como estimada (`projectedCents` no resumo), porque a fatura que vence em `month` vai
- * cobrá-la. Só de hoje em diante: um mês já passado fica como foi gravado (não se inventa histórico).
+ * cobrá-la. Só de hoje em diante (um mês já passado fica como foi gravado, não se inventa histórico) e só enquanto a
+ * fatura está aberta (fechada, o banco já cobrou tudo o que ia cobrar). Parcela que a fatura já tem, de qualquer
+ * grupo, não é estimada de novo (ver `projectMissingInstallments`).
  */
 export async function loadSpendingMonth(
 	stores: Stores,
@@ -129,7 +131,17 @@ export async function loadSpendingMonth(
 	]);
 	const estimated = cards
 		.filter((c) => c.archivedAt === null)
-		.flatMap((c) => projectedRows(groups, c.id, month, `${month}-01`));
+		// Fatura já fechada não ganha parcela inventada: o banco a fechou com o que tinha de cobrar.
+		.filter((c) => invoiceStatus(invoiceByMonth(month, toCardConfig(c)), today) === "open")
+		.flatMap((c) =>
+			projectedRows(
+				groups,
+				c.id,
+				month,
+				`${month}-01`,
+				rows.filter((t) => t.cardId === c.id),
+			),
+		);
 	return [...rows, ...estimated];
 }
 
@@ -245,8 +257,10 @@ function projectedRows(
 	cardId: string,
 	month: MonthKey,
 	date: LocalDate,
+	/** Os lançamentos reais do cartão na fatura de `month`: o que já veio não se estima. */
+	real: readonly TransactionRecord[],
 ): TransactionRecord[] {
-	return projectMissingInstallments(groups, cardId, month).map((item) => ({
+	return projectMissingInstallments(groups, cardId, month, real).map((item) => ({
 		id: `${PROJECTED_ID_PREFIX}${item.number}-${item.groupId}`.slice(0, 64),
 		kind: "expense" as const,
 		amountCents: item.amountCents,
@@ -285,7 +299,8 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 		// A parcela de dezembro pode ainda não ter lançamento: o grupo visto nos meses anteriores a projeta.
 		stores.transactions.listInstallmentGroups(addMonths(month, -71)),
 	]);
-	const txs = [...posted, ...projectedRows(groups, cardId, month, invoice.closingDate)];
+	const open = invoiceStatus(invoice, today) === "open";
+	const txs = [...posted, ...(open ? projectedRows(groups, cardId, month, invoice.closingDate, posted) : [])];
 	// Um posting vale para o mês do orçamento do lançamento: busca só os meses que aparecem na fatura.
 	const budgetMonths = [
 		...new Set(txs.filter((t) => t.installmentGroupId === null).map((t) => t.budgetMonth)),

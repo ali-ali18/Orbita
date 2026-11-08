@@ -33,6 +33,38 @@ describe("projectMissingInstallments", () => {
 		expect(projectMissingInstallments([group], "card", "2026-11")).toEqual([]);
 		expect(projectMissingInstallments([group], "outro", "2026-12")).toEqual([]);
 	});
+
+	// O banco escreve "KABUM 04/10" e "KABUM 05/10": cada parcela virou um grupo de uma só. A de 05/10 já está na
+	// fatura de dezembro; a estimada do grupo de 04/10 seria a mesma compra contada duas vezes.
+	const real = {
+		cardId: "card",
+		installmentNumber: 5,
+		installmentCount: 10,
+		amountCents: 5150,
+		invoiceMonth: "2026-12" as const,
+	};
+	it("não estima a parcela que a fatura já tem, mesmo vinda de outro grupo", () => {
+		expect(projectMissingInstallments([group], "card", "2026-12", [real])).toEqual([]);
+	});
+	it("a parcela real de outro número, valor ou fatura não impede a estimada", () => {
+		for (const other of [
+			{ ...real, installmentNumber: 6 },
+			{ ...real, amountCents: 5151 },
+			{ ...real, invoiceMonth: "2027-01" as const },
+			{ ...real, cardId: "outro" },
+		]) {
+			expect(projectMissingInstallments([group], "card", "2026-12", [other])).toHaveLength(1);
+		}
+	});
+	it("fragmentos do mesmo parcelamento estimam a mesma parcela uma vez só", () => {
+		const fragment = {
+			groupId: "g2",
+			installments: [{ ...group.installments[0], installmentNumber: 3, invoiceMonth: "2026-10" as const }],
+		};
+		const got = projectMissingInstallments([group, fragment], "card", "2026-12");
+		expect(got).toHaveLength(1);
+		expect(got[0]?.number).toBe(5);
+	});
 });
 
 describe("splitInstallments", () => {
