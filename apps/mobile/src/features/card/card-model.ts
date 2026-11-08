@@ -155,6 +155,38 @@ export function paymentBadge(
 	}
 }
 
+/**
+ * "Marcar como paga" só aparece com a fatura fechada e com saldo a pagar. O valor sai do que o servidor já
+ * calculou (total da fatura menos o pago, ambos do engine); aqui só se decide se o botão existe e se mostra.
+ */
+export function payableCents(
+	invoice: { status: InvoiceStatus; paymentStatus: PaymentStatusLike; paidCents: Cents },
+	totalCents: Cents,
+): Cents {
+	if (invoice.status === "open") return 0;
+	if (invoice.paymentStatus !== "unpaid" && invoice.paymentStatus !== "partial") return 0;
+	return Math.max(0, totalCents - invoice.paidCents);
+}
+
+/** Contas ativas que podem pagar a fatura, na ordem em que vieram. */
+export function payerAccounts<T extends { archivedAt: string | null }>(accounts: readonly T[]): T[] {
+	return accounts.filter((a) => a.archivedAt === null);
+}
+
+/** Consultas que mudam quando um pagamento de fatura entra ou sai (a chave é `[baseUrl, assunto, …]`). */
+const PAYMENT_AFFECTED: ReadonlySet<unknown> = new Set([
+	"summary",
+	"transactions",
+	"month-transactions",
+	"invoice",
+	"installments",
+	"accounts",
+]);
+
+export function isAffectedByInvoicePayment(queryKey: readonly unknown[], baseUrl: string): boolean {
+	return queryKey[0] === baseUrl && PAYMENT_AFFECTED.has(queryKey[1]);
+}
+
 export const capitalize = (text: string) => text.charAt(0).toLocaleUpperCase("pt-BR") + text.slice(1);
 
 /** "Vence 7 de nov · fechou 31 de out" (fechada), "Fecha 30 de nov · vence 7 de dez" (aberta). */
