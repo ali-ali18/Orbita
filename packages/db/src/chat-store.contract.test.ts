@@ -8,15 +8,102 @@ describe.each(contractSuites())("ChatStore (%s)", (_name, make) => {
 		stores = await make();
 	});
 
-	it("cria a conversa com título saneado e cortado", async () => {
+	it("o título sai da primeira mensagem: curto, cortado numa palavra e nunca vazio", async () => {
 		const a = await stores.chat.createConversation("  quanto   gastei\n com delivery?  ");
 		expect(a.title).toBe("quanto gastei com delivery?");
-		const long = await stores.chat.createConversation("x".repeat(200));
-		expect(long.title.length).toBe(60);
-		expect(long.title.endsWith("…")).toBe(true);
-		expect((await stores.chat.createConversation("   ")).title).toBe("Conversa");
+		const long = await stores.chat.createConversation(
+			"Quanto eu gastei com delivery e mercado nos últimos três meses?",
+		);
+		expect(long.title).toBe("Quanto eu gastei com delivery e mercado…");
+		const solid = await stores.chat.createConversation("x".repeat(200));
+		expect([...solid.title]).toHaveLength(40);
+		expect(solid.title.endsWith("…")).toBe(true);
+		expect((await stores.chat.createConversation("   ")).title).toMatch(/^Conversa de \d{1,2} [a-z]{3}$/);
 		expect(await stores.chat.getConversation(a.id)).toEqual(a);
 		expect(await stores.chat.getConversation("fantasma")).toBeNull();
+	});
+
+	it("pagina por cursor, da mais recente para a mais antiga, sem repetir nem pular", async () => {
+		const made: string[] = [];
+		for (let i = 1; i <= 7; i += 1) made.push((await stores.chat.createConversation(`Conversa ${i}`)).id);
+		// A 2 recebe mensagem e passa à frente de todas.
+		await stores.chat.appendMessage(made[1] as string, { role: "user", text: "oi" });
+		const expected = [
+			"Conversa 2",
+			"Conversa 7",
+			"Conversa 6",
+			"Conversa 5",
+			"Conversa 4",
+			"Conversa 3",
+			"Conversa 1",
+		];
+
+		const titles: string[] = [];
+		let before: { updatedAt: Date; id: string } | undefined;
+		for (let guard = 0; guard < 10; guard += 1) {
+			const page = await stores.chat.listConversations({ limit: 3, ...(before ? { before } : {}) });
+			titles.push(...page.map((c) => c.title));
+			const last = page.at(-1);
+			if (page.length < 3 || !last) break;
+			before = { updatedAt: last.updatedAt, id: last.id };
+		}
+		expect(titles).toEqual(expected);
+	});
+
+	it("empate em updatedAt: o cursor desempata por id e nenhuma some", async () => {
+		const frozen = await make(() => new Date("2026-11-06T12:00:00Z"));
+		const a = await frozen.chat.createConversation("A");
+		const b = await frozen.chat.createConversation("B");
+		const c = await frozen.chat.createConversation("C");
+		const first = await frozen.chat.listConversations({ limit: 1 });
+		const rest = await frozen.chat.listConversations({
+			before: { updatedAt: first[0]?.updatedAt as Date, id: first[0]?.id as string },
+		});
+		expect([...first, ...rest].map((x) => x.id).sort()).toEqual([a.id, b.id, c.id].sort());
+		expect(new Set([...first, ...rest].map((x) => x.id)).size).toBe(3);
+	});
+
+	it("busca pelo título, sem diferenciar maiúsculas, e junta com a paginação", async () => {
+		for (const title of ["Mercado do mês", "Delivery da semana", "MERCADO extra", "Viagem", "Mercado 3"]) {
+			await stores.chat.createConversation(title);
+		}
+		const all = await stores.chat.listConversations({ query: "mercado" });
+		expect(all.map((c) => c.title)).toEqual(["Mercado 3", "MERCADO extra", "Mercado do mês"]);
+		const page1 = await stores.chat.listConversations({ query: "  mercado ", limit: 2 });
+		const last = page1.at(-1);
+		const page2 = await stores.chat.listConversations({
+			query: "mercado",
+			limit: 2,
+			before: { updatedAt: last?.updatedAt as Date, id: last?.id as string },
+		});
+		expect([...page1, ...page2].map((c) => c.title)).toEqual([
+			"Mercado 3",
+			"MERCADO extra",
+			"Mercado do mês",
+		]);
+		expect(await stores.chat.listConversations({ query: "inexistente" })).toEqual([]);
+		// Curinga do LIKE é texto comum: "%" e "_" não casam com tudo.
+		expect(await stores.chat.listConversations({ query: "%" })).toEqual([]);
+		expect(await stores.chat.listConversations({ query: "_" })).toEqual([]);
+		expect(await stores.chat.listConversations({ query: "   " })).toHaveLength(5);
+	});
+
+	it("renomear troca o título, mantém a ordem, recusa vazio e devolve null se não existe", async () => {
+		const first = await stores.chat.createConversation("Primeira");
+		await stores.chat.createConversation("Segunda");
+		const renamed = await stores.chat.renameConversation(first.id, "  Viagem   de dezembro ");
+		expect(renamed).toMatchObject({ id: first.id, title: "Viagem de dezembro" });
+		expect(renamed?.updatedAt).toEqual(first.updatedAt);
+		expect((await stores.chat.listConversations()).map((c) => c.title)).toEqual([
+			"Segunda",
+			"Viagem de dezembro",
+		]);
+		expect((await stores.chat.getConversation(first.id))?.title).toBe("Viagem de dezembro");
+		await expect(stores.chat.renameConversation(first.id, "   ")).rejects.toMatchObject({ code: "invalid" });
+		await expect(stores.chat.renameConversation(first.id, "a".repeat(61))).rejects.toMatchObject({
+			code: "invalid",
+		});
+		expect(await stores.chat.renameConversation("fantasma", "Nome")).toBeNull();
 	});
 
 	it("acrescenta mensagens em ordem e a conversa mais recente vem primeiro", async () => {

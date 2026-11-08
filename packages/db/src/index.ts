@@ -33,9 +33,12 @@ export {
 	type CategoryStore,
 	DEFAULT_CATEGORIES,
 } from "./category-store.ts";
+export { deriveChatTitle } from "./chat-rules.ts";
 export {
 	CHAT_TEXT_MAX,
 	CHAT_TITLE_MAX,
+	CHAT_TITLE_RENAME_MAX,
+	type ChatConversationCursor,
 	type ChatConversationRecord,
 	type ChatMessageRecord,
 	type ChatProposalRecord,
