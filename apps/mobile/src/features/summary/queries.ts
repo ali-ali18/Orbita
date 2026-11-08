@@ -64,3 +64,12 @@ export function useRecentTransactions(limit = 5) {
 		queryFn: () => call(() => api.v1.transactions.$get({ query: { limit: String(limit) } })),
 	});
 }
+
+/** "Como chegamos nesse número": os lançamentos que somaram ao Gasto do mês. */
+export function useBreakdown(month: string) {
+	const { api, baseUrl } = useScoped();
+	return useQuery({
+		queryKey: [baseUrl, "summary", month, "breakdown"],
+		queryFn: () => call(() => api.v1.summary[":month"].breakdown.$get({ param: { month } })),
+	});
+}

@@ -37,6 +37,7 @@ function Routes() {
 				<Stack.Screen name="lancamento/[id]" />
 				<Stack.Screen name="assinaturas" />
 				<Stack.Screen name="relatorio" />
+				<Stack.Screen name="gasto" />
 				<Stack.Screen name="assinatura" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
 				<Stack.Screen name="agentes" />
 				<Stack.Screen name="agente" />
