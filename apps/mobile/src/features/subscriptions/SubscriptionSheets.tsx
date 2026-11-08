@@ -6,31 +6,48 @@ import { Button, Sheet, Text, TextField } from "../../ui/index.ts";
 import { AmountInput } from "../transactions/AmountInput.tsx";
 import { parseDay } from "./subscriptions-model.ts";
 
-/** Gaveta do valor: o mesmo teclado de centavos do Novo lançamento. */
+/**
+ * Gaveta do valor: o mesmo teclado de centavos do Novo lançamento. Serve também a outras telas (o valor da meta,
+ * o "Guardar"): o título, o rótulo do campo e o botão mudam por prop.
+ */
 export function ValueSheet({
 	visible,
 	cents,
 	onDone,
 	onClose,
+	title = "Valor da cobrança",
+	doneLabel = "Pronto",
 }: {
 	visible: boolean;
 	cents: Cents;
 	onDone: (cents: Cents) => void;
 	onClose: () => void;
+	title?: string;
+	doneLabel?: string;
 }) {
 	return (
-		<Sheet visible={visible} title="Valor da cobrança" onClose={onClose}>
-			{visible ? <ValueBody initial={cents} onDone={onDone} /> : null}
+		<Sheet visible={visible} title={title} onClose={onClose}>
+			{visible ? <ValueBody initial={cents} label={title} doneLabel={doneLabel} onDone={onDone} /> : null}
 		</Sheet>
 	);
 }
 
-function ValueBody({ initial, onDone }: { initial: Cents; onDone: (cents: Cents) => void }) {
+function ValueBody({
+	initial,
+	label,
+	doneLabel,
+	onDone,
+}: {
+	initial: Cents;
+	label: string;
+	doneLabel: string;
+	onDone: (cents: Cents) => void;
+}) {
 	const [cents, setCents] = useState<Cents>(initial);
 	return (
 		<View style={{ gap: spacing.lg, paddingVertical: spacing.md }}>
-			<AmountInput cents={cents} onChange={setCents} autoFocus label="Valor da cobrança" />
-			<Button label="Pronto" disabled={cents <= 0} onPress={() => onDone(cents)} />
+			<AmountInput cents={cents} onChange={setCents} autoFocus label={label} />
+			<Button label={doneLabel} disabled={cents <= 0} onPress={() => onDone(cents)} />
 		</View>
 	);
 }
