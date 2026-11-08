@@ -51,7 +51,7 @@ function whereOf(t: TransactionDto, catalog: Catalog): string | null {
 
 /** "−R$ 46,90" para saída, "R$ 46,90" para entrada; transferência sem sinal. */
 function signedText(t: TransactionDto): string {
-	const out = t.kind === "expense" || t.kind === "card_payment";
+	const out = t.kind === "expense" || t.kind === "card_payment" || t.kind === "investment";
 	return formatBRL(out ? -t.amountCents : t.amountCents, {
 		sign: out ? "auto" : t.kind === "transfer" ? "never" : "auto",
 	});
@@ -89,7 +89,7 @@ const searchInput = z.object({
 		.describe("Mês (AAAA-MM) pela data do lançamento. Combine com from/to só se precisar."),
 	from: dateInput.optional().describe("Data inicial, inclusive."),
 	to: dateInput.optional().describe("Data final, inclusive."),
-	kind: z.enum(["expense", "income", "refund", "transfer", "card_payment"]).optional(),
+	kind: z.enum(["expense", "income", "refund", "transfer", "card_payment", "investment"]).optional(),
 	categoryId: z.string().max(64).optional().describe("Id de categoria (veja list_catalog)."),
 	accountId: z.string().max(64).optional().describe("Id de conta (veja list_catalog)."),
 	cardId: z.string().max(64).optional().describe("Id de cartão (veja list_catalog)."),
@@ -221,8 +221,10 @@ export const getMonthSummary = defineTool({
 	label: "Consultando o resumo do mês…",
 	access: "read",
 	description:
-		"Resumo do mês calculado pelo engine: gasto, entradas, quanto ainda dá para gastar, projeção de fechamento, " +
-		"recorrências que ainda vão cair e o gasto por categoria. Use para 'como está o mês', 'quanto gastei', " +
+		"Resumo do mês calculado pelo engine: gasto, entradas, investido, quanto ainda dá para gastar, projeção de " +
+		"fechamento, recorrências que ainda vão cair e o gasto por categoria. O gasto do cartão conta no mês em que a " +
+		"fatura VENCE (cada parcela na sua fatura); débito, Pix e boleto contam pela data. O investido (dinheiro " +
+		"aplicado em ações, CDB, cripto…) NÃO é gasto: informe-o à parte. Use para 'como está o mês', 'quanto gastei', " +
 		"'dá pra gastar quanto', 'como fecha o mês'.",
 	input: z.object({ month: monthInput.optional() }),
 	async run(input, ctx) {
@@ -234,6 +236,14 @@ export const getMonthSummary = defineTool({
 			{ label: "Entradas", caption: null, value: formatBRL(s.incomeCents), cents: s.incomeCents },
 			{ label: "Gastos", caption: null, value: formatBRL(s.spentCents), cents: s.spentCents },
 		];
+		if (s.investedCents > 0) {
+			rows.push({
+				label: "Investido",
+				caption: "não conta como gasto",
+				value: formatBRL(s.investedCents),
+				cents: s.investedCents,
+			});
+		}
 		if (summary.projection) {
 			rows.push({
 				label: "Projeção do mês",
@@ -256,6 +266,8 @@ export const getMonthSummary = defineTool({
 				isCurrentMonth: month === ctx.currentMonth,
 				spent: money(s.spentCents),
 				income: money(s.incomeCents),
+				invested: money(s.investedCents),
+				spentIncludesEstimatedInstallments: money(s.projectedCents),
 				refundCredit: money(s.refundCreditCents),
 				incomeMinusSpent: money(resultCents),
 				safeToSpend: summary.safeToSpend
