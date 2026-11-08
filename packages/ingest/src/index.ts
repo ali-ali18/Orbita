@@ -17,3 +17,4 @@ export {
 	type SyncPluggyResult,
 	syncPluggy,
 } from "./pluggy/sync.ts";
+export * from "./statement/index.ts";
