@@ -213,6 +213,7 @@ export function createPrismaAgentStore(db: Db, now: Clock): AgentStore {
 							data: draft.data as Prisma.InputJsonObject,
 							transactionId: draft.transactionId,
 							proposalId: draft.proposalId,
+							wordedByAi: draft.wordedByAi,
 							createdAt: now(),
 						},
 					});

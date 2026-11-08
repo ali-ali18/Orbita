@@ -217,6 +217,15 @@ describe.each(contractSuites())("AgentStore (%s)", (_name, make) => {
 		expect((await stores.agents.getAlert(first[1]?.id ?? ""))?.status).toBe("dismissed");
 	});
 
+	it("grava o aviso já escrito pela IA (agente do dono)", async () => {
+		const mine = await stores.agents.createCustom(custom);
+		const [alert] = await stores.agents.addAlerts(mine.id, [
+			{ kind: "custom", dedupeKey: "ia", title: "T", body: "Escrito pela IA", wordedByAi: true },
+		]);
+		expect(alert).toMatchObject({ wordedByAi: true, body: "Escrito pela IA" });
+		expect((await stores.agents.getAlert(alert?.id ?? ""))?.wordedByAi).toBe(true);
+	});
+
 	it("valida o aviso e as referências", async () => {
 		const mine = await stores.agents.createCustom(custom);
 		const draft = { kind: "custom" as const, dedupeKey: "k", title: "T", body: "B" };

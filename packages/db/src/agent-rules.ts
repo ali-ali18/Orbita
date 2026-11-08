@@ -73,6 +73,7 @@ export interface CleanAlert {
 	data: Record<string, unknown>;
 	transactionId: string | null;
 	proposalId: string | null;
+	wordedByAi: boolean;
 }
 
 export function cleanAlertDraft(draft: AlertDraft): CleanAlert {
@@ -94,6 +95,7 @@ export function cleanAlertDraft(draft: AlertDraft): CleanAlert {
 		data,
 		transactionId: draft.transactionId ?? null,
 		proposalId: draft.proposalId ?? null,
+		wordedByAi: draft.wordedByAi ?? false,
 	};
 }
 

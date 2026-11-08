@@ -144,7 +144,6 @@ export function createMemoryAgentStore(state: MemoryState): AgentStore {
 					id: randomUUID(),
 					agentId,
 					...draft,
-					wordedByAi: false,
 					status: "new",
 					createdAt: state.now(),
 					seenAt: null,

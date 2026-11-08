@@ -86,6 +86,8 @@ export interface AlertDraft {
 	data?: Record<string, unknown>;
 	transactionId?: string | null;
 	proposalId?: string | null;
+	/** O texto foi escrito pela IA (agente do dono); o padrão é o texto-modelo. */
+	wordedByAi?: boolean;
 }
 
 export interface AlertQuery {
