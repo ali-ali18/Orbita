@@ -22,6 +22,7 @@ import {
 	UNCATEGORIZED,
 } from "@orbita/core";
 import {
+	DataError,
 	type InstallmentGroupRecord,
 	type Stores,
 	TOTAL_BUDGET_SCOPE,
@@ -31,7 +32,13 @@ import {
 } from "@orbita/db";
 import { suggestSpendingSlug } from "@orbita/ingest";
 import type { MonthSummaryResponse } from "@orbita/shared";
-import { orNotFound } from "../../http/errors.ts";
+
+/** Item que não existe: o mesmo erro de dados que as stores lançam (a API o traduz em 404). */
+function orNotFound<T>(value: T | null | undefined, what: string, ending: "a" | "o" = "a"): T {
+	if (value === null || value === undefined)
+		throw new DataError("not_found", `${what} não encontrad${ending}.`);
+	return value;
+}
 
 const sum = (values: Iterable<Cents>) => {
 	let total = 0;

@@ -22,12 +22,12 @@ import {
 	type SecretVault,
 	type Stores,
 } from "@orbita/db";
+import { budgetBlock, limitMessage } from "@orbita/ledger";
 import {
 	CHAT_ERROR_CODES,
 	type ChatCard,
 	type ChatMessageDto,
 	chatCardSchema,
-	formatUsdCents,
 	type ProposalDto,
 	type ProposalStatus,
 } from "@orbita/shared";
@@ -62,23 +62,8 @@ export class ChatPreconditionError extends Error {
 
 // ------------------------------------------------------------- limite e custo
 
-const MICRO_PER_USD_CENT = 10_000;
-
-export function limitMessage(limitUsdCents: number): string {
-	return (
-		`O limite de gasto com a IA neste mês (${formatUsdCents(limitUsdCents)}) foi atingido. ` +
-		"Aumente o limite em Configurações → Servidor e chaves ou espere o mês virar."
-	);
-}
-
-/** Texto de bloqueio se o gasto do mês já alcançou o limite; `null` se pode seguir. */
-export async function budgetBlock(deps: Pick<ChatServiceDeps, "stores" | "now">): Promise<string | null> {
-	const limit = await deps.stores.aiUsage.getMonthlyLimit();
-	if (limit === null) return null;
-	const month = monthOf(toLocalDate(deps.now()));
-	const { costMicroUsd: spent } = await deps.stores.aiUsage.monthTotals(month);
-	return spent >= limit * MICRO_PER_USD_CENT ? limitMessage(limit) : null;
-}
+// O limite mensal é o mesmo do worker dos agentes (`@orbita/ledger`).
+export { budgetBlock, limitMessage };
 
 /** Chave da Anthropic aberta do cofre, ou um erro de pré-condição em pt-BR. */
 export async function requireApiKey(vault: SecretVault): Promise<string> {
