@@ -83,7 +83,7 @@ SDK da Anthropic (Tool Runner), modelo barato por padrão, limite mensal de gast
 
 ## Pendências conhecidas
 
-- ✅ Dependabot npm (ajustado em `.github/dependabot.yml`: `directory: /` com `pnpm-lock.yaml`, `packageManager` já fixado em `pnpm@10.33.4`, limite de 5 PRs abertos, minor+patch agrupados). A causa exata da falha da primeira execução não foi confirmada pelo log: conferir na próxima execução semanal. Docker: `node` ignora as versões ímpares (`>=23 <24`, `>=25`), então o 24 LTS segue liberado; a sintaxe de faixas do Dependabot ainda não foi testada numa execução real.
+- ✅ Dependabot npm (ajustado em `.github/dependabot.yml`: `directory: /` com `pnpm-lock.yaml`, `packageManager` já fixado em `pnpm@10.33.4`, limite de 5 PRs abertos, minor+patch agrupados). A causa exata da falha da primeira execução não foi confirmada pelo log: conferir na próxima execução semanal. Docker: `node` ignora updates de major (`update-types: ["version-update:semver-major"]`), então upgrade de major do Node é feito manualmente e de forma deliberada; a sintaxe foi trocada porque a faixa de versões anterior era inválida para o Dependabot e foi rejeitada.
 - Vencimento em fim de semana/feriado não é empurrado para dia útil (documentado no engine).
 - Limite de requisições em memória (uma instância da API).
 - Criar lançamento não tem chave de idempotência: se a resposta se perder na rede e o usuário tocar de novo, grava duas vezes. Acrescentar `Idempotency-Key` no POST (o app gera um id por formulário).
