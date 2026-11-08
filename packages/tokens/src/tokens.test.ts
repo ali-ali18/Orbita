@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	agents,
 	banks,
 	categoryColor,
 	chart,
@@ -16,7 +17,13 @@ const HEX = /^#[0-9A-F]{6}$/;
 
 describe("tokens", () => {
 	it("toda cor é hex de 6 dígitos em maiúsculas", () => {
-		const all = [...Object.values(colors), ...Object.values(chart), ...Object.values(banks), ...chartSeries];
+		const all = [
+			...Object.values(colors),
+			...Object.values(chart),
+			...Object.values(banks),
+			...chartSeries,
+			...Object.values(agents).flatMap((a) => [a.color, a.tint]),
+		];
 		for (const c of all) expect(c).toMatch(HEX);
 	});
 
@@ -85,5 +92,16 @@ describe("tokens", () => {
 
 	it("a altura de linha nunca é menor que o tamanho da fonte", () => {
 		for (const s of Object.values(text)) expect(s.lineHeight).toBeGreaterThanOrEqual(s.fontSize);
+	});
+
+	it("o tom do cartão de cada agente é a cor dele a 14% sobre o preto", () => {
+		const channel = (hex: string, i: number) => Number.parseInt(hex.slice(i, i + 2), 16);
+		for (const key of ["vigia", "fechamento", "metas", "caca_assinatura", "cofrinho", "custom"] as const) {
+			const { color, tint } = agents[key];
+			for (const i of [1, 3, 5]) {
+				const expected = Math.round(channel(color, i) * 0.14);
+				expect(Math.abs(channel(tint, i) - expected)).toBeLessThanOrEqual(1);
+			}
+		}
 	});
 });

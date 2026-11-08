@@ -41,6 +41,9 @@ importers:
       '@orbita/ingest':
         specifier: workspace:*
         version: link:../../packages/ingest
+      '@orbita/ledger':
+        specifier: workspace:*
+        version: link:../../packages/ledger
       '@orbita/ota':
         specifier: workspace:*
         version: link:../../packages/ota
@@ -169,15 +172,27 @@ importers:
 
   apps/worker:
     dependencies:
+      '@orbita/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
+      '@orbita/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@orbita/db':
         specifier: workspace:*
         version: link:../../packages/db
       '@orbita/ingest':
         specifier: workspace:*
         version: link:../../packages/ingest
+      '@orbita/ledger':
+        specifier: workspace:*
+        version: link:../../packages/ledger
       '@orbita/security':
         specifier: workspace:*
         version: link:../../packages/security
+      '@orbita/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       bullmq:
         specifier: 6.7.1
         version: 6.7.1(ioredis@5.11.1)(pg@8.23.1)
@@ -247,6 +262,24 @@ importers:
       zod:
         specifier: 4.6.7
         version: 4.6.7
+
+  packages/ledger:
+    dependencies:
+      '@orbita/agents':
+        specifier: workspace:*
+        version: link:../agents
+      '@orbita/core':
+        specifier: workspace:*
+        version: link:../core
+      '@orbita/db':
+        specifier: workspace:*
+        version: link:../db
+      '@orbita/ingest':
+        specifier: workspace:*
+        version: link:../ingest
+      '@orbita/shared':
+        specifier: workspace:*
+        version: link:../shared
 
   packages/ota: {}
 

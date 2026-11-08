@@ -1,3 +1,4 @@
+export { type AgentVisualKey, agents } from "./agents.ts";
 export { banks } from "./banks.ts";
 export { categoryColor, chart, chartSeries, defaultCategoryColor } from "./chart.ts";
 export { colors } from "./colors.ts";

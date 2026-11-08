@@ -1,7 +1,7 @@
 import { type LocalDate, type MonthKey, paymentWindow } from "@orbita/core";
 import { DataError, type Stores, type TransactionRecord, toCardConfig } from "@orbita/db";
+import { cardInvoice } from "@orbita/ledger";
 import { orNotFound } from "../../http/errors.ts";
-import { cardInvoice } from "./service.ts";
 
 /**
  * "Marcar como paga": lança o pagamento (`card_payment`) do que falta da fatura, tirando da conta escolhida.

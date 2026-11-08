@@ -7,6 +7,8 @@ export interface ChatConversationRecord {
 	createdAt: Date;
 	/** Muda a cada mensagem nova: ordena a lista de conversas. */
 	updatedAt: Date;
+	/** Agente com quem a conversa foi aberta (persona e ferramentas dele); `null` = Órbita. */
+	agentId: string | null;
 }
 
 export type ChatRole = "user" | "assistant";
@@ -44,8 +46,8 @@ export const CHAT_TEXT_MAX = 20_000;
  * `not_found` para conversa que não existe; `invalid` para texto vazio ou grande demais.
  */
 export interface ChatStore {
-	/** O título é saneado (espaços, tamanho) pelo store. */
-	createConversation(title: string): Promise<ChatConversationRecord>;
+	/** O título é saneado (espaços, tamanho) pelo store. `agentId` inexistente: `not_found`. */
+	createConversation(title: string, options?: { agentId?: string | null }): Promise<ChatConversationRecord>;
 	getConversation(id: string): Promise<ChatConversationRecord | null>;
 	/** Da mais recente para a mais antiga. `limit` padrão 30, máximo 100. */
 	listConversations(options?: { limit?: number }): Promise<ChatConversationRecord[]>;

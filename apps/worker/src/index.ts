@@ -1,8 +1,16 @@
+import { createAnthropicModelClient } from "@orbita/agents";
 import { createDb, createPrismaStores, createSecretVault } from "@orbita/db";
 import { PLUGGY_DAILY_JOB, PLUGGY_SYNC_QUEUE } from "@orbita/ingest";
 import { deriveKey } from "@orbita/security";
 import { Queue, Worker } from "bullmq";
-import { loadEnv } from "./env.ts";
+import {
+	ALERTS_QUEUE,
+	RUN_AGENTS_JOB,
+	RUN_AGENTS_PATTERN,
+	RUN_AGENTS_TIME_ZONE,
+	runDueAgents,
+} from "./alertas.ts";
+import { chatModelsFromEnv, loadEnv } from "./env.ts";
 import {
 	CLEAN_IDEMPOTENCY_KEYS,
 	CLEAN_PAIRING_CODES,
@@ -64,14 +72,43 @@ const syncWorker = new Worker(
 // O resultado traz só contagens e mensagens já sanitizadas.
 syncWorker.on("completed", (job, result) => console.log(`[${job.name}] ${result.status}`));
 syncWorker.on("failed", (job, err) => console.error(`[${job?.name}] falhou: ${err.message}`));
+
+// Agentes: a cada hora cheia roda os que estão ligados e na hora. Concorrência 1: duas passadas nunca se cruzam.
+const alertsQueue = new Queue(ALERTS_QUEUE, { connection });
+await alertsQueue.upsertJobScheduler(
+	RUN_AGENTS_JOB,
+	{ pattern: RUN_AGENTS_PATTERN, tz: RUN_AGENTS_TIME_ZONE },
+	{ name: RUN_AGENTS_JOB },
+);
+const alertsWorker = new Worker(
+	ALERTS_QUEUE,
+	async (job) => {
+		if (job.name !== RUN_AGENTS_JOB) throw new Error(`Tarefa desconhecida: ${job.name}`);
+		return runDueAgents({
+			stores,
+			now: () => new Date(),
+			readApiKey: () => vault.read("anthropic_api_key"),
+			createClient: (apiKey) => createAnthropicModelClient({ apiKey }),
+			models: chatModelsFromEnv(env),
+			aiWording: env.AGENT_AI_WORDING,
+			log: (line) => console.log(line),
+		});
+	},
+	{ connection, concurrency: 1 },
+);
+// O resultado traz só contagens.
+alertsWorker.on("completed", (job, result) => console.log(`[${job.name}]`, result));
+alertsWorker.on("failed", (job, err) => console.error(`[${job?.name}] falhou: ${err.message}`));
 console.log("Worker rodando.");
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
 	process.on(signal, async () => {
 		await worker.close();
 		await syncWorker.close();
+		await alertsWorker.close();
 		await queue.close();
 		await syncQueue.close();
+		await alertsQueue.close();
 		await db.$disconnect();
 		process.exit(0);
 	});

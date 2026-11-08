@@ -9,6 +9,18 @@
  *   - escrita:       applyProposal / undoProposal (só depois que o dono confirma)
  *   - dados:         AgentReader / AgentWriter (portas que o servidor implementa)
  */
+
+export { type AlertCandidate, collectAlerts, type FindingsPort, settingsFor } from "./alerts/collect.ts";
+export {
+	CUSTOM_MAX_ITERATIONS,
+	type CustomRunDeps,
+	type CustomRunInput,
+	type CustomRunResult,
+	NO_ALERT,
+	runCustomAgent,
+} from "./alerts/custom.ts";
+export { monthLabel } from "./alerts/text.ts";
+export { acceptWording, type WordingDeps, type WordingResult, wordAlerts } from "./alerts/wording.ts";
 export {
 	type AnthropicClientOptions,
 	buildParams,
@@ -68,6 +80,14 @@ export {
 	resolveChatModels,
 	type SavedChatModels,
 } from "./models.ts";
+export {
+	type AgentPersona,
+	BUILTIN_PERSONAS,
+	buildAgentSystem,
+	type PersonaSource,
+	type ResolvedPersona,
+	resolvePersona,
+} from "./personas.ts";
 export {
 	costMicroUsd,
 	FALLBACK_PRICE,
