@@ -25,6 +25,7 @@ export async function payInvoice(
 	const account = orNotFound(await stores.accounts.get(accountId), "Conta");
 	if (account.archivedAt) throw new DataError("invalid", "A conta escolhida está arquivada.");
 	const window = paymentWindow(month, toCardConfig(card));
+	// biome-ignore lint/complexity/useMathMinMax: datas AAAA-MM-DD são texto; Math.min daria NaN
 	const date = today > window.to ? window.to : today;
 	const transaction = await stores.transactions.create({
 		kind: "card_payment",
