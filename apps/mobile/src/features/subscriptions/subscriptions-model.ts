@@ -25,6 +25,7 @@ export interface RecurrenceLike {
 	categoryId: string | null;
 	accountId: string | null;
 	cardId: string | null;
+	remindDayBefore: boolean;
 	archivedAt: string | null;
 }
 
@@ -186,27 +187,27 @@ export function countLabel(n: number): string {
 
 // ------------------------------------------------------------- formulário
 
-/** Serviços comuns do Figma: tocar preenche o nome. */
-export const POPULAR_SERVICES: readonly string[] = [
-	"Netflix",
-	"Spotify",
-	"YouTube",
-	"Google One",
-	"Prime",
-	"Disney+",
-	"iCloud",
-];
-
 export interface SubscriptionForm {
 	name: string;
 	amountCents: Cents;
 	dayOfMonth: number;
 	/** `account:<id>` ou `card:<id>`; `null` = vale a primeira da lista. */
 	sourceKey: string | null;
+	/** "Lembrar 1 dia antes": só a escolha é guardada; o aviso espera as notificações push existirem. */
+	remindDayBefore: boolean;
+	/** Categoria padrão do serviço do catálogo, por nome; `null` = "Assinaturas". */
+	categoryName: string | null;
 }
 
 export function initialForm(today: LocalDate): SubscriptionForm {
-	return { name: "", amountCents: 0, dayOfMonth: Number(today.slice(8, 10)), sourceKey: null };
+	return {
+		name: "",
+		amountCents: 0,
+		dayOfMonth: Number(today.slice(8, 10)),
+		sourceKey: null,
+		remindDayBefore: false,
+		categoryName: null,
+	};
 }
 
 export function formFromRecurrence(r: RecurrenceLike): SubscriptionForm {
@@ -215,6 +216,9 @@ export function formFromRecurrence(r: RecurrenceLike): SubscriptionForm {
 		amountCents: r.amountCents,
 		dayOfMonth: r.dayOfMonth,
 		sourceKey: r.cardId ? `card:${r.cardId}` : r.accountId ? `account:${r.accountId}` : null,
+		remindDayBefore: r.remindDayBefore,
+		// Na edição a categoria da assinatura não muda: só um serviço escolhido agora a define.
+		categoryName: null,
 	};
 }
 
@@ -280,6 +284,7 @@ export function buildRequest(input: {
 					name: form.name.trim(),
 					amountCents: form.amountCents,
 					dayOfMonth: form.dayOfMonth,
+					remindDayBefore: form.remindDayBefore,
 					...where,
 				},
 			},
@@ -295,6 +300,7 @@ export function buildRequest(input: {
 				amountCents: form.amountCents,
 				dayOfMonth: form.dayOfMonth,
 				startDate: today,
+				remindDayBefore: form.remindDayBefore,
 				...(categoryId ? { categoryId } : {}),
 				...where,
 			},
@@ -314,6 +320,10 @@ export function subscriptionsCategoryId(
 			.trim();
 	return categories.find((c) => c.archivedAt === null && plain(c.name) === "assinaturas")?.id ?? null;
 }
+
+/** O aviso "1 dia antes" ainda não dispara: notificações push não existem. A tela diz isso, sem fingir. */
+export const REMINDER_CAPTION =
+	"O lembrete vai começar a funcionar quando as notificações chegarem ao Órbita. Por enquanto, só guardo sua escolha.";
 
 /** Toda mudança aqui mexe no que o Início mostra: o resumo (a reserva do mês) e os lançamentos. */
 export const SUBSCRIPTION_AFFECTED: ReadonlySet<unknown> = new Set([
