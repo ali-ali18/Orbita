@@ -278,6 +278,45 @@ export const monthSummaryResponse = z.object({
 });
 export type MonthSummaryResponse = z.infer<typeof monthSummaryResponse>;
 
+/** De onde vem cada linha do Gasto: conta (pela data), cartão (pela fatura) ou parcela estimada da fatura. */
+export const SPENDING_BRANCHES = ["account", "card", "projected"] as const;
+export type SpendingBranch = (typeof SPENDING_BRANCHES)[number];
+
+/** "Como chegamos nesse número": todo lançamento que somou (ou, no estorno, abateu) o Gasto do mês. */
+export const spendingBreakdownResponse = z.object({
+	month: monthKeySchema,
+	/** O Gasto que o Início mostra (do engine, já com o abatimento dos estornos por categoria). */
+	spentCents: cents,
+	/** Soma simples de `deltaCents` das linhas: difere de `spentCents` só quando um estorno passa do gasto da categoria. */
+	rowsCents: cents,
+	projectedCents: cents,
+	branches: z.array(
+		z.object({ branch: z.enum(SPENDING_BRANCHES), count: z.number().int(), subtotalCents: cents }),
+	),
+	rows: z.array(
+		z.object({
+			id: z.string(),
+			branch: z.enum(SPENDING_BRANCHES),
+			date: localDateSchema,
+			invoiceMonth: monthKeySchema.nullable(),
+			budgetMonth: monthKeySchema,
+			kind: z.enum(TRANSACTION_KINDS),
+			description: z.string(),
+			/** Sempre positivo; o sentido está em `kind`. */
+			amountCents: cents,
+			/** Quanto a linha soma ao Gasto: o valor na despesa, o valor negativo no estorno. */
+			deltaCents: cents,
+			categoryId: z.string().nullable(),
+			cardId: z.string().nullable(),
+			accountId: z.string().nullable(),
+			status: z.enum(TRANSACTION_STATUSES),
+			/** Parcela que o banco ainda não lançou. */
+			estimated: z.boolean(),
+		}),
+	),
+});
+export type SpendingBreakdownResponse = z.infer<typeof spendingBreakdownResponse>;
+
 export const invoiceComposition = z.object({
 	purchasesCents: cents,
 	installmentsCents: cents,

@@ -543,6 +543,7 @@ describe("segurança e erros", () => {
 			["GET", "/v1/summary/2026-11"],
 			["GET", "/v1/cards/x/invoices/2026-11"],
 			["GET", "/v1/installments"],
+			["GET", "/v1/summary/2026-11/breakdown"],
 		];
 		for (const [method, path] of routes) {
 			const body = method === "GET" || method === "DELETE" ? undefined : {};
@@ -751,6 +752,95 @@ describe("gasto por fatura e investido (caso do dono)", () => {
 		await buy(5150, "2026-11-02", "mercado");
 		const nov = (await api.get("/v1/summary/2026-11")).body;
 		expect(nov.summary.spentCents - 20000).toBe(77301);
+	});
+
+	it("a abertura do Gasto lista cada linha por ramo e fecha com o Início", async () => {
+		const { api, card, account } = await ownerCase();
+		const home = (await api.get("/v1/summary/2026-11")).body.summary;
+		const res = (await api.get("/v1/summary/2026-11/breakdown")).body;
+		expect(res.spentCents).toBe(home.spentCents);
+		expect(res.rowsCents).toBe(home.spentCents);
+		expect(res.branches).toEqual([
+			{ branch: "account", count: 1, subtotalCents: 20000 },
+			{ branch: "card", count: 3, subtotalCents: 8687 + 12464 + 51000 },
+			{ branch: "projected", count: 0, subtotalCents: 0 },
+		]);
+		// A aplicação, a receita e a fatura aberta (dezembro) não entram.
+		expect(res.rows.map((r: { description: string }) => r.description).sort()).toEqual([
+			"Farmácia",
+			"Mercado",
+			"Notebook",
+			"Tênis",
+		]);
+		const tenis = res.rows.find((r: { description: string }) => r.description === "Tênis");
+		expect(tenis).toMatchObject({
+			branch: "card",
+			date: "2026-10-30",
+			invoiceMonth: "2026-11",
+			kind: "expense",
+			amountCents: 51000,
+			deltaCents: 51000,
+			cardId: card.id,
+			accountId: null,
+			estimated: false,
+		});
+		expect(res.rows.find((r: { description: string }) => r.description === "Mercado")).toMatchObject({
+			branch: "account",
+			invoiceMonth: null,
+			accountId: account.id,
+		});
+	});
+
+	it("o detalhamento marca a parcela estimada e o estorno soma negativo", async () => {
+		const ctx = await withRent();
+		const { api, card, category } = ctx;
+		await ctx.stores.transactions.upsertInstallmentByExternal(
+			"pluggy",
+			"k-1",
+			{
+				kind: "expense",
+				amountCents: 5150,
+				description: "Kabum",
+				cardId: card.id,
+				date: "2026-10-02",
+				invoiceMonth: "2026-11",
+				budgetMonth: "2026-11",
+			},
+			{ groupId: "kabum", number: 1, count: 10 },
+		);
+		const bought = (
+			await api.post("/v1/transactions", {
+				kind: "expense",
+				amountCents: 3000,
+				date: "2026-11-02",
+				description: "Loja",
+				cardId: card.id,
+				categoryId: category("lazer"),
+			})
+		).body.transaction;
+		await api.post("/v1/transactions", {
+			kind: "refund",
+			amountCents: 1000,
+			date: "2026-11-03",
+			description: "Estorno Loja",
+			cardId: card.id,
+			refundOfId: bought.id,
+			categoryId: category("lazer"),
+		});
+		const dec = (await api.get("/v1/summary/2026-12/breakdown")).body;
+		expect(dec.branches.find((b: { branch: string }) => b.branch === "projected")).toMatchObject({
+			count: 1,
+			subtotalCents: 5150,
+		});
+		expect(dec.rows.find((r: { estimated: boolean }) => r.estimated)).toMatchObject({
+			branch: "projected",
+			description: "Kabum",
+			invoiceMonth: "2026-12",
+		});
+		const nov = (await api.get("/v1/summary/2026-11/breakdown")).body;
+		const refund = nov.rows.find((r: { kind: string }) => r.kind === "refund");
+		expect(refund).toMatchObject({ amountCents: 1000, deltaCents: -1000, branch: "card" });
+		expect(nov.rowsCents).toBe(nov.spentCents);
 	});
 
 	it("parcela que o banco ainda não lançou entra na fatura do mês, marcada como estimada", async () => {

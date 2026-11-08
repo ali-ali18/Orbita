@@ -59,7 +59,11 @@ describe("projectMissingInstallments", () => {
 	it("fragmentos do mesmo parcelamento estimam a mesma parcela uma vez só", () => {
 		const fragment = {
 			groupId: "g2",
-			installments: [{ ...group.installments[0], installmentNumber: 3, invoiceMonth: "2026-10" as const }],
+			installments: group.installments.map((i) => ({
+				...i,
+				installmentNumber: 3,
+				invoiceMonth: "2026-10" as const,
+			})),
 		};
 		const got = projectMissingInstallments([group, fragment], "card", "2026-12");
 		expect(got).toHaveLength(1);

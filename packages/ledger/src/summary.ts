@@ -31,7 +31,7 @@ import {
 	toMonthlyRecurrence,
 } from "@orbita/db";
 import { suggestSpendingSlug } from "@orbita/ingest";
-import type { MonthSummaryResponse } from "@orbita/shared";
+import type { MonthSummaryResponse, SpendingBranch, SpendingBreakdownResponse } from "@orbita/shared";
 
 /** Item que não existe: o mesmo erro de dados que as stores lançam (a API o traduz em 404). */
 function orNotFound<T>(value: T | null | undefined, what: string, ending: "a" | "o" = "a"): T {
@@ -245,6 +245,66 @@ export async function monthSummary(
 		projection,
 		pendingRecurring: pending,
 		refundCreditCents: raw.refundCreditCents,
+	};
+}
+
+/**
+ * "Como chegamos nesse número": o mesmo conjunto do Gasto (`loadSpendingMonth`) e a mesma soma (`summarizeMonth`), com
+ * cada linha que pesou, de que ramo veio (conta pela data, cartão pela fatura, estimada) e quanto somou. Serve para o
+ * dono (e para a gente) conferir o que entrou, sem recalcular nada fora do engine.
+ */
+export async function spendingBreakdown(
+	stores: Stores,
+	month: MonthKey,
+	today: LocalDate,
+): Promise<SpendingBreakdownResponse> {
+	const [txs, categories] = await Promise.all([
+		loadSpendingMonth(stores, month, today),
+		stores.categories.list(),
+	]);
+	const active = categories.filter((c) => c.archivedAt === null);
+	const bySlug = new Map(active.map((c) => [c.slug, c.id]));
+	const outros = active.find((c) => c.slug === "outros") ?? null;
+	const originals = await refundOriginalsOutside(stores, txs);
+	const toCore = (t: TransactionRecord) => toCoreTransaction(t, outros?.id ?? null, bySlug);
+	const summary = summarizeMonth([...txs, ...originals].map(toCore), month);
+
+	const branchOf = (t: TransactionRecord): SpendingBranch =>
+		isProjectedRow(t) ? "projected" : t.cardId !== null ? "card" : "account";
+	const rows = txs
+		.filter(
+			(t) => (t.kind === "expense" || t.kind === "refund") && (t.invoiceMonth ?? t.budgetMonth) === month,
+		)
+		.map((t) => ({
+			id: t.id,
+			branch: branchOf(t),
+			date: t.date,
+			invoiceMonth: t.invoiceMonth,
+			budgetMonth: t.budgetMonth,
+			kind: t.kind,
+			description: t.description,
+			amountCents: t.amountCents,
+			deltaCents: t.kind === "refund" ? -t.amountCents : t.amountCents,
+			categoryId: categoryForSummary(t, outros?.id ?? null, bySlug),
+			cardId: t.cardId,
+			accountId: t.accountId,
+			status: t.status,
+			estimated: isProjectedRow(t),
+		}))
+		.sort(
+			(a, b) => a.branch.localeCompare(b.branch) || b.date.localeCompare(a.date) || a.id.localeCompare(b.id),
+		);
+	const branches = (["account", "card", "projected"] as const).map((branch) => {
+		const own = rows.filter((r) => r.branch === branch);
+		return { branch, count: own.length, subtotalCents: sum(own.map((r) => r.deltaCents)) };
+	});
+	return {
+		month,
+		spentCents: summary.spentCents,
+		rowsCents: sum(rows.map((r) => r.deltaCents)),
+		projectedCents: summary.projectedCents,
+		branches,
+		rows,
 	};
 }
 
