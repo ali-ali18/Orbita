@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { detectPriceIncreases, detectRecurringCharges, type HuntedCharge } from "./subscription-hunt.ts";
+import { KNOWN_SUBSCRIPTION_BRANDS, knownServiceOf } from "./known-services.ts";
+import {
+	detectPriceIncreases,
+	detectRecurringCharges,
+	findMonthlyRuns,
+	type HuntedCharge,
+} from "./subscription-hunt.ts";
 
 let n = 0;
 const charge = (date: string, amountCents: number, merchant = "Netflix.com"): HuntedCharge => ({
@@ -109,5 +115,47 @@ describe("detectPriceIncreases", () => {
 				excludeIds: new Set([posted.id]),
 			}),
 		).toEqual([]);
+	});
+});
+
+describe("findMonthlyRuns", () => {
+	const today = "2026-11-12";
+	it("serviço conhecido vale com duas cobranças; desconhecido pede três", () => {
+		const netflix = monthly("NETFLIX.COM", [4490, 4490], "2026-09-10");
+		const gym = monthly("Academia Foco", [8900, 8900], "2026-09-10");
+		const runs = findMonthlyRuns({
+			charges: [...netflix, ...gym],
+			today,
+			minKnownOccurrences: 2,
+			knownBrands: KNOWN_SUBSCRIPTION_BRANDS,
+		});
+		expect(runs.map((r) => r.brand)).toEqual(["netflix"]);
+		expect(runs[0]?.charges.map((c) => c.date)).toEqual(["2026-09-10", "2026-10-10"]);
+		expect(runs[0]?.amountCents).toBe(4490);
+	});
+	it("a marca vem de `brandOf` e `skipBrands` tira o que já está cadastrado", () => {
+		const charges = monthly("PIX RECEBIDO ACME LTDA", [500000, 500000, 505000], "2026-08-05");
+		const runs = findMonthlyRuns({
+			charges,
+			today,
+			brandOf: (m) => m.replace("PIX RECEBIDO ", "").toLowerCase(),
+		});
+		expect(runs.map((r) => [r.brand, r.charges.length, r.amountCents])).toEqual([["acme ltda", 3, 500000]]);
+		expect(findMonthlyRuns({ charges, today, brandOf: () => "acme", skipBrands: new Set(["acme"]) })).toEqual(
+			[],
+		);
+	});
+});
+
+describe("serviços conhecidos", () => {
+	it("acha o serviço pela marca, sem acento nem código", () => {
+		expect(knownServiceOf("NETFLIX.COM 12/10")?.name).toBe("Netflix");
+		expect(knownServiceOf("iFood *Pedido")?.categorySlug).toBe("delivery");
+		expect(knownServiceOf("Padaria do Zé")).toBeNull();
+		expect(knownServiceOf(null)).toBeNull();
+	});
+	it("só assinatura entra na lista de duas cobranças", () => {
+		expect(KNOWN_SUBSCRIPTION_BRANDS.has("netflix")).toBe(true);
+		expect(KNOWN_SUBSCRIPTION_BRANDS.has("ifood")).toBe(false);
 	});
 });

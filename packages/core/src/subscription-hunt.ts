@@ -39,6 +39,68 @@ export interface RecurringCandidate {
 const similar = (amount: Cents, median: Cents): boolean =>
 	Math.abs(amount - median) * 100 <= median * SIMILAR_AMOUNT_PERCENT;
 
+/** Uma sequência mensal achada por `findMonthlyRuns`: as cobranças em ordem de data e a mediana do valor. */
+export interface MonthlyRun<C extends HuntedCharge = HuntedCharge> {
+	/** A marca (chave de agrupamento). */
+	brand: string;
+	charges: C[];
+	amountCents: Cents;
+}
+
+/**
+ * O coração do Caça-assinatura e da análise do histórico: agrupa as cobranças pela marca e, em cada grupo, anda da
+ * mais recente para a mais antiga enquanto o intervalo é de cerca de um mês e o valor é parecido. Devolve as sequências
+ * com `minOccurrences` ou mais cobranças (`minKnownOccurrences` para as marcas em `knownBrands`, que dispensam uma
+ * cobrança: Netflix com 2 meses já é assinatura). A última cobrança não pode ser mais velha que `RECURRING_STALE_DAYS`.
+ *
+ * `brandOf` decide quem é "o mesmo serviço" (padrão: a primeira palavra do estabelecimento). Marcas em `skipBrands`
+ * e cobranças em `excludeIds` ficam de fora. Não filtra por tipo de lançamento: quem chama passa só o que quer olhar.
+ */
+export function findMonthlyRuns<C extends HuntedCharge>(input: {
+	charges: readonly C[];
+	today: LocalDate;
+	brandOf?: (merchant: string) => string;
+	minOccurrences?: number;
+	minKnownOccurrences?: number;
+	knownBrands?: ReadonlySet<string>;
+	skipBrands?: ReadonlySet<string>;
+	excludeIds?: ReadonlySet<string>;
+}): Array<MonthlyRun<C>> {
+	const brandOf = input.brandOf ?? ((m: string) => merchantKey(m, 1));
+	const min = input.minOccurrences ?? RECURRING_MIN_OCCURRENCES;
+	const minKnown = input.minKnownOccurrences ?? min;
+	const byBrand = new Map<string, C[]>();
+	for (const c of input.charges) {
+		assertCents(c.amountCents, "amountCents");
+		if (input.excludeIds?.has(c.id)) continue;
+		const brand = brandOf(c.merchant);
+		if (brand === "" || input.skipBrands?.has(brand)) continue;
+		byBrand.set(brand, [...(byBrand.get(brand) ?? []), c]);
+	}
+
+	const found: Array<MonthlyRun<C>> = [];
+	for (const [brand, list] of byBrand) {
+		const sorted = [...list].sort((a, b) =>
+			a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1,
+		);
+		// A sequência mais recente: anda de trás para frente enquanto o intervalo e o valor batem.
+		const last = sorted.at(-1) as C;
+		if (daysBetween(last.date, input.today) > RECURRING_STALE_DAYS) continue;
+		const run: C[] = [last];
+		for (let i = sorted.length - 2; i >= 0; i--) {
+			const older = sorted[i] as C;
+			const gap = daysBetween(older.date, (run[0] as C).date);
+			if (gap < RECURRING_MIN_GAP_DAYS || gap > RECURRING_MAX_GAP_DAYS) break;
+			const median = medianCents([...run, older].map((c) => c.amountCents));
+			if (![...run, older].every((c) => similar(c.amountCents, median))) break;
+			run.unshift(older);
+		}
+		if (run.length < (input.knownBrands?.has(brand) ? minKnown : min)) continue;
+		found.push({ brand, charges: run, amountCents: medianCents(run.map((c) => c.amountCents)) });
+	}
+	return found;
+}
+
 /**
  * Cobranças que se repetem todo mês e ainda não são uma assinatura cadastrada: o mesmo estabelecimento, valor
  * parecido, `RECURRING_MIN_OCCURRENCES` ou mais cobranças seguidas com cerca de um mês entre elas, a última ainda
@@ -54,42 +116,24 @@ export function detectRecurringCharges(input: {
 	today: LocalDate;
 }): RecurringCandidate[] {
 	const registered = new Set(input.registeredNames.map((n) => merchantKey(n, 1)).filter((k) => k !== ""));
-	const byBrand = new Map<string, HuntedCharge[]>();
-	for (const c of input.charges) {
-		assertCents(c.amountCents, "amountCents");
-		if (input.excludeIds?.has(c.id)) continue;
-		const brand = merchantKey(c.merchant, 1);
-		if (brand === "" || registered.has(brand)) continue;
-		byBrand.set(brand, [...(byBrand.get(brand) ?? []), c]);
-	}
-
-	const found: RecurringCandidate[] = [];
-	for (const list of byBrand.values()) {
-		const sorted = [...list].sort((a, b) =>
-			a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1,
-		);
-		// A sequência mais recente: anda de trás para frente enquanto o intervalo e o valor batem.
-		const last = sorted.at(-1) as HuntedCharge;
-		if (daysBetween(last.date, input.today) > RECURRING_STALE_DAYS) continue;
-		const run: HuntedCharge[] = [last];
-		for (let i = sorted.length - 2; i >= 0; i--) {
-			const older = sorted[i] as HuntedCharge;
-			const gap = daysBetween(older.date, (run[0] as HuntedCharge).date);
-			if (gap < RECURRING_MIN_GAP_DAYS || gap > RECURRING_MAX_GAP_DAYS) break;
-			const median = medianCents([...run, older].map((c) => c.amountCents));
-			if (![...run, older].every((c) => similar(c.amountCents, median))) break;
-			run.unshift(older);
-		}
-		if (run.length < RECURRING_MIN_OCCURRENCES) continue;
-		found.push({
+	const runs = findMonthlyRuns({
+		charges: input.charges,
+		today: input.today,
+		skipBrands: registered,
+		...(input.excludeIds ? { excludeIds: input.excludeIds } : {}),
+	});
+	const found: RecurringCandidate[] = runs.map((r) => {
+		const first = r.charges[0] as HuntedCharge;
+		const last = r.charges.at(-1) as HuntedCharge;
+		return {
 			merchant: last.merchant,
-			amountCents: medianCents(run.map((c) => c.amountCents)),
-			occurrences: run.length,
-			firstDate: (run[0] as HuntedCharge).date,
+			amountCents: r.amountCents,
+			occurrences: r.charges.length,
+			firstDate: first.date,
 			lastDate: last.date,
 			lastTransactionId: last.id,
-		});
-	}
+		};
+	});
 	return found.sort((a, b) =>
 		a.lastDate < b.lastDate ? 1 : a.lastDate > b.lastDate ? -1 : a.merchant < b.merchant ? -1 : 1,
 	);
