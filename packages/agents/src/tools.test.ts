@@ -87,6 +87,21 @@ describe("ferramentas de leitura", () => {
 		expect(none.card?.rows.map((r) => r.label)).not.toContain("Investido");
 	});
 
+	it("títulos dos cards de mês saem por extenso em pt-BR, nunca com a chave AAAA-MM", async () => {
+		const titles = [
+			(await run("get_month_summary", {})).card?.title,
+			(await run("get_budget_status", {})).card?.title,
+			(await run("get_category_breakdown", { month: MONTH })).card?.title,
+			(await run("get_month_report", { month: MONTH })).card?.title,
+		];
+		expect(titles).toEqual([
+			"Resumo de novembro de 2026",
+			"Orçamento de novembro de 2026",
+			"Gastos por categoria · novembro de 2026",
+			"Relatório de novembro de 2026",
+		]);
+	});
+
 	it("orçamento: percentual vem do engine e marca o que estourou", async () => {
 		const out = await run("get_budget_status", {});
 		const budgets = out.data.budgets as Array<{ name: string; percentUsed: number; overBudget: boolean }>;

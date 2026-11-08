@@ -1,6 +1,7 @@
 import { addMonths, clampDayInMonth, formatBRL, type MonthKey, parseBRL } from "@orbita/core";
 import type { ChatRowsCard, MonthSummaryResponse, TransactionDto } from "@orbita/shared";
 import { z } from "zod";
+import { monthLabel } from "./alerts/text.ts";
 import { type Catalog, ToolError, type TransactionQuery } from "./backend.ts";
 import {
 	dateInput,
@@ -289,7 +290,13 @@ export const getMonthSummary = defineTool({
 				},
 				topCategories: categoryRows(summary, catalog).slice(0, 8),
 			},
-			card: { type: "rows", tool: "get_month_summary", title: `Resumo de ${month}`, rows, total: null },
+			card: {
+				type: "rows",
+				tool: "get_month_summary",
+				title: `Resumo de ${monthLabel(month)}`,
+				rows,
+				total: null,
+			},
 		};
 	},
 });
@@ -327,7 +334,7 @@ export const getBudgetStatus = defineTool({
 			card: {
 				type: "rows",
 				tool: "get_budget_status",
-				title: `Orçamento de ${month}`,
+				title: `Orçamento de ${monthLabel(month)}`,
 				rows: budgets.map((b) => ({
 					label: b.name,
 					caption: `${b.spent.text} de ${b.limit.text}${b.overBudget ? " · estourou" : b.warning ? " · perto do limite" : ""}`,
@@ -565,7 +572,7 @@ export const getCategoryBreakdown = defineTool({
 			card: {
 				type: "rows",
 				tool: "get_category_breakdown",
-				title: `Gastos por categoria · ${month}`,
+				title: `Gastos por categoria · ${monthLabel(month)}`,
 				rows: rows
 					.slice(0, 10)
 					.map((r) => ({ label: r.name, caption: r.share, value: r.text, cents: r.cents })),
@@ -647,7 +654,13 @@ export const getMonthReport = defineTool({
 				topCategories: top,
 				overBudget,
 			},
-			card: { type: "rows", tool: "get_month_report", title: `Relatório de ${month}`, rows, total: null },
+			card: {
+				type: "rows",
+				tool: "get_month_report",
+				title: `Relatório de ${monthLabel(month)}`,
+				rows,
+				total: null,
+			},
 		};
 	},
 });
