@@ -24,8 +24,7 @@ function hostOf(baseUrl: string | null): string | undefined {
 
 /**
  * Tela "Configurações" (Figma 41:605), com "Metas" em Organização (o Figma não mostra por onde se chega às
- * metas). Só "Agentes" ainda aparece como no Figma, esmaecido, com "Em breve" e sem
- * toque, até existir; os demais itens têm tela. Quem já usava o app e não fez a configuração inicial vê essa entrada;
+ * metas) e "Agentes" (os agentes da casa e os do dono). Quem já usava o app e não fez a configuração inicial vê essa entrada;
  * depois de feita, ela some. O que o Figma mostra com número de exemplo (4 bancos, 3 apps…) não aparece.
  */
 export function SettingsScreen() {
@@ -118,7 +117,11 @@ export function SettingsScreen() {
 				</SettingsSection>
 
 				<SettingsSection title="Organização">
-					<SettingsRow leading={<OrbitaAvatar size={20} />} title="Agentes" soon />
+					<SettingsRow
+						leading={<OrbitaAvatar size={20} />}
+						title="Agentes"
+						onPress={() => router.push("/agentes")}
+					/>
 					<SettingsRow icon="assinatura" title="Assinaturas" onPress={() => router.push("/assinaturas")} />
 					<SettingsRow icon="bandeira" title="Metas" onPress={() => router.push("/metas")} />
 					<SettingsRow
