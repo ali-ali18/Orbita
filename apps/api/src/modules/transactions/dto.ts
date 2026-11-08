@@ -25,6 +25,7 @@ export function toTransactionDto(t: TransactionRecord): TransactionDto {
 		sourceCategory: t.sourceCategory,
 		merchantName: t.merchantName,
 		categoryEditedByOwner: t.categoryEditedByOwner,
+		splitGroupId: t.splitGroupId,
 		createdAt: t.createdAt.toISOString(),
 		updatedAt: t.updatedAt.toISOString(),
 	};

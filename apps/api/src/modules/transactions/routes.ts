@@ -8,6 +8,7 @@ import {
 	transactionCountQuery,
 	transactionDeleteQuery,
 	transactionListQuery,
+	transactionSplitBody,
 } from "@orbita/shared";
 import { Hono } from "hono";
 import { orNotFound } from "../../http/errors.ts";
@@ -22,6 +23,7 @@ import {
 	createTransaction,
 	deleteTransaction,
 	listRecentPage,
+	splitTransaction,
 	updateTransaction,
 } from "./service.ts";
 
@@ -91,6 +93,19 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 			async (c) => {
 				const deleted = await deleteTransaction(stores, c.req.valid("param").id, c.req.valid("query").scope);
 				return c.json({ deleted });
+			},
+		)
+		.post(
+			"/v1/transactions/:id/split",
+			validate("param", idParam),
+			validate("json", transactionSplitBody),
+			async (c) => {
+				const { id } = c.req.valid("param");
+				const body = c.req.valid("json");
+				const result = await idempotent(c, idempotency, body, 201, async () => ({
+					transactions: (await splitTransaction(stores, id, body)).map(toTransactionDto),
+				}));
+				return c.json(result, 201);
 			},
 		)
 		.post("/v1/transactions/:id/confirm", validate("param", idParam), async (c) => {

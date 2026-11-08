@@ -223,6 +223,7 @@ function projectedRows(
 		sourceCategory: null,
 		merchantName: null,
 		categoryEditedByOwner: false,
+		splitGroupId: null,
 		createdAt: EPOCH,
 		updatedAt: EPOCH,
 	}));

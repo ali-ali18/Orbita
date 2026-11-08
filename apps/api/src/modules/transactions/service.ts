@@ -13,6 +13,7 @@ import {
 	isLocalDate,
 	type TransactionApiCreateBody,
 	type TransactionApiUpdateBody,
+	type TransactionSplitBody,
 } from "@orbita/shared";
 import { defined, orNotFound } from "../../http/errors.ts";
 
@@ -119,6 +120,25 @@ export async function deleteTransaction(
 		return stores.transactions.softDeleteGroup(current.installmentGroupId);
 	}
 	return (await stores.transactions.softDelete(id)) ? 1 : 0;
+}
+
+/**
+ * Divide o lançamento em partes com categorias próprias. Quem confere que a soma fecha exatamente é o engine
+ * (`checkSplit`, dentro do store); o servidor só repassa. O original sai e as partes entram numa operação só.
+ */
+export async function splitTransaction(
+	stores: Stores,
+	id: string,
+	body: TransactionSplitBody,
+): Promise<TransactionRecord[]> {
+	return stores.transactions.splitTransaction(
+		id,
+		body.parts.map((part) => ({
+			amountCents: part.amountCents,
+			categoryId: part.categoryId ?? null,
+			description: part.description,
+		})),
+	);
 }
 
 /** Pendente vira confirmado. Já confirmado volta como está (dois toques seguidos não dão erro). */
