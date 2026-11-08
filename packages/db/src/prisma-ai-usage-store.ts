@@ -1,6 +1,6 @@
 import { monthOf, toLocalDate } from "@orbita/core";
 import { type AiUsageStore, DEFAULT_AI_MONTHLY_LIMIT_USD_CENTS } from "./ai-usage-store.ts";
-import { checkUsageNumbers, cleanAiLimit } from "./chat-rules.ts";
+import { checkUsageNumbers, cleanAiLimit, cleanModelId } from "./chat-rules.ts";
 import type { Db } from "./client.ts";
 import { isForeignKeyViolation } from "./prisma-errors.ts";
 
@@ -61,6 +61,24 @@ export function createPrismaAiUsageStore(db: Db): AiUsageStore {
 				create: { id: SETTINGS_ID, monthlyLimitUsdCents },
 			});
 			return row.monthlyLimitUsdCents;
+		},
+		async getModelChoice() {
+			const row = await db.aiSettings.findUnique({ where: { id: SETTINGS_ID } });
+			return { chatModel: row?.chatModel ?? null, chatModelFast: row?.chatModelFast ?? null };
+		},
+		async setModelChoice(patch) {
+			const data: { chatModel?: string | null; chatModelFast?: string | null } = {};
+			const chatModel = cleanModelId(patch.chatModel);
+			const chatModelFast = cleanModelId(patch.chatModelFast);
+			if (chatModel !== undefined) data.chatModel = chatModel;
+			if (chatModelFast !== undefined) data.chatModelFast = chatModelFast;
+			// Linha nova nasce com o limite padrão: quem nunca mexeu no limite não fica sem limite por escolher o modelo.
+			const row = await db.aiSettings.upsert({
+				where: { id: SETTINGS_ID },
+				update: data,
+				create: { id: SETTINGS_ID, monthlyLimitUsdCents: DEFAULT_AI_MONTHLY_LIMIT_USD_CENTS, ...data },
+			});
+			return { chatModel: row.chatModel, chatModelFast: row.chatModelFast };
 		},
 	};
 }

@@ -1,5 +1,6 @@
 export type { AccountInput, AccountPatch, AccountRecord, AccountStore } from "./account-store.ts";
 export {
+	type AiModelChoice,
 	type AiUsageInput,
 	type AiUsageStore,
 	type AiUsageTotals,

@@ -23,6 +23,12 @@ export interface AiUsageTotals {
 	cacheWriteTokens: number;
 }
 
+/** Modelos escolhidos no app; `null` = não escolheu (vale o padrão do servidor). `chatModelFast` pode ser "off". */
+export interface AiModelChoice {
+	chatModel: string | null;
+	chatModelFast: string | null;
+}
+
 /**
  * Quanto a IA custou. O custo vem em micro-dólares inteiros (tabela de preços em `@orbita/agents`); o mês é o do
  * fuso de São Paulo. Apagar uma conversa não apaga o custo.
@@ -36,4 +42,8 @@ export interface AiUsageStore {
 	getMonthlyLimit(): Promise<number | null>;
 	/** `invalid` se não for inteiro entre 0 e 1.000.000. `null` tira o limite. */
 	setMonthlyLimit(usdCents: number | null): Promise<number | null>;
+	/** O que o dono escolheu; sem nada gravado, tudo `null`. */
+	getModelChoice(): Promise<AiModelChoice>;
+	/** Campo ausente fica como está; `null` volta ao padrão. `invalid` para texto vazio ou grande demais. A lista permitida é da API. */
+	setModelChoice(patch: Partial<AiModelChoice>): Promise<AiModelChoice>;
 }

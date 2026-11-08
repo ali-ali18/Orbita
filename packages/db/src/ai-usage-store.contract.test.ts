@@ -81,4 +81,32 @@ describe.each(contractSuites())("AiUsageStore (%s)", (_name, make) => {
 		}
 		expect(await stores.aiUsage.getMonthlyLimit()).toBeNull();
 	});
+
+	it("modelo do chat: nada salvo, troca parcial, voltar ao padrão e validação", async () => {
+		expect(await stores.aiUsage.getModelChoice()).toEqual({ chatModel: null, chatModelFast: null });
+		expect(await stores.aiUsage.setModelChoice({ chatModel: "claude-opus-5-5" })).toEqual({
+			chatModel: "claude-opus-5-5",
+			chatModelFast: null,
+		});
+		// Campo ausente fica como está.
+		expect(await stores.aiUsage.setModelChoice({ chatModelFast: "off" })).toEqual({
+			chatModel: "claude-opus-5-5",
+			chatModelFast: "off",
+		});
+		expect(await stores.aiUsage.setModelChoice({ chatModel: null })).toEqual({
+			chatModel: null,
+			chatModelFast: "off",
+		});
+		for (const bad of ["", "x".repeat(81)]) {
+			await expect(stores.aiUsage.setModelChoice({ chatModel: bad })).rejects.toMatchObject({
+				code: "invalid",
+			});
+		}
+		expect(await stores.aiUsage.getModelChoice()).toEqual({ chatModel: null, chatModelFast: "off" });
+	});
+
+	it("escolher o modelo não tira o limite mensal padrão", async () => {
+		await stores.aiUsage.setModelChoice({ chatModel: "claude-haiku-5-5" });
+		expect(await stores.aiUsage.getMonthlyLimit()).toBe(DEFAULT_AI_MONTHLY_LIMIT_USD_CENTS);
+	});
 });

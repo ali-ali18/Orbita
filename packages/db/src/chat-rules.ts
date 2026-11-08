@@ -32,6 +32,12 @@ export function cleanAiLimit(value: number | null): number | null {
 	return value;
 }
 
+export function cleanModelId(value: string | null | undefined): string | null | undefined {
+	if (value === undefined || value === null) return value;
+	if (value.length === 0 || value.length > 80) throw invalid("O id do modelo deve ter de 1 a 80 letras.");
+	return value;
+}
+
 const COUNT_FIELDS = [
 	["inputTokens", "tokens de entrada"],
 	["outputTokens", "tokens de saída"],

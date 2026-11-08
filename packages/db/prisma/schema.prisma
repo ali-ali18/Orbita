@@ -511,6 +511,10 @@ model AiUsage {
 model AiSettings {
   id                   String   @id @default("main")
   monthlyLimitUsdCents Int?     @map("monthly_limit_usd_cents")
+  /// Modelo escolhido no app; null = vale o padrão do servidor (CHAT_MODEL).
+  chatModel            String?  @map("chat_model")
+  /// Modelo rápido; "off" = desligado; null = padrão do servidor (CHAT_MODEL_FAST).
+  chatModelFast        String?  @map("chat_model_fast")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   @@map("ai_settings")
