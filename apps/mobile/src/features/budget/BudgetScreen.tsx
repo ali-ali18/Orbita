@@ -18,6 +18,7 @@ import {
 	limitsExceedTotal,
 	TOTAL_SCOPE,
 	totalLimit,
+	withUnassignedSpend,
 } from "./budget-model.ts";
 import { useBudgets, useRemoveBudget, useSetBudget } from "./queries.ts";
 
@@ -154,7 +155,7 @@ export function BudgetScreen() {
 		if (state.phase === "error") return <ErrorState message={state.message} onRetry={state.retry} />;
 		const [[{ budgets }, { summary }], { categories }] = state.data;
 		const total = totalLimit(budgets);
-		const rows = budgetRows(categories, budgets, summary.byCategory);
+		const rows = withUnassignedSpend(budgetRows(categories, budgets, summary.byCategory), summary.spentCents);
 		return (
 			<>
 				<Pressable
@@ -186,6 +187,9 @@ export function BudgetScreen() {
 					</Text>
 					<Text variant="numberLarge" tone={total === null ? "tertiary" : "primary"}>
 						{total === null ? "Definir limite" : money(total, hidden, { sign: "never" })}
+					</Text>
+					<Text variant="caption" tone="secondary">
+						Gasto {money(summary.spentCents, hidden, { sign: "never" })} neste mês
 					</Text>
 					{total !== null && limitsExceedTotal(rows, total) ? (
 						<Text variant="caption" tone="secondary">

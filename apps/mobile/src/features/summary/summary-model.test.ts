@@ -21,14 +21,25 @@ const categories = [
 ];
 
 describe("categoryShares", () => {
-	it("ordena pelos espaços do gráfico e junta as sem cor em Outros", () => {
+	it("cada categoria fica com o próprio gasto; o que não tem categoria entra em Outros", () => {
 		const shares = categoryShares(
 			{ laz: 500, mor: 100000, mer: 3000, out: 250, del: 2000, ghost: 50 },
 			categories,
 		);
-		expect(shares.map((s) => s.key)).toEqual(["slot-0", "slot-1", "slot-4", "other"]);
-		expect(shares.map((s) => s.color)).toEqual([chartSeries[0], chartSeries[1], chartSeries[4], chart.other]);
-		expect(shares.at(-1)).toMatchObject({ name: "Outros", cents: 100300 });
+		expect(shares.map((s) => [s.name, s.cents])).toEqual([
+			["Mercado", 3000],
+			["Delivery", 2000],
+			["Lazer", 500],
+			["Moradia", 100000],
+			["Outros", 300],
+		]);
+		expect(shares.map((s) => s.color)).toEqual([
+			chartSeries[0],
+			chartSeries[1],
+			chartSeries[4],
+			chart.other,
+			chart.other,
+		]);
 	});
 	it("ignora categoria sem gasto e devolve vazio sem dados", () => {
 		expect(categoryShares({ mer: 0 }, categories)).toEqual([]);

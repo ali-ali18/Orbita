@@ -73,6 +73,29 @@ export function budgetRows(
 	);
 }
 
+/**
+ * O gasto do mês que não caiu numa categoria da lista entra em Outros, para a soma das linhas
+ * fechar com o "Gasto" do Início. Sem a categoria Outros, as linhas ficam como estão.
+ */
+export function withUnassignedSpend(rows: readonly BudgetRow[], spentCents: Cents): readonly BudgetRow[] {
+	const listed = rows.reduce((sum, row) => sum + row.spentCents, 0);
+	const gap = spentCents - listed;
+	const index = rows.findIndex((row) => row.name === "Outros");
+	if (gap === 0 || index < 0 || gap < 0) return rows;
+	return rows.map((row, i) => {
+		if (i !== index) return row;
+		const spent = row.spentCents + gap;
+		const limit = row.limitCents;
+		return {
+			...row,
+			spentCents: spent,
+			fillPercent:
+				limit === null ? 0 : limit === 0 ? (spent > 0 ? 100 : 0) : Math.min(100, percentOf(spent, limit)),
+			over: limit !== null && spent > limit,
+		};
+	});
+}
+
 /** Soma dos limites por categoria; serve de aviso quando passa do total do mês. */
 export function categoryLimitsSum(rows: readonly BudgetRow[]): Cents {
 	return rows.reduce((s, r) => s + (r.limitCents ?? 0), 0);
