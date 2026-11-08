@@ -19,6 +19,22 @@ export function defaultAccountLabel(accounts: readonly AccountLike[], id: string
 	return account ? account.name : "Nenhuma";
 }
 
+/**
+ * Valor da linha "Sobra do mês vai para": o nome da meta ou da conta escolhida (nunca as duas), ou "Nenhuma" se
+ * não há escolha ou o que foi escolhido sumiu ou foi arquivado.
+ */
+export function leftoverLabel(
+	accounts: readonly AccountLike[],
+	goals: readonly AccountLike[],
+	choice: { accountId: string | null; goalId: string | null },
+): string {
+	if (choice.goalId !== null) {
+		const goal = goals.find((g) => g.id === choice.goalId && g.archivedAt === null);
+		return goal ? goal.name : "Nenhuma";
+	}
+	return defaultAccountLabel(accounts, choice.accountId);
+}
+
 /** Liga ou desliga um app da lista de leitura, mantendo a ordem fixa e sem repetir. */
 export function toggleApp(apps: readonly NotificationApp[], app: NotificationApp): NotificationApp[] {
 	const next = apps.includes(app) ? apps.filter((a) => a !== app) : [...apps, app];

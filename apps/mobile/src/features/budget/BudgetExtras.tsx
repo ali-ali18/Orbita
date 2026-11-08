@@ -4,7 +4,9 @@ import { Pressable, View } from "react-native";
 import { formatWholeReais } from "../../lib/format.ts";
 import { errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { ConfirmDialog, OrbitaAvatar, Sheet, SheetGroup, SheetRow, Text } from "../../ui/index.ts";
-import { defaultAccountLabel, selectableAccounts } from "../settings/preferences-model.ts";
+import { selectableGoals } from "../goals/goals-model.ts";
+import { useGoals } from "../goals/queries.ts";
+import { leftoverLabel, selectableAccounts } from "../settings/preferences-model.ts";
 import { usePreferences, useUpdatePreferences } from "../settings/preferences-queries.ts";
 import { SettingsRow, SettingsSection } from "../settings/SettingsRows.tsx";
 import { useAccounts } from "../summary/queries.ts";
@@ -14,7 +16,6 @@ import {
 	type BudgetLike,
 	type CategoryLike,
 	changedByRequests,
-	GOALS_SOON,
 	LEFTOVER_CAPTION,
 	replacedCount,
 	type SuggestionLike,
@@ -104,16 +105,26 @@ export function SuggestionLine({
 export function BudgetPreferences() {
 	const preferencesQ = usePreferences();
 	const accountsQ = useAccounts();
+	const goalsQ = useGoals();
 	const update = useUpdatePreferences();
 	const [sheet, setSheet] = useState<"alert" | "leftover" | null>(null);
 	const [message, setMessage] = useState<string | null>(null);
 	const preferences = toLoadable(preferencesQ);
 	const accounts = toLoadable(accountsQ);
+	const goals = toLoadable(goalsQ);
 	if (preferences.phase !== "ready") return null;
-	const { budgetAlertPercent, leftoverAccountId } = preferences.data;
+	const { budgetAlertPercent, leftoverAccountId, leftoverGoalId } = preferences.data;
 	const accountList = accounts.phase === "ready" ? accounts.data.accounts : [];
+	// As metas (já só as ativas) chegam da lista; sem elas a escolha continua valendo, só não oferece metas.
+	const goalList = goals.phase === "ready" ? selectableGoals(goals.data.goals) : [];
 
-	const save = (patch: { budgetAlertPercent: number } | { leftoverAccountId: string | null }) => {
+	const save = (
+		patch:
+			| { budgetAlertPercent: number }
+			| { leftoverAccountId: string }
+			| { leftoverGoalId: string }
+			| { leftoverAccountId: null; leftoverGoalId: null },
+	) => {
 		setSheet(null);
 		setMessage(null);
 		update.mutate(patch, { onError: (e) => setMessage(errorMessage(e)) });
@@ -131,8 +142,10 @@ export function BudgetPreferences() {
 				<SettingsRow
 					last
 					title="Sobra do mês vai para"
-					caption={GOALS_SOON}
-					value={defaultAccountLabel(accountList, leftoverAccountId)}
+					value={leftoverLabel(accountList, goalList, {
+						accountId: leftoverAccountId,
+						goalId: leftoverGoalId,
+					})}
 					onPress={() => setSheet("leftover")}
 				/>
 			</SettingsSection>
@@ -167,21 +180,32 @@ export function BudgetPreferences() {
 						<SheetRow
 							label="Nenhuma"
 							role="radio"
-							selected={leftoverAccountId === null}
-							onPress={() => save({ leftoverAccountId: null })}
+							selected={leftoverAccountId === null && leftoverGoalId === null}
+							onPress={() => save({ leftoverAccountId: null, leftoverGoalId: null })}
 						/>
 						{selectableAccounts(accountList).map((a) => (
 							<SheetRow
 								key={a.id}
 								label={a.name}
+								caption="Conta"
 								role="radio"
 								selected={leftoverAccountId === a.id}
 								onPress={() => save({ leftoverAccountId: a.id })}
 							/>
 						))}
+						{goalList.map((g) => (
+							<SheetRow
+								key={g.id}
+								label={g.name}
+								caption="Meta"
+								role="radio"
+								selected={leftoverGoalId === g.id}
+								onPress={() => save({ leftoverGoalId: g.id })}
+							/>
+						))}
 					</SheetGroup>
 					<Text variant="caption" tone="secondary" style={{ paddingHorizontal: spacing.xs }}>
-						{`${GOALS_SOON}. ${LEFTOVER_CAPTION}`}
+						{LEFTOVER_CAPTION}
 					</Text>
 				</View>
 			</Sheet>

@@ -99,7 +99,7 @@ type Target = { scope: string; title: string; hint?: string; initial: number; ha
 /**
  * Tela "Orçamento do mês" (Figma 43:868): o limite total e um limite por categoria. O gasto vem do resumo do mês.
  * "Sugestão da Órbita" (mediana dos últimos meses fechados, calculada pelo servidor), "Avisar quando passar de" e
- * "Sobra do mês vai para" só guardam a escolha: o push e as metas ainda não existem.
+ * "Sobra do mês vai para" (uma conta ou uma meta) só guardam a escolha: o push ainda não existe e nenhum dinheiro é movido.
  */
 export function BudgetScreen() {
 	const router = useRouter();
