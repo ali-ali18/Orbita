@@ -14,7 +14,15 @@ import type { InvoicesOverviewView } from "../../lib/api.ts";
 import { money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
 import { BankLogo, Card, ErrorState, Skeleton, Text } from "../../ui/index.ts";
-import { bandLook, bandRight, dueLine, nextDueText, openLine, orderBands } from "./wallet-model.ts";
+import {
+	bandLook,
+	bandRight,
+	dueLine,
+	isLastBand,
+	nextDueText,
+	openLine,
+	orderBands,
+} from "./wallet-model.ts";
 
 /** Altura da faixa inteira e do pedaço que aparece embaixo da anterior (a "bolsa" da carteira). */
 const BAND_HEIGHT = 56;
@@ -126,6 +134,7 @@ export function WalletBlock({
 				{bands.map((line, index) => {
 					const look = bandLook(line.card);
 					const lift = liftOf(line.card.id);
+					const last = isLastBand(index, bands.length);
 					return (
 						<Animated.View
 							key={line.card.id}
@@ -156,7 +165,10 @@ export function WalletBlock({
 									paddingHorizontal: spacing.md,
 									borderWidth: 1,
 									borderColor: colors.surface,
-									borderBottomWidth: 0,
+									// Só a última (embaixo, inteira) arredonda por baixo; as outras ficam sob a seguinte.
+									borderBottomWidth: last ? 1 : 0,
+									borderBottomLeftRadius: last ? radius.inner : 0,
+									borderBottomRightRadius: last ? radius.inner : 0,
 								}}
 							>
 								<View

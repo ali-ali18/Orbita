@@ -4,6 +4,7 @@ import {
 	bandLook,
 	bandRight,
 	dueLine,
+	isLastBand,
 	longDate,
 	nextDueText,
 	openLine,
@@ -32,6 +33,16 @@ describe("orderBands", () => {
 			card("Inter", "2026-11-13"),
 		]);
 		expect(out.map((c) => c.card.name)).toEqual(["Inter", "Santander", "Nubank", "Zeta"]);
+	});
+});
+
+describe("isLastBand", () => {
+	it("só a última faixa da pilha (a de baixo) é a última", () => {
+		expect([0, 1, 2].map((i) => isLastBand(i, 3))).toEqual([false, false, true]);
+	});
+	it("uma faixa só é a última; pilha vazia não tem nenhuma", () => {
+		expect(isLastBand(0, 1)).toBe(true);
+		expect(isLastBand(0, 0)).toBe(false);
 	});
 });
 

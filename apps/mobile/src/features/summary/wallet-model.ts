@@ -45,6 +45,12 @@ export interface BandLook extends IssuerBand {
 	logo: ReturnType<typeof bankLogoKey>;
 }
 
+/**
+ * A última faixa da pilha é a de baixo, inteira e sempre visível: só ela tem os cantos de baixo arredondados. As outras
+ * ficam sob a seguinte, então o canto de baixo fica escondido e não precisa de raio.
+ */
+export const isLastBand = (index: number, count: number): boolean => count > 0 && index === count - 1;
+
 /** Cor, texto e logo da faixa: pelo ISPB ou pelo nome do banco; sem banco conhecido, cinza neutro. */
 export function bandLook(card: { name: string; bankCode?: string | null | undefined }): BandLook {
 	const logo = bankLogoKey(card);
