@@ -8,7 +8,7 @@ import {
 	type ReportTransaction,
 } from "@orbita/core";
 import { type Stores, TOTAL_BUDGET_SCOPE, type TransactionRecord } from "@orbita/db";
-import { cardInvoice, refundOriginalsOutside, toCoreTransaction } from "../summary/service.ts";
+import { cardInvoice, refundOriginalsOutside, toCoreTransaction } from "./summary.ts";
 
 /**
  * Relatório do mês: junta os dados e entrega ao `monthReport` do engine. Os meses de comparação (anterior e os 3

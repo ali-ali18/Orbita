@@ -9,9 +9,13 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@orbita/agents": "workspace:*",
+		"@orbita/core": "workspace:*",
 		"@orbita/db": "workspace:*",
 		"@orbita/ingest": "workspace:*",
+		"@orbita/ledger": "workspace:*",
 		"@orbita/security": "workspace:*",
+		"@orbita/shared": "workspace:*",
 		"bullmq": "6.7.1",
 		"ioredis": "5.11.1",
 		"tsx": "4.23.15",

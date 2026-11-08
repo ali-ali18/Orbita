@@ -214,6 +214,7 @@ model Transaction {
   refunds            Transaction[]      @relation("Refund")
   posting            RecurrencePosting?
   goalContributions  GoalContribution[]
+  alerts             Alert[]
 
   @@unique([source, externalId])
   @@unique([installmentGroupId, installmentNumber])
@@ -439,6 +440,10 @@ model ChatConversation {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @map("updated_at")
 
+  /// Conversa aberta com um agente (persona e ferramentas dele); nulo = conversa com a Órbita.
+  agentId   String?  @map("agent_id")
+
+  agent     Agent?        @relation(fields: [agentId], references: [id], onDelete: SetNull)
   messages  ChatMessage[]
   proposals ChatProposal[]
   usage     AiUsage[]
@@ -481,6 +486,7 @@ model ChatProposal {
   resolvedAt     DateTime? @map("resolved_at")
 
   conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  alerts       Alert[]
 
   @@index([conversationId])
   @@map("chat_proposals")
@@ -519,4 +525,65 @@ model AiSettings {
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   @@map("ai_settings")
+}
+
+/// Agente: um da casa (`builtinKey` preenchido: Órbita, Vigia, Fechamento, Metas, Caça-assinatura, Cofrinho) ou um
+/// criado pelo dono (`builtinKey` nulo, com instruções e ferramentas de leitura). O worker roda os ligados na agenda.
+model Agent {
+  id           String    @id @default(cuid())
+  builtinKey   String?   @unique @map("builtin_key")
+  name         String
+  /// Só do dono: o que ele escreveu. Vale como pedido dele, sempre abaixo das regras do sistema.
+  instructions String?
+  /// Só do dono: nomes das ferramentas de LEITURA que o agente pode chamar.
+  tools        String[]  @default([])
+  enabled      Boolean   @default(false)
+  /// "daily" | "weekly" | "monthly".
+  frequency    String    @default("daily")
+  /// Hora cheia (0 a 23) no fuso de São Paulo.
+  runHour      Int       @default(8) @map("run_hour")
+  /// Semanal: 0 (domingo) a 6. Mensal: 1 a 28. Diário: nulo.
+  runDay       Int?      @map("run_day")
+  /// Escolhas do agente; validadas com zod na API (`agentSettingsSchemas`).
+  settings     Json      @default("{}")
+  /// Modelo só deste agente (da lista permitida); nulo = o padrão do servidor.
+  model        String?
+  lastRunAt    DateTime? @map("last_run_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @default(now()) @map("updated_at")
+
+  alerts        Alert[]
+  conversations ChatConversation[]
+
+  @@map("agents")
+}
+
+/// Achado de um agente. `dedupeKey` identifica o achado (ex.: "budget:<categoria>:2026-11:alert"): o par
+/// (agente, chave) é único, então rodar de novo no mesmo período não duplica nem reabre o que o dono dispensou.
+model Alert {
+  id            String    @id @default(cuid())
+  agentId       String    @map("agent_id")
+  kind          String
+  dedupeKey     String    @map("dedupe_key")
+  title         String
+  /// Texto-modelo, ou o reescrito pela IA (`wordedByAi`). Os números vêm sempre do engine.
+  body          String
+  wordedByAi    Boolean   @default(false) @map("worded_by_ai")
+  /// Números do achado, em centavos inteiros.
+  data          Json      @default("{}")
+  /// "new" | "seen" | "dismissed".
+  status        String    @default("new")
+  proposalId    String?   @map("proposal_id")
+  transactionId String?   @map("transaction_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  seenAt        DateTime? @map("seen_at")
+  dismissedAt   DateTime? @map("dismissed_at")
+
+  agent       Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  proposal    ChatProposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  transaction Transaction?  @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@unique([agentId, dedupeKey])
+  @@index([status, createdAt])
+  @@map("alerts")
 }

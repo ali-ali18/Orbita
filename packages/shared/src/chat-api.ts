@@ -22,6 +22,11 @@ export const chatRequestBody = z
 	.object({
 		/** Ausente = conversa nova. */
 		conversationId: idSchema.optional(),
+		/**
+		 * "Conversar com o agente": o papel e as ferramentas desse agente. Ausente = a Órbita. Numa conversa que já
+		 * existe vale o agente com que ela foi aberta.
+		 */
+		agentId: idSchema.optional(),
 		message: z
 			.string({ error: "Escreva a mensagem." })
 			.trim()

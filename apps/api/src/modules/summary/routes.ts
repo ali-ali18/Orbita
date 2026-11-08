@@ -1,4 +1,5 @@
 import { monthOf, toLocalDate } from "@orbita/core";
+import { activeInstallments, cardInvoice, monthSummary } from "@orbita/ledger";
 import { cardInvoiceParam, installmentsQuery, invoicePayBody, monthParam } from "@orbita/shared";
 import { Hono } from "hono";
 import { idempotent } from "../../http/idempotency.ts";
@@ -8,7 +9,6 @@ import { validate } from "../../http/validate.ts";
 import { toCardDto } from "../cards/dto.ts";
 import { toTransactionDto } from "../transactions/dto.ts";
 import { payInvoice } from "./pay.ts";
-import { activeInstallments, cardInvoice, monthSummary } from "./service.ts";
 
 /** Telas de leitura: resumo do mês, fatura do cartão e parcelamentos. Sempre calculadas pelo engine. */
 export function routes({ stores, now, requireDevice }: ModuleDeps) {

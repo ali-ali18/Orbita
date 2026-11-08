@@ -19,6 +19,7 @@
 		"@orbita/core": "workspace:*",
 		"@orbita/db": "workspace:*",
 		"@orbita/ingest": "workspace:*",
+		"@orbita/ledger": "workspace:*",
 		"@orbita/ota": "workspace:*",
 		"@orbita/security": "workspace:*",
 		"@orbita/shared": "workspace:*",

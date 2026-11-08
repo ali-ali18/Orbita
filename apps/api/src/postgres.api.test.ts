@@ -9,11 +9,13 @@ afterAll(async () => db?.$disconnect());
 
 async function clean(client: Db) {
 	// Ordem das chaves estrangeiras: quem aponta vem antes de quem é apontado.
+	await client.alert.deleteMany();
 	await client.aiUsage.deleteMany();
 	await client.aiSettings.deleteMany();
 	await client.chatProposal.deleteMany();
 	await client.chatMessage.deleteMany();
 	await client.chatConversation.deleteMany();
+	await client.agent.deleteMany();
 	await client.importBatch.deleteMany();
 	await client.recurrencePosting.deleteMany();
 	await client.transaction.deleteMany();
@@ -358,5 +360,49 @@ describe.skipIf(!url)("API sobre Postgres", () => {
 		expect((await api.get("/v1/settings/ai")).body).toMatchObject({ costMicroUsd: 8000, requests: 2 });
 		expect((await api.delete(`/v1/chat/conversations/${events[0].conversationId}`)).body.deleted).toBe(true);
 		expect((await api.get("/v1/settings/ai")).body.costMicroUsd).toBe(8000);
+	});
+
+	it("agentes e avisos: os da casa nascem uma vez, o PATCH valida e o aviso dispensado não volta", async () => {
+		const { api, stores } = await setup();
+		const first = (await api.get("/v1/agents")).body.agents as Json[];
+		const second = (await api.get("/v1/agents")).body.agents as Json[];
+		expect(first.map((a) => a.builtinKey)).toEqual(second.map((a) => a.builtinKey));
+		expect(first).toHaveLength(6);
+		const vigia = first.find((a) => a.builtinKey === "vigia") as Json;
+		const on = await api.patch(`/v1/agents/${vigia.id}`, {
+			enabled: true,
+			settings: { duplicateWindowDays: 5 },
+		});
+		expect(on.body.agent).toMatchObject({
+			enabled: true,
+			settings: { duplicateWindowDays: 5, unusualSpending: true },
+		});
+		expect(
+			(await api.patch(`/v1/agents/${vigia.id}`, { settings: { duplicateWindowDays: 99 } })).status,
+		).toBe(400);
+
+		const draft = {
+			kind: "budget_threshold" as const,
+			dedupeKey: "budget:x:2026-11:alert",
+			title: "Aviso",
+			body: "Texto",
+		};
+		const [alert] = await stores.agents.addAlerts(vigia.id, [draft]);
+		expect((await api.get("/v1/agents")).body.agents.find((a: Json) => a.id === vigia.id)).toMatchObject({
+			alertsNew: 1,
+		});
+		expect((await api.post(`/v1/alerts/${alert?.id}/dismiss`, {})).body.alert.status).toBe("dismissed");
+		expect(await stores.agents.addAlerts(vigia.id, [draft])).toEqual([]);
+		expect((await api.get(`/v1/agents/${vigia.id}`)).body.alerts).toEqual([]);
+
+		const mine = await api.post("/v1/agents", {
+			name: "Bar",
+			instructions: "Avisa do bar.",
+			tools: ["get_month_summary"],
+			schedule: { frequency: "daily", hour: 9, day: null },
+		});
+		expect(mine.status).toBe(201);
+		expect((await api.delete(`/v1/agents/${mine.body.agent.id}`)).body).toEqual({ deleted: true });
+		expect((await api.delete(`/v1/agents/${vigia.id}`)).status).toBe(400);
 	});
 });

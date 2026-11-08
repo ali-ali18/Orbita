@@ -18,7 +18,7 @@ A imagem é construída pelo GitHub Actions e publicada em `ghcr.io/ali-ali18/or
    APP_SECRET=...
    ```
 
-   Opcionais: `ORBITA_VERSION` (tag da imagem, padrão `latest`), `PAIRING_AUTO=false` (desliga o código automático), `TRUSTED_PROXY_HOPS=2` se houver Cloudflare na frente do Dokploy, `CHAT_MODEL`, `CHAT_MODEL_FAST` (`off` desliga o modelo barato) e `CHAT_EFFORT` (`low`, `medium`, `high`) como padrão do modelo do chat (o que o dono escolhe no app vence). A chave da Anthropic **não** vai aqui: cadastre no app, em _Configurações → Servidor e chaves_, onde também ficam o custo do mês e o limite de gasto com a IA.
+   Opcionais: `ORBITA_VERSION` (tag da imagem, padrão `latest`), `PAIRING_AUTO=false` (desliga o código automático), `TRUSTED_PROXY_HOPS=2` se houver Cloudflare na frente do Dokploy, `CHAT_MODEL`, `CHAT_MODEL_FAST` (`off` desliga o modelo barato) e `CHAT_EFFORT` (`low`, `medium`, `high`) como padrão do modelo do chat (o que o dono escolhe no app vence), e `AGENT_AI_WORDING=false` para desligar a reescrita dos avisos dos agentes por IA (os avisos saem com o texto-modelo; o worker roda os agentes de hora em hora, sem custo quando não há IA). A chave da Anthropic **não** vai aqui: cadastre no app, em _Configurações → Servidor e chaves_, onde também ficam o custo do mês e o limite de gasto com a IA.
 
 ### 2. Domínio
 

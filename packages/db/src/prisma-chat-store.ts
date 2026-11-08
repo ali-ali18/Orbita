@@ -23,11 +23,13 @@ const toConversation = (row: {
 	title: string;
 	createdAt: Date;
 	updatedAt: Date;
+	agentId: string | null;
 }): ChatConversationRecord => ({
 	id: row.id,
 	title: row.title,
 	createdAt: row.createdAt,
 	updatedAt: row.updatedAt,
+	agentId: row.agentId,
 });
 
 const toMessage = (row: {
@@ -72,13 +74,23 @@ const APPEND_ATTEMPTS = 5;
 
 export function createPrismaChatStore(db: Db, now: Clock): ChatStore {
 	return {
-		async createConversation(title) {
+		async createConversation(title, options = {}) {
 			const at = now();
-			return toConversation(
-				await db.chatConversation.create({
-					data: { title: cleanChatTitle(title), createdAt: at, updatedAt: at },
-				}),
-			);
+			try {
+				return toConversation(
+					await db.chatConversation.create({
+						data: {
+							title: cleanChatTitle(title),
+							createdAt: at,
+							updatedAt: at,
+							agentId: options.agentId ?? null,
+						},
+					}),
+				);
+			} catch (error) {
+				if (isForeignKeyViolation(error)) throw notFound("Agente", "o");
+				throw error;
+			}
 		},
 		async getConversation(id) {
 			const row = await db.chatConversation.findUnique({ where: { id } });

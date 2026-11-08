@@ -1,10 +1,10 @@
 import { toLocalDate } from "@orbita/core";
+import { reportForMonth } from "@orbita/ledger";
 import { monthParam } from "@orbita/shared";
 import { Hono } from "hono";
 import type { ModuleDeps } from "../../http/module-deps.ts";
 import type { AppEnv } from "../../http/require-device.ts";
 import { validate } from "../../http/validate.ts";
-import { reportForMonth } from "./service.ts";
 
 /** Relatório mensal: tudo calculado pelo engine (`monthReport`); a rota só valida o mês e entrega. */
 export function routes({ stores, now, requireDevice }: ModuleDeps) {

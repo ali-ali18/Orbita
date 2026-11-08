@@ -1,0 +1,19 @@
+{
+	"name": "@orbita/ledger",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json",
+		"test": "vitest run --passWithNoTests"
+	},
+	"dependencies": {
+		"@orbita/agents": "workspace:*",
+		"@orbita/core": "workspace:*",
+		"@orbita/db": "workspace:*",
+		"@orbita/ingest": "workspace:*",
+		"@orbita/shared": "workspace:*"
+	}
+}

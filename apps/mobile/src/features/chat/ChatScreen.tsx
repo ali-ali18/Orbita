@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { call } from "../../lib/api.ts";
 import { useSession } from "../../lib/session.tsx";
@@ -21,6 +21,8 @@ import { pickLocalFile } from "./pick-file.ts";
 export function ChatScreen() {
 	const profileQ = useProfile();
 	const router = useRouter();
+	// "Conversar com o agente": a tela do agente abre o chat com o id dele; sem id, é a Órbita.
+	const { agentId } = useLocalSearchParams<{ agentId?: string }>();
 	const { api, baseUrl, state: session, handleQueryError } = useSession();
 	const queryClient = useQueryClient();
 	const aiQ = useAiSettings();
@@ -57,6 +59,7 @@ export function ChatScreen() {
 				token: session.token,
 				body: {
 					message: text,
+					...(typeof agentId === "string" && agentId ? { agentId } : {}),
 					...(stateRef.current.conversationId ? { conversationId: stateRef.current.conversationId } : {}),
 				},
 				fetchImpl: chatFetch,
