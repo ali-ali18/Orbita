@@ -21,7 +21,9 @@ import * as devices from "./modules/devices/routes.ts";
 import * as exportData from "./modules/export/routes.ts";
 import * as goals from "./modules/goals/routes.ts";
 import * as imports from "./modules/imports/routes.ts";
+import * as income from "./modules/income/routes.ts";
 import * as pairing from "./modules/pairing/routes.ts";
+import * as plan from "./modules/plan/routes.ts";
 import * as pluggyConnect from "./modules/pluggy/connect/routes.ts";
 import type { PluggySyncQueue } from "./modules/pluggy/queue.ts";
 import * as pluggy from "./modules/pluggy/routes.ts";
@@ -86,6 +88,8 @@ export function createApp(deps: AppDeps) {
 		.route("/", budgets.routes(finance))
 		.route("/", recurrences.routes(finance))
 		.route("/", goals.routes(finance))
+		.route("/", income.routes(finance))
+		.route("/", plan.routes(finance))
 		.route("/", transactions.routes(finance))
 		.route("/", imports.routes(finance))
 		.route("/", exportData.routes(finance))

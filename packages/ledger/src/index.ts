@@ -13,6 +13,16 @@ export {
 	toContributionDto,
 	toGoalDto,
 } from "./goals.ts";
+export { incomeOverview, toCoreIncome, toIncomeSourceDto } from "./income.ts";
+export {
+	applyIncomePlan,
+	buildIncomePlan,
+	cappedSuggestion,
+	FIXED_CATEGORY_SLUGS,
+	fitBudgetLimits,
+	NON_SPENDING_SLUGS,
+	restoreBudgets,
+} from "./income-plan.ts";
 export { reportForMonth } from "./report.ts";
 export {
 	activeInstallments,
