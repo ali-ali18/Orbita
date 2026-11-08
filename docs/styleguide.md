@@ -33,20 +33,25 @@ Como o Órbita se parece e como manter isso consistente sem engessar. Os valores
 
 `import { chart } from "@orbita/tokens"`
 
-Cinco cores em **ordem fixa**, validadas para daltonismo contra `surface` (`#141414`). A cor segue a **categoria**, nunca a posição no ranking: Mercado é azul em todas as telas.
+Uma cor por categoria padrão, em **ordem fixa**, visível sobre `surface` (`#141414`). A cor segue a **categoria**, nunca a posição no ranking: Mercado é azul em todas as telas. Categoria criada pelo dono, sem espaço escolhido, recebe uma cor estável do nome.
 
-| Ordem | Token                        | Valor     | Categoria padrão |
-| ----- | ---------------------------- | --------- | ---------------- |
-| 1     | `chart.series[0]` azul       | `#3987E5` | Mercado          |
-| 2     | `chart.series[1]` laranja    | `#D95926` | Delivery         |
-| 3     | `chart.series[2]` verde-água | `#199E70` | Transporte       |
-| 4     | `chart.series[3]` amarelo    | `#C98500` | Assinaturas      |
-| 5     | `chart.series[4]` magenta    | `#D55181` | Lazer            |
-| —     | `chart.other` cinza          | `#5A5A5A` | Outros           |
+| Ordem | Token                        | Valor     | Categoria padrão                          |
+| ----- | ---------------------------- | --------- | ----------------------------------------- |
+| 1     | `chart.series[0]` azul       | `#3987E5` | Mercado                                   |
+| 2     | `chart.series[1]` laranja    | `#D95926` | Delivery                                  |
+| 3     | `chart.series[2]` verde-água | `#199E70` | Transporte                                |
+| 4     | `chart.series[3]` amarelo    | `#C98500` | Assinaturas                               |
+| 5     | `chart.series[4]` magenta    | `#D55181` | Lazer                                     |
+| 6     | `chart.series[5]` violeta    | `#7C5CFF` | Moradia                                   |
+| 7     | `chart.series[6]` ciano      | `#2EC4D6` | Saúde                                     |
+| 8     | `chart.series[7]` vermelho   | `#E23D3D` | Transferências                            |
+| 9     | `chart.series[8]` lima       | `#8FBF3F` | Investimentos                             |
+| 10    | `chart.series[9]` azul-claro | `#7AA2FF` | Outros                                    |
+| —     | `chart.other` cinza          | `#5A5A5A` | o que não é categoria (estorno na fatura) |
 
 Regras:
 
-- **Nunca gere uma 6ª cor.** Categoria além da quinta vira "Outros" (ou o usuário escolhe quais 5 ganham cor).
+- Cada categoria padrão tem cor. O espaço no gráfico vai de 0 a 9; se estiver vazio, vale a cor do slug.
 - Todo gráfico com mais de uma série tem **legenda**; com até 4 séries, também rótulo direto. Cor nunca é a única forma de identificar.
 - Texto (valor, legenda) usa `text`/`textSecondary`, nunca a cor da série. A cor fica na marca (barra, bolinha, linha).
 - Comparação com período anterior: mesma cor com opacidade 35% ou linha tracejada em `chart.other`.

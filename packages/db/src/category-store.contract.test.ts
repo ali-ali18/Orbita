@@ -27,9 +27,9 @@ describe.each(contractSuites())("CategoryStore (%s)", (_name, make) => {
 			code: "invalid",
 			message: "O identificador da categoria usa letras minúsculas, números e hífen.",
 		});
-		await expect(stores.categories.create({ slug: "a", name: "X", chartSlot: 5 })).rejects.toMatchObject({
+		await expect(stores.categories.create({ slug: "a", name: "X", chartSlot: 10 })).rejects.toMatchObject({
 			code: "invalid",
-			message: "O espaço no gráfico vai de 0 a 4.",
+			message: "O espaço no gráfico vai de 0 a 9.",
 		});
 	});
 
@@ -63,11 +63,11 @@ describe.each(contractSuites())("CategoryStore (%s)", (_name, make) => {
 			["transporte", 2, false],
 			["assinaturas", 3, false],
 			["lazer", 4, false],
-			["moradia", null, false],
-			["saude", null, false],
-			["transferencias", null, true],
-			["investimentos", null, true],
-			["outros", null, true],
+			["moradia", 5, false],
+			["saude", 6, false],
+			["transferencias", 7, true],
+			["investimentos", 8, true],
+			["outros", 9, true],
 		]);
 		const mercado = list[0];
 		await stores.categories.update(mercado?.id ?? "", { name: "Supermercado", chartSlot: 3 });

@@ -18,6 +18,7 @@ export interface BudgetLike {
 export interface CategoryLike {
 	id: string;
 	name: string;
+	slug?: string;
 	chartSlot: number | null;
 	archivedAt: string | null;
 }
@@ -25,6 +26,7 @@ export interface CategoryLike {
 export interface BudgetRow {
 	id: string;
 	name: string;
+	slug?: string;
 	chartSlot: number | null;
 	/** `null` = sem limite definido. */
 	limitCents: Cents | null;
@@ -56,6 +58,7 @@ export function budgetRows(
 			return {
 				id: c.id,
 				name: c.name,
+				...(c.slug === undefined ? {} : { slug: c.slug }),
 				chartSlot: c.chartSlot,
 				limitCents: limit,
 				spentCents: spent,

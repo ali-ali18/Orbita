@@ -1,4 +1,4 @@
-import { chart, chartSeries } from "@orbita/tokens";
+import { categoryColor, chartSeries } from "@orbita/tokens";
 import { describe, expect, it } from "vitest";
 import {
 	categoryShares,
@@ -16,8 +16,8 @@ const categories = [
 	{ id: "mer", name: "Mercado", chartSlot: 0 },
 	{ id: "del", name: "Delivery", chartSlot: 1 },
 	{ id: "laz", name: "Lazer", chartSlot: 4 },
-	{ id: "mor", name: "Moradia", chartSlot: null },
-	{ id: "out", name: "Outros", chartSlot: null },
+	{ id: "mor", name: "Moradia", slug: "moradia", chartSlot: null },
+	{ id: "out", name: "Outros", slug: "outros", chartSlot: null },
 ];
 
 describe("categoryShares", () => {
@@ -37,8 +37,8 @@ describe("categoryShares", () => {
 			chartSeries[0],
 			chartSeries[1],
 			chartSeries[4],
-			chart.other,
-			chart.other,
+			categoryColor({ slug: "moradia" }),
+			categoryColor({ slug: "outros" }),
 		]);
 	});
 	it("ignora categoria sem gasto e devolve vazio sem dados", () => {

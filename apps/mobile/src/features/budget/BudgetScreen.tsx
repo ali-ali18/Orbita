@@ -58,7 +58,7 @@ function CategoryLine({ row, hidden, onPress }: { row: BudgetRow; hidden: boolea
 						width: 10,
 						height: 10,
 						borderRadius: radius.pill,
-						backgroundColor: categoryDot(row.chartSlot),
+						backgroundColor: categoryDot(row.chartSlot, row.slug),
 					}}
 				/>
 				<Text variant="body" style={{ flex: 1 }} numberOfLines={1}>
@@ -69,7 +69,7 @@ function CategoryLine({ row, hidden, onPress }: { row: BudgetRow; hidden: boolea
 				</Text>
 			</View>
 			{row.limitCents !== null ? (
-				<LimitBar percent={row.fillPercent} color={categoryDot(row.chartSlot)} />
+				<LimitBar percent={row.fillPercent} color={categoryDot(row.chartSlot, row.slug)} />
 			) : null}
 			{row.over ? (
 				<Text variant="micro" tone="secondary">

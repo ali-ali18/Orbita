@@ -96,8 +96,8 @@ const slugSchema = z
 const chartSlotSchema = z
 	.number("O espaço no gráfico deve ser um número.")
 	.int("O espaço no gráfico deve ser inteiro.")
-	.min(0, "O espaço no gráfico vai de 0 a 4.")
-	.max(4, "O espaço no gráfico vai de 0 a 4.");
+	.min(0, "O espaço no gráfico vai de 0 a 9.")
+	.max(9, "O espaço no gráfico vai de 0 a 9.");
 
 export const categoryCreateBody = z
 	.object({ slug: slugSchema, name: nameSchema, chartSlot: chartSlotSchema.nullish() })

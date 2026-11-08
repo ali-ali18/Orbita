@@ -1,5 +1,5 @@
 import { type Cents, daysBetween, invoiceFor, type LocalDate, type MonthKey } from "@orbita/core";
-import { banks, chart, chartSeries, colors } from "@orbita/tokens";
+import { banks, categoryColor, colors } from "@orbita/tokens";
 import { bankLogoKey } from "../../lib/bank-logos.ts";
 import { percentOf, pluralDays } from "../../lib/format.ts";
 import type { BankBadge } from "../../ui/index.ts";
@@ -13,6 +13,7 @@ import { initialOf } from "./transaction-model.ts";
 export interface CategoryLike {
 	id: string;
 	name: string;
+	slug?: string;
 	chartSlot: number | null;
 }
 
@@ -32,9 +33,9 @@ export interface CategoryShare {
 }
 
 /**
- * O mesmo gasto do orçamento, uma linha por categoria. As cinco cores do gráfico continuam nos
- * espaços 0..4; categoria sem espaço fica cinza, com o próprio nome. O que não tem categoria entra
- * em Outros. Categoria sem gasto não entra.
+ * O mesmo gasto do orçamento, uma linha por categoria. A cor é a do espaço no gráfico ou, se ele
+ * ainda não foi escolhido, a cor do slug. O que não tem categoria entra em Outros. Categoria sem
+ * gasto não entra.
  */
 export function categoryShares(
 	byCategory: Readonly<Record<string, Cents>>,
@@ -48,13 +49,13 @@ export function categoryShares(
 		if (cents <= 0) continue;
 		const category = byId.get(id);
 		const slot = category?.chartSlot;
-		const color = slot === null || slot === undefined ? undefined : chartSeries[slot];
-		if (category && slot !== null && slot !== undefined && color) {
+		const color = categoryColor({ slug: category?.slug, chartSlot: slot });
+		if (category && slot !== null && slot !== undefined) {
 			const current = slots.get(slot);
 			if (current) current.cents += cents;
 			else slots.set(slot, { key: `slot-${slot}`, name: category.name, color, cents });
 		} else if (category) {
-			rest.push({ key: category.id, name: category.name, color: chart.other, cents });
+			rest.push({ key: category.id, name: category.name, color, cents });
 		} else {
 			loose += cents;
 		}
@@ -64,7 +65,7 @@ export function categoryShares(
 	if (loose > 0) {
 		const outros = rest.find((share) => share.name === "Outros");
 		if (outros) outros.cents += loose;
-		else rest.push({ key: "other", name: "Outros", color: chart.other, cents: loose });
+		else rest.push({ key: "other", name: "Outros", color: categoryColor({ slug: "outros" }), cents: loose });
 	}
 	return [...shares, ...rest];
 }

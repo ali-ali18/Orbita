@@ -116,8 +116,8 @@ export function normalizeCategory(input: CategoryInput) {
 		throw invalid("O identificador da categoria usa letras minúsculas, números e hífen.");
 	}
 	const chartSlot = input.chartSlot ?? null;
-	if (chartSlot !== null && (!Number.isInteger(chartSlot) || chartSlot < 0 || chartSlot > 4)) {
-		throw invalid("O espaço no gráfico vai de 0 a 4.");
+	if (chartSlot !== null && (!Number.isInteger(chartSlot) || chartSlot < 0 || chartSlot > 9)) {
+		throw invalid("O espaço no gráfico vai de 0 a 9.");
 	}
 	return {
 		slug,

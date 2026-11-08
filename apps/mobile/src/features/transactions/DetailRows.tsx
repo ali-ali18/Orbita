@@ -76,7 +76,15 @@ export function RowValue({ children }: { children: string }) {
 }
 
 /** Selo da categoria: bolinha na cor do gráfico + nome, em pílula `surface2`. */
-export function CategoryPill({ name, chartSlot }: { name: string; chartSlot: number | null }) {
+export function CategoryPill({
+	name,
+	chartSlot,
+	slug,
+}: {
+	name: string;
+	chartSlot: number | null;
+	slug?: string;
+}) {
 	return (
 		<View
 			style={{
@@ -92,7 +100,12 @@ export function CategoryPill({ name, chartSlot }: { name: string; chartSlot: num
 			}}
 		>
 			<View
-				style={{ width: 8, height: 8, borderRadius: radius.pill, backgroundColor: categoryDot(chartSlot) }}
+				style={{
+					width: 8,
+					height: 8,
+					borderRadius: radius.pill,
+					backgroundColor: categoryDot(chartSlot, slug),
+				}}
 			/>
 			<Text variant="caption" numberOfLines={1} style={{ flexShrink: 1 }}>
 				{name}
