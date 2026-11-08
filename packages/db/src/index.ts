@@ -1,4 +1,11 @@
 export type { AccountInput, AccountPatch, AccountRecord, AccountStore } from "./account-store.ts";
+export {
+	type AiModelChoice,
+	type AiUsageInput,
+	type AiUsageStore,
+	type AiUsageTotals,
+	DEFAULT_AI_MONTHLY_LIMIT_USD_CENTS,
+} from "./ai-usage-store.ts";
 export type { AuthStore, DeviceRecord, PairingCodeRecord } from "./auth-store.ts";
 export { type BudgetRecord, type BudgetStore, TOTAL_BUDGET_SCOPE } from "./budget-store.ts";
 export {
@@ -16,6 +23,15 @@ export {
 	type CategoryStore,
 	DEFAULT_CATEGORIES,
 } from "./category-store.ts";
+export {
+	CHAT_TEXT_MAX,
+	CHAT_TITLE_MAX,
+	type ChatConversationRecord,
+	type ChatMessageRecord,
+	type ChatProposalRecord,
+	type ChatRole,
+	type ChatStore,
+} from "./chat-store.ts";
 export { createDb, type Db } from "./client.ts";
 export { DataError, type DataErrorCode } from "./errors.ts";
 export type {

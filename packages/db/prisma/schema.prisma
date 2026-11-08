@@ -429,3 +429,93 @@ model ImportBatch {
   @@unique([fileHash, targetKey])
   @@map("import_batches")
 }
+
+/// Conversa com a Órbita (o chat). O histórico mora no servidor: o app só mostra.
+model ChatConversation {
+  id        String   @id @default(cuid())
+  /// Primeiras palavras da primeira mensagem do dono.
+  title     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  messages  ChatMessage[]
+  proposals ChatProposal[]
+  usage     AiUsage[]
+
+  @@index([updatedAt])
+  @@map("chat_conversations")
+}
+
+/// Uma mensagem da conversa. `cards` guarda o que o app desenha embaixo do texto (resultado de ferramenta, proposta).
+model ChatMessage {
+  id             String   @id @default(cuid())
+  conversationId String   @map("conversation_id")
+  /// Ordem dentro da conversa, a partir de 1.
+  seq            Int
+  /// "user" | "assistant".
+  role           String
+  text           String
+  cards          Json     @default("[]")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, seq])
+  @@map("chat_messages")
+}
+
+/// Escrita que a IA propôs e que só vale depois que o dono confirma (nada é gravado antes).
+model ChatProposal {
+  id             String    @id @default(cuid())
+  conversationId String    @map("conversation_id")
+  /// "create_transaction" | "categorize_transaction" | "confirm_transaction".
+  kind           String
+  /// O que será feito (já validado) e o resumo mostrado no card.
+  payload        Json
+  /// "pending" | "confirmed" | "canceled" | "undone".
+  status         String    @default("pending")
+  /// O que foi feito ao confirmar (ids e valores anteriores), para o Desfazer.
+  result         Json?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  resolvedAt     DateTime? @map("resolved_at")
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("chat_proposals")
+}
+
+/// Uma chamada ao modelo: tokens e custo (em micro-dólares, inteiro) para somar o gasto do mês.
+model AiUsage {
+  id               String   @id @default(cuid())
+  /// A conversa some e o custo fica.
+  conversationId   String?  @map("conversation_id")
+  model            String
+  inputTokens      Int      @map("input_tokens")
+  outputTokens     Int      @map("output_tokens")
+  cacheReadTokens  Int      @map("cache_read_tokens")
+  cacheWriteTokens Int      @map("cache_write_tokens")
+  /// Custo em micro-dólares (1 US$ = 1.000.000), arredondado para cima.
+  costMicroUsd     Int      @map("cost_micro_usd")
+  /// Mês (AAAA-MM, fuso de São Paulo) em que a chamada aconteceu.
+  month            String
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  conversation ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([month])
+  @@map("ai_usage")
+}
+
+/// Configuração da IA: uma única linha (id "main"). Limite mensal em centavos de dólar; null = sem limite.
+model AiSettings {
+  id                   String   @id @default("main")
+  monthlyLimitUsdCents Int?     @map("monthly_limit_usd_cents")
+  /// Modelo escolhido no app; null = vale o padrão do servidor (CHAT_MODEL).
+  chatModel            String?  @map("chat_model")
+  /// Modelo rápido; "off" = desligado; null = padrão do servidor (CHAT_MODEL_FAST).
+  chatModelFast        String?  @map("chat_model_fast")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_settings")
+}

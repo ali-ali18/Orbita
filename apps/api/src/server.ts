@@ -3,7 +3,7 @@ import { serve } from "@hono/node-server";
 import { createDb, createPrismaStores, createSecretVault } from "@orbita/db";
 import { deriveKey } from "@orbita/security";
 import { createApp } from "./app.ts";
-import { loadEnv } from "./env.ts";
+import { chatModelsFromEnv, loadEnv } from "./env.ts";
 import { startAutoPairing } from "./modules/pairing/auto.ts";
 import { createPairingGuard } from "./modules/pairing/guard.ts";
 import { createBullSyncQueue } from "./modules/pluggy/queue.ts";
@@ -34,6 +34,7 @@ const app = createApp({
 	trustedProxyHops: env.TRUSTED_PROXY_HOPS,
 	ota: createFsOtaStore(env.OTA_DIR),
 	pluggySyncQueue,
+	chatModels: chatModelsFromEnv(env),
 });
 
 const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {

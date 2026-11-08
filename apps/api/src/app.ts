@@ -1,3 +1,9 @@
+import {
+	type ChatModelConfig,
+	createAnthropicModelClient,
+	DEFAULT_CHAT_MODEL_CONFIG,
+	type ModelClient,
+} from "@orbita/agents";
 import type { SecretVault, Stores } from "@orbita/db";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -9,6 +15,7 @@ import * as budgets from "./modules/budgets/routes.ts";
 import * as cards from "./modules/cards/routes.ts";
 import * as categories from "./modules/categories/routes.ts";
 import * as categoryRules from "./modules/category-rules/routes.ts";
+import * as chat from "./modules/chat/routes.ts";
 import * as devices from "./modules/devices/routes.ts";
 import * as exportData from "./modules/export/routes.ts";
 import * as goals from "./modules/goals/routes.ts";
@@ -40,6 +47,11 @@ export type AppDeps = pairing.PairingRoutesDeps & {
 	pluggyFetch?: pluggy.PluggyRoutesDeps["fetch"];
 	/** Só para testes: o widget já empacotado, em vez de montar o do SDK. */
 	pluggyConnectAsset?: pluggyConnect.PluggyConnectRoutesDeps["asset"];
+	/** Chat com a IA: modelos (padrão em `@orbita/agents`) e a fábrica do cliente (os testes injetam um falso). */
+	chatModels?: ChatModelConfig;
+	chatClient?: (apiKey: string) => ModelClient;
+	/** Pedidos de chat por aparelho a cada 10 minutos. */
+	chatRateLimit?: number;
 };
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -79,7 +91,25 @@ export function createApp(deps: AppDeps) {
 		.route("/", preferences.routes(finance))
 		.route("/", summary.routes(finance))
 		.route("/", reports.routes(finance))
-		.route("/", settings.routes({ ...finance, vault: deps.vault, version: deps.version }))
+		.route(
+			"/",
+			chat.routes({
+				...finance,
+				vault: deps.vault,
+				models: deps.chatModels ?? DEFAULT_CHAT_MODEL_CONFIG,
+				createClient: deps.chatClient ?? ((apiKey) => createAnthropicModelClient({ apiKey })),
+				...(deps.chatRateLimit === undefined ? {} : { rateLimitPerWindow: deps.chatRateLimit }),
+			}),
+		)
+		.route(
+			"/",
+			settings.routes({
+				...finance,
+				vault: deps.vault,
+				version: deps.version,
+				chatModels: deps.chatModels ?? DEFAULT_CHAT_MODEL_CONFIG,
+			}),
+		)
 		.route("/", updates.routes(deps))
 		.route(
 			"/",

@@ -1,11 +1,21 @@
-import { formatBRL } from "@orbita/core";
+import type { ChatCard, ChatRowsCard, ProposalDto } from "@orbita/shared";
 import { chart, colors, radius, spacing } from "@orbita/tokens";
 import { useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { percentOf } from "../../lib/format.ts";
-import { Icon, IconButton, OrbitaAvatar, Screen, Sheet, SheetGroup, SheetRow, Text } from "../../ui/index.ts";
+import {
+	Button,
+	Icon,
+	IconButton,
+	OrbitaAvatar,
+	Screen,
+	Sheet,
+	SheetGroup,
+	SheetRow,
+	Text,
+} from "../../ui/index.ts";
 import { hello } from "../settings/profile-model.ts";
-import type { MonthRow } from "./reply.ts";
+import { type ChatBubble, NO_KEY_ACTION_LABEL, PROPOSAL_STATUS_LABEL, proposalAmount } from "./chat-model.ts";
 
 const SUGGESTIONS = [
 	"Quanto gastei com delivery?",
@@ -14,47 +24,45 @@ const SUGGESTIONS = [
 	"Ler um comprovante",
 ];
 
-export type ChatBubble =
-	| { id: string; kind: "user"; text: string }
-	| { id: string; kind: "text"; text: string }
-	| { id: string; kind: "month"; text: string; rows: readonly MonthRow[] }
-	| {
-			id: string;
-			kind: "launch";
-			description: string;
-			caption: string;
-			amount: string;
-			onUndo?: () => void;
-			onEdit?: () => void;
-	  };
+export type ProposalAction = "confirm" | "cancel" | "undo";
 
-const TONE_COLOR = {
-	income: chart.aqua,
-	spent: chart.orange,
-	projection: chart.blue,
-} as const;
-
-function MonthCard({ text, rows }: { text: string; rows: readonly MonthRow[] }) {
-	const max = rows.reduce((highest, row) => Math.max(highest, row.cents), 0);
+/** Card de resultado de ferramenta: título, linhas (rótulo, legenda, valor) e uma barra quando a linha é dinheiro. */
+function RowsCard({ card }: { card: ChatRowsCard }) {
+	const max = card.rows.reduce((highest, row) => Math.max(highest, row.cents ?? 0), 0);
 	return (
-		<View style={{ gap: spacing.md, alignSelf: "stretch" }}>
-			<Text variant="body">{text}</Text>
-			<View
-				style={{
-					backgroundColor: colors.surface,
-					borderRadius: radius.group,
-					padding: spacing.lg,
-					gap: spacing.md,
-				}}
-			>
-				{rows.map((row) => (
-					<View key={row.label} style={{ gap: spacing.sm }}>
-						<View style={{ flexDirection: "row", alignItems: "center" }}>
-							<Text variant="caption" tone="secondary" style={{ flex: 1 }}>
+		<View
+			style={{
+				alignSelf: "stretch",
+				backgroundColor: colors.surface,
+				borderRadius: radius.group,
+				padding: spacing.lg,
+				gap: spacing.md,
+			}}
+		>
+			<Text variant="bodyStrong" accessibilityRole="header">
+				{card.title}
+			</Text>
+			{card.rows.length === 0 ? (
+				<Text variant="caption" tone="secondary">
+					Nada por aqui.
+				</Text>
+			) : null}
+			{card.rows.map((row) => (
+				<View key={`${row.label}|${row.caption}|${row.value}`} style={{ gap: spacing.sm }}>
+					<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+						<View style={{ flex: 1, gap: 2 }}>
+							<Text variant="caption" numberOfLines={1}>
 								{row.label}
 							</Text>
-							<Text variant="bodyStrong">{formatBRL(row.cents)}</Text>
+							{row.caption ? (
+								<Text variant="caption" tone="secondary" numberOfLines={1}>
+									{row.caption}
+								</Text>
+							) : null}
 						</View>
+						<Text variant="bodyStrong">{row.value}</Text>
+					</View>
+					{row.cents !== null && max > 0 ? (
 						<View
 							style={{
 								height: 6,
@@ -68,30 +76,44 @@ function MonthCard({ text, rows }: { text: string; rows: readonly MonthRow[] }) 
 									height: 6,
 									width: `${percentOf(row.cents, max)}%`,
 									borderRadius: radius.pill,
-									backgroundColor: TONE_COLOR[row.tone],
+									backgroundColor: chart.blue,
 								}}
 							/>
 						</View>
-					</View>
-				))}
-			</View>
+					) : null}
+				</View>
+			))}
+			{card.total ? (
+				<View style={{ flexDirection: "row", alignItems: "center", paddingTop: spacing.xs }}>
+					<Text variant="caption" tone="secondary" style={{ flex: 1 }}>
+						{card.total.label}
+					</Text>
+					<Text variant="bodyStrong">{card.total.value}</Text>
+				</View>
+			) : null}
 		</View>
 	);
 }
 
-function LaunchCard({
-	description,
-	caption,
-	amount,
-	onUndo,
-	onEdit,
+/**
+ * Proposta de escrita da IA. Nada foi gravado até o dono tocar em "Confirmar"; depois de confirmada ganha
+ * "Desfazer" (e abre o lançamento, quando há um).
+ */
+function ProposalCard({
+	proposal,
+	busy,
+	onAction,
+	onOpenTransaction,
 }: {
-	description: string;
-	caption: string;
-	amount: string;
-	onUndo?: () => void;
-	onEdit?: () => void;
+	proposal: ProposalDto;
+	busy: boolean;
+	onAction: (action: ProposalAction, proposal: ProposalDto) => void;
+	onOpenTransaction?: ((id: string) => void) | undefined;
 }) {
+	const done = proposal.status === "confirmed";
+	const closed = proposal.status === "canceled" || proposal.status === "undone";
+	const amount = proposalAmount(proposal);
+	const rest = proposal.lines.filter((line) => line.label !== "Valor");
 	return (
 		<View
 			style={{
@@ -100,6 +122,7 @@ function LaunchCard({
 				borderRadius: radius.group,
 				padding: spacing.lg,
 				gap: spacing.md,
+				opacity: closed ? 0.7 : 1,
 			}}
 		>
 			<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
@@ -108,73 +131,69 @@ function LaunchCard({
 						width: 20,
 						height: 20,
 						borderRadius: radius.sm,
-						backgroundColor: colors.accent,
+						backgroundColor: done ? colors.accent : colors.surface3,
 						alignItems: "center",
 						justifyContent: "center",
 					}}
 				>
-					<Icon name="check" size={12} color={colors.onAccent} />
+					<Icon name="check" size={12} color={done ? colors.onAccent : colors.textSecondary} />
 				</View>
-				<Text variant="caption" tone="secondary">
-					Lancei
+				<Text variant="caption" tone="secondary" style={{ flex: 1 }}>
+					{proposal.title} · {PROPOSAL_STATUS_LABEL[proposal.status]}
 				</Text>
+				{amount ? <Text variant="bodyStrong">{amount}</Text> : null}
 			</View>
-			<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-				<View
-					style={{
-						width: 44,
-						height: 44,
-						borderRadius: radius.pill,
-						backgroundColor: colors.surface2,
-						alignItems: "center",
-						justifyContent: "center",
-					}}
-				>
-					<Icon name="comida" size={20} />
-				</View>
-				<View style={{ flex: 1, gap: 2 }}>
-					<Text variant="bodyStrong">{description}</Text>
-					<Text variant="caption" tone="secondary">
-						{caption}
-					</Text>
-				</View>
-				<Text variant="bodyStrong">{amount}</Text>
+			<View style={{ gap: spacing.xs }}>
+				{rest.map((line) => (
+					<View key={line.label} style={{ flexDirection: "row", gap: spacing.md }}>
+						<Text variant="caption" tone="secondary" style={{ width: 88 }}>
+							{line.label}
+						</Text>
+						<Text variant="caption" style={{ flex: 1 }}>
+							{line.value}
+						</Text>
+					</View>
+				))}
 			</View>
-			{onUndo || onEdit ? (
+			{proposal.status === "pending" ? (
 				<View style={{ flexDirection: "row", gap: spacing.sm }}>
-					{onUndo ? (
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel="Desfazer"
-							onPress={onUndo}
-							style={{
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 6,
-								backgroundColor: colors.surface2,
-								borderRadius: radius.pill,
-								paddingHorizontal: spacing.md,
-								paddingVertical: spacing.sm,
-							}}
-						>
-							<Icon name="desfazer" size={16} />
-							<Text variant="caption">Desfazer</Text>
-						</Pressable>
-					) : null}
-					{onEdit ? (
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel="Mudar categoria"
-							onPress={onEdit}
-							style={{
-								backgroundColor: colors.surface2,
-								borderRadius: radius.pill,
-								paddingHorizontal: spacing.md,
-								paddingVertical: spacing.sm,
-							}}
-						>
-							<Text variant="caption">Mudar categoria</Text>
-						</Pressable>
+					<Button
+						label="Confirmar"
+						compact
+						loading={busy}
+						onPress={() => onAction("confirm", proposal)}
+						style={{ flex: 1 }}
+					/>
+					<Button
+						label="Cancelar"
+						variant="secondary"
+						compact
+						disabled={busy}
+						onPress={() => onAction("cancel", proposal)}
+						style={{ flex: 1 }}
+					/>
+				</View>
+			) : null}
+			{done ? (
+				<View style={{ flexDirection: "row", gap: spacing.sm }}>
+					<Button
+						label="Desfazer"
+						variant="secondary"
+						compact
+						icon="desfazer"
+						loading={busy}
+						onPress={() => onAction("undo", proposal)}
+						style={{ flex: 1 }}
+					/>
+					{proposal.transactionId && onOpenTransaction ? (
+						<Button
+							label="Ver lançamento"
+							variant="secondary"
+							compact
+							disabled={busy}
+							onPress={() => onOpenTransaction(proposal.transactionId as string)}
+							style={{ flex: 1 }}
+						/>
 					) : null}
 				</View>
 			) : null}
@@ -182,7 +201,41 @@ function LaunchCard({
 	);
 }
 
-function Bubble({ message }: { message: ChatBubble }) {
+function CardView({
+	card,
+	busyProposalId,
+	onProposal,
+	onOpenTransaction,
+}: {
+	card: ChatCard;
+	busyProposalId: string | null;
+	onProposal: (action: ProposalAction, proposal: ProposalDto) => void;
+	onOpenTransaction?: ((id: string) => void) | undefined;
+}) {
+	if (card.type === "rows") return <RowsCard card={card} />;
+	return (
+		<ProposalCard
+			proposal={card.proposal}
+			busy={busyProposalId === card.proposal.id}
+			onAction={onProposal}
+			onOpenTransaction={onOpenTransaction}
+		/>
+	);
+}
+
+function Bubble({
+	message,
+	busyProposalId,
+	onProposal,
+	onOpenTransaction,
+	onOpenServer,
+}: {
+	message: ChatBubble;
+	busyProposalId: string | null;
+	onProposal: (action: ProposalAction, proposal: ProposalDto) => void;
+	onOpenTransaction?: ((id: string) => void) | undefined;
+	onOpenServer?: (() => void) | undefined;
+}) {
 	if (message.kind === "user") {
 		return (
 			<View style={{ alignSelf: "flex-end", maxWidth: "88%" }}>
@@ -199,35 +252,80 @@ function Bubble({ message }: { message: ChatBubble }) {
 			</View>
 		);
 	}
-	if (message.kind === "month") return <MonthCard text={message.text} rows={message.rows} />;
-	if (message.kind === "launch") return <LaunchCard {...message} />;
-	return <Text variant="body">{message.text}</Text>;
+	if (message.kind === "notice") {
+		return (
+			<View style={{ gap: spacing.md, alignSelf: "stretch" }} accessibilityRole="alert">
+				<Text variant="body" tone="secondary">
+					{message.text}
+				</Text>
+				{message.action === "open-server" && onOpenServer ? (
+					<Button label={NO_KEY_ACTION_LABEL} variant="secondary" compact onPress={onOpenServer} />
+				) : null}
+			</View>
+		);
+	}
+	const waiting = message.streaming && message.text === "" && message.cards.length === 0;
+	return (
+		<View style={{ gap: spacing.md, alignSelf: "stretch" }}>
+			{message.text !== "" ? <Text variant="body">{message.text}</Text> : null}
+			{message.cards.map((card) => (
+				<CardView
+					key={card.type === "proposal" ? card.proposal.id : `${card.tool}:${card.title}`}
+					card={card}
+					busyProposalId={busyProposalId}
+					onProposal={onProposal}
+					onOpenTransaction={onOpenTransaction}
+				/>
+			))}
+			{message.streaming && (waiting || message.tool) ? (
+				<Text variant="caption" tone="secondary" accessibilityLiveRegion="polite">
+					{message.tool ?? "Pensando…"}
+				</Text>
+			) : null}
+		</View>
+	);
 }
 
-/** Tela do chat. Os números das respostas já vêm prontos de quem chamou. */
+/** Tela do chat. Os textos e os números das respostas já vêm prontos do servidor. */
 export function ChatView({
 	messages,
+	busy = false,
+	busyProposalId = null,
 	onClose,
-	onReset,
+	onHistory,
 	onSend,
 	onAttach,
+	onProposal,
+	onOpenTransaction,
+	onOpenServer,
 	displayName = null,
+	modelName = null,
 }: {
 	messages: readonly ChatBubble[];
+	/** Uma resposta está chegando: o envio espera. */
+	busy?: boolean;
+	/** Proposta com o toque em andamento (o botão mostra o carregando). */
+	busyProposalId?: string | null;
 	onClose: () => void;
-	onReset: () => void;
+	/** Abre a lista de conversas anteriores. */
+	onHistory: () => void;
 	onSend: (text: string) => void;
 	/** Comprovante ou foto, depois que a folha fecha. */
 	onAttach?: (kind: "receipt" | "photo") => void;
+	onProposal: (action: ProposalAction, proposal: ProposalDto) => void;
+	onOpenTransaction?: (id: string) => void;
+	onOpenServer?: () => void;
 	/** Como a Órbita chama o dono ("Olá, Alisson"); sem nome, só "Olá". */
 	displayName?: string | null;
+	/** Nome do modelo que respondeu o último turno (ex.: "Sonnet 5.5"). */
+	modelName?: string | null;
 }) {
 	const [draft, setDraft] = useState("");
 	const [attachOpen, setAttachOpen] = useState(false);
 	const empty = messages.length === 0;
 	const send = () => {
 		const text = draft.trim();
-		if (!text) return;
+		if (!text || busy) return;
 		setDraft("");
 		onSend(text);
 	};
@@ -246,9 +344,16 @@ export function ChatView({
 						}}
 					>
 						<OrbitaAvatar size={24} />
-						<Text variant="bodyStrong">Órbita</Text>
+						<View>
+							<Text variant="bodyStrong">Órbita</Text>
+							{modelName ? (
+								<Text variant="caption" tone="secondary" accessibilityLabel={`Respondendo com ${modelName}`}>
+									{modelName}
+								</Text>
+							) : null}
+						</View>
 					</View>
-					<IconButton icon="relogio" label="Nova conversa" onPress={onReset} />
+					<IconButton icon="relogio" label="Conversas" onPress={onHistory} />
 				</View>
 				{empty ? (
 					<View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -265,12 +370,25 @@ export function ChatView({
 						contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end", gap: 14 }}
 					>
 						{messages.map((message) => (
-							<Bubble key={message.id} message={message} />
+							<Bubble
+								key={message.id}
+								message={message}
+								busyProposalId={busyProposalId}
+								onProposal={onProposal}
+								onOpenTransaction={onOpenTransaction}
+								onOpenServer={onOpenServer}
+							/>
 						))}
 					</ScrollView>
 				)}
 				{empty ? <Suggestions onSend={onSend} onAttach={() => setAttachOpen(true)} /> : null}
-				<Composer draft={draft} onChange={setDraft} onSend={send} onAttach={() => setAttachOpen(true)} />
+				<Composer
+					draft={draft}
+					busy={busy}
+					onChange={setDraft}
+					onSend={send}
+					onAttach={() => setAttachOpen(true)}
+				/>
 			</View>
 			<AttachSheet
 				visible={attachOpen}
@@ -351,16 +469,18 @@ function Suggestions({ onSend, onAttach }: { onSend: (text: string) => void; onA
 
 function Composer({
 	draft,
+	busy,
 	onChange,
 	onSend,
 	onAttach,
 }: {
 	draft: string;
+	busy: boolean;
 	onChange: (text: string) => void;
 	onSend: () => void;
 	onAttach: () => void;
 }) {
-	const ready = draft.trim().length > 0;
+	const ready = draft.trim().length > 0 && !busy;
 	return (
 		<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
 			<IconButton icon="mais" label="Anexar" size={52} iconSize={22} bordered onPress={onAttach} />

@@ -1,19 +1,23 @@
 import type { AccountStore } from "./account-store.ts";
+import type { AiUsageStore } from "./ai-usage-store.ts";
 import type { AuthStore } from "./auth-store.ts";
 import type { BudgetStore } from "./budget-store.ts";
 import type { CardStore } from "./card-store.ts";
 import type { CategoryRuleStore } from "./category-rule-store.ts";
 import type { CategoryStore } from "./category-store.ts";
+import type { ChatStore } from "./chat-store.ts";
 import type { Db } from "./client.ts";
 import type { GoalStore } from "./goal-store.ts";
 import type { IdempotencyStore } from "./idempotency-store.ts";
 import type { ImportBatchStore } from "./import-batch-store.ts";
 import { createMemoryAccountStore } from "./memory-account-store.ts";
+import { createMemoryAiUsageStore } from "./memory-ai-usage-store.ts";
 import { createMemoryAuthStore } from "./memory-auth-store.ts";
 import { createMemoryBudgetStore } from "./memory-budget-store.ts";
 import { createMemoryCardStore } from "./memory-card-store.ts";
 import { createMemoryCategoryRuleStore } from "./memory-category-rule-store.ts";
 import { createMemoryCategoryStore } from "./memory-category-store.ts";
+import { createMemoryChatStore } from "./memory-chat-store.ts";
 import { createMemoryGoalStore } from "./memory-goal-store.ts";
 import { createMemoryIdempotencyStore } from "./memory-idempotency-store.ts";
 import { createMemoryImportBatchStore } from "./memory-import-batch-store.ts";
@@ -28,11 +32,13 @@ import type { PluggyConnectSessionStore } from "./pluggy-connect-session-store.t
 import type { PluggyConnectionStore } from "./pluggy-connection-store.ts";
 import type { PreferencesStore } from "./preferences-store.ts";
 import { createPrismaAccountStore } from "./prisma-account-store.ts";
+import { createPrismaAiUsageStore } from "./prisma-ai-usage-store.ts";
 import { createPrismaAuthStore } from "./prisma-auth-store.ts";
 import { createPrismaBudgetStore } from "./prisma-budget-store.ts";
 import { createPrismaCardStore } from "./prisma-card-store.ts";
 import { createPrismaCategoryRuleStore } from "./prisma-category-rule-store.ts";
 import { createPrismaCategoryStore } from "./prisma-category-store.ts";
+import { createPrismaChatStore } from "./prisma-chat-store.ts";
 import { createPrismaGoalStore } from "./prisma-goal-store.ts";
 import { createPrismaIdempotencyStore } from "./prisma-idempotency-store.ts";
 import { createPrismaImportBatchStore } from "./prisma-import-batch-store.ts";
@@ -62,6 +68,8 @@ export interface Stores {
 	imports: ImportBatchStore;
 	preferences: PreferencesStore;
 	goals: GoalStore;
+	chat: ChatStore;
+	aiUsage: AiUsageStore;
 }
 
 export interface StoresOptions {
@@ -88,6 +96,8 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		imports: createPrismaImportBatchStore(db),
 		preferences: createPrismaPreferencesStore(db),
 		goals: createPrismaGoalStore(db, now),
+		chat: createPrismaChatStore(db, now),
+		aiUsage: createPrismaAiUsageStore(db),
 	};
 }
 
@@ -110,5 +120,7 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		imports: createMemoryImportBatchStore(),
 		preferences: createMemoryPreferencesStore(state),
 		goals: createMemoryGoalStore(state),
+		chat: createMemoryChatStore(state.now),
+		aiUsage: createMemoryAiUsageStore(),
 	};
 }

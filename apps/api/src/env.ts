@@ -1,3 +1,4 @@
+import { DEFAULT_CHAT_EFFORT, DEFAULT_CHAT_MODEL, DEFAULT_FAST_MODEL } from "@orbita/agents";
 import { z } from "zod";
 
 // `z.coerce.boolean()` transforma "false" em true; aqui só "true"/"false" valem.
@@ -6,6 +7,10 @@ const booleanString = (fallback: boolean) =>
 		.enum(["true", "false"], { error: 'Use "true" ou "false".' })
 		.default(fallback ? "true" : "false")
 		.transform((v) => v === "true");
+
+// Variável de ambiente vazia (o compose repassa `""` quando o dono não definiu) vale como ausente.
+const optional = <T extends z.ZodType>(schema: T) =>
+	z.preprocess((value) => (value === "" ? undefined : value), schema);
 
 const envSchema = z.object({
 	DATABASE_URL: z.string().min(1, "Defina DATABASE_URL."),
@@ -17,6 +22,14 @@ const envSchema = z.object({
 	OTA_DIR: z.string().min(1).default("/app/ota"),
 	/** Fila do Meu Pluggy (a mesma do worker). Sem isto, `POST /v1/pluggy/sync` responde 503. */
 	REDIS_URL: z.string().min(1).optional(),
+	/** Modelo do chat (padrão em `@orbita/agents`). Troca de modelo = trocar esta variável, sem mexer no código. */
+	CHAT_MODEL: optional(z.string().min(1).default(DEFAULT_CHAT_MODEL)),
+	/** Modelo barato para perguntas curtas só de leitura; "off" desliga e manda tudo para `CHAT_MODEL`. */
+	CHAT_MODEL_FAST: optional(z.string().min(1).default(DEFAULT_FAST_MODEL)),
+	/** Quanto o modelo pensa: `low` (padrão), `medium` ou `high`. Mais esforço, mais custo. */
+	CHAT_EFFORT: optional(
+		z.enum(["low", "medium", "high"], { error: "Use low, medium ou high." }).default(DEFAULT_CHAT_EFFORT),
+	),
 	/**
 	 * Quantos proxies confiáveis há na frente: 0 = nenhum (usa o IP do socket),
 	 * 1 = Traefik/Dokploy, 2 = Cloudflare + Traefik. Valor errado deixa forjar o IP.
@@ -33,4 +46,13 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
 		throw new Error(`Variáveis de ambiente inválidas:\n${lines.join("\n")}`);
 	}
 	return parsed.data;
+}
+
+/** Modelos do chat a partir das variáveis (`CHAT_MODEL_FAST=off` desliga a rota barata). */
+export function chatModelsFromEnv(env: Pick<Env, "CHAT_MODEL" | "CHAT_MODEL_FAST" | "CHAT_EFFORT">) {
+	return {
+		main: env.CHAT_MODEL,
+		fast: env.CHAT_MODEL_FAST.toLowerCase() === "off" ? null : env.CHAT_MODEL_FAST,
+		effort: env.CHAT_EFFORT,
+	};
 }

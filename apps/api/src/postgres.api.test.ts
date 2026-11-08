@@ -9,6 +9,11 @@ afterAll(async () => db?.$disconnect());
 
 async function clean(client: Db) {
 	// Ordem das chaves estrangeiras: quem aponta vem antes de quem é apontado.
+	await client.aiUsage.deleteMany();
+	await client.aiSettings.deleteMany();
+	await client.chatProposal.deleteMany();
+	await client.chatMessage.deleteMany();
+	await client.chatConversation.deleteMany();
 	await client.importBatch.deleteMany();
 	await client.recurrencePosting.deleteMany();
 	await client.transaction.deleteMany();
@@ -23,11 +28,11 @@ async function clean(client: Db) {
 }
 
 describe.skipIf(!url)("API sobre Postgres", () => {
-	async function setup() {
+	async function setup(extra: Parameters<typeof setupFinance>[2] = {}) {
 		db ??= createDb(url as string);
 		await clean(db);
 		const client = db;
-		return setupFinance(undefined, (now) => createPrismaStores(client, { now }));
+		return setupFinance(undefined, (now) => createPrismaStores(client, { now }), extra);
 	}
 
 	it("chaves do servidor: no banco só fica o texto cifrado", async () => {
@@ -291,5 +296,67 @@ describe.skipIf(!url)("API sobre Postgres", () => {
 		expect(pending).toHaveLength(2);
 		expect(pending.every((t) => t.source === "import")).toBe(true);
 		expect(await (db as Db).importBatch.count()).toBe(1);
+	});
+	it("chat: conversa, proposta confirmada uma vez só e custo, sobre o Postgres", async () => {
+		let step = 0;
+		const ids = { account: "" };
+		const chatClient = () => ({
+			async turn(_request: unknown, handlers: { onText(d: string): void }) {
+				step += 1;
+				const usage = { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0 };
+				if (step === 1) {
+					return {
+						content: [
+							{
+								type: "tool_use",
+								id: "w1",
+								name: "propose_create_transaction",
+								input: { kind: "expense", amount: "12,34", description: "Café", accountId: ids.account },
+							},
+						],
+						stopReason: "tool_use",
+						model: "claude-sonnet-5-5",
+						usage,
+					};
+				}
+				handlers.onText("Confirme no card.");
+				return {
+					content: [{ type: "text", text: "Confirme no card." }],
+					stopReason: "end_turn",
+					model: "claude-sonnet-5-5",
+					usage,
+				};
+			},
+		});
+		const { api, app, token, vault, basics } = await setup({ chatClient });
+		ids.account = (await basics()).account.id;
+		await vault.put("anthropic_api_key", "sk-ant-api03-ZzYyXxWwVvUuTtSsRrQqPp9876543210", "Teste");
+		const res = await app.request("/v1/chat", {
+			method: "POST",
+			headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+			body: JSON.stringify({ message: "gastei 12,34 no café" }),
+		});
+		const events = (await res.text())
+			.split("\n\n")
+			.filter((block) => block.startsWith("data:"))
+			.map((block) => JSON.parse(block.slice(5)));
+		expect(events.map((e) => e.type)).toEqual(["meta", "tool", "card", "text", "done"]);
+		const proposal = events[2].card.proposal;
+		expect((await api.get("/v1/transactions")).body.transactions).toEqual([]);
+
+		const results = await Promise.all(
+			Array.from({ length: 5 }, () => api.post(`/v1/chat/proposals/${proposal.id}/confirm`)),
+		);
+		expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+		expect(results.filter((r) => r.status === 409)).toHaveLength(4);
+		expect((await api.get("/v1/transactions")).body.transactions).toHaveLength(1);
+
+		const history = await api.get(`/v1/chat/conversations/${events[0].conversationId}`);
+		expect(history.body.messages.map((m: Json) => m.role)).toEqual(["user", "assistant"]);
+		expect(history.body.messages[1].cards[0].proposal.status).toBe("confirmed");
+		// Duas chamadas ao modelo: 2 x (1000 x US$ 2/MTok + 200 x US$ 10/MTok) = 8000 micro-dólares.
+		expect((await api.get("/v1/settings/ai")).body).toMatchObject({ costMicroUsd: 8000, requests: 2 });
+		expect((await api.delete(`/v1/chat/conversations/${events[0].conversationId}`)).body.deleted).toBe(true);
+		expect((await api.get("/v1/settings/ai")).body.costMicroUsd).toBe(8000);
 	});
 });
