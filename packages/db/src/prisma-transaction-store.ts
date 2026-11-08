@@ -280,7 +280,7 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			return await many(
 				db.transaction.findMany({
 					where: {
-						...(accountId !== undefined ? { accountId } : { cardId }),
+						...(accountId !== undefined ? { accountId } : { cardId: cardId as string }),
 						date: { gte: toDbDate(from), lte: toDbDate(to) },
 						deletedAt: null,
 					},
