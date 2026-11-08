@@ -7,6 +7,7 @@ import {
 	Pressable,
 	ScrollView,
 	type ScrollViewInstance,
+	useWindowDimensions,
 	View,
 } from "react-native";
 import type { InvoicesOverviewView } from "../../lib/api.ts";
@@ -59,7 +60,8 @@ export function WalletBlock({
 	const reduceMotion = useReduceMotion();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [page, setPage] = useState(0);
-	const [width, setWidth] = useState(0);
+	// Largura de uma página: a tela menos a margem do Início (lg) e o enchimento do card (xl), dos dois lados.
+	const width = Math.max(0, useWindowDimensions().width - spacing.lg * 2 - spacing.xl * 2);
 	const scroller = useRef<ScrollViewInstance>(null);
 	const lifts = useRef(new Map<string, Animated.Value>());
 	const liftOf = (id: string) => {
@@ -229,10 +231,7 @@ export function WalletBlock({
 
 	return (
 		<Card>
-			<View
-				onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-				accessibilityLabel={`Faturas, total ${fmt(overview.data.owedCents)}`}
-			>
+			<View accessibilityLabel={`Faturas, total ${fmt(overview.data.owedCents)}`}>
 				<ScrollView
 					ref={scroller}
 					horizontal
