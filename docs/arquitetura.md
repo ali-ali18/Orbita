@@ -98,6 +98,15 @@ Se algum passo não se aplica, pule. Se a feature não tem regra de dinheiro, n�
 - **API** (`apps/api/src/modules/imports/`): `POST /v1/imports/preview` e `POST /v1/imports`, multipart (`file`, `accountId` ou `cardId`, `mapping`, `invertSign`, `includePossibleDuplicates`). O limite global de 16 KB não vale para `/v1/imports*`; o módulo aplica 5 MB depois de autenticar.
 - **App:** Configurações → Comprovantes e arquivos (`/configuracoes/arquivos`) → Importar extrato (`/configuracoes/importar`): arquivo (`expo-document-picker`) → conta ou cartão → resumo do servidor → colunas, se preciso → "Importar N". Termina em **Para revisar** (`/revisao`), que confirma os pendentes. `expo-document-picker` é módulo nativo: precisa de **APK novo** (não chega por OTA; o `runtimeVersion` muda).
 
+## Perfil, preferências, exportação e backup
+
+Telas de Configurações com módulos próprios na API:
+
+- **Preferências** (`modules/preferences`): `GET/PATCH /v1/profile` (nome do dono, usado na saudação do Início e do chat, e nome do aparelho, via `AuthStore.renameDevice`), `/v1/preferences` (conta padrão do Novo lançamento, que só pode ser conta ativa) e `/v1/notification-settings` (escolhas da tela Notificações do celular). Os dados ficam em `PreferencesStore` (Prisma e memória, mesmo contrato), numa única linha (`app_preferences`, id `main`). **A captura de notificações do banco não existe ainda**: o servidor só guarda as escolhas e devolve `active: false`; a tela diz isso. "Esconder valores ao abrir" é preferência do aparelho (armazenamento local), não do servidor.
+- **Exportação** (`modules/export`): `GET /v1/export?format=csv|json&include=transactions,categories,accounts,subscriptions&from&to`. JSON com centavos inteiros e os mesmos DTOs da API; CSV (BOM, `;`, CRLF) com dinheiro formatado ("-46,90") e **um tipo de dado por arquivo**. Aparelho pareado obrigatório, 10 pedidos por 10 minutos por aparelho, `Cache-Control: no-store`. Nunca leva chaves do cofre, tokens nem aparelhos. No app: Configurações → Exportar tudo, que grava no cache e abre a folha de compartilhar (`expo-file-system` e `expo-sharing`, **módulos nativos novos: exigem APK novo**) ou baixa no navegador.
+- **Backup:** não há job no app nem na API. O backup do Postgres é do Dokploy (ver [servidor](servidor.md#backup)); a tela só explica e aponta para as instruções. O app não sabe se um backup rodou, e por isso não mostra "último backup".
+- **Reportar problema:** monta uma issue pré-preenchida (`ali-ali18/Orbita`) e abre no navegador; nada sai do app sozinho. Só versão, plataforma, sistema e modelo do aparelho, sem valores, nomes, nome do aparelho dado pelo dono nem endereço do servidor.
+
 ## Tarefas em segundo plano
 
 O worker tem filas por assunto (`manutencao`, `sincronizacao`, depois `alertas`). Cada processador é uma função pura testável (`cleanPairingCodes({ store, now })`, `cleanIdempotencyKeys`); o arquivo `index.ts` só liga fila → função. Decidir **se** algo deve acontecer (avisar, sincronizar) é código determinístico; a IA só escreve o texto.

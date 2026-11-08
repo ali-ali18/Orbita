@@ -120,6 +120,14 @@ O app abre no navegador uma página do servidor que carrega o Pluggy Connect. As
 - **Risco aceito:** um PDF malicioso pode gastar CPU do servidor até o limite de tempo (a leitura roda no mesmo processo). Por isso os limites acima e o acesso só de aparelho pareado.
 - **Fora do alcance:** PDF escaneado (imagem) não é lido; PDF de layout em colunas que o texto não separa por linha tende a cair em "não entendi".
 
+## Exportar dados e reportar problema
+
+- `GET /v1/export` exige o token do aparelho, tem limite por aparelho (429 com `Retry-After`) e responde sem cache. O arquivo é o dado financeiro em texto aberto: é o dono quem o leva para fora, e a tela avisa. Chaves do cofre, tokens e aparelhos nunca entram.
+- **CSV e injeção de fórmula:** descrição, observação e nomes vêm de fora (banco, extrato, notificação), então células de texto que começam com `=`, `+`, `-`, `@`, tab ou CR levam um apóstrofo na frente. Valores em dinheiro são gerados pelo servidor e não passam por esse escape.
+- No celular o arquivo vai para o cache privado do app e as exportações anteriores (`orbita-*`) são apagadas antes de criar a nova.
+- **Reportar problema:** o app só abre no navegador endereços de `github.com/ali-ali18/Orbita`; a issue é pública, e o texto avisa para não escrever valores nem nomes.
+- **Notificações do celular:** a tela só guarda preferências. Enquanto a captura não existe, nada é lido; quando existir, o texto da notificação continua sendo dado não confiável.
+
 ## Containers
 
 - Imagem roda como usuário `node`, nunca root.
