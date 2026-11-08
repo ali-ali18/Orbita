@@ -903,6 +903,7 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 				await bad({ minCents: 10, maxCents: 5 });
 				await bad({ minCents: -1 });
 				await bad({ maxCents: 1.5 });
+				await bad({ maxCents: 2_147_483_648 });
 				await bad({ kinds: ["nada" as never] });
 				await bad({ accountIds: Array.from({ length: 51 }, (_, i) => `id${i}`) });
 			});

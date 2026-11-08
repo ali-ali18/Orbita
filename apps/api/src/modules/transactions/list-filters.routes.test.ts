@@ -92,6 +92,7 @@ describe("GET /v1/transactions com filtros", () => {
 		["período invertido", "from=2026-11-10&to=2026-11-01", "A data inicial não pode ser depois da final."],
 		["valor com vírgula", "minCents=10.5", "O valor mínimo deve ser inteiro, em centavos."],
 		["valor negativo", "maxCents=-1", "O valor máximo não pode ser negativo."],
+		["valor acima do limite", "maxCents=2147483648", "passa do limite aceito"],
 		["faixa invertida", "minCents=500&maxCents=100", "O valor mínimo não pode ser maior que o máximo."],
 		[
 			"lista grande demais",

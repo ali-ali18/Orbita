@@ -3,6 +3,7 @@ import { descriptionSchema, transactionFields, transactionUpdateBody } from "./f
 import {
 	idSchema,
 	localDateSchema,
+	MAX_CENTS,
 	MAX_INSTALLMENT_COUNT,
 	monthKeySchema,
 	nonNegativeCentsSchema,
@@ -74,7 +75,6 @@ export type InstallmentCreateBody = z.infer<typeof installmentCreateBody>;
 
 /** Máximo de itens numa lista de filtro (ids de contas, cartões, categorias). */
 export const MAX_FILTER_ITEMS = 50;
-const MAX_FILTER_CENTS = 99_999_999_999;
 
 /** Lista na URL: `a,b,c`. Vazio equivale a ausente; repetidos contam uma vez. */
 const csvList = <T extends z.ZodType>(item: T, max: number) =>
@@ -92,7 +92,7 @@ const filterCents = (label: string) =>
 		.number(`${label} deve ser um número.`)
 		.int(`${label} deve ser inteiro, em centavos.`)
 		.min(0, `${label} não pode ser negativo.`)
-		.max(MAX_FILTER_CENTS, `${label} passa do limite aceito.`);
+		.max(MAX_CENTS, `${label} passa do limite aceito.`);
 
 /**
  * Filtros da lista de lançamentos (todos opcionais, combinados com E). Listas vão separadas por vírgula.

@@ -5,6 +5,7 @@ import {
 	cleanMerchantName,
 	cleanSourceCategory,
 	isLocalDate,
+	MAX_CENTS,
 	MAX_INSTALLMENT_COUNT,
 	TRANSACTION_KINDS,
 	TRANSACTION_SOURCES,
@@ -251,8 +252,8 @@ export function cleanFilter(filter: TransactionFilter): void {
 	if (filter.from !== undefined) cleanLocalDate(filter.from, "A data inicial");
 	if (filter.to !== undefined) cleanLocalDate(filter.to, "A data final");
 	for (const cents of [filter.minCents, filter.maxCents]) {
-		if (cents !== undefined && (!Number.isInteger(cents) || cents < 0)) {
-			throw invalid("Os valores do filtro devem ser centavos inteiros, sem negativo.");
+		if (cents !== undefined && (!Number.isInteger(cents) || cents < 0 || cents > MAX_CENTS)) {
+			throw invalid("Os valores do filtro devem ser centavos inteiros, de zero ao limite aceito.");
 		}
 	}
 	const range = transactionFilterRangeError(filter);
