@@ -5,6 +5,7 @@ import { useState } from "react";
 import { call } from "../../lib/api.ts";
 import { useClock } from "../../lib/clock.tsx";
 import { monthName } from "../../lib/format.ts";
+import { IDEMPOTENCY_HEADER, newIdempotencyKey } from "../../lib/idempotency.ts";
 import { useSession } from "../../lib/session.tsx";
 import { useAccounts, useCards, useCategories, useSummary } from "../summary/queries.ts";
 import { isAffectedByNewTransaction } from "../transactions/new-transaction-model.ts";
@@ -88,18 +89,23 @@ export function ChatScreen() {
 			return;
 		}
 		const source = reply.source;
+		const idempotencyKey = newIdempotencyKey();
 		try {
 			const created = await call(() =>
-				api.v1.transactions.$post({
-					json: {
-						kind: "expense",
-						amountCents: reply.amountCents,
-						date: today,
-						description: reply.description,
-						...(reply.categoryId ? { categoryId: reply.categoryId } : {}),
-						...(source.type === "card" ? { cardId: source.id } : { accountId: source.id }),
+				api.v1.transactions.$post(
+					{
+						json: {
+							kind: "expense",
+							amountCents: reply.amountCents,
+							date: today,
+							description: reply.description,
+							...(reply.categoryId ? { categoryId: reply.categoryId } : {}),
+							...(source.type === "card" ? { cardId: source.id } : { accountId: source.id }),
+						},
 					},
-				}),
+					// Uma chave por lançamento pedido no chat: se a resposta se perder, não grava em dobro.
+					{ headers: { [IDEMPOTENCY_HEADER]: idempotencyKey } },
+				),
 			);
 			const transactionId = created.transaction.id;
 			const launchId = nextMessageId();

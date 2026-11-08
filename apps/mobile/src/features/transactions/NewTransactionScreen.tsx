@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { KeyboardAvoidingView, ScrollView, TextInput, View } from "react-native";
 import { ApiError } from "../../lib/api.ts";
 import { useClock } from "../../lib/clock.tsx";
+import { createSubmissionKey } from "../../lib/idempotency.ts";
 import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.ts";
 import {
 	BankLogo,
@@ -47,6 +48,9 @@ export function NewTransactionScreen() {
 	const [sheet, setSheet] = useState<OpenSheet>(null);
 	const [message, setMessage] = useState<string | null>(null);
 	const create = useCreateTransaction();
+	// Uma chave por "salvar": igual enquanto o pedido é o mesmo (nova tentativa depois de rede caída), nova se o
+	// formulário mudar ou o salvamento der certo.
+	const [submission] = useState(() => createSubmissionKey());
 	// `isPending` só muda no próximo render; a trava em ref barra o segundo toque no mesmo instante.
 	const submitting = useRef(false);
 
@@ -69,6 +73,7 @@ export function NewTransactionScreen() {
 
 	const update = (next: NewTransactionForm) => {
 		setMessage(null);
+		submission.renew();
 		setForm(next);
 	};
 
@@ -81,13 +86,19 @@ export function NewTransactionScreen() {
 		}
 		setMessage(null);
 		submitting.current = true;
-		create.mutate(built.request, {
-			onSuccess: close,
-			onError: (error) => setMessage(error instanceof ApiError ? error.message : errorMessage(error)),
-			onSettled: () => {
-				submitting.current = false;
+		create.mutate(
+			{ request: built.request, idempotencyKey: submission.current() },
+			{
+				onSuccess: () => {
+					submission.renew();
+					close();
+				},
+				onError: (error) => setMessage(error instanceof ApiError ? error.message : errorMessage(error)),
+				onSettled: () => {
+					submitting.current = false;
+				},
 			},
-		});
+		);
 	};
 
 	// O teclado sobe junto com a tela inteira, inclusive o rodapé com o botão (fora da rolagem).
