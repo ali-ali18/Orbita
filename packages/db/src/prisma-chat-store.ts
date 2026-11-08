@@ -167,7 +167,7 @@ export function createPrismaChatStore(db: Db, now: Clock): ChatStore {
 				where: { id, status: from },
 				data: {
 					status: to,
-					resolvedAt: at,
+					resolvedAt: to === "pending" ? null : at,
 					...(options.result === undefined
 						? {}
 						: {

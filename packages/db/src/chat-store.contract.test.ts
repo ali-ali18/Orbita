@@ -121,6 +121,9 @@ describe.each(contractSuites())("ChatStore (%s)", (_name, make) => {
 		expect(undone?.status).toBe("undone");
 		// Sem `result` no pedido, o resultado guardado continua.
 		expect(undone?.result).toEqual(done?.result);
+		// Voltar a pendente (a confirmação falhou) limpa a data de resposta.
+		const back = await stores.chat.transitionProposal(p.id, "undone", "pending", { result: null });
+		expect(back).toMatchObject({ status: "pending", result: null, resolvedAt: null });
 		expect(await stores.chat.transitionProposal("fantasma", "pending", "canceled")).toBeNull();
 	});
 

@@ -101,7 +101,7 @@ export function createMemoryChatStore(now: Clock): ChatStore {
 			if (!row || row.status !== from) return null;
 			row.status = to;
 			if (options.result !== undefined) row.result = options.result === null ? null : clone(options.result);
-			row.resolvedAt = options.now ?? now();
+			row.resolvedAt = to === "pending" ? null : (options.now ?? now());
 			return clone(row);
 		},
 	};
