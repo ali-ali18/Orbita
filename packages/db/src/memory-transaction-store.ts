@@ -8,6 +8,7 @@ import {
 	byRecent,
 	changedColumns,
 	checkRecentOptions,
+	cleanFilter,
 	cleanIds,
 	cleanLimit,
 	DEFAULT_PENDING_LIMIT,
@@ -235,6 +236,13 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 				.filter((t) => !before || t.date < before.date || (t.date === before.date && t.id < before.id))
 				.sort(byRecent)
 				.slice(0, options.limit);
+		},
+
+		async countMatching(filter) {
+			if (filter) cleanFilter(filter);
+			return live()
+				.map(view)
+				.filter((t) => !filter || matchesFilter(t, filter)).length;
 		},
 
 		async listInstallmentGroups(activeFromMonth) {

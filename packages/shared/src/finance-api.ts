@@ -129,6 +129,12 @@ export function transactionFilterRangeError(f: FilterRange): string | null {
 	return null;
 }
 
+/** `GET /v1/transactions/count`: só os filtros (o app mostra "Ver 42 lançamentos" antes de aplicar). */
+export const transactionCountQuery = z.object(transactionFilterFields).superRefine((q, ctx) => {
+	const message = transactionFilterRangeError(q);
+	if (message) ctx.addIssue({ code: "custom", message });
+});
+
 export const transactionListQuery = z
 	.object({
 		cursor: z.string().min(1).max(200).optional(),

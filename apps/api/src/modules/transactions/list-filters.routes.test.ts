@@ -105,6 +105,19 @@ describe("GET /v1/transactions com filtros", () => {
 		expect(JSON.stringify(res.body)).toContain(message);
 	});
 
+	it("GET /v1/transactions/count conta com os mesmos filtros", async () => {
+		const { make, api } = await seed();
+		await make({ amountCents: 500 });
+		await make({ amountCents: 5000 });
+		await make({ kind: "income", amountCents: 7000 });
+		expect((await api.get("/v1/transactions/count")).body).toEqual({ count: 3 });
+		expect((await api.get("/v1/transactions/count?kinds=expense&minCents=1000")).body).toEqual({ count: 1 });
+		expect((await api.get("/v1/transactions/count?kinds=")).body).toEqual({ count: 3 });
+		const bad = await api.get("/v1/transactions/count?minCents=9&maxCents=1");
+		expect(bad.status).toBe(400);
+		expect((await api.get("/v1/transactions/count?kinds=pix")).status).toBe(400);
+	});
+
 	it("sem filtro nada muda", async () => {
 		const { make, list } = await seed();
 		const a = await make({});

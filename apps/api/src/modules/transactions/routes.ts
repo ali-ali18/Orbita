@@ -5,6 +5,7 @@ import {
 	pendingListQuery,
 	transactionApiCreateBody,
 	transactionApiUpdateBody,
+	transactionCountQuery,
 	transactionDeleteQuery,
 	transactionListQuery,
 } from "@orbita/shared";
@@ -24,7 +25,7 @@ import {
 	updateTransaction,
 } from "./service.ts";
 
-// As rotas fixas (`month`, `pending`, `installments`) vêm antes de `/:id`.
+// As rotas fixas (`month`, `pending`, `count`, `installments`) vêm antes de `/:id`.
 export function routes({ stores, now, requireDevice }: ModuleDeps) {
 	const { transactions } = stores;
 	const idempotency = { store: stores.idempotency, now };
@@ -34,6 +35,9 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 		.get("/v1/transactions", validate("query", transactionListQuery), async (c) => {
 			const page = await listRecentPage(stores, c.req.valid("query"));
 			return c.json({ transactions: page.transactions.map(toTransactionDto), nextCursor: page.nextCursor });
+		})
+		.get("/v1/transactions/count", validate("query", transactionCountQuery), async (c) => {
+			return c.json({ count: await transactions.countMatching(c.req.valid("query")) });
 		})
 		.get("/v1/transactions/pending", validate("query", pendingListQuery), async (c) => {
 			const { limit } = c.req.valid("query");

@@ -878,6 +878,23 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 				expect(seen).toEqual(expected);
 			});
 
+			it("countMatching conta com a mesma regra, ignora apagados e valida", async () => {
+				await tx.create(expense({ date: "2026-11-01" }));
+				await tx.create(expense({ date: "2026-11-02", amountCents: 9000 }));
+				const gone = await tx.create(expense({ date: "2026-11-03" }));
+				await tx.create({ ...expense({ date: "2026-11-04" }), kind: "income" });
+				await tx.softDelete(gone.id);
+				expect(await tx.countMatching()).toBe(3);
+				expect(await tx.countMatching({})).toBe(3);
+				expect(await tx.countMatching({ kinds: ["expense"] })).toBe(2);
+				expect(await tx.countMatching({ kinds: ["expense"], minCents: 5000 })).toBe(1);
+				expect(await tx.countMatching({ from: "2026-11-02", to: "2026-11-03" })).toBe(1);
+				expect(await tx.countMatching({ accountIds: ["nao-existe"] })).toBe(0);
+				await expect(tx.countMatching({ minCents: 10, maxCents: 5 })).rejects.toMatchObject({
+					code: "invalid",
+				});
+			});
+
 			it("valida o filtro", async () => {
 				const bad = (filter: Parameters<typeof tx.listRecent>[0]["filter"]) =>
 					expect(tx.listRecent({ limit: 5, filter })).rejects.toMatchObject({ code: "invalid" });

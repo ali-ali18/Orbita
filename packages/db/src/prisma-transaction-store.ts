@@ -11,6 +11,7 @@ import { cleanMonth } from "./rules.ts";
 import {
 	changedColumns,
 	checkRecentOptions,
+	cleanFilter,
 	cleanIds,
 	cleanLimit,
 	DEFAULT_PENDING_LIMIT,
@@ -361,6 +362,13 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 					take: options.limit,
 				}),
 			);
+		},
+
+		async countMatching(filter) {
+			if (filter) cleanFilter(filter);
+			return await db.transaction.count({
+				where: { deletedAt: null, ...(filter ? { AND: filterConditions(filter) } : {}) },
+			});
 		},
 
 		async listInstallmentGroups(activeFromMonth) {

@@ -230,6 +230,8 @@ export interface TransactionStore {
 		before?: TransactionCursor;
 		filter?: TransactionFilter | undefined;
 	}): Promise<TransactionRecord[]>;
+	/** Quantos lançamentos vivos passam no filtro (sem filtro, todos). Mesma regra de `listRecent`. */
+	countMatching(filter?: TransactionFilter): Promise<number>;
 	/**
 	 * Parcelamentos ainda em andamento: com alguma parcela cuja fatura (ou mês do orçamento,
 	 * se não for de cartão) é `activeFromMonth` ou depois. Devolve o grupo inteiro, por data.
