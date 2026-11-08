@@ -69,6 +69,10 @@ Feito no PR #18. O app consome (todas exigem `Authorization: Bearer <token do ap
 - `packages/ingest`: evento bruto com chave de idempotência → normalizador → conciliador (mesmo valor, mesma conta, data próxima, nome parecido) → lançamento `pending` ou junta com existente → dúvida vai para **Para revisar**.
 - Notificações Android (`NotificationListenerService`, exige dev build): parser por banco com regras; IA só quando o parser não reconhece, numa chamada **sem ferramentas**.
 - Comprovante (imagem/PDF compartilhado) e extrato (CSV, OFX, PDF de fatura) com tela de revisão.
+- **Extrato ✅ (esta etapa):** `POST /v1/imports/preview` e `/v1/imports`, parsers em `packages/ingest/src/statement/`, tela Configurações → Comprovantes e arquivos → Importar extrato, e os lançamentos entram `pending` com origem `import` na tela Para revisar. Detalhes em [arquitetura](arquitetura.md#importação-de-extrato) e [segurança](seguranca.md#importar-extrato-csv-ofx-pdf). **Exige APK novo** (`expo-document-picker` é nativo).
+  - Cobertos por fixtures sintéticos: OFX 1.x (SGML) e 2.x (XML), conta e cartão; CSV de Nubank (conta e cartão), Inter, Itaú, Bradesco (débito/crédito, Windows-1252), BB, Santander/C6/Caixa (cabeçalho `Data;Descrição;Valor`); PDF de extrato (`dd/mm[/aaaa] descrição valor [saldo]`, com `-`, `C`/`D`) e de fatura (`dd/mm`, `15 MAR`, `R$`). Os layouts reais dos bancos foram inferidos pelos nomes de coluna: confirmar com um arquivo de verdade de cada banco e acrescentar o fixture.
+  - Faltam: PDF em colunas que o texto não separa, PDF escaneado (OCR), compra parcelada reconhecida pelo "03/10" da descrição (hoje vira lançamento à vista), pagamento de fatura e transferência entre contas suas vindos do extrato (a revisão confirma, não classifica), lista "Importados recentemente" do Figma (o servidor só guarda o hash), compartilhar o arquivo de outro app direto com a Órbita, e "Ler comprovante".
+  - Teste de ponta a ponta no aparelho ainda não feito (só tela no navegador e testes automatizados).
 - Categorização por regras aprendidas com as correções do usuário.
 
 ## Fase 7 — Meu Pluggy
