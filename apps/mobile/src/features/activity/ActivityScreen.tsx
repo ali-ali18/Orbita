@@ -199,7 +199,13 @@ export function ActivityScreen() {
 	return (
 		<Screen
 			fadeTop
-			footer={<BottomBar onHome={() => router.dismissTo("/")} onNew={() => router.push("/novo")} />}
+			footer={
+				<BottomBar
+					onHome={() => router.dismissTo("/")}
+					onNew={() => router.push("/novo")}
+					onAsk={() => router.push("/chat")}
+				/>
+			}
 			floatingFooter
 		>
 			<SectionList<ActivityTransaction, DayGroup<ActivityTransaction> & { data: ActivityTransaction[] }>

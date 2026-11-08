@@ -28,6 +28,7 @@ function Routes() {
 					options={{ presentation: "modal", animation: "slide_from_bottom" }}
 				/>
 				<Stack.Screen name="atividades" />
+				<Stack.Screen name="chat" options={{ animation: "slide_from_bottom" }} />
 				<Stack.Screen name="cartao" />
 				<Stack.Screen name="lancamento/[id]" />
 				<Stack.Screen name="assinaturas" />

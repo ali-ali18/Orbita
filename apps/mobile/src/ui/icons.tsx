@@ -121,6 +121,12 @@ const bodies = {
 			<Path d="M20 17H4" />
 		</>
 	),
+	relogio: (
+		<>
+			<Circle cx="12" cy="12" r="9" />
+			<Path d="M12 7v5l3 2" />
+		</>
+	),
 	microfone: (
 		<>
 			<Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />

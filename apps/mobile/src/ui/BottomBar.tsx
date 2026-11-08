@@ -1,5 +1,5 @@
 import { colors, layout, radius, spacing } from "@orbita/tokens";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OrbitaAvatar } from "./Avatar.tsx";
 import { IconButton } from "./IconButton.tsx";
@@ -17,11 +17,19 @@ export function useBottomBarHeight(): number {
 }
 
 /**
- * Barra de baixo: início, campo "Pergunte à Órbita" com o "+" dentro e o avatar do agente. O campo e
- * o "+" abre o Novo lançamento (`onNew`); o campo ainda não tem tela (fica desativado); o início é a tela atual. Flutua sobre o conteúdo,
- * sem fundo (o degradê ficava com faixas no Android).
+ * Barra de baixo: início, campo "Pergunte à Órbita" com o "+" dentro e o avatar do agente.
+ * O campo e o avatar abrem o chat (`onAsk`); o "+" abre o Novo lançamento (`onNew`).
+ * Flutua sobre o conteúdo, sem fundo (o degradê ficava com faixas no Android).
  */
-export function BottomBar({ onHome, onNew }: { onHome?: () => void; onNew?: () => void }) {
+export function BottomBar({
+	onHome,
+	onNew,
+	onAsk,
+}: {
+	onHome?: () => void;
+	onNew?: () => void;
+	onAsk?: () => void;
+}) {
 	const insets = useSafeAreaInsets();
 	return (
 		<View
@@ -42,10 +50,12 @@ export function BottomBar({ onHome, onNew }: { onHome?: () => void; onNew?: () =
 					background={colors.surface2}
 					onPress={onHome ?? (() => {})}
 				/>
-				<View
+				<Pressable
 					accessibilityRole="button"
 					accessibilityLabel="Pergunte à Órbita"
-					accessibilityState={{ disabled: true }}
+					accessibilityState={{ disabled: !onAsk }}
+					disabled={!onAsk}
+					onPress={onAsk}
 					style={{
 						flex: 1,
 						height: BUTTON,
@@ -72,8 +82,13 @@ export function BottomBar({ onHome, onNew }: { onHome?: () => void; onNew?: () =
 						filled
 						{...(onNew ? { onPress: onNew } : { disabled: true })}
 					/>
-				</View>
-				<View
+				</Pressable>
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel="Abrir o chat"
+					accessibilityState={{ disabled: !onAsk }}
+					disabled={!onAsk}
+					onPress={onAsk}
 					style={{
 						width: BUTTON,
 						height: BUTTON,
@@ -86,7 +101,7 @@ export function BottomBar({ onHome, onNew }: { onHome?: () => void; onNew?: () =
 					}}
 				>
 					<OrbitaAvatar size={32} />
-				</View>
+				</Pressable>
 			</View>
 		</View>
 	);

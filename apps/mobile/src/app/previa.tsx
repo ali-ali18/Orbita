@@ -1,4 +1,5 @@
 import { useLocalSearchParams } from "expo-router";
+import { ChatEmptyPreview, ChatTalkPreview } from "../features/chat/ChatPreview.tsx";
 import { BanksStep } from "../features/onboarding/BanksStep.tsx";
 import { BudgetStep } from "../features/onboarding/BudgetStep.tsx";
 import { onboardingBankRows } from "../features/onboarding/model.ts";
@@ -32,6 +33,10 @@ export default function PreviaRoute() {
 			return <InvoicePreview />;
 		case "inicio":
 			return <HomePreview />;
+		case "chat":
+			return <ChatEmptyPreview />;
+		case "conversa":
+			return <ChatTalkPreview />;
 		default:
 			return <WelcomeScreen onStart={noop} />;
 	}
