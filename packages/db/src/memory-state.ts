@@ -4,7 +4,9 @@ import type { CardRecord } from "./card-store.ts";
 import type { CategoryRuleRecord } from "./category-rule-store.ts";
 import type { CategoryRecord } from "./category-store.ts";
 import { badReference } from "./errors.ts";
+import type { GoalContributionRecord, GoalRecord } from "./goal-store.ts";
 import type { PluggyConnectionRecord } from "./pluggy-connection-store.ts";
+import { DEFAULT_PREFERENCES, type PreferencesRecord } from "./preferences-store.ts";
 import type { RecurrencePostingRecord, RecurrenceRecord } from "./recurrence-store.ts";
 import { archivedAccount, archivedCard, archivedCategory, type Refs } from "./references.ts";
 import type { StoredSecret } from "./secret-store.ts";
@@ -27,6 +29,10 @@ export interface MemoryState {
 	budgets: Map<string, BudgetRecord & { createdAt: Date }>;
 	secrets: Map<string, StoredSecret & { createdAt: Date }>;
 	pluggyConnections: Map<string, PluggyConnectionRecord>;
+	goals: Map<string, GoalRecord>;
+	goalContributions: Map<string, GoalContributionRecord>;
+	/** O registro único das preferências (a meta da sobra é limpa quando a meta é arquivada). */
+	preferences: PreferencesRecord;
 }
 
 export function createMemoryState(now: Clock = () => new Date()): MemoryState {
@@ -42,6 +48,9 @@ export function createMemoryState(now: Clock = () => new Date()): MemoryState {
 		budgets: new Map(),
 		secrets: new Map(),
 		pluggyConnections: new Map(),
+		goals: new Map(),
+		goalContributions: new Map(),
+		preferences: { ...DEFAULT_PREFERENCES, notificationApps: [] },
 	};
 }
 

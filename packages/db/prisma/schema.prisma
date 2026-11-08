@@ -109,6 +109,7 @@ model Account {
   recurrences         Recurrence[]
   preferences         AppPreferences[] @relation("DefaultAccount")
   leftoverPreferences AppPreferences[] @relation("LeftoverAccount")
+  goals               Goal[]
 
   @@unique([source, externalId])
   @@map("accounts")
@@ -211,6 +212,7 @@ model Transaction {
   refundOf           Transaction?       @relation("Refund", fields: [refundOfId], references: [id])
   refunds            Transaction[]      @relation("Refund")
   posting            RecurrencePosting?
+  goalContributions  GoalContribution[]
 
   @@unique([source, externalId])
   @@unique([installmentGroupId, installmentNumber])
@@ -224,21 +226,21 @@ model Transaction {
 }
 
 model Recurrence {
-  id          String         @id @default(cuid())
-  kind        RecurrenceKind
-  name        String
-  amountCents Int            @map("amount_cents")
-  dayOfMonth  Int            @map("day_of_month")
-  startDate   DateTime       @map("start_date") @db.Date
-  endDate     DateTime?      @map("end_date") @db.Date
-  categoryId  String?        @map("category_id")
-  accountId   String?        @map("account_id")
-  cardId      String?        @map("card_id")
+  id              String         @id @default(cuid())
+  kind            RecurrenceKind
+  name            String
+  amountCents     Int            @map("amount_cents")
+  dayOfMonth      Int            @map("day_of_month")
+  startDate       DateTime       @map("start_date") @db.Date
+  endDate         DateTime?      @map("end_date") @db.Date
+  categoryId      String?        @map("category_id")
+  accountId       String?        @map("account_id")
+  cardId          String?        @map("card_id")
   /// "Lembrar 1 dia antes": só a escolha do dono; o aviso em si espera as notificações push existirem.
-  remindDayBefore Boolean    @default(false) @map("remind_day_before")
-  archivedAt  DateTime?      @map("archived_at")
-  createdAt   DateTime       @default(now()) @map("created_at")
-  updatedAt   DateTime       @updatedAt @map("updated_at")
+  remindDayBefore Boolean        @default(false) @map("remind_day_before")
+  archivedAt      DateTime?      @map("archived_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
 
   category Category?           @relation(fields: [categoryId], references: [id])
   account  Account?            @relation(fields: [accountId], references: [id], onDelete: Restrict)
@@ -274,6 +276,46 @@ model Budget {
   @@map("budgets")
 }
 
+/// Meta de guardar dinheiro. O guardado não é coluna: é a soma das contribuições (o engine calcula o resto).
+model Goal {
+  id          String    @id @default(cuid())
+  name        String
+  targetCents Int       @map("target_cents")
+  /// Prazo (só o dia); null = sem prazo.
+  deadline    DateTime? @db.Date
+  /// Conta onde o dinheiro da meta está guardado (só informação).
+  accountId   String?   @map("account_id")
+  /// Nome do ícone (lista fixa em `@orbita/shared`).
+  icon        String    @default("target")
+  /// Índice em `chart.series` (0..9): a cor da meta.
+  chartSlot   Int       @default(0) @map("chart_slot")
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  account       Account?           @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  contributions GoalContribution[]
+  preferences   AppPreferences[]   @relation("LeftoverGoal")
+
+  @@map("goals")
+}
+
+/// Um "Guardar": valor somado ao guardado da meta. Opcionalmente aponta o lançamento que o originou (só referência).
+model GoalContribution {
+  id            String   @id @default(cuid())
+  goalId        String   @map("goal_id")
+  amountCents   Int      @map("amount_cents")
+  date          DateTime @db.Date
+  transactionId String?  @map("transaction_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  goal        Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([goalId, date])
+  @@map("goal_contributions")
+}
+
 /// Perfil, preferências e notificações do dono. App de um usuário só: uma única linha (id "main").
 model AppPreferences {
   id                   String   @id @default("main")
@@ -288,6 +330,9 @@ model AppPreferences {
   /// Para onde vai a sobra do mês; null = nenhum destino. Só a escolha é guardada: nenhum dinheiro é movido.
   leftoverAccountId    String?  @map("leftover_account_id")
   leftoverAccount      Account? @relation("LeftoverAccount", fields: [leftoverAccountId], references: [id], onDelete: SetNull)
+  /// Ou uma meta ativa (nunca os dois ao mesmo tempo). Também só a escolha: nenhum dinheiro é movido.
+  leftoverGoalId       String?  @map("leftover_goal_id")
+  leftoverGoal         Goal?    @relation("LeftoverGoal", fields: [leftoverGoalId], references: [id], onDelete: SetNull)
   /// Escolhas da tela Notificações do celular. A captura ainda não existe: são só preferências guardadas.
   notificationCapture  Boolean  @default(false) @map("notification_capture")
   notificationApps     String[] @default([]) @map("notification_apps")

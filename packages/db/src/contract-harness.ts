@@ -24,10 +24,12 @@ export async function cleanDatabase(client: Db): Promise<void> {
 	await client.importBatch.deleteMany();
 	await client.appPreferences.deleteMany();
 	await client.recurrencePosting.deleteMany();
+	await client.goalContribution.deleteMany();
 	await client.transaction.deleteMany();
 	await client.categoryRule.deleteMany();
 	await client.recurrence.deleteMany();
 	await client.budget.deleteMany();
+	await client.goal.deleteMany();
 	await client.card.deleteMany();
 	await client.account.deleteMany();
 	await client.category.deleteMany();

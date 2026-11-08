@@ -47,6 +47,8 @@ export const preferencesSchema = z.object({
 	budgetAlertPercent: z.number().int().min(1).max(100),
 	/** Conta que recebe a sobra do mês; `null` = nenhuma. Só a escolha é guardada, nenhum dinheiro é movido. */
 	leftoverAccountId: z.string().nullable(),
+	/** Ou uma meta ativa (nunca as duas ao mesmo tempo). Também só a escolha: nenhum dinheiro é movido. */
+	leftoverGoalId: z.string().nullable(),
 });
 export type PreferencesDto = z.infer<typeof preferencesSchema>;
 export const preferencesResponse = z.object({ preferences: preferencesSchema });
@@ -61,6 +63,7 @@ export const preferencesPatchBody = z
 			.min(1, "O aviso vai de 1% a 100%.")
 			.max(100, "O aviso vai de 1% a 100%."),
 		leftoverAccountId: idSchema.nullable(),
+		leftoverGoalId: idSchema.nullable(),
 	})
 	.partial()
 	.strict()

@@ -14,6 +14,8 @@ export interface PreferencesRecord {
 	budgetAlertPercent: number;
 	/** Conta que recebe a sobra do mês; `null` = nenhuma. Só a escolha é guardada: nada é movido. */
 	leftoverAccountId: string | null;
+	/** Meta ativa que recebe a sobra do mês; `null` = nenhuma. Nunca junto com `leftoverAccountId`. Só a escolha é guardada. */
+	leftoverGoalId: string | null;
 }
 
 export type PreferencesPatch = Partial<PreferencesRecord>;
@@ -26,6 +28,7 @@ export const DEFAULT_PREFERENCES: PreferencesRecord = {
 	notificationToReview: true,
 	budgetAlertPercent: 80,
 	leftoverAccountId: null,
+	leftoverGoalId: null,
 };
 
 export interface PreferencesStore {
@@ -33,7 +36,8 @@ export interface PreferencesStore {
 	get(): Promise<PreferencesRecord>;
 	/**
 	 * Grava só os campos enviados e devolve o resultado. `invalid` para nome vazio/longo, app desconhecido ou percentual fora de 1 a 100;
-	 * `bad_reference` para conta (padrão ou da sobra) que não existe ou está arquivada.
+	 * `bad_reference` para conta (padrão ou da sobra) ou meta da sobra que não existe ou está arquivada.
+	 * Escolher conta da sobra desfaz a meta da sobra e vice-versa (`invalid` se o mesmo pedido manda as duas).
 	 */
 	update(patch: PreferencesPatch): Promise<PreferencesRecord>;
 }
