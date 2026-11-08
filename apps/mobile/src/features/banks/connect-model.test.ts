@@ -3,9 +3,14 @@ import { ApiError } from "../../lib/api.ts";
 import {
 	CONNECT_WAIT_MS,
 	canConnect,
+	connectButtonLabel,
 	connectErrorMessage,
+	connectExplainerText,
 	connectionArrived,
+	connectionUsage,
 	connectUrl,
+	explainerBankName,
+	FREE_PLAN_CONNECTION_LIMIT,
 	isWaitingForConnect,
 	returnedToApp,
 } from "./connect-model.ts";
@@ -72,5 +77,52 @@ describe("mensagens", () => {
 	it("o botão exige as chaves", () => {
 		expect(canConnect({ keysConfigured: true })).toBe(true);
 		expect(canConnect({ keysConfigured: false })).toBe(false);
+	});
+});
+
+describe("connectionUsage", () => {
+	it("conta as conexões contra o limite do plano gratuito", () => {
+		expect(FREE_PLAN_CONNECTION_LIMIT).toBe(5);
+		expect(connectionUsage(4)).toEqual({ used: 4, limit: 5, label: "4 de 5", remaining: 1, full: false });
+		expect(connectionUsage(0)).toMatchObject({ label: "0 de 5", remaining: 5, full: false });
+	});
+
+	it("marca cheio no limite e não deixa o restante ficar negativo", () => {
+		expect(connectionUsage(5)).toMatchObject({ remaining: 0, full: true });
+		expect(connectionUsage(7)).toMatchObject({ label: "7 de 5", remaining: 0, full: true });
+	});
+});
+
+describe("connectButtonLabel", () => {
+	it("troca para 'outro banco' quando já há conexão", () => {
+		expect(connectButtonLabel(0)).toBe("Conectar banco");
+		expect(connectButtonLabel(1)).toBe("Conectar outro banco");
+	});
+});
+
+describe("connectExplainerText", () => {
+	it("usa o nome do banco no título e no passo 2", () => {
+		const t = connectExplainerText("Santander");
+		expect(t.title).toBe("Conectar o Santander");
+		expect(t.steps).toHaveLength(3);
+		expect(t.steps[1]?.title).toBe("Você entra no app do Santander");
+		expect(t.button).toBe("Abrir o Meu Pluggy");
+	});
+
+	it("sem nome fala do 'seu banco'", () => {
+		for (const name of [undefined, null, "", "   "]) {
+			const t = connectExplainerText(name);
+			expect(t.title).toBe("Conectar um banco");
+			expect(t.steps[1]?.title).toBe("Você entra no app do seu banco");
+		}
+	});
+});
+
+describe("explainerBankName", () => {
+	it("trata o nome como dado: tira quebras de linha e limita o tamanho", () => {
+		expect(explainerBankName("  Banco\n do   Brasil ")).toBe("Banco do Brasil");
+		const long = explainerBankName("x".repeat(100));
+		expect(long?.length).toBe(40);
+		expect(long?.endsWith("…")).toBe(true);
 	});
 });
