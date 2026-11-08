@@ -1,7 +1,7 @@
 import type { AgentWriter } from "@orbita/agents";
 import { monthOf, toLocalDate } from "@orbita/core";
 import { DataError, type Stores } from "@orbita/db";
-import { applyIncomePlan, restoreBudgets } from "@orbita/ledger";
+import { applyIncomePlan, applySetup, restoreBudgets, undoSetup } from "@orbita/ledger";
 import { orNotFound } from "../../http/errors.ts";
 import {
 	confirmTransaction,
@@ -55,6 +55,8 @@ export function createAgentWriter(stores: Stores, now: () => Date): AgentWriter 
 			return { previous };
 		},
 		restoreBudgets: (previous) => restoreBudgets(stores, previous),
+		applySetup: (input) => applySetup(stores, input, toLocalDate(now())),
+		undoSetup: (undo) => undoSetup(stores, undo),
 	};
 }
 

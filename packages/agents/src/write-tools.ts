@@ -3,6 +3,7 @@ import { transactionApiCreateBody } from "@orbita/shared";
 import { z } from "zod";
 import { ToolError } from "./backend.ts";
 import { proposeApplyPlan } from "./income-tools.ts";
+import { proposeSetup } from "./setup-tools.ts";
 import { dateInput, defineTool, nameOf, type Tool } from "./tool.ts";
 import { untrusted } from "./untrusted.ts";
 
@@ -203,4 +204,5 @@ export const WRITE_TOOLS: readonly Tool[] = [
 	proposeCategorizeTransaction,
 	proposeConfirmTransaction,
 	proposeApplyPlan,
+	proposeSetup,
 ];

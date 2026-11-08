@@ -4,6 +4,9 @@ import type {
 	MonthSummaryResponse,
 	PlanDto,
 	RecurrenceDto,
+	SetupAnalysis,
+	SetupApplyInput,
+	SetupUndo,
 	TransactionApiCreateBody,
 	TransactionDto,
 	TransactionKindValue,
@@ -72,6 +75,8 @@ export interface AgentReader {
 	goals(): Promise<GoalsListResponse>;
 	/** Plano da renda do mês (engine `incomePlan`): baldes, categorias, avisos. `reservePercent` ausente = padrão. */
 	incomePlan(month: string, reservePercent?: number): Promise<PlanDto>;
+	/** Análise do histórico do dono (engine): assinaturas, candidatos a regra e salário. Só números do engine. */
+	setupAnalysis(): Promise<SetupAnalysis>;
 }
 
 /** Escrita: só é chamada depois que o dono confirma uma proposta (nunca direto por uma ferramenta). */
@@ -92,6 +97,14 @@ export interface AgentWriter {
 	applyPlan(month: string, reservePercent: number): Promise<{ previous: BudgetBefore[] }>;
 	/** Devolve os limites ao que eram antes de `applyPlan`. */
 	restoreBudgets(previous: BudgetBefore[]): Promise<void>;
+	/**
+	 * "Configurar com a Órbita": cria assinaturas, regras, renda e (se pedido) aplica o plano, numa operação só
+	 * (compensa os passos anteriores se um falha). Confere cada número contra a análise de agora. Devolve o que o
+	 * Desfazer precisa.
+	 */
+	applySetup(input: SetupApplyInput): Promise<SetupUndo>;
+	/** Reverte `applySetup` por inteiro (repetir não falha). */
+	undoSetup(undo: SetupUndo): Promise<void>;
 }
 
 /** Erro esperado de uma ferramenta: a mensagem (pt-BR) é segura para o modelo e para o dono. */
