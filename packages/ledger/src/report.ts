@@ -8,7 +8,7 @@ import {
 	type ReportTransaction,
 } from "@orbita/core";
 import { type Stores, TOTAL_BUDGET_SCOPE, type TransactionRecord } from "@orbita/db";
-import { cardInvoice, refundOriginalsOutside, toCoreTransaction } from "../summary/service.ts";
+import { cardInvoice, loadSpendingMonth, refundOriginalsOutside, toCoreTransaction } from "./summary.ts";
 
 /**
  * Relatório do mês: junta os dados e entrega ao `monthReport` do engine. Os meses de comparação (anterior e os 3
@@ -22,7 +22,7 @@ export async function reportForMonth(
 ): Promise<MonthReport> {
 	const months = Array.from({ length: REPORT_AVERAGE_MONTHS + 1 }, (_, i) => addMonths(month, -i));
 	const [perMonth, postings, budgets, categories, cards] = await Promise.all([
-		Promise.all(months.map((m) => stores.transactions.listByBudgetMonth(m))),
+		Promise.all(months.map((m) => loadSpendingMonth(stores, m, today))),
 		Promise.all(months.map((m) => stores.recurrences.listPostings(m))),
 		stores.budgets.list(),
 		stores.categories.list(),

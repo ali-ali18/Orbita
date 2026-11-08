@@ -719,6 +719,8 @@ export function pairOwnTransfers(legs: readonly OwnTransferLeg[]): Map<string, s
 /**
  * Recálculo do que já foi gravado errado (a sincronização é idempotente e nunca mexia no tipo). Só quando o lançamento
  * existente é despesa ou receita e o mapeamento de hoje diz o contrário, e nunca se o dono editou a categoria:
+ * - o mapeamento diz `investment` (aplicação) e está gravado como despesa → vira `investment`: sai do gasto e vai
+ *   para o "Investido" (e, se já era `investment`, nada muda);
  * - entrou dinheiro (o Pluggy diz CREDIT, o mapeamento diz `income`) e está gravado como despesa → vira receita;
  * - o mapeamento reconhece transferência para si mesmo e está gravado como despesa ou receita → vira `transfer` no
  *   lugar (continua nas Atividades, categoria mantida, observação avisando) e deixa de contar como gasto ou renda;
@@ -740,6 +742,10 @@ async function fixKind(
 	},
 ): Promise<boolean> {
 	if (current.categoryEditedByOwner) return false;
+	if (current.kind === "expense" && next.kind === "investment") {
+		await transactions.update(current.id, { kind: "investment", categoryId: next.categoryId ?? null });
+		return true;
+	}
 	if (current.kind === "expense" && next.kind === "income") {
 		await transactions.update(current.id, { kind: "income", categoryId: next.categoryId ?? null });
 		return true;

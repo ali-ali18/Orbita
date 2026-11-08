@@ -229,7 +229,14 @@ export interface TransactionStore {
 	get(id: string): Promise<TransactionRecord | null>;
 	/** Por data, depois por criação. */
 	listByBudgetMonth(month: MonthKey): Promise<TransactionRecord[]>;
-	/** Meses de orçamento que têm ao menos um lançamento vivo, do mais recente para o mais antigo (sem repetir). */
+	/**
+	 * O conjunto do "Gasto do mês" (definição única, igual a `spendingMonthOf` do engine): lançamentos do cartão cuja
+	 * FATURA vence em `month` (cada parcela pela sua fatura, não importa o `budgetMonth` ou a data) mais os que não
+	 * são do cartão, pelo `budgetMonth`. Inclui receita, aplicação, transferência e pagamento de fatura (o engine decide
+	 * o que conta). Por data, depois por criação.
+	 */
+	listForSpendingMonth(month: MonthKey): Promise<TransactionRecord[]>;
+	/** Meses de gasto (de orçamento, ou de fatura se for do cartão) que têm ao menos um lançamento vivo, do mais recente para o mais antigo (sem repetir). */
 	listBudgetMonths(): Promise<MonthKey[]>;
 	listByInvoice(cardId: string, invoiceMonth: MonthKey): Promise<TransactionRecord[]>;
 	/** Pagamentos de fatura (`card_payment`) vivos do cartão com data entre `from` e `to`, inclusive, por data. */

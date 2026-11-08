@@ -522,8 +522,8 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 				input: { ...base, kind: "card_payment", accountId: ctx.accountId, cardId: billPayment.cardId },
 			};
 		}
-		// 2) Aplicação sai do saldo e entra em Investimentos. Resgate e rendimento voltam como receita
-		// nessa categoria. Transferência entre contas suas continua de fora (abaixo).
+		// 2) Aplicação sai do saldo e vira `investment` (categoria Investimentos): NÃO é gasto, aparece à parte como
+		// "Investido". Resgate e rendimento voltam como receita nessa categoria. Transferência entre contas suas continua de fora (abaixo).
 		if (family === "investment" || family === "yield") {
 			const categoryId = ctx.categoryIds?.get("investimentos") ?? null;
 			if (tx.type === "CREDIT") {
@@ -536,7 +536,7 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 			return {
 				action: "upsert",
 				externalId: tx.id,
-				input: { ...base, kind: "expense", accountId: ctx.accountId, categoryId },
+				input: { ...base, kind: "investment", accountId: ctx.accountId, categoryId },
 				categorySource: "pluggy",
 			};
 		}

@@ -229,6 +229,10 @@ export const monthSummaryResponse = z.object({
 	summary: z.object({
 		spentCents: cents,
 		incomeCents: cents,
+		/** Aplicações do mês (investimentos): à parte; não entram em `spentCents` nem em `byCategory`. */
+		investedCents: cents,
+		/** Parte de `spentCents` que é estimativa (parcela da fatura que o banco ainda não lançou). */
+		projectedCents: cents,
 		refundCreditCents: cents,
 		/** Por id de categoria. */
 		byCategory: z.record(z.string(), cents),

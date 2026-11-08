@@ -22,6 +22,11 @@ export const chatRequestBody = z
 	.object({
 		/** Ausente = conversa nova. */
 		conversationId: idSchema.optional(),
+		/**
+		 * "Conversar com o agente": o papel e as ferramentas desse agente. Ausente = a Órbita. Numa conversa que já
+		 * existe vale o agente com que ela foi aberta.
+		 */
+		agentId: idSchema.optional(),
 		message: z
 			.string({ error: "Escreva a mensagem." })
 			.trim()
@@ -112,8 +117,40 @@ export const chatConversationDtoSchema = z.object({
 	id: z.string(),
 	title: z.string(),
 	updatedAt: z.string(),
+	/** Agente com quem a conversa foi aberta; `null` = a Órbita. */
+	agentId: z.string().nullable(),
 });
 export type ChatConversationDto = z.infer<typeof chatConversationDtoSchema>;
+
+export const CONVERSATIONS_PAGE_DEFAULT = 20;
+export const CONVERSATIONS_PAGE_MAX = 50;
+export const CONVERSATION_SEARCH_MAX = 100;
+export const CONVERSATION_TITLE_MAX = 60;
+
+/** `GET /v1/chat/conversations?cursor=&limit=&q=`: mais recente primeiro; `q` busca no título. */
+export const chatConversationsQuery = z.object({
+	cursor: z.string().min(1).max(200).optional(),
+	limit: z.coerce
+		.number("O limite deve ser um número.")
+		.int("O limite deve ser inteiro.")
+		.min(1, "O limite mínimo é 1.")
+		.max(CONVERSATIONS_PAGE_MAX, `O limite máximo é ${CONVERSATIONS_PAGE_MAX}.`)
+		.default(CONVERSATIONS_PAGE_DEFAULT),
+	q: z.string().trim().max(CONVERSATION_SEARCH_MAX, "A busca tem até 100 letras.").optional(),
+});
+export type ChatConversationsQuery = z.infer<typeof chatConversationsQuery>;
+
+/** `PATCH /v1/chat/conversations/:id`: o novo nome. */
+export const chatConversationRenameBody = z
+	.object({
+		title: z
+			.string({ error: "Dê um nome à conversa." })
+			.trim()
+			.min(1, "Dê um nome à conversa.")
+			.max(CONVERSATION_TITLE_MAX, `O nome tem até ${CONVERSATION_TITLE_MAX} letras.`),
+	})
+	.strict();
+export type ChatConversationRenameBody = z.infer<typeof chatConversationRenameBody>;
 
 // ---------------------------------------------------- custo da IA
 

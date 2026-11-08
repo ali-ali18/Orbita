@@ -260,7 +260,7 @@ export type InvoiceFilter = (typeof INVOICE_FILTERS)[number]["id"];
 
 export interface InvoiceLine {
 	id: string;
-	kind: "expense" | "income" | "transfer" | "card_payment" | "refund";
+	kind: "expense" | "income" | "transfer" | "card_payment" | "refund" | "investment";
 	date: LocalDate;
 	installmentGroupId: string | null;
 	installmentNumber: number | null;

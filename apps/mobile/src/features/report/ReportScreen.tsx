@@ -158,7 +158,10 @@ function ReportBody({
 	const budget = budgetLine(report.budget);
 	const invoices = report.invoices.cards.filter((c) => c.totalCents !== 0);
 	const empty =
-		report.totals.incomeCents === 0 && report.totals.spentCents === 0 && report.biggestExpenses.length === 0;
+		report.totals.incomeCents === 0 &&
+		report.totals.spentCents === 0 &&
+		report.totals.investedCents === 0 &&
+		report.biggestExpenses.length === 0;
 
 	return (
 		<>
@@ -206,6 +209,12 @@ function ReportBody({
 					hidden={hidden}
 				/>
 			</View>
+
+			{report.totals.investedCents > 0 ? (
+				<Text variant="caption" tone="secondary">
+					Investido {money(report.totals.investedCents, hidden, { sign: "never" })} (não entra em "Saiu")
+				</Text>
+			) : null}
 
 			{report.vsAverage ? <AverageNote report={report} hidden={hidden} /> : null}
 

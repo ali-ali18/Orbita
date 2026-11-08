@@ -1,7 +1,7 @@
 import { addMonths, type LocalDate, monthOf, SUGGESTION_MONTHS, suggestBudget } from "@orbita/core";
 import type { Stores } from "@orbita/db";
+import { monthSummary } from "@orbita/ledger";
 import type { BudgetSuggestionResponse } from "@orbita/shared";
-import { monthSummary } from "../summary/service.ts";
 
 /**
  * Sugestão da Órbita: a mediana do gasto por categoria nos últimos meses FECHADOS (o mês corrente, incompleto, fica

@@ -1,5 +1,6 @@
 import { afterAll } from "vitest";
 import { createDb, type Db } from "./client.ts";
+import type { Clock } from "./memory-state.ts";
 import { createMemoryStores, createPrismaStores, type Stores } from "./stores.ts";
 
 /**
@@ -20,11 +21,13 @@ export function tickingClock(start = "2026-11-06T12:00:00Z") {
 
 export async function cleanDatabase(client: Db): Promise<void> {
 	// Ordem das chaves estrangeiras: quem aponta vem antes de quem é apontado.
+	await client.alert.deleteMany();
 	await client.aiUsage.deleteMany();
 	await client.aiSettings.deleteMany();
 	await client.chatProposal.deleteMany();
 	await client.chatMessage.deleteMany();
 	await client.chatConversation.deleteMany();
+	await client.agent.deleteMany();
 	await client.idempotencyKey.deleteMany();
 	await client.importBatch.deleteMany();
 	await client.appPreferences.deleteMany();
@@ -43,19 +46,20 @@ export async function cleanDatabase(client: Db): Promise<void> {
 	await client.pluggyConnectSession.deleteMany();
 }
 
-export type StoresFactory = () => Promise<Stores>;
+/** `now` troca o relógio (padrão: `tickingClock`); um relógio parado serve para testar empate de data. */
+export type StoresFactory = (now?: Clock) => Promise<Stores>;
 
 export function contractSuites(): Array<[string, StoresFactory]> {
 	const suites: Array<[string, StoresFactory]> = [
-		["memória", async () => createMemoryStores({ now: tickingClock() })],
+		["memória", async (now) => createMemoryStores({ now: now ?? tickingClock() })],
 	];
 	if (testUrl) {
 		suites.push([
 			"postgres",
-			async () => {
+			async (now) => {
 				db ??= createDb(testUrl);
 				await cleanDatabase(db);
-				return createPrismaStores(db, { now: tickingClock() });
+				return createPrismaStores(db, { now: now ?? tickingClock() });
 			},
 		]);
 	}

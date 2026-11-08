@@ -11,6 +11,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { apiError, errorHandler, notFoundHandler } from "./http/errors.ts";
 import { createRequireDevice } from "./http/require-device.ts";
 import * as accounts from "./modules/accounts/routes.ts";
+import * as agents from "./modules/agents/routes.ts";
 import * as budgets from "./modules/budgets/routes.ts";
 import * as cards from "./modules/cards/routes.ts";
 import * as categories from "./modules/categories/routes.ts";
@@ -91,6 +92,7 @@ export function createApp(deps: AppDeps) {
 		.route("/", preferences.routes(finance))
 		.route("/", summary.routes(finance))
 		.route("/", reports.routes(finance))
+		.route("/", agents.routes(finance))
 		.route(
 			"/",
 			chat.routes({

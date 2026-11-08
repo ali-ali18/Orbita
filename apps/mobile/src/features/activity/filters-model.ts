@@ -18,7 +18,7 @@ import { MAX_CENTS, MAX_FILTER_ITEMS, type TransactionSource } from "@orbita/sha
  */
 
 export type PeriodPreset = "this-month" | "last-month" | "last-90-days" | "custom";
-export type TypeId = "out" | "in" | "transfer";
+export type TypeId = "out" | "in" | "transfer" | "invest";
 export type StatusId = "confirmed" | "pending";
 
 export const PERIOD_OPTIONS: readonly { id: PeriodPreset; label: string }[] = [
@@ -28,15 +28,16 @@ export const PERIOD_OPTIONS: readonly { id: PeriodPreset; label: string }[] = [
 	{ id: "custom", label: "Escolher datas" },
 ];
 
-/** Saída = despesa; entrada = receita e estorno; transferência inclui o pagamento de fatura (dinheiro que só muda de lugar). */
+/** Saída = despesa; entrada = receita e estorno; transferência inclui o pagamento de fatura (dinheiro que só muda de lugar); investimento é a aplicação, à parte do gasto. */
 export const TYPE_OPTIONS: readonly {
 	id: TypeId;
 	label: string;
-	kinds: readonly ("expense" | "income" | "refund" | "transfer" | "card_payment")[];
+	kinds: readonly ("expense" | "income" | "refund" | "transfer" | "card_payment" | "investment")[];
 }[] = [
 	{ id: "out", label: "Saídas", kinds: ["expense"] },
 	{ id: "in", label: "Entradas", kinds: ["income", "refund"] },
 	{ id: "transfer", label: "Transferências", kinds: ["transfer", "card_payment"] },
+	{ id: "invest", label: "Investimentos", kinds: ["investment"] },
 ];
 
 export const SOURCE_OPTIONS: readonly { id: TransactionSource; label: string }[] = [

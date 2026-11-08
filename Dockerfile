@@ -13,6 +13,7 @@ COPY packages/agents/package.json packages/agents/
 COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
 COPY packages/ingest/package.json packages/ingest/
+COPY packages/ledger/package.json packages/ledger/
 COPY packages/ota/package.json packages/ota/
 COPY packages/security/package.json packages/security/
 COPY packages/shared/package.json packages/shared/

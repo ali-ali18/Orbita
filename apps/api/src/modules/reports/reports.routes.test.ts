@@ -39,7 +39,13 @@ describe("relatório do mês", () => {
 		const { api } = await setupFinance();
 		const { status, body } = await api.get("/v1/reports/2026-10");
 		expect(status).toBe(200);
-		expect(body.totals).toEqual({ incomeCents: 0, spentCents: 0, balanceCents: 0, refundCreditCents: 0 });
+		expect(body.totals).toEqual({
+			incomeCents: 0,
+			spentCents: 0,
+			investedCents: 0,
+			balanceCents: 0,
+			refundCreditCents: 0,
+		});
 		expect(body.vsPrevious).toBeNull();
 		expect(body.vsAverage).toBeNull();
 		expect(body.topCategories).toEqual([]);

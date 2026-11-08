@@ -33,30 +33,41 @@ export function SheetGroup({ children, gap = true }: { children: ReactNode; gap?
 	);
 }
 
-/** Linha de um `SheetGroup`: ícone (ou `leading`), texto, legenda e marca de escolhido à direita. */
+/**
+ * Linha de um `SheetGroup`: ícone (ou `leading`), texto, legenda e marca de escolhido à direita.
+ * `variant="detailed"` é a opção com descrição longa (modelo de IA): mais respiro em cima e embaixo, a legenda quebra
+ * em quantas linhas precisar e `note` (ex.: o preço) fica numa linha própria, em tom terciário.
+ */
 export function SheetRow({
 	icon,
 	leading,
 	label,
 	caption,
+	note,
 	selected,
 	role = "button",
+	variant = "default",
 	onPress,
 }: {
 	icon?: IconName;
 	leading?: ReactNode;
 	label: string;
 	caption?: string | null | undefined;
+	/** Só no `detailed`: linha extra abaixo da legenda, em tom terciário. */
+	note?: string | null | undefined;
 	/** Quando definido, a linha é uma opção (radio) e mostra a marca se escolhida. */
 	selected?: boolean;
 	role?: "button" | "radio";
+	variant?: "default" | "detailed";
 	onPress: () => void;
 }) {
 	const radio = selected !== undefined;
+	const detailed = variant === "detailed";
+	const spoken = [label, caption, detailed ? note : null].filter(Boolean).join(", ");
 	return (
 		<Pressable
 			accessibilityRole={radio ? "radio" : role}
-			accessibilityLabel={caption ? `${label}, ${caption}` : label}
+			accessibilityLabel={spoken}
 			{...(radio ? { accessibilityState: { checked: selected } } : {})}
 			onPress={onPress}
 			style={({ pressed }) => ({
@@ -65,15 +76,21 @@ export function SheetRow({
 				alignItems: "center",
 				gap: spacing.md,
 				paddingHorizontal: spacing.lg,
+				paddingVertical: detailed ? spacing.lg : spacing.md,
 				opacity: pressed ? 0.8 : 1,
 			})}
 		>
 			{leading ?? (icon ? <Icon name={icon} size={ICON} /> : null)}
-			<View style={{ flex: 1 }}>
-				<Text variant="body">{label}</Text>
+			<View style={{ flex: 1, gap: detailed ? spacing.xs : 0 }}>
+				<Text variant={detailed ? "bodyStrong" : "body"}>{label}</Text>
 				{caption ? (
 					<Text variant="caption" tone="secondary">
 						{caption}
+					</Text>
+				) : null}
+				{detailed && note ? (
+					<Text variant="caption" tone="tertiary">
+						{note}
 					</Text>
 				) : null}
 			</View>

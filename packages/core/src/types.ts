@@ -7,4 +7,8 @@ export type LocalDate = string;
 /** Mês de calendário, "YYYY-MM". */
 export type MonthKey = string;
 
-export type TransactionKind = "expense" | "income" | "transfer" | "card_payment" | "refund";
+/**
+ * - `investment`: aplicação (dinheiro que sai da conta para ações, cripto, CDB…). Não é gasto: aparece à parte, como
+ *   "Investido". Rendimento e resgate entram como `income`.
+ */
+export type TransactionKind = "expense" | "income" | "transfer" | "card_payment" | "refund" | "investment";

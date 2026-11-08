@@ -8,7 +8,7 @@ import { monthName } from "../../lib/format.ts";
  */
 
 export type DetailSource = "manual" | "notification" | "pluggy" | "receipt" | "import";
-export type DetailKind = "expense" | "income" | "transfer" | "card_payment" | "refund";
+export type DetailKind = "expense" | "income" | "transfer" | "card_payment" | "refund" | "investment";
 
 export interface DetailTransaction {
 	id: string;
@@ -139,6 +139,8 @@ export function kindTitle(kind: DetailKind): string {
 			return "Transferência";
 		case "card_payment":
 			return "Pagamento de fatura";
+		case "investment":
+			return "Investimento";
 	}
 }
 

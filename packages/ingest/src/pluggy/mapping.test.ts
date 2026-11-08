@@ -495,20 +495,20 @@ describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () =>
 				: "refund";
 	};
 
-	it("aplicação é gasto em Investimentos; resgate e rendimento são receita nessa categoria", () => {
+	it("aplicação é investimento (não gasto) em Investimentos; resgate e rendimento são receita nessa categoria", () => {
 		expect(kindOf({ category: "Fixed income", categoryId: "03020000", amount: -500 })).toBe(
-			"expense:cat-investimentos",
+			"investment:cat-investimentos",
 		);
 		expect(kindOf({ category: "Fixed income", categoryId: "03020000", type: "CREDIT", amount: 500 })).toBe(
 			"income:cat-investimentos",
 		);
 		// Sem o nome da folha conhecido, o pai da árvore decide.
 		expect(kindOf({ category: "Algo novo", categoryId: "03020000", amount: -1 })).toBe(
-			"expense:cat-investimentos",
+			"investment:cat-investimentos",
 		);
 		expect(
 			kindOf({ category: "Investimentos", amount: -1 }, { ...ctx, categoryIndex: undefined as never }),
-		).toBe("expense:cat-investimentos");
+		).toBe("investment:cat-investimentos");
 	});
 
 	it("rendimento de investimento entra como receita em Investimentos", () => {
@@ -522,7 +522,7 @@ describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () =>
 
 	it("plano B pela descrição só com categoria ausente ou genérica", () => {
 		expect(kindOf({ description: "Aplicação CDB", category: null, amount: -100 })).toBe(
-			"expense:cat-investimentos",
+			"investment:cat-investimentos",
 		);
 		expect(kindOf({ description: "RESGATE CAIXINHA", category: "Other", type: "CREDIT", amount: 100 })).toBe(
 			"income:cat-investimentos",

@@ -703,6 +703,44 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			await expect(tx.listByBudgetMonth("2026-1")).rejects.toMatchObject({ code: "invalid" });
 		});
 
+		it("listForSpendingMonth: cartão pela fatura que vence no mês, o resto pelo mês do orçamento", async () => {
+			// Compra de setembro cuja fatura vence em novembro: conta em novembro, mesmo com budgetMonth/data de setembro.
+			const septOnNov = await tx.create(
+				cardPurchase({ date: "2026-09-12", budgetMonth: "2026-09", invoiceMonth: "2026-11" }),
+			);
+			// Compra de novembro cuja fatura vence em dezembro: fica fora de novembro.
+			const novOnDec = await tx.create(cardPurchase({ date: "2026-11-05", invoiceMonth: "2026-12" }));
+			// Parcela avulsa (sem grupo), com budgetMonth de outro mês.
+			const loose = await tx.create(
+				cardPurchase({
+					date: "2026-10-03",
+					budgetMonth: "2026-10",
+					invoiceMonth: "2026-11",
+					note: "Parcela 2/3",
+				}),
+			);
+			const pix = await tx.create(expense({ date: "2026-11-08" }));
+			const octPix = await tx.create(expense({ date: "2026-10-30" }));
+			const invest = await tx.create({ ...expense({ date: "2026-11-04" }), kind: "investment" });
+			const gone = await tx.create(cardPurchase({ date: "2026-10-04", invoiceMonth: "2026-11" }));
+			await tx.softDelete(gone.id);
+			const ids = (await tx.listForSpendingMonth("2026-11")).map((t) => t.id);
+			expect(new Set(ids)).toEqual(new Set([septOnNov.id, loose.id, invest.id, pix.id]));
+			expect(ids).not.toContain(novOnDec.id);
+			expect(ids).not.toContain(octPix.id);
+			expect((await tx.listForSpendingMonth("2026-12")).map((t) => t.id)).toEqual([novOnDec.id]);
+			expect(await tx.listForSpendingMonth("2027-05")).toEqual([]);
+			await expect(tx.listForSpendingMonth("2026-1")).rejects.toMatchObject({ code: "invalid" });
+		});
+
+		it("aplicação (investment) só vale em conta, nunca no cartão", async () => {
+			const ok = await tx.create({ ...expense(), kind: "investment" });
+			expect(ok.kind).toBe("investment");
+			await expect(tx.create({ ...cardPurchase(), kind: "investment" })).rejects.toMatchObject({
+				code: "invalid",
+			});
+		});
+
 		it("listBudgetMonths devolve os meses com lançamento vivo, do mais recente ao mais antigo", async () => {
 			expect(await tx.listBudgetMonths()).toEqual([]);
 			await tx.create(expense({ date: "2026-09-02" }));
@@ -712,6 +750,9 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			await tx.create(expense({ date: "2026-10-30", budgetMonth: "2026-11" }));
 			await tx.softDelete(gone.id);
 			expect(await tx.listBudgetMonths()).toEqual(["2026-11", "2026-09"]);
+			// Compra no cartão vale pelo mês da fatura, não pelo da data.
+			await tx.create(cardPurchase({ date: "2026-11-25", invoiceMonth: "2026-12" }));
+			expect(await tx.listBudgetMonths()).toEqual(["2026-12", "2026-11", "2026-09"]);
 		});
 
 		it("listByInvoice filtra por cartão e fatura", async () => {

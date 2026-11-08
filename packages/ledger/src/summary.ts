@@ -22,6 +22,7 @@ import {
 	UNCATEGORIZED,
 } from "@orbita/core";
 import {
+	DataError,
 	type InstallmentGroupRecord,
 	type Stores,
 	TOTAL_BUDGET_SCOPE,
@@ -31,7 +32,13 @@ import {
 } from "@orbita/db";
 import { suggestSpendingSlug } from "@orbita/ingest";
 import type { MonthSummaryResponse } from "@orbita/shared";
-import { orNotFound } from "../../http/errors.ts";
+
+/** Item que não existe: o mesmo erro de dados que as stores lançam (a API o traduz em 404). */
+function orNotFound<T>(value: T | null | undefined, what: string, ending: "a" | "o" = "a"): T {
+	if (value === null || value === undefined)
+		throw new DataError("not_found", `${what} não encontrad${ending}.`);
+	return value;
+}
 
 const sum = (values: Iterable<Cents>) => {
 	let total = 0;
@@ -60,6 +67,10 @@ export function categoryForSummary(
 	return bySlug.get(slug) ?? t.categoryId;
 }
 
+/** Prefixo do id das parcelas estimadas (só existem na resposta, nunca no banco). */
+export const PROJECTED_ID_PREFIX = "est-";
+export const isProjectedRow = (t: Pick<TransactionRecord, "id">) => t.id.startsWith(PROJECTED_ID_PREFIX);
+
 /** A forma que o engine espera (`null` vira ausente). */
 export const toCoreTransaction = (
 	t: TransactionRecord,
@@ -73,6 +84,9 @@ export const toCoreTransaction = (
 		amountCents: t.amountCents,
 		date: t.date,
 		budgetMonth: t.budgetMonth,
+		// Cartão pesa no mês da fatura (ver `spendingMonthOf` do engine).
+		...(t.invoiceMonth === null ? {} : { invoiceMonth: t.invoiceMonth }),
+		...(isProjectedRow(t) ? { projected: true } : {}),
 		...(categoryId === null ? {} : { categoryId }),
 		...(t.refundOfId === null ? {} : { refundOf: t.refundOfId }),
 	};
@@ -94,6 +108,32 @@ export async function refundOriginalsOutside(stores: Stores, txs: readonly Trans
 }
 
 /**
+ * O conjunto do "Gasto do mês", o mesmo para o Início, o relatório, a sugestão de orçamento, as ferramentas da IA e os
+ * avisos: o que o store devolve em `listForSpendingMonth` (cartão pela fatura que vence no mês, conta pelo mês do
+ * orçamento) mais as PARCELAS ESTIMADAS dessa fatura.
+ *
+ * Parcela estimada: grupo de parcelas conhecido (visto em outra fatura) cuja parcela deste mês o banco ainda não
+ * lançou. Conta no mês, marcada como estimada (`projectedCents` no resumo), porque a fatura que vence em `month` vai
+ * cobrá-la. Só de hoje em diante: um mês já passado fica como foi gravado (não se inventa histórico).
+ */
+export async function loadSpendingMonth(
+	stores: Stores,
+	month: MonthKey,
+	today: LocalDate,
+): Promise<TransactionRecord[]> {
+	const rows = await stores.transactions.listForSpendingMonth(month);
+	if (month < monthOf(today)) return rows;
+	const [cards, groups] = await Promise.all([
+		stores.cards.list(),
+		stores.transactions.listInstallmentGroups(addMonths(month, -71)),
+	]);
+	const estimated = cards
+		.filter((c) => c.archivedAt === null)
+		.flatMap((c) => projectedRows(groups, c.id, month, `${month}-01`));
+	return [...rows, ...estimated];
+}
+
+/**
  * Início: tudo calculado pelo engine. Lançamento pendente (ainda sem revisão) conta no gasto:
  * a notificação do banco já avisou que o dinheiro saiu.
  */
@@ -103,7 +143,7 @@ export async function monthSummary(
 	today: LocalDate,
 ): Promise<MonthSummaryResponse> {
 	const [txs, recurrences, postings, budgets, categories, preferences] = await Promise.all([
-		stores.transactions.listByBudgetMonth(month),
+		loadSpendingMonth(stores, month, today),
 		stores.recurrences.list(),
 		stores.recurrences.listPostings(month),
 		stores.budgets.list(),
@@ -151,8 +191,12 @@ export async function monthSummary(
 	if (monthOf(today) === month) {
 		// Gasto variável = o que saiu sem ser recorrência já lançada (o aluguel tem data certa).
 		const postedIds = new Set(postings.map((p) => p.transactionId));
-		const recurringSpent = sum(
-			txs.filter((t) => t.kind === "expense" && postedIds.has(t.id)).map((t) => t.amountCents),
+		// Ritmo diário = só o que sai da conta no dia a dia. A fatura que vence no mês é compromisso já fechado (e as
+		// parcelas estimadas também): estender esse valor pelos dias que faltam o contaria de novo.
+		const dailyPace = sum(
+			txs
+				.filter((t) => t.kind === "expense" && t.cardId === null && !postedIds.has(t.id))
+				.map((t) => t.amountCents),
 		);
 		const total = budgets.find((b) => b.scope === TOTAL_BUDGET_SCOPE);
 		if (total) {
@@ -167,7 +211,7 @@ export async function monthSummary(
 		projection = projectMonth({
 			spentCents: raw.spentCents,
 			pendingRecurringExpenseCents: pending.expenseCents,
-			variableSpentCents: Math.max(0, raw.spentCents - recurringSpent),
+			variableSpentCents: dailyPace,
 			today,
 			month,
 		});
@@ -179,6 +223,8 @@ export async function monthSummary(
 		summary: {
 			spentCents: raw.spentCents,
 			incomeCents: raw.incomeCents,
+			investedCents: raw.investedCents,
+			projectedCents: raw.projectedCents,
 			refundCreditCents: raw.refundCreditCents,
 			byCategory,
 		},
@@ -201,12 +247,12 @@ function projectedRows(
 	date: LocalDate,
 ): TransactionRecord[] {
 	return projectMissingInstallments(groups, cardId, month).map((item) => ({
-		id: `est-${item.number}-${item.groupId}`.slice(0, 64),
+		id: `${PROJECTED_ID_PREFIX}${item.number}-${item.groupId}`.slice(0, 64),
 		kind: "expense" as const,
 		amountCents: item.amountCents,
 		date,
 		description: item.description,
-		categoryId: null,
+		categoryId: item.categoryId,
 		accountId: null,
 		cardId,
 		counterpartAccountId: null,

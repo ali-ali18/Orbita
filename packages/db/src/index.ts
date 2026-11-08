@@ -1,4 +1,14 @@
 export type { AccountInput, AccountPatch, AccountRecord, AccountStore } from "./account-store.ts";
+export type {
+	AgentPatch,
+	AgentRecord,
+	AgentStore,
+	AlertDraft,
+	AlertQuery,
+	AlertRecord,
+	BuiltinAgentSeed,
+	CustomAgentInput,
+} from "./agent-store.ts";
 export {
 	type AiModelChoice,
 	type AiUsageInput,
@@ -23,9 +33,12 @@ export {
 	type CategoryStore,
 	DEFAULT_CATEGORIES,
 } from "./category-store.ts";
+export { deriveChatTitle } from "./chat-rules.ts";
 export {
 	CHAT_TEXT_MAX,
 	CHAT_TITLE_MAX,
+	CHAT_TITLE_RENAME_MAX,
+	type ChatConversationCursor,
 	type ChatConversationRecord,
 	type ChatMessageRecord,
 	type ChatProposalRecord,

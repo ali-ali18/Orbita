@@ -1,6 +1,6 @@
 import { budgetStatus } from "./budget.ts";
-import { summarizeMonth, type Transaction } from "./classification.ts";
-import { addMonths, monthOf, parseMonthKey } from "./dates.ts";
+import { spendingMonthOf, summarizeMonth, type Transaction } from "./classification.ts";
+import { addMonths, parseMonthKey } from "./dates.ts";
 import type { InvoiceComposition } from "./invoice-composition.ts";
 import { assertCents } from "./money.ts";
 import type { Cents, LocalDate, MonthKey } from "./types.ts";
@@ -29,7 +29,7 @@ export interface ReportInvoice {
 export interface MonthReportInput {
 	month: MonthKey;
 	/**
-	 * Lançamentos do mês e dos {@link REPORT_AVERAGE_MONTHS} anteriores (por mês de orçamento), mais as compras
+	 * Lançamentos do mês e dos {@link REPORT_AVERAGE_MONTHS} anteriores (pelo mês de gasto: cartão pela fatura), mais as compras
 	 * originais dos estornos que moram em outro mês. O engine separa cada mês.
 	 */
 	transactions: readonly ReportTransaction[];
@@ -52,6 +52,8 @@ export interface MetricChange {
 export interface ReportTotals {
 	incomeCents: Cents;
 	spentCents: Cents;
+	/** Aplicações do mês (investimentos): à parte do gasto e do saldo abaixo. */
+	investedCents: Cents;
 	/** Entrou menos saiu; negativo quando o mês fechou no vermelho. */
 	balanceCents: Cents;
 	refundCreditCents: Cents;
@@ -131,13 +133,14 @@ const change = (current: Cents, reference: Cents): MetricChange => ({
 });
 
 const hasMovement = (totals: ReportTotals) =>
-	totals.incomeCents > 0 || totals.spentCents > 0 || totals.refundCreditCents > 0;
+	totals.incomeCents > 0 || totals.spentCents > 0 || totals.investedCents > 0 || totals.refundCreditCents > 0;
 
 function totalsOf(transactions: readonly Transaction[], month: MonthKey) {
 	const summary = summarizeMonth(transactions, month);
 	const totals: ReportTotals = {
 		incomeCents: summary.incomeCents,
 		spentCents: summary.spentCents,
+		investedCents: summary.investedCents,
 		balanceCents: summary.incomeCents - summary.spentCents,
 		refundCreditCents: summary.refundCreditCents,
 	};
@@ -150,8 +153,6 @@ const compare = (current: ReportTotals, reference: ReportTotals, months: MonthKe
 	spent: change(current.spentCents, reference.spentCents),
 	balance: change(current.balanceCents, reference.balanceCents),
 });
-
-const budgetMonthOf = (t: Transaction) => t.budgetMonth ?? monthOf(t.date);
 
 /**
  * Relatório do mês, todo sobre o engine: o resumo (`summarizeMonth`) de cada mês, o orçamento (`budgetStatus`) e a
@@ -183,6 +184,7 @@ export function monthReport(input: MonthReportInput): MonthReport {
 			{
 				incomeCents: avg((t) => t.incomeCents),
 				spentCents: avg((t) => t.spentCents),
+				investedCents: avg((t) => t.investedCents),
 				balanceCents: avg((t) => t.balanceCents),
 				refundCreditCents: avg((t) => t.refundCreditCents),
 			},
@@ -218,7 +220,7 @@ export function monthReport(input: MonthReportInput): MonthReport {
 		.slice(0, input.topCategories ?? REPORT_TOP_CATEGORIES);
 
 	const biggestExpenses = input.transactions
-		.filter((t) => t.kind === "expense" && budgetMonthOf(t) === month)
+		.filter((t) => t.kind === "expense" && spendingMonthOf(t) === month)
 		.sort((a, b) => b.amountCents - a.amountCents || b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
 		.slice(0, input.biggestExpenses ?? REPORT_BIGGEST_EXPENSES)
 		.map(
@@ -233,7 +235,7 @@ export function monthReport(input: MonthReportInput): MonthReport {
 
 	const subscriptionsIn = (m: MonthKey) => {
 		const rows = input.transactions.filter(
-			(t) => t.kind === "expense" && budgetMonthOf(t) === m && input.recurringTransactionIds.has(t.id),
+			(t) => t.kind === "expense" && spendingMonthOf(t) === m && input.recurringTransactionIds.has(t.id),
 		);
 		return { totalCents: rows.reduce((sum, t) => sum + t.amountCents, 0), count: rows.length };
 	};

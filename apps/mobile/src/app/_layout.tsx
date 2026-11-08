@@ -32,11 +32,18 @@ function Routes() {
 				<Stack.Screen name="atividades" />
 				<Stack.Screen name="revisao" />
 				<Stack.Screen name="chat" options={{ animation: "slide_from_bottom" }} />
+				<Stack.Screen name="conversas" />
 				<Stack.Screen name="cartao" />
 				<Stack.Screen name="lancamento/[id]" />
 				<Stack.Screen name="assinaturas" />
 				<Stack.Screen name="relatorio" />
 				<Stack.Screen name="assinatura" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
+				<Stack.Screen name="agentes" />
+				<Stack.Screen name="agente" />
+				<Stack.Screen
+					name="novo-agente"
+					options={{ presentation: "modal", animation: "slide_from_bottom" }}
+				/>
 				<Stack.Screen name="metas" />
 				<Stack.Screen name="meta" />
 				<Stack.Screen name="nova-meta" options={{ presentation: "modal", animation: "slide_from_bottom" }} />

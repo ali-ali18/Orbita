@@ -57,6 +57,10 @@ Regras:
 - Comparação com período anterior: mesma cor com opacidade 35% ou linha tracejada em `chart.other`.
 - Entre segmentos de barra empilhada: espaço de 2.
 
+### Agentes
+
+`import { agents } from "@orbita/tokens"`: cada agente tem `color` (o rosto) e `tint` (o fundo do cartão dele). A cor vem da paleta dos gráficos (Vigia laranja, Fechamento azul, Metas amarelo, Caça-assinatura magenta, Cofrinho verde-água, agente do dono violeta; a Órbita é branca); o tom é a cor a 14% sobre o preto, em hex fixo. A cor fica no rosto e no fundo do cartão, nunca no texto. O rosto é uma forma simples com dois olhos escuros (`AgentAvatar`).
+
 ### Bancos
 
 `import { banks } from "@orbita/tokens"`: cor de fundo do círculo atrás do logo. Logos vêm do pacote `logos-bancos-br` (MIT; as marcas são das instituições, uso só para identificá-las): PNGs só dos bancos usados em `apps/mobile/assets/banks` (ver `NOTICE.txt`), casados por ISPB ou pelo nome em `lib/bank-logos.ts`. Com logo, o círculo é branco e mostra a imagem; sem logo, a cor da marca (ou `banks.generic`) com a inicial.

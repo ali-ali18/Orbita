@@ -3,6 +3,7 @@ import { colors, layout, radius, spacing } from "@orbita/tokens";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import { KeyboardAvoidingView, Pressable, ScrollView, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError } from "../../lib/api.ts";
 import { useClock } from "../../lib/clock.tsx";
 import { errorMessage } from "../../lib/loadable.ts";
@@ -104,12 +105,15 @@ export function GoalFormScreen() {
 	const goalQ = useGoal(editingId);
 	const accountsQ = useAccounts();
 	const save = useSaveGoal();
+	const insets = useSafeAreaInsets();
 	// `isPending` só muda no próximo render; a trava em ref barra o segundo toque no mesmo instante.
 	const busy = useRef(false);
 
 	const [form, setForm] = useState<GoalForm | null>(null);
 	const [sheet, setSheet] = useState<OpenSheet>(null);
 	const [message, setMessage] = useState<string | null>(null);
+	// Altura do rodapé fixo: o fim da rolagem reserva esse espaço para o último texto não ficar embaixo dele.
+	const [footerHeight, setFooterHeight] = useState(0);
 
 	// Criar: o formulário nasce quando a lista chega (a cor inicial evita as que as outras metas usam).
 	// Editar: nasce quando a meta chega.
@@ -166,7 +170,10 @@ export function GoalFormScreen() {
 		<KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.background }} behavior="padding">
 			<Screen
 				footer={
-					<View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.md }}>
+					<View
+						onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
+						style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.md }}
+					>
 						{message ? (
 							<View accessibilityRole="alert" accessibilityLiveRegion="polite">
 								<Text variant="caption" tone="secondary">
@@ -188,7 +195,7 @@ export function GoalFormScreen() {
 					keyboardShouldPersistTaps="handled"
 					contentContainerStyle={{
 						paddingHorizontal: spacing.lg,
-						paddingBottom: spacing.lg,
+						paddingBottom: footerHeight + Math.max(insets.bottom, layout.homeIndicator),
 						gap: spacing.md + 2,
 					}}
 				>

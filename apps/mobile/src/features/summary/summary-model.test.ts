@@ -2,6 +2,7 @@ import { categoryColor, chartSeries } from "@orbita/tokens";
 import { describe, expect, it } from "vitest";
 import {
 	budgetAlertNotice,
+	cardTileInvoices,
 	categoryShares,
 	currentInvoiceMonth,
 	FREE_KEY,
@@ -229,5 +230,15 @@ describe("budgetAlertNotice", () => {
 	it("vários limites: conta; categoria que sumiu não quebra", () => {
 		expect(budgetAlertNotice([b("mer", true), b("del", true)], names, 80)).toBe("2 limites passaram de 80%");
 		expect(budgetAlertNotice([b("fantasma", true)], names, 80)).toBe("1 limite passou de 80%");
+	});
+});
+
+describe("cardTileInvoices", () => {
+	const card = { closingDay: 10, dueDay: 20, closingRule: "closing-day-next" } as const;
+	it("fatura fechada que vence neste mês e a aberta (que vence no próximo)", () => {
+		expect(cardTileInvoices(card, "2026-11-15")).toEqual({ open: "2026-12", dueThisMonth: "2026-11" });
+	});
+	it("a aberta que já vence neste mês é a única", () => {
+		expect(cardTileInvoices(card, "2026-11-06")).toEqual({ open: "2026-11", dueThisMonth: null });
 	});
 });

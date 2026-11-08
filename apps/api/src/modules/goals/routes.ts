@@ -1,5 +1,6 @@
 import { toLocalDate } from "@orbita/core";
 import { DataError } from "@orbita/db";
+import { type GoalClock, goalDetail, listGoals, toContributionDto } from "@orbita/ledger";
 import { createRateLimiter } from "@orbita/security";
 import {
 	goalContributionBody,
@@ -15,7 +16,6 @@ import type { ModuleDeps } from "../../http/module-deps.ts";
 import { rateLimit } from "../../http/rate-limit.ts";
 import type { AppEnv } from "../../http/require-device.ts";
 import { validate } from "../../http/validate.ts";
-import { type GoalClock, goalDetail, listGoals, toContributionDto } from "./service.ts";
 
 /** Metas de guardar dinheiro: CRUD, "Guardar" (contribuição) e a lista com os números do engine. */
 export function routes({ stores, now, requireDevice }: ModuleDeps) {

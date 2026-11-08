@@ -25,6 +25,8 @@ export const NOTE_MAX = 1000;
 export const INCOME_ON_CARD_MESSAGE =
 	"Receita entra em uma conta, não no cartão. Para cashback ou devolução, lance um estorno.";
 
+export const INVESTMENT_ON_CARD_MESSAGE = "Aplicação sai de uma conta, não do cartão.";
+
 const has = (v: unknown) => v !== undefined && v !== null;
 
 /**
@@ -63,6 +65,12 @@ export function transactionInvariantError(t: TransactionShape): string | null {
 			if (hasCounterpart && t.accountId === t.counterpartAccountId)
 				return "Origem e destino da transferência devem ser contas diferentes.";
 			if (hasCard) return "Transferência não usa cartão.";
+			break;
+		case "investment":
+			// Aplicação: o dinheiro sai de uma CONTA para investimento. Não é gasto e não passa pelo cartão.
+			if (hasCard) return INVESTMENT_ON_CARD_MESSAGE;
+			if (!hasAccount) return "A aplicação precisa de uma conta.";
+			if (hasCounterpart) return "A conta de destino só vale para transferência.";
 			break;
 		case "card_payment":
 			if (!hasAccount || !hasCard) return "O pagamento de fatura precisa de conta e de cartão.";

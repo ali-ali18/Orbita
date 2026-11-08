@@ -1,4 +1,5 @@
 import type { AccountRecord } from "./account-store.ts";
+import type { AgentRecord, AlertRecord } from "./agent-store.ts";
 import type { BudgetRecord } from "./budget-store.ts";
 import type { CardRecord } from "./card-store.ts";
 import type { CategoryRuleRecord } from "./category-rule-store.ts";
@@ -31,6 +32,8 @@ export interface MemoryState {
 	pluggyConnections: Map<string, PluggyConnectionRecord>;
 	goals: Map<string, GoalRecord>;
 	goalContributions: Map<string, GoalContributionRecord>;
+	agents: Map<string, AgentRecord>;
+	alerts: Map<string, AlertRecord>;
 	/** O registro único das preferências (a meta da sobra é limpa quando a meta é arquivada). */
 	preferences: PreferencesRecord;
 }
@@ -50,6 +53,8 @@ export function createMemoryState(now: Clock = () => new Date()): MemoryState {
 		pluggyConnections: new Map(),
 		goals: new Map(),
 		goalContributions: new Map(),
+		agents: new Map(),
+		alerts: new Map(),
 		preferences: { ...DEFAULT_PREFERENCES, notificationApps: [] },
 	};
 }

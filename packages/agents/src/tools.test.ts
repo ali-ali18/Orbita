@@ -65,6 +65,43 @@ describe("ferramentas de leitura", () => {
 		expect(out.card?.rows.map((r) => r.label)).toContain("Ainda dá para gastar");
 	});
 
+	it("resumo do mês informa o investido à parte, fora do gasto", async () => {
+		const base = summary();
+		const withInvested = summary({
+			summary: { ...base.summary, investedCents: 200000 },
+		});
+		const out = await run(
+			"get_month_summary",
+			{},
+			fakeReader({ summaries: { [MONTH]: withInvested } }).reader,
+		);
+		expect(out.data).toMatchObject({
+			spent: { cents: 52067 },
+			invested: { cents: 200000, text: "R$ 2.000,00" },
+		});
+		const rows = out.card?.rows ?? [];
+		expect(rows.find((r) => r.label === "Investido")).toMatchObject({ cents: 200000 });
+		expect(rows.find((r) => r.label === "Gastos")).toMatchObject({ cents: 52067 });
+		// Sem aplicação, a linha nem aparece.
+		const none = await run("get_month_summary", {});
+		expect(none.card?.rows.map((r) => r.label)).not.toContain("Investido");
+	});
+
+	it("títulos dos cards de mês saem por extenso em pt-BR, nunca com a chave AAAA-MM", async () => {
+		const titles = [
+			(await run("get_month_summary", {})).card?.title,
+			(await run("get_budget_status", {})).card?.title,
+			(await run("get_category_breakdown", { month: MONTH })).card?.title,
+			(await run("get_month_report", { month: MONTH })).card?.title,
+		];
+		expect(titles).toEqual([
+			"Resumo de novembro de 2026",
+			"Orçamento de novembro de 2026",
+			"Gastos por categoria · novembro de 2026",
+			"Relatório de novembro de 2026",
+		]);
+	});
+
 	it("orçamento: percentual vem do engine e marca o que estourou", async () => {
 		const out = await run("get_budget_status", {});
 		const budgets = out.data.budgets as Array<{ name: string; percentUsed: number; overBudget: boolean }>;
@@ -157,6 +194,8 @@ describe("ferramentas de leitura", () => {
 					summary: {
 						spentCents: 40000,
 						incomeCents: 300000,
+						investedCents: 0,
+						projectedCents: 0,
 						refundCreditCents: 0,
 						byCategory: { "cat-del": 10000 },
 					},

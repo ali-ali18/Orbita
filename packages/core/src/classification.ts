@@ -13,12 +13,31 @@ export interface Transaction {
 	 * Sem ele, vale o mês de `date`.
 	 */
 	budgetMonth?: MonthKey;
+	/**
+	 * Fatura (mês do vencimento) de uma compra ou estorno NO CARTÃO. Presente = é do cartão e pesa no gasto do mês em
+	 * que a fatura vence, não no da data da compra.
+	 */
+	invoiceMonth?: MonthKey;
+	/** Parcela que o banco ainda não lançou (estimada pelo grupo). Conta no mês, mas o resumo a separa em `projectedCents`. */
+	projected?: boolean;
 	categoryId?: string;
 	/** Id da despesa original, quando `kind` é "refund". */
 	refundOf?: string;
 }
 
 export const UNCATEGORIZED = "outros";
+
+/**
+ * Em que mês o lançamento pesa no GASTO (a definição única do "Gasto do mês"):
+ * - compra ou estorno no cartão: o mês da fatura (`invoiceMonth`, o do vencimento), que é quando o dinheiro sai;
+ *   cada parcela pesa na sua própria fatura;
+ * - o resto (débito, Pix, boleto, receita, aplicação): `budgetMonth`, senão o mês da data.
+ */
+export function spendingMonthOf(tx: Pick<Transaction, "invoiceMonth" | "budgetMonth" | "date">): MonthKey {
+	if (tx.invoiceMonth !== undefined) parseMonthKey(tx.invoiceMonth);
+	if (tx.budgetMonth !== undefined) parseMonthKey(tx.budgetMonth);
+	return tx.invoiceMonth ?? tx.budgetMonth ?? monthOf(tx.date);
+}
 
 function assertPositive(tx: Transaction): void {
 	assertCents(tx.amountCents, "amountCents");
@@ -38,6 +57,12 @@ export function spendingDelta(tx: Transaction): Cents {
 	return 0;
 }
 
+/** Quanto o lançamento soma ao "Investido" (aplicação). Não é gasto: ver `spendingDelta`. */
+export function investedDelta(tx: Transaction): Cents {
+	assertPositive(tx);
+	return tx.kind === "investment" ? tx.amountCents : 0;
+}
+
 export function incomeDelta(tx: Transaction): Cents {
 	assertPositive(tx);
 	return tx.kind === "income" ? tx.amountCents : 0;
@@ -47,13 +72,18 @@ export interface MonthSummary {
 	/** Soma de `byCategory`; nunca negativo. */
 	spentCents: Cents;
 	incomeCents: Cents;
+	/** Aplicações do mês (dinheiro enviado a investimentos). Fora de `spentCents` e de `byCategory`. */
+	investedCents: Cents;
+	/** Parte de `spentCents` que é estimativa (parcela ainda não lançada pelo banco). */
+	projectedCents: Cents;
 	/** Estorno que passou do gasto da categoria no mês e por isso não abateu nada. */
 	refundCreditCents: Cents;
 	byCategory: Record<string, Cents>;
 }
 
 /**
- * Resumo de um mês de orçamento (`budgetMonth ?? monthOf(date)`). O estorno abate a
+ * Resumo do mês de GASTO (`spendingMonthOf`): conta por data/orçamento, cartão pela fatura que vence no mês. A
+ * aplicação em investimento vai para `investedCents`, nunca para o gasto. O estorno abate a
  * categoria da compra original (achada na mesma lista, mesmo de outro mês), senão a do
  * próprio estorno, senão "outros", até no máximo zero. O que passar disso vai para
  * `refundCreditCents`: dinheiro que voltou sem ter gasto a abater neste mês. Assim o
@@ -66,20 +96,23 @@ export function summarizeMonth(transactions: readonly Transaction[], month: Mont
 	for (const tx of transactions) byId.set(tx.id, tx);
 
 	let incomeCents = 0;
+	let investedCents = 0;
+	let projectedCents = 0;
 	let refundCreditCents = 0;
 	const byCategory: Record<string, Cents> = {};
 	const refunds: Transaction[] = [];
 
 	for (const tx of transactions) {
-		// Valida antes de filtrar: `budgetMonth` torto não pode sumir com o lançamento em silêncio.
-		if (tx.budgetMonth !== undefined) parseMonthKey(tx.budgetMonth);
-		if ((tx.budgetMonth ?? monthOf(tx.date)) !== month) continue;
+		// `spendingMonthOf` valida antes de filtrar: mês torto não pode sumir com o lançamento em silêncio.
+		if (spendingMonthOf(tx) !== month) continue;
 		const spending = spendingDelta(tx);
 		incomeCents += incomeDelta(tx);
+		investedCents += investedDelta(tx);
 		if (tx.kind === "refund") refunds.push(tx);
 		else if (spending > 0) {
 			const category = tx.categoryId ?? UNCATEGORIZED;
 			byCategory[category] = (byCategory[category] ?? 0) + spending;
+			if (tx.projected) projectedCents += spending;
 		}
 	}
 	// Estornos depois de todas as despesas, para a ordem da lista não mudar o resultado.
@@ -93,8 +126,17 @@ export function summarizeMonth(transactions: readonly Transaction[], month: Mont
 	}
 	let spentCents = 0;
 	for (const value of Object.values(byCategory)) spentCents += value;
-	if (![spentCents, incomeCents, refundCreditCents].every(Number.isSafeInteger)) {
+	if (
+		![spentCents, incomeCents, investedCents, projectedCents, refundCreditCents].every(Number.isSafeInteger)
+	) {
 		throw new RangeError("soma do mês excede o inteiro seguro");
 	}
-	return { spentCents, incomeCents, refundCreditCents, byCategory };
+	return {
+		spentCents,
+		incomeCents,
+		investedCents,
+		projectedCents: Math.min(projectedCents, spentCents),
+		refundCreditCents,
+		byCategory,
+	};
 }

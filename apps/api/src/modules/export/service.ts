@@ -63,6 +63,7 @@ const KIND_LABEL = {
 	transfer: "Transferência",
 	card_payment: "Pagamento de fatura",
 	refund: "Estorno",
+	investment: "Aplicação",
 } as const;
 
 const STATUS_LABEL = { pending: "Para revisar", confirmed: "Confirmado" } as const;
@@ -82,9 +83,11 @@ const ACCOUNT_KIND_LABEL = {
 	investment: "Investimento",
 } as const;
 
-/** Saída, pagamento de fatura: negativo. Entrada e estorno: positivo. Transferência fica como foi lançada (positivo). */
+/** Saída, aplicação, pagamento de fatura: negativo. Entrada e estorno: positivo. Transferência fica como foi lançada (positivo). */
 const signed = (t: Pick<TransactionRecord, "kind" | "amountCents">) =>
-	t.kind === "expense" || t.kind === "card_payment" ? -t.amountCents : t.amountCents;
+	t.kind === "expense" || t.kind === "card_payment" || t.kind === "investment"
+		? -t.amountCents
+		: t.amountCents;
 
 /** Todos os lançamentos vivos do período, do mais recente para o mais antigo, página a página. */
 async function allTransactions(stores: Stores, from?: string, to?: string): Promise<TransactionRecord[]> {

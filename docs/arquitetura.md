@@ -17,18 +17,20 @@ packages/
   db/         Prisma e as implementações das "stores" e o cofre das chaves.
   ingest/     Fontes de lançamentos: Meu Pluggy (ver pluggy.md) e extratos CSV/OFX/PDF (statement/).
   core/       Engine financeiro: funções puras (próxima fase).
-  agents/     Ferramentas, prompt e laço da IA (Anthropic). Só fala com o mundo por portas injetadas.
+  agents/     Ferramentas, prompt e laço da IA (Anthropic), e os avisos dos agentes. Só fala com o mundo por portas injetadas.
+  ledger/     Leituras que juntam stores e engine (resumo do mês, fatura, relatório, metas, leitor dos agentes). A API e o worker usam as mesmas.
 ```
 
 ### Quem pode importar quem
 
 ```
-apps/*  ──►  packages/core, db, ingest, security, shared, ota, agents   (ota: só a API)
+apps/*  ──►  packages/core, db, ingest, security, shared, ota, agents, ledger   (ota: só a API)
 mobile  ──►  packages/shared, tokens
 ingest  ──►  core, db, shared
 db      ──►  core, security, shared
 core    ──►  shared            (sem banco, sem rede, sem relógio)
-agents  ──►  core, shared      (sem banco; lê e escreve por portas que a API implementa)
+agents  ──►  core, shared      (sem banco; lê e escreve por portas que a API e o worker implementam)
+ledger  ──►  core, db, ingest, shared, agents   (só tipos das portas de `agents`)
 tokens, shared, security, ota: não importam nada do projeto
 ```
 
@@ -92,6 +94,7 @@ O chat não tem regra própria de dinheiro: toda resposta vem de um modelo da An
 - `POST /v1/chat` responde em **SSE** (`meta`, `text`, `tool`, `card`, `done`, `error`; schema em `@orbita/shared`). Recusas que vêm antes do fluxo são JSON com código: `sem_chave_anthropic` (409), `chave_ilegivel` (409), `limite_mensal_ia` (403) e `muitas_tentativas` (429, 30 pedidos por aparelho a cada 10 minutos). O fluxo para quando o app fecha a conexão.
 - Conversas e mensagens ficam no servidor (`ChatStore`, Prisma e memória, mesmo teste de contrato): `GET /v1/chat/conversations`, `GET`/`DELETE /v1/chat/conversations/:id`. As últimas 20 mensagens vão ao modelo como contexto, com uma linha por card (consulta feita, proposta e situação).
 - **Propostas**: `POST /v1/chat/proposals/:id/confirm|cancel|undo`. A troca de situação é comparar-e-trocar atômica (`transitionProposal`): dois toques seguidos executam uma vez só (o outro leva 409). Se a execução falha, a proposta volta a `pending`. O Desfazer devolve o estado anterior (apaga o lançamento criado, restaura a categoria e a flag "escolhida pelo dono", volta o lançamento a pendente).
+- **Agente (`agentId`)**: `POST /v1/chat` aceita `agentId` opcional ("Conversar com o agente"); ver [Agentes e avisos](#agentes-e-avisos).
 - **Custo**: cada chamada ao modelo grava `AiUsage` (tokens e custo em micro-dólares **inteiros**, arredondado para cima uma vez por chamada; modelo fora da tabela paga o maior preço). `GET`/`PUT /v1/settings/ai` mostram o gasto do mês e trocam o **limite mensal** (centavos de dólar; padrão US$ 10; `null` = sem limite). No limite, o chat devolve a mensagem em pt-BR e nem chama o modelo; o limite também é conferido a cada volta do laço.
 - **Modelo escolhido no app**: em _Configurações → Servidor e chaves → IA_ o dono escolhe o modelo do chat e o rápido (`ai_settings.chat_model` / `chat_model_fast`; `off` desliga o rápido). Os ids permitidos são `CHAT_MODEL_OPTIONS` em `packages/agents/src/models.ts` (um lugar só; preço de cada um em `pricing.ts`) e a API recusa o resto com 400. O salvo vence; sem nada salvo valem as variáveis abaixo (`resolveChatModels`). `GET /v1/settings/ai` devolve a lista com o preço por milhão de tokens e o evento `meta` do chat traz o modelo que respondeu.
 - **Modelo por ambiente (padrão)**: `CHAT_MODEL` (padrão `claude-sonnet-5-5`), `CHAT_MODEL_FAST` (`claude-haiku-5-5`; `off` desliga) e `CHAT_EFFORT` (`low`). Só a primeira mensagem de uma conversa, curta, sem número e sem verbo de escrita usa o modelo barato (`pickModel`). A chave da Anthropic vem do cofre (`vault.read("anthropic_api_key")`) a cada pedido.
@@ -158,7 +161,7 @@ Meta de guardar dinheiro, de ponta a ponta (Figma "Metas" e "Nova meta"):
 
 ## Relatório do mês
 
-`monthReport` (`packages/core/src/report.ts`) é a função pura que monta o relatório; ela não acha nem soma nada que o engine já calcula: o resumo de cada mês é o `summarizeMonth`, o orçamento é o `budgetStatus` e a fatura é a `invoiceComposition`. Entrega totais (entrou, saiu, sobra), a comparação com o mês anterior e com a **média dos até 3 meses anteriores que tiveram movimento** (mês vazio não puxa a média para baixo), as categorias com variação, as maiores despesas, o total de assinaturas (lançamentos que nasceram de recorrência), a aderência ao orçamento e a fatura de cada cartão. Percentuais são inteiros (`percentChange`, arredondamento simétrico, `null` sem referência).
+`monthReport` (`packages/core/src/report.ts`) é a função pura que monta o relatório; ela não acha nem soma nada que o engine já calcula: o resumo de cada mês é o `summarizeMonth`, o orçamento é o `budgetStatus` e a fatura é a `invoiceComposition`. Entrega totais (entrou, saiu, sobra; o investido vai à parte, fora do "saiu"; o cartão pesa na fatura que vence no mês, ver [Definições](plano.md#definições)), a comparação com o mês anterior e com a **média dos até 3 meses anteriores que tiveram movimento** (mês vazio não puxa a média para baixo), as categorias com variação, as maiores despesas, o total de assinaturas (lançamentos que nasceram de recorrência), a aderência ao orçamento e a fatura de cada cartão. Percentuais são inteiros (`percentChange`, arredondamento simétrico, `null` sem referência).
 
 - **API** (`apps/api/src/modules/reports/`): `GET /v1/reports` lista os meses com lançamento (`TransactionStore.listBudgetMonths`) e `GET /v1/reports/:month` (AAAA-MM) devolve o relatório. O serviço lê com o mesmo mapeamento de categoria do Início (`toCoreTransaction`), então os totais batem com `/v1/summary/:month`. Nada é pré-calculado nem guardado: o worker não tem job para isso.
 - **App** (`features/report/`): tela Relatório (Início → "Relatório do mês"), seletor de meses, barras por categoria contra o mês anterior, e "Exportar" leva à tela de exportação existente. O texto "Fechamento" é um **modelo fixo** (`narrative`, em `report-model.ts`) feito só com os números do relatório; o `TODO(ia-resumo)` marca onde o resumo por IA entra depois. O botão "Mover para a meta" do Figma fica de fora até existirem metas.
@@ -169,9 +172,21 @@ Meta de guardar dinheiro, de ponta a ponta (Figma "Metas" e "Nova meta"):
 - **Lembrar 1 dia antes:** `Recurrence.remindDayBefore` (padrão `false`, nas duas stores, no schema e no DTO). Só guarda a escolha: **não há push ainda**, e a tela diz que o lembrete começa a valer quando as notificações existirem. Nada dispara aviso por esse campo.
 - **Buscar serviço:** `features/subscriptions/catalog.ts`, lista estática no app (nome, categoria padrão, apelidos), sem rede e sem valor sugerido.
 
+## Agentes e avisos
+
+Cinco agentes da casa (Vigia, Fechamento, Metas, Caça-assinatura, Cofrinho), a Órbita (a conversa, sempre ativa) e os que o **dono** cria. Quem decide se há um aviso é **código determinístico**; a IA só escreve o texto e conversa. Figma: Agentes, cada agente e Criar agente.
+
+- **Dados** (`packages/db`, migração `20261114090000_agentes_e_alertas`): `agents` (`builtinKey` nulo = do dono; `enabled`; agenda `frequency` + `runHour` + `runDay`; `settings` JSON; `model` opcional da lista permitida; `lastRunAt`; do dono ainda `instructions` e `tools`) e `alerts` (`kind`, `title`, `body`, `wordedByAi`, `data` em centavos inteiros, `status` new/seen/dismissed, `transactionId` e `proposalId` opcionais). O par `(agentId, dedupeKey)` é **único**: a chave identifica o achado (`budget:<categoria>:2026-11:alert`, `dup:<a>:<b>`, `closing:2026-10`…), então rodar de novo não duplica nem reabre o que o dono dispensou. `AgentStore` (agentes e avisos, Prisma e memória, um teste de contrato) e `ChatConversation.agentId` (a conversa guarda com qual agente foi aberta).
+- **Detectores** (`packages/core`, puros, com teste, sem IA): `detectUnusualSpending` (despesa acima de 3× a **mediana** da categoria e do piso "gasto grande"; precisa de 5 anteriores), `detectDuplicateCharges` (mesmo estabelecimento e valor em até N dias), `detectBudgetThresholds` (reusa `passedThreshold` e o percentual das Preferências), `detectRecurringCharges` (mesma marca, valor parecido, 3+ cobranças com cerca de um mês entre elas, ainda não cadastrada), `detectPriceIncreases`, `goalsBehindPace` (reusa o `summarizeGoal`), `suggestSaving` (sobra projetada, para baixo em R$ 10; só uma sugestão) e `closeMonth` (em cima do `monthReport`). A agenda (`latestOccurrence`, `isDue`) também é do engine: o relógio entra por parâmetro.
+- **Avisos** (`packages/agents/src/alerts/`): `collectAlerts(agente, porta)` lê os dados por uma `FindingsPort`, chama os detectores e monta o texto-modelo em pt-BR (`text.ts`). Com ou sem IA, os avisos são os mesmos. A reescrita (`wording.ts`) é **uma chamada sem ferramentas** por agente e por rodada; o texto só vale se todo número e data dele já estavam no modelo (`acceptWording`). Agente do dono (`custom.ts`) é diferente: não há detector para uma instrução livre, então o modelo decide o que dizer com as ferramentas de leitura liberadas e responde `SEM_AVISO` quando não há nada.
+- **Worker** (`apps/worker/src/alertas.ts`, fila `alertas`, de hora em hora no fuso de São Paulo): garante os agentes da casa, roda os ligados que estão na hora (`isDue`: a última vez que a agenda caiu ainda não foi atendida; worker parado recupera uma execução, não várias), grava os avisos novos e anota `lastRunAt`. A porta de dados usa o `@orbita/ledger`, então o número do aviso é o da tela. Falha de um agente não derruba os outros e ele tenta na passada seguinte. A reescrita é opcional (`AGENT_AI_WORDING=false` desliga) e usa o modelo do agente, senão o rápido; sem chave, chave ilegível ou acima do limite mensal, o aviso sai com o texto-modelo. O custo entra no `AiUsage` (sem conversa), no **mesmo limite mensal** do chat. Agente do dono sem chave ou acima do limite espera a próxima passada (não é marcado como rodado).
+- **API** (`modules/agents`): `GET /v1/agents`, `GET`/`PATCH`/`DELETE /v1/agents/:id`, `POST /v1/agents` (agente do dono: nome, instruções, ferramentas de **leitura** e agenda); `GET /v1/alerts?status&agentId&limit`, `POST /v1/alerts/:id/seen` e `/dismiss`. O PATCH junta as escolhas com as atuais e valida com o schema **estrito** do agente (`agentSettingsSchemas`); a Órbita não desliga; o modelo só vale se estiver na lista permitida (`isMainModel`); nome, instruções e ferramentas são só de agente do dono; agente da casa não se apaga. "Conversar com o agente" é o mesmo `POST /v1/chat` com `agentId` opcional: a conversa usa o papel e o **subconjunto de ferramentas** do agente (`resolvePersona`), guarda o agente e, numa conversa que já existe, vale o agente dela. A Órbita é a única com ferramentas de escrita.
+- **App** (`features/agents/`): lista (`/agentes`), tela do agente (`/agente?id=`) e Novo agente (`/novo-agente`), com a linha "Agentes" das Configurações. O que o Figma mostra e depende de coisas que não existem fica de fora (push, "Silêncio", "gasto em horário estranho", comparar rendimento, resumo da semana, "guardar a sobra sozinho", a prévia "se eu estivesse ativo, já teria achado").
+- **Como acrescentar um agente da casa:** a chave em `BUILTIN_AGENT_KEYS` e o catálogo em `BUILTIN_AGENTS` (`@orbita/shared`, com o schema das escolhas), o detector em `packages/core`, a função em `alerts/collect.ts` e o texto em `alerts/text.ts`, o papel e as ferramentas em `personas.ts`, as linhas da tela em `agents-model.ts` e a cor em `@orbita/tokens`.
+
 ## Tarefas em segundo plano
 
-O worker tem filas por assunto (`manutencao`, `sincronizacao`, depois `alertas`). Cada processador é uma função pura testável (`cleanPairingCodes({ store, now })`, `cleanIdempotencyKeys`); o arquivo `index.ts` só liga fila → função. Decidir **se** algo deve acontecer (avisar, sincronizar) é código determinístico; a IA só escreve o texto.
+O worker tem filas por assunto (`manutencao`, `sincronizacao`, `alertas`). Cada processador é uma função pura testável (`cleanPairingCodes({ store, now })`, `cleanIdempotencyKeys`); o arquivo `index.ts` só liga fila → função. Decidir **se** algo deve acontecer (avisar, sincronizar) é código determinístico; a IA só escreve o texto.
 
 ## Configuração
 
