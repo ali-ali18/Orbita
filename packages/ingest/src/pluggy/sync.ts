@@ -675,7 +675,7 @@ async function dropStaleOwnTransfer(
 	externalId: string,
 ): Promise<boolean> {
 	const current = await transactions.findByExternal(PLUGGY_SOURCE, externalId);
-	if (!current || current.kind !== "expense" || current.categoryEditedByOwner) return false;
+	if (current?.kind !== "expense" || current.categoryEditedByOwner) return false;
 	return transactions.softDelete(current.id);
 }
 
