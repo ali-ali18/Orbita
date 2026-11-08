@@ -8,9 +8,19 @@ import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { BottomBar, Screen, Text, TOP_FADE, useBottomBarHeight } from "../../ui/index.ts";
-import { usePluggyHomeWatch } from "../banks/queries.ts";
+import { disconnectedConnections } from "../banks/banks-model.ts";
+import { usePluggyHomeWatch, usePluggyStatusSnapshot } from "../banks/queries.ts";
+import { ReconnectBanner } from "../banks/ReconnectBanner.tsx";
+import { useConnectLauncher } from "../banks/use-connect.ts";
+import { useNow } from "../banks/use-now.ts";
+import { Checklist } from "../checklist/Checklist.tsx";
+import { EMPTY_HOME_CAPTION, isFirstUse, shouldShowChecklist } from "../checklist/checklist-model.ts";
+import { EmptyHero } from "../checklist/EmptyHero.tsx";
+import { useChecklistDismissed, useChecklistFacts } from "../checklist/use-checklist.ts";
 import { usePendingTransactions } from "../review/queries.ts";
 import { ReviewBanner } from "../review/ReviewScreen.tsx";
+import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
+import { isUnreachableQuery } from "../server/server-model.ts";
 import { useProfile } from "../settings/preferences-queries.ts";
 import { avatarInitial, greetWithName } from "../settings/profile-model.ts";
 import { CategoriesCard } from "./CategoriesCard.tsx";
@@ -50,6 +60,18 @@ export function HomeScreen() {
 	const pendingQ = usePendingTransactions();
 	// Sem nome (ou enquanto carrega) a saudação vai como sempre e o avatar usa "V".
 	const displayName = useProfile().data?.displayName ?? null;
+	const pluggyQ = usePluggyStatusSnapshot();
+	const now = useNow();
+	const disconnected = disconnectedConnections(pluggyQ.data?.connections ?? []);
+	const { start: reconnect, pending: reconnecting } = useConnectLauncher(
+		(pluggyQ.data?.connections ?? []).map((c) => c.id),
+	);
+
+	// Primeiros passos: derivados de dado real; somem completos ou dispensados.
+	const { dismissed, dismiss } = useChecklistDismissed();
+	const facts = useChecklistFacts(recentQ.data?.transactions.length);
+	const { show: showChecklist, checklist } = shouldShowChecklist(facts, dismissed);
+	const emptyHome = showChecklist && isFirstUse(facts.transactionCount);
 
 	const cards = toLoadable(cardsQ);
 	const firstCard = cards.phase === "ready" ? cards.data.cards.find((c) => c.archivedAt === null) : undefined;
@@ -66,6 +88,11 @@ export function HomeScreen() {
 			setRefreshing(false);
 		}
 	};
+
+	// Sem dado nenhum e sem conseguir falar com o servidor: o estado "fora do ar" no lugar do erro genérico.
+	if (isUnreachableQuery(summaryQ)) {
+		return <ServerDownScreen onRetry={() => queryClient.refetchQueries({ type: "active" })} />;
+	}
 
 	return (
 		<Screen
@@ -102,51 +129,68 @@ export function HomeScreen() {
 						{greetWithName(greetingFor(hour), displayName)}
 					</Text>
 					<Text variant="caption" tone="secondary">
-						{monthName(month)}
-						{summary.phase === "ready" && summary.data.safeToSpend
+						{emptyHome ? EMPTY_HOME_CAPTION : monthName(month)}
+						{!emptyHome && summary.phase === "ready" && summary.data.safeToSpend
 							? ` · faltam ${pluralDays(summary.data.safeToSpend.remainingDays)}`
 							: ""}
 					</Text>
 				</View>
 
-				<HeroCard state={summaryWithCategories} hidden={hidden} />
-				{pendingQ.data && pendingQ.data.transactions.length > 0 ? (
-					<ReviewBanner
-						count={pendingQ.data.transactions.length}
-						hasMore={pendingQ.data.hasMore}
-						onPress={() => router.push("/revisao")}
+				{disconnected.map((c) => (
+					<ReconnectBanner
+						key={c.id}
+						connection={c}
+						now={now}
+						loading={reconnecting}
+						onReconnect={() => void reconnect()}
 					/>
+				))}
+				{emptyHome ? <EmptyHero /> : null}
+				{showChecklist ? (
+					<Checklist checklist={checklist} onOpen={(href) => router.push(href)} onDismiss={dismiss} />
 				) : null}
-				<View style={{ flexDirection: "row", gap: spacing.md }}>
-					<InvoiceSquare
-						cards={cards}
-						invoice={firstCard ? toLoadable(invoiceQ) : null}
-						today={today}
-						hidden={hidden}
-						onPress={() => router.push("/cartao?aba=faturas")}
-					/>
-					<InstallmentsSquare
-						installments={toLoadable(installmentsQ)}
-						month={month}
-						hidden={hidden}
-						onPress={() => router.push("/cartao?aba=parcelas")}
-					/>
-				</View>
-				<CategoriesCard
-					state={summaryWithCategories}
-					hidden={hidden}
-					onPress={() => router.push("/configuracoes/orcamento")}
-				/>
-				<RecentCard
-					state={toLoadable(recentQ)}
-					accounts={accountsQ.data?.accounts ?? []}
-					categories={categoriesQ.data?.categories ?? []}
-					cards={cardsQ.data?.cards ?? []}
-					today={today}
-					hidden={hidden}
-					onSeeAll={() => router.push("/atividades")}
-					onOpen={(id) => router.push({ pathname: "/lancamento/[id]", params: { id } })}
-				/>
+				{emptyHome ? null : (
+					<>
+						<HeroCard state={summaryWithCategories} hidden={hidden} />
+						{pendingQ.data && pendingQ.data.transactions.length > 0 ? (
+							<ReviewBanner
+								count={pendingQ.data.transactions.length}
+								hasMore={pendingQ.data.hasMore}
+								onPress={() => router.push("/revisao")}
+							/>
+						) : null}
+						<View style={{ flexDirection: "row", gap: spacing.md }}>
+							<InvoiceSquare
+								cards={cards}
+								invoice={firstCard ? toLoadable(invoiceQ) : null}
+								today={today}
+								hidden={hidden}
+								onPress={() => router.push("/cartao?aba=faturas")}
+							/>
+							<InstallmentsSquare
+								installments={toLoadable(installmentsQ)}
+								month={month}
+								hidden={hidden}
+								onPress={() => router.push("/cartao?aba=parcelas")}
+							/>
+						</View>
+						<CategoriesCard
+							state={summaryWithCategories}
+							hidden={hidden}
+							onPress={() => router.push("/configuracoes/orcamento")}
+						/>
+						<RecentCard
+							state={toLoadable(recentQ)}
+							accounts={accountsQ.data?.accounts ?? []}
+							categories={categoriesQ.data?.categories ?? []}
+							cards={cardsQ.data?.cards ?? []}
+							today={today}
+							hidden={hidden}
+							onSeeAll={() => router.push("/atividades")}
+							onOpen={(id) => router.push({ pathname: "/lancamento/[id]", params: { id } })}
+						/>
+					</>
+				)}
 			</ScrollView>
 		</Screen>
 	);

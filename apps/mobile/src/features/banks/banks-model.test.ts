@@ -9,6 +9,7 @@ import {
 	connectionCaption,
 	connectionName,
 	connectionStatusLine,
+	disconnectedConnections,
 	formatAgo,
 	homeRefreshDecision,
 	isHomeQuery,
@@ -17,6 +18,7 @@ import {
 	parseConnectionInput,
 	parseRenameInput,
 	REIMPORT_WARNING,
+	reconnectBannerText,
 	reimportErrorMessage,
 	syncAnnouncement,
 	syncButtonLabel,
@@ -389,5 +391,42 @@ describe("reimportar do zero", () => {
 		expect(reimportErrorMessage(new ApiError("Sem resposta do servidor.", 500, "erro"))).toBe(
 			"Sem resposta do servidor.",
 		);
+	});
+});
+
+describe("banco desconectado", () => {
+	const RECONNECT = "O banco pediu para você reconectar. Toque em Reconectar no app e sincronize de novo.";
+	const lost = (over: Partial<PluggyConnectionDto> = {}) =>
+		conn({ label: "Santander", lastStatus: "error", lastError: RECONNECT, ...over });
+
+	it("só conta erro de login, não qualquer erro", () => {
+		const other = conn({ id: "b", lastStatus: "error", lastError: "O Pluggy está fora do ar agora." });
+		const ok = conn({ id: "c", lastStatus: "ok" });
+		expect(disconnectedConnections([lost(), other, ok]).map((c) => c.id)).toEqual([ID.toLowerCase()]);
+	});
+	it("conexão nova do mesmo banco sincronizando bem apaga o aviso da velha", () => {
+		const fresh = conn({ id: "novo", label: "santander", lastStatus: "ok" });
+		expect(disconnectedConnections([lost(), fresh])).toEqual([]);
+		const stillBad = conn({ id: "novo", label: "Santander", lastStatus: "error", lastError: RECONNECT });
+		expect(disconnectedConnections([lost(), stillBad])).toHaveLength(2);
+	});
+	it("a linha da conexão diz desconectado", () => {
+		expect(connectionStatusLine(lost({ lastSyncAt: "2026-11-07T13:00:00.000Z" }), NOW)).toBe(
+			"Desconectado · último ok há 2 h",
+		);
+	});
+	it("texto do aviso com a data do último dado bom", () => {
+		const text = reconnectBannerText(lost({ lastSyncAt: "2026-11-04T13:00:00.000Z" }), NOW);
+		expect(text).toEqual({
+			title: "O Santander desconectou",
+			caption: "Última sincronização há 3 d",
+			body: "Reconecte para eu buscar o que faltou desde 4 de nov.",
+			button: "Reconectar o Santander",
+		});
+	});
+	it("sem sincronização anterior, texto sem data", () => {
+		const text = reconnectBannerText(lost(), NOW);
+		expect(text.caption).toBe("O banco pediu para você entrar de novo.");
+		expect(text.body).toBe("Reconecte para eu buscar seus lançamentos.");
 	});
 });

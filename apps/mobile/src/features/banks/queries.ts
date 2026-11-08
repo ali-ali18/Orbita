@@ -68,6 +68,15 @@ export function usePluggyStatus() {
 	return query;
 }
 
+/** Só lê o status do Meu Pluggy (sem polling): o Início usa para o aviso de banco desconectado. */
+export function usePluggyStatusSnapshot() {
+	const { api, baseUrl } = useScoped();
+	return useQuery({
+		queryKey: [baseUrl, "pluggy", "status"],
+		queryFn: () => call(() => api.v1.pluggy.status.$get()),
+	});
+}
+
 /**
  * Para o Início: ao abrir e ao voltar ao app, confere o Meu Pluggy e recarrega o que a sincronização
  * (a diária inclusive) mudou enquanto o app estava fora. Falha aqui nunca aparece: o Início segue como está.
@@ -90,6 +99,16 @@ export function usePluggyHomeWatch() {
 		const sub = AppState.addEventListener("change", (s) => s === "active" && check());
 		return () => sub.remove();
 	}, [api, baseUrl, queryClient]);
+}
+
+/** Quantos lançamentos vieram do Meu Pluggy (para a tela "Pronto"). A chave começa por transactions: recarrega com o resto. */
+export function usePluggyImportedCount(enabled: boolean) {
+	const { api, baseUrl } = useScoped();
+	return useQuery({
+		queryKey: [baseUrl, "transactions", "count", "pluggy"],
+		enabled,
+		queryFn: () => call(() => api.v1.transactions.count.$get({ query: { sources: "pluggy" } })),
+	});
 }
 
 export function usePluggyActions() {
