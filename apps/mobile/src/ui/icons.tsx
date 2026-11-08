@@ -31,6 +31,10 @@ const bodies = {
 			<Path d="M7 12h10" />
 		</>
 	),
+	/** Dividir um lançamento: uma seta que se abre em duas. Desenhado no mesmo traço; os do Figma não vêm no pacote. */
+	dividir: <Path d="M12 21v-8M12 13 6 6M12 13l6-7M6 10V6h4M18 10V6h-4" />,
+	/** Repetir todo mês: duas setas em laço, no mesmo traço do conjunto. */
+	repetir: <Path d="m17 2 4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v1a4 4 0 0 1-4 4H3" />,
 	/** Foto do gasto, no mesmo traço do conjunto. Não está na página de ícones do Figma. */
 	foto: (
 		<>

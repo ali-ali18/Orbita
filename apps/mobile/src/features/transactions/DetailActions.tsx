@@ -42,24 +42,35 @@ function Tile({
 	);
 }
 
-/** Fileira de ações do Figma ("acoes"): blocos iguais lado a lado. Confirmar só aparece se está pendente. */
+/**
+ * Fileira de ações do Figma ("acoes"): Dividir, Repetir e Apagar, blocos iguais lado a lado. Confirmar só aparece
+ * se está pendente; Dividir e Repetir só nos lançamentos que aceitam (despesa e receita avulsas). A descrição se
+ * edita pelas reticências do topo.
+ */
 export function DetailActions({
 	pending,
 	busy,
+	splittable,
+	repeatable,
 	onConfirm,
-	onEditDescription,
+	onSplit,
+	onRepeat,
 	onDelete,
 }: {
 	pending: boolean;
 	busy: boolean;
+	splittable: boolean;
+	repeatable: boolean;
 	onConfirm: () => void;
-	onEditDescription: () => void;
+	onSplit: () => void;
+	onRepeat: () => void;
 	onDelete: () => void;
 }) {
 	return (
 		<View style={{ flexDirection: "row", gap: spacing.sm }}>
 			{pending ? <Tile icon="check" label="Confirmar" onPress={onConfirm} busy={busy} /> : null}
-			<Tile icon="lapis" label="Descrição" onPress={onEditDescription} busy={busy} />
+			{splittable ? <Tile icon="dividir" label="Dividir" onPress={onSplit} busy={busy} /> : null}
+			{repeatable ? <Tile icon="repetir" label="Repetir" onPress={onRepeat} busy={busy} /> : null}
 			<Tile icon="lixeira" label="Apagar" onPress={onDelete} muted busy={busy} />
 		</View>
 	);
