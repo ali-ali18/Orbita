@@ -55,6 +55,8 @@ export function summary(overrides: Partial<MonthSummaryResponse> = {}): MonthSum
 		summary: {
 			spentCents: 52067,
 			incomeCents: 300000,
+			investedCents: 0,
+			projectedCents: 0,
 			refundCreditCents: 0,
 			byCategory: { "cat-del": 20000, "cat-mer": 30000, "cat-out": 2067 },
 		},
@@ -116,7 +118,14 @@ export function fakeReader(data: Partial<FakeReaderData> = {}) {
 			if (!found)
 				return summary({
 					month,
-					summary: { spentCents: 0, incomeCents: 0, refundCreditCents: 0, byCategory: {} },
+					summary: {
+						spentCents: 0,
+						incomeCents: 0,
+						investedCents: 0,
+						projectedCents: 0,
+						refundCreditCents: 0,
+						byCategory: {},
+					},
 					budgets: [],
 					safeToSpend: null,
 					projection: null,

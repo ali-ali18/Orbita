@@ -366,7 +366,7 @@ describe("gasto por fatura e investido (caso do dono)", () => {
 		expect(summarizeMonth([orig, refund], M).spentCents).toBe(6000);
 		const late = { ...refund, invoiceMonth: "2026-12" };
 		expect(summarizeMonth([orig, late], M).spentCents).toBe(10000);
-		expect(summarizeMonth([orig, late], "2026-12").refundCreditCents).toBe(0);
+		expect(summarizeMonth([orig, late], "2026-12").refundCreditCents).toBe(4000);
 	});
 	it("parcela projetada conta no mês e vem separada", () => {
 		const projected = tx({

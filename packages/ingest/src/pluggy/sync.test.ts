@@ -618,7 +618,7 @@ describe("syncPluggy", () => {
 				tx("i-5", { description: "Sem nome", amount: -30, category: null, categoryId: null }),
 			];
 
-			it("aplicação é gasto em Investimentos; resgate e rendimento são receita nessa categoria", async () => {
+			it("aplicação é investimento (não gasto) em Investimentos; resgate e rendimento são receita nessa categoria", async () => {
 				const t2 = setup({ categories, transactions: { [BANK_ACCOUNT_ID]: txs, [CARD_ACCOUNT_ID]: [] } });
 				await t2.stores.pluggyConnections.add({ id: ITEM_ID });
 				const result = await t2.run();
@@ -627,7 +627,7 @@ describe("syncPluggy", () => {
 				const cats = new Map((await t2.stores.categories.list()).map((c) => [c.id, c.slug]));
 				const rows = Object.fromEntries((await everything(t2.stores)).map((r) => [r.externalId, r]));
 				expect(Object.keys(rows).sort()).toEqual(["i-1", "i-2", "i-3", "i-4", "i-5"]);
-				expect(rows["i-1"]).toMatchObject({ kind: "expense" });
+				expect(rows["i-1"]).toMatchObject({ kind: "investment" });
 				expect(cats.get(rows["i-1"]?.categoryId ?? "")).toBe("investimentos");
 				expect(rows["i-2"]).toMatchObject({ kind: "income" });
 				expect(cats.get(rows["i-2"]?.categoryId ?? "")).toBe("investimentos");
@@ -635,6 +635,19 @@ describe("syncPluggy", () => {
 				expect(cats.get(rows["i-3"]?.categoryId ?? "")).toBe("investimentos");
 				expect(cats.get(rows["i-4"]?.categoryId ?? "")).toBe("saude");
 				expect(cats.get(rows["i-5"]?.categoryId ?? "")).toBe("outros");
+			});
+
+			it("aplicação gravada como despesa (antes do tipo investment) é recalculada e sai do gasto", async () => {
+				const t2 = setup({ categories, transactions: { [BANK_ACCOUNT_ID]: txs, [CARD_ACCOUNT_ID]: [] } });
+				await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+				await t2.run();
+				const before = (await everything(t2.stores)).find((r) => r.externalId === "i-1");
+				// Como estava gravado antes: despesa na categoria Investimentos.
+				await t2.stores.transactions.update(before?.id ?? "", { kind: "expense" });
+				const again = await t2.run();
+				expect(again.connections[0]?.reclassified).toBe(1);
+				const after = (await everything(t2.stores)).find((r) => r.externalId === "i-1");
+				expect(after).toMatchObject({ id: before?.id, kind: "investment" });
 			});
 
 			it("busca /categories uma vez por rodada; se falhar, segue pelo nome e avisa", async () => {
@@ -652,7 +665,7 @@ describe("syncPluggy", () => {
 				// Pelo nome da categoria do lançamento, a aplicação entra em Investimentos.
 				const cats = new Map((await t3.stores.categories.list()).map((c) => [c.id, c.slug]));
 				const rows = Object.fromEntries((await everything(t3.stores)).map((r) => [r.externalId, r]));
-				expect(rows["i-1"]).toMatchObject({ kind: "expense" });
+				expect(rows["i-1"]).toMatchObject({ kind: "investment" });
 				expect(cats.get(rows["i-1"]?.categoryId ?? "")).toBe("investimentos");
 			});
 		});

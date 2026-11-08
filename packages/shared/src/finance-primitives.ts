@@ -12,7 +12,14 @@ export type AccountKind = (typeof ACCOUNT_KINDS)[number];
 export const CLOSING_RULES = ["closing-day-next", "closing-day-included"] as const;
 export type ClosingRuleValue = (typeof CLOSING_RULES)[number];
 
-export const TRANSACTION_KINDS = ["expense", "income", "transfer", "card_payment", "refund", "investment"] as const;
+export const TRANSACTION_KINDS = [
+	"expense",
+	"income",
+	"transfer",
+	"card_payment",
+	"refund",
+	"investment",
+] as const;
 export type TransactionKindValue = (typeof TRANSACTION_KINDS)[number];
 
 export const TRANSACTION_STATUSES = ["pending", "confirmed"] as const;

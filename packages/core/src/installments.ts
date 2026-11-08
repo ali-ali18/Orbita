@@ -90,6 +90,8 @@ export interface ProjectedInstallment {
 	number: number;
 	count: number;
 	amountCents: Cents;
+	/** Categoria da última parcela vista (a estimada herda). */
+	categoryId: string | null;
 }
 
 /**
@@ -102,6 +104,7 @@ export function projectMissingInstallments(
 		installments: readonly {
 			description: string;
 			cardId: string | null;
+			categoryId?: string | null;
 			installmentNumber: number | null;
 			installmentCount: number | null;
 			amountCents: Cents;
@@ -132,6 +135,7 @@ export function projectMissingInstallments(
 				number,
 				count,
 				amountCents: anchor.amountCents,
+				categoryId: anchor.categoryId ?? null,
 			});
 		}
 	}

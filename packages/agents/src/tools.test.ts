@@ -157,6 +157,8 @@ describe("ferramentas de leitura", () => {
 					summary: {
 						spentCents: 40000,
 						incomeCents: 300000,
+						investedCents: 0,
+						projectedCents: 0,
 						refundCreditCents: 0,
 						byCategory: { "cat-del": 10000 },
 					},

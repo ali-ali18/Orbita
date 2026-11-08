@@ -208,6 +208,14 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 				.sort(byDateAsc);
 		},
 
+		async listForSpendingMonth(month) {
+			cleanMonth(month, "O mês do gasto");
+			return live()
+				.filter((t) => (t.invoiceMonth !== null ? t.invoiceMonth === month : t.budgetMonth === month))
+				.map(view)
+				.sort(byDateAsc);
+		},
+
 		async listBudgetMonths() {
 			return [...new Set(live().map((t) => t.budgetMonth))].sort().reverse();
 		},

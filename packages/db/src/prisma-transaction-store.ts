@@ -313,6 +313,20 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			);
 		},
 
+		async listForSpendingMonth(month) {
+			cleanMonth(month, "O mês do gasto");
+			return await many(
+				db.transaction.findMany({
+					// `invoiceMonth` só existe em compra/estorno no cartão (CHECK do banco): o resto vale pelo orçamento.
+					where: {
+						deletedAt: null,
+						OR: [{ invoiceMonth: month }, { invoiceMonth: null, budgetMonth: month }],
+					},
+					orderBy: [...ORDER_BY_DATE],
+				}),
+			);
+		},
+
 		async listBudgetMonths() {
 			const rows = await db.transaction.findMany({
 				where: { deletedAt: null },
