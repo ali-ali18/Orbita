@@ -25,7 +25,7 @@ Fora do escopo: mover dinheiro (Pix, pagamentos). O app só lê.
 | `packages/core`   | TypeScript puro                                  | **Engine financeiro**: fatura, parcelas, saldo, orçamento, projeção. Sem I/O. |
 | `packages/db`     | Prisma + Postgres                                | Acesso a dados.                                                               |
 | `packages/ingest` | TypeScript                                       | Parsers por fonte: notificação, Meu Pluggy, comprovante, CSV/OFX/PDF.         |
-| `packages/agents` | SDK da Anthropic (Tool Runner)                   | Ferramentas, prompts e loop dos agentes.                                      |
+| `packages/agents` | SDK da Anthropic (laço de ferramentas)           | Ferramentas, prompts e loop dos agentes.                                      |
 | `packages/shared` | Zod                                              | Schemas compartilhados entre app e API.                                       |
 
 Infra: `docker compose` com Postgres, Redis, migração, API e worker, pensado para o **Dokploy** (o Traefik do painel faz o HTTPS); numa VPS sem painel, um arquivo extra acrescenta o Caddy. A imagem é construída e publicada pelo GitHub Actions. Backup diário do banco para fora do servidor. Detalhes em [servidor](servidor.md) e [segurança](seguranca.md).
@@ -69,8 +69,8 @@ Fontes:
 
 ## Agentes (`packages/agents`)
 
-- Loop com o **Tool Runner** do SDK oficial da Anthropic; ferramentas definidas com Zod.
-- Modelo barato por padrão (Haiku); custo do mês visível em _Configurações → Servidor e chaves_, com limite mensal.
+- Laço de ferramentas sobre o SDK oficial da Anthropic (escrito à mão, para checar limite e custo a cada volta; ver [arquitetura](arquitetura.md#chat-com-a-ia-packagesagents--moduleschat)); ferramentas definidas com Zod.
+- Sonnet 5.5 por padrão e Haiku 5.5 para perguntas curtas só de leitura (trocáveis por variável de ambiente); custo do mês visível em _Configurações → Servidor e chaves_, com limite mensal.
 - **Ferramentas de leitura**: lançamentos, resumo do mês, fatura, orçamento, projeção.
 - **Ferramentas de escrita**: lançar, recategorizar, criar orçamento/meta/alerta. Toda escrita gera um card no chat com **Desfazer**.
 - Os avisos são decididos pelo **worker** (determinístico); o agente só escreve o texto em cima dos números prontos.

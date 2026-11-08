@@ -17,16 +17,18 @@ packages/
   db/         Prisma e as implementações das "stores" e o cofre das chaves.
   ingest/     Fontes de lançamentos: Meu Pluggy (ver pluggy.md) e extratos CSV/OFX/PDF (statement/).
   core/       Engine financeiro: funções puras (próxima fase).
+  agents/     Ferramentas, prompt e laço da IA (Anthropic). Só fala com o mundo por portas injetadas.
 ```
 
 ### Quem pode importar quem
 
 ```
-apps/*  ──►  packages/core, db, ingest, security, shared, ota   (ota: só a API)
+apps/*  ──►  packages/core, db, ingest, security, shared, ota, agents   (ota: só a API)
 mobile  ──►  packages/shared, tokens
 ingest  ──►  core, db, shared
 db      ──►  core, security, shared
 core    ──►  shared            (sem banco, sem rede, sem relógio)
+agents  ──►  core, shared      (sem banco; lê e escreve por portas que a API implementa)
 tokens, shared, security, ota: não importam nada do projeto
 ```
 
@@ -70,6 +72,30 @@ Se algum passo não se aplica, pule. Se a feature não tem regra de dinheiro, n�
 ## Atualização OTA do app
 
 `packages/ota` é o contrato entre quem **gera** a atualização (o CLI `pnpm ota`, no GitHub Actions) e quem a **serve** (`apps/api/src/modules/updates/`): o formato do diretório `/app/ota`, os nomes de arquivo (hash no nome, nada de caminho vindo da URL) e a assinatura. O módulo da API segue o padrão de store com duas implementações (`createFsOtaStore` e `createMemoryOtaStore`); o diretório entra por `OTA_DIR` (padrão `/app/ota`), lido só em `env.ts`. Detalhes de uso e segurança em [servidor](servidor.md#atualizar-o-app-sem-apk) e [segurança](seguranca.md#atualização-ota-do-app).
+
+## Chat com a IA (`packages/agents` + `modules/chat`)
+
+O chat não tem regra própria de dinheiro: toda resposta vem de um modelo da Anthropic que **só chama ferramentas** e copia o que elas devolvem. O app não calcula nada (`features/chat/reply.ts`, que respondia por regras locais, foi removido).
+
+**`packages/agents`** (sem banco, sem rede, sem relógio; testes com cliente falso):
+
+- `read-tools.ts`: resumo do mês, busca de lançamentos, orçamento, fatura, assinaturas, gasto por categoria, relatório do mês (comparação com o anterior) e catálogo (ids de contas, cartões e categorias). Cada uma devolve JSON com **centavos inteiros e texto já formatado** e, quando cabe, um `card` para o app. Somas e porcentagens que a ferramenta precisa fazer são em inteiros, dentro dela; o modelo nunca soma.
+- `write-tools.ts`: `propose_create_transaction`, `propose_categorize_transaction`, `propose_confirm_transaction`. **Nenhuma grava**: valida, confere as referências e devolve uma *proposta*. O valor entra como texto em reais ("46,90") e a ferramenta o converte (`parseBRL`), então o modelo nunca multiplica por 100.
+- `proposals.ts`: `applyProposal`/`undoProposal`, a única parte que escreve, chamada só quando o dono toca em Confirmar ou Desfazer.
+- `loop.ts` (`runAgent`): o laço modelo → ferramentas → modelo, escrito à mão em vez do Tool Runner do SDK porque o servidor precisa de controle em cada volta (checar o limite de gasto **antes** de cada chamada, registrar o custo de **cada** chamada, interceptar propostas e transmitir texto e cards no meio do caminho). O modelo entra pela porta `ModelClient`; `anthropic-client.ts` é o único arquivo que importa o SDK.
+- `prompt.ts`: prompt em pt-BR dividido em parte **estável** (em cache de prompt, junto com as ferramentas) e **contexto** (data e nome do dono, depois do trecho em cache). Nada que varia entra na parte estável.
+- `pricing.ts`: a **única** tabela de preços (micro-dólares por milhão de tokens), com o aviso para conferir no site da Anthropic. `models.ts`: modelo padrão e a regra do modelo barato.
+- `AgentReader`/`AgentWriter` (`backend.ts`): as portas que a API implementa em `modules/chat/backend.ts` com os mesmos serviços das telas (`monthSummary`, `cardInvoice`, `createTransaction`…). Quem fizer outro agente (Vigia, Fechamento…) importa só a API pública de `packages/agents/src/index.ts`.
+
+**API** (`apps/api/src/modules/chat/`):
+
+- `POST /v1/chat` responde em **SSE** (`meta`, `text`, `tool`, `card`, `done`, `error`; schema em `@orbita/shared`). Recusas que vêm antes do fluxo são JSON com código: `sem_chave_anthropic` (409), `chave_ilegivel` (409), `limite_mensal_ia` (403) e `muitas_tentativas` (429, 30 pedidos por aparelho a cada 10 minutos). O fluxo para quando o app fecha a conexão.
+- Conversas e mensagens ficam no servidor (`ChatStore`, Prisma e memória, mesmo teste de contrato): `GET /v1/chat/conversations`, `GET`/`DELETE /v1/chat/conversations/:id`. As últimas 20 mensagens vão ao modelo como contexto, com uma linha por card (consulta feita, proposta e situação).
+- **Propostas**: `POST /v1/chat/proposals/:id/confirm|cancel|undo`. A troca de situação é comparar-e-trocar atômica (`transitionProposal`): dois toques seguidos executam uma vez só (o outro leva 409). Se a execução falha, a proposta volta a `pending`. O Desfazer devolve o estado anterior (apaga o lançamento criado, restaura a categoria e a flag "escolhida pelo dono", volta o lançamento a pendente).
+- **Custo**: cada chamada ao modelo grava `AiUsage` (tokens e custo em micro-dólares **inteiros**, arredondado para cima uma vez por chamada; modelo fora da tabela paga o maior preço). `GET`/`PUT /v1/settings/ai` mostram o gasto do mês e trocam o **limite mensal** (centavos de dólar; padrão US$ 10; `null` = sem limite). No limite, o chat devolve a mensagem em pt-BR e nem chama o modelo; o limite também é conferido a cada volta do laço.
+- **Modelo por ambiente**: `CHAT_MODEL` (padrão `claude-sonnet-5-5`), `CHAT_MODEL_FAST` (`claude-haiku-5-5`; `off` desliga) e `CHAT_EFFORT` (`low`). Só a primeira mensagem de uma conversa, curta, sem número e sem verbo de escrita usa o modelo barato (`pickModel`). A chave da Anthropic vem do cofre (`vault.read("anthropic_api_key")`) a cada pedido.
+
+**App** (`features/chat/`): `chat-client.ts` lê o SSE com `expo/fetch` (o `fetch` do React Native não lê em streaming), `chat-model.ts` é o estado (funções puras), `ChatView.tsx` desenha texto, cards de consulta e o card de proposta (Confirmar/Cancelar; depois de confirmada, Desfazer e Ver lançamento). Sem chave, o aviso do servidor ganha o botão que abre Servidor e chaves. O microfone continua desligado; comprovante e foto seguem como estavam.
 
 ## Idempotência de pedidos que criam coisas
 
