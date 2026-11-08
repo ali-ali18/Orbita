@@ -1,9 +1,10 @@
-import { chart, chartSeries } from "@orbita/tokens";
+import { banks, chart, chartSeries } from "@orbita/tokens";
 import { describe, expect, it } from "vitest";
 import {
 	activeGroups,
 	bestPurchaseDay,
 	type CardLike,
+	cardColor,
 	cardLabel,
 	commitment,
 	compositionBar,
@@ -179,17 +180,51 @@ describe("parcelas", () => {
 		expect(commitment([kabum, done, other], "2026-11")).toEqual({ committedCents: 2000, futureCents: 3000 });
 		expect(commitment([], "2026-11")).toEqual({ committedCents: 0, futureCents: 0 });
 	});
-	it("colunas por mês, na ordem dos cartões, cortando meses vazios do fim", () => {
+	it("colunas por mês, na ordem dos cartões, com o anterior e os seguintes", () => {
 		const cols = monthColumns([kabum, other], "2026-11", ["c2", "c1"]);
-		expect(cols.map((c) => c.month)).toEqual(["2026-11", "2026-12", "2027-01"]);
-		expect(cols[0]?.byCard).toEqual([
+		expect(cols.map((c) => c.month)).toEqual(["2026-10", "2026-11", "2026-12", "2027-01"]);
+		expect(cols[1]?.byCard).toEqual([
 			{ cardId: "c2", cents: 1000 },
 			{ cardId: "c1", cents: 1000 },
 		]);
-		expect(cols[2]).toMatchObject({ totalCents: 1000, byCard: [{ cardId: "c1", cents: 1000 }] });
+		expect(cols[3]).toMatchObject({ totalCents: 1000, byCard: [{ cardId: "c1", cents: 1000 }] });
+	});
+	it("completa os meses que o banco ainda não mandou, para trás e para a frente", () => {
+		const partial = group({
+			months: ["2026-11"],
+			count: 10,
+			remainingCount: 7,
+			remainingCents: 7000,
+			installments: [{ invoiceMonth: "2026-11", amountCents: 1000, installmentNumber: 4 }],
+		});
+		const cols = monthColumns([partial], "2026-11", ["c1"]);
+		expect(cols.map((c) => c.month)).toEqual([
+			"2026-08",
+			"2026-09",
+			"2026-10",
+			"2026-11",
+			"2026-12",
+			"2027-01",
+			"2027-02",
+			"2027-03",
+			"2027-04",
+			"2027-05",
+		]);
+		expect(cols.every((c) => c.totalCents === 1000)).toBe(true);
+		expect(commitment([partial], "2026-11")).toEqual({ committedCents: 1000, futureCents: 6000 });
+		expect(installmentCard(partial, "2026-11").endLabel).toBe("Termina em maio de 2027 · faltam 7");
 	});
 	it("sem parcelas, devolve só o primeiro mês vazio", () => {
 		expect(monthColumns([], "2026-11", ["c1"])).toEqual([{ month: "2026-11", totalCents: 0, byCard: [] }]);
+	});
+	it("a cor da barra é a do banco do cartão, pelo código ou pelo nome", () => {
+		expect(cardColor({ bankCode: "00416968", name: "Cartão" })).toBe(banks.inter);
+		expect(cardColor({ bankCode: null, name: "Nu Pagamentos S.A. - Instituição de Pagamento" })).toBe(
+			banks.nubank,
+		);
+		expect(cardColor({ bankCode: null, name: "Mercado Pago" })).toBe(banks.mercadoPago);
+		expect(cardColor({ bankCode: "90400888", name: "FREE VISA" })).toBe(banks.santander);
+		expect(cardColor({ bankCode: null, name: "FREE VISA" })).toBe(banks.generic);
 	});
 	it("abreviação do mês", () => {
 		expect(monthAbbrev("2026-11")).toBe("NOV");

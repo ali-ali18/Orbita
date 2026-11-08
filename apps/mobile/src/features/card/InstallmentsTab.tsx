@@ -58,7 +58,7 @@ export function InstallmentsTab({ cards, hidden }: { cards: readonly CardLike[];
 			/>
 			{columns.some((c) => c.totalCents > 0) ? (
 				<>
-					<InstallmentsChart columns={columns} cards={cards} hidden={hidden} />
+					<InstallmentsChart columns={columns} cards={cards} hidden={hidden} currentMonth={month} />
 					<BleedRow>
 						<CardChip card={null} selected={filter === null} onPress={() => setFilter(null)} showName />
 						{cards.map((c) => (
