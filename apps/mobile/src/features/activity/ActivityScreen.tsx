@@ -1,7 +1,7 @@
-import { colors, spacing } from "@orbita/tokens";
+import { colors, radius, spacing } from "@orbita/tokens";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
-import { ActivityIndicator, RefreshControl, SectionList, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, SectionList, View } from "react-native";
 import { useClock } from "../../lib/clock.tsx";
 import { money } from "../../lib/format.ts";
 import { errorMessage } from "../../lib/loadable.ts";
@@ -10,6 +10,7 @@ import {
 	BottomBar,
 	Button,
 	ErrorState,
+	Icon,
 	IconButton,
 	ListRow,
 	Screen,
@@ -36,13 +37,26 @@ import {
 	matchesQuery,
 } from "./activity-model.ts";
 import { FilterChips } from "./FilterChips.tsx";
+import { FilterSheet } from "./FilterSheet.tsx";
+import {
+	activeFilterCount,
+	EMPTY_FILTERS,
+	filterTags,
+	hasActiveFilters,
+	pruneUnknown,
+	removeTag,
+	toQueryParams,
+} from "./filters-model.ts";
+import { useActivityFilters } from "./filters-store.ts";
+import { FilterTag } from "./OptionChip.tsx";
 import { useActivityTransactions } from "./queries.ts";
 import { SearchField } from "./SearchField.tsx";
 
 /**
- * Tela "Atividades" (Figma 24:142): todos os lançamentos por dia, com rolagem infinita. A API só pagina
- * (não filtra), então Tudo/Saídas/Entradas/Cartão e a busca valem sobre o que já foi carregado. A gaveta
- * A gaveta "Filtros" (51:918) ainda não existe. O aviso "para revisar" abre a tela quando há pendência.
+ * Tela "Atividades" (Figma 24:142): todos os lançamentos por dia, com rolagem infinita. A gaveta "Filtros" (51:918)
+ * filtra no servidor (período, tipo, contas e cartões, categorias, valor, origem e situação) e continua valendo ao
+ * sair e voltar; Tudo/Saídas/Entradas/Cartão e a busca refinam o que já foi carregado. O aviso "para revisar" abre
+ * a tela quando há pendência.
  */
 export function ActivityScreen() {
 	const router = useRouter();
@@ -51,8 +65,11 @@ export function ActivityScreen() {
 	const bottomBarHeight = useBottomBarHeight();
 	const [filter, setFilter] = useState<ActivityFilter>("all");
 	const [query, setQuery] = useState("");
+	const [filters, setFilters] = useActivityFilters();
+	const [filterOpen, setFilterOpen] = useState(false);
+	const params = useMemo(() => toQueryParams(filters, today), [filters, today]);
 
-	const q = useActivityTransactions();
+	const q = useActivityTransactions(params);
 	const pending = usePendingTransactions();
 	const accountsQ = useAccounts();
 	const cardsQ = useCards();
@@ -66,6 +83,20 @@ export function ActivityScreen() {
 		}),
 		[accountsQ.data, cardsQ.data, categoriesQ.data],
 	);
+
+	// Conta ou categoria apagada depois de marcada não pode deixar a lista presa a um filtro invisível.
+	useEffect(() => {
+		if (!accountsQ.data || !cardsQ.data || !categoriesQ.data) return;
+		const next = pruneUnknown(filters, {
+			accounts: new Set(accountsQ.data.accounts.map((a) => a.id)),
+			cards: new Set(cardsQ.data.cards.map((c) => c.id)),
+			categories: new Set(categoriesQ.data.categories.map((c) => c.id)),
+		});
+		if (next !== filters) setFilters(next);
+	}, [accountsQ.data, cardsQ.data, categoriesQ.data, filters, setFilters]);
+
+	const tags = useMemo(() => filterTags(filters, sources), [filters, sources]);
+	const filterCount = activeFilterCount(filters);
 
 	const loaded = useMemo(() => flattenPages(q.data?.pages ?? []), [q.data]);
 	const sections = useMemo(() => {
@@ -110,7 +141,35 @@ export function ActivityScreen() {
 				Atividades
 			</Text>
 			<SearchField value={query} onChange={setQuery} />
-			<FilterChips value={filter} onChange={setFilter} />
+			<FilterChips
+				value={filter}
+				onChange={setFilter}
+				leading={<FilterButton count={filterCount} onPress={() => setFilterOpen(true)} />}
+			/>
+			{tags.length > 0 ? (
+				<ScrollView
+					horizontal
+					showsHorizontalScrollIndicator={false}
+					keyboardShouldPersistTaps="handled"
+					style={{ marginHorizontal: -spacing.lg }}
+					contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.sm }}
+				>
+					{tags.map((t) => (
+						<FilterTag key={t.key} label={t.label} onRemove={() => setFilters(removeTag(filters, t.key))} />
+					))}
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel="Limpar todos os filtros"
+						onPress={() => setFilters(EMPTY_FILTERS)}
+						hitSlop={5}
+						style={{ height: 34, justifyContent: "center", paddingHorizontal: spacing.sm }}
+					>
+						<Text variant="caption" tone="secondary">
+							Limpar
+						</Text>
+					</Pressable>
+				</ScrollView>
+			) : null}
 			{pending.data && pending.data.transactions.length > 0 ? (
 				<ReviewBanner
 					count={pending.data.transactions.length}
@@ -229,7 +288,7 @@ export function ActivityScreen() {
 				ListEmptyComponent={
 					body ?? (
 						<Text variant="body" tone="secondary" style={{ paddingTop: spacing.md }}>
-							{emptyMessage(filter, query, Boolean(hasMore))}
+							{emptyMessage(filter, query, Boolean(hasMore), hasActiveFilters(filters))}
 						</Text>
 					)
 				}
@@ -255,6 +314,65 @@ export function ActivityScreen() {
 					/>
 				}
 			/>
+			<FilterSheet
+				visible={filterOpen}
+				onClose={() => setFilterOpen(false)}
+				applied={filters}
+				onApply={setFilters}
+				today={today}
+				sources={{
+					accounts: accountsQ.data?.accounts ?? [],
+					cards: cardsQ.data?.cards ?? [],
+					categories: categoriesQ.data?.categories ?? [],
+				}}
+			/>
 		</Screen>
+	);
+}
+
+/** Botão "Filtros" da fila de chips (Figma 51:933): ícone + rótulo; com filtros ativos mostra o número deles. */
+function FilterButton({ count, onPress }: { count: number; onPress: () => void }) {
+	const active = count > 0;
+	return (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={active ? `Filtros, ${count} ${count === 1 ? "ativo" : "ativos"}` : "Filtros"}
+			onPress={onPress}
+			style={{ minHeight: 44, justifyContent: "center" }}
+		>
+			<View
+				style={{
+					height: 40,
+					flexDirection: "row",
+					alignItems: "center",
+					gap: spacing.sm,
+					paddingHorizontal: 15,
+					borderRadius: radius.pill,
+					backgroundColor: colors.surface,
+					borderWidth: 1,
+					borderColor: active ? colors.accent : colors.border,
+				}}
+			>
+				<Icon name="ajustes" size={16} />
+				<Text variant="bodyStrong">Filtros</Text>
+				{active ? (
+					<View
+						style={{
+							minWidth: 20,
+							height: 20,
+							paddingHorizontal: 6,
+							borderRadius: radius.pill,
+							backgroundColor: colors.accent,
+							alignItems: "center",
+							justifyContent: "center",
+						}}
+					>
+						<Text variant="micro" tone="onAccent">
+							{count}
+						</Text>
+					</View>
+				) : null}
+			</View>
+		</Pressable>
 	);
 }

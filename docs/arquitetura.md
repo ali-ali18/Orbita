@@ -82,6 +82,10 @@ Se algum passo não se aplica, pule. Se a feature não tem regra de dinheiro, n�
 - Sem o cabeçalho, o pedido executa como antes. O worker apaga as chaves expiradas a cada hora (fila `manutencao`).
 - Para acrescentar a outro POST: envolva a criação em `idempotent(...)` na rota e mande o cabeçalho no app (`lib/idempotency.ts`).
 
+## Filtros da lista de lançamentos
+
+`GET /v1/transactions` (e `GET /v1/transactions/count`, que só conta) aceitam filtros opcionais, combinados com E; listas vão separadas por vírgula e o `cursor` continua valendo sobre o resultado filtrado: `from`/`to` (AAAA-MM-DD, inclusivos), `kinds`, `accountIds`, `cardIds`, `categoryIds`, `sources`, `statuses`, `minCents`/`maxCents` (centavos inteiros, inclusivos). `accountIds` e `cardIds` juntos valem como OU, e a conta também casa com o destino de uma transferência. O schema está em `@orbita/shared` (`transactionFilterFields`), a regra em `TransactionStore.listRecent`/`countMatching` (Prisma e memória, mesmo contrato). No app, `features/activity/filters-model.ts` converte o que o dono marcou na gaveta nesses parâmetros; o estado fica em `filters-store.ts` (memória do app, sobrevive à navegação).
+
 ## Tarefas em segundo plano
 
 O worker tem filas por assunto (`manutencao`, `sincronizacao`, depois `alertas`). Cada processador é uma função pura testável (`cleanPairingCodes({ store, now })`, `cleanIdempotencyKeys`); o arquivo `index.ts` só liga fila → função. Decidir **se** algo deve acontecer (avisar, sincronizar) é código determinístico; a IA só escreve o texto.
