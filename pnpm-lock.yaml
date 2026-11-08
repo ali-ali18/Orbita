@@ -265,6 +265,9 @@ importers:
 
   packages/ledger:
     dependencies:
+      '@orbita/agents':
+        specifier: workspace:*
+        version: link:../agents
       '@orbita/core':
         specifier: workspace:*
         version: link:../core
