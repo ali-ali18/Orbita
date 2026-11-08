@@ -140,13 +140,13 @@ describe("POST /v1/chat", () => {
 			say("Você gastou R$ 46,90."),
 		]);
 		await ctx.vault.put("anthropic_api_key", KEY, "Teste");
-		const { card } = await ctx.basics();
+		const { account } = await ctx.basics();
 		await ctx.api.post("/v1/transactions", {
 			kind: "expense",
 			amountCents: 4690,
 			date: "2026-11-10",
 			description: "iFood",
-			cardId: card.id,
+			accountId: account.id,
 		});
 		const { events } = await chat(ctx, "como está meu mês?");
 		expect(events.map((e) => e.type)).toEqual(["meta", "tool", "card", "text", "done"]);

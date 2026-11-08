@@ -236,7 +236,7 @@ export interface TransactionStore {
 	 * o que conta). Por data, depois por criação.
 	 */
 	listForSpendingMonth(month: MonthKey): Promise<TransactionRecord[]>;
-	/** Meses de orçamento que têm ao menos um lançamento vivo, do mais recente para o mais antigo (sem repetir). */
+	/** Meses de gasto (de orçamento, ou de fatura se for do cartão) que têm ao menos um lançamento vivo, do mais recente para o mais antigo (sem repetir). */
 	listBudgetMonths(): Promise<MonthKey[]>;
 	listByInvoice(cardId: string, invoiceMonth: MonthKey): Promise<TransactionRecord[]>;
 	/** Pagamentos de fatura (`card_payment`) vivos do cartão com data entre `from` e `to`, inclusive, por data. */

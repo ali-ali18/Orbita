@@ -328,13 +328,11 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 		},
 
 		async listBudgetMonths() {
-			const rows = await db.transaction.findMany({
-				where: { deletedAt: null },
-				distinct: ["budgetMonth"],
-				select: { budgetMonth: true },
-				orderBy: { budgetMonth: "desc" },
-			});
-			return rows.map((r) => r.budgetMonth);
+			// Mês de gasto: cartão pela fatura, o resto pelo orçamento (a mesma regra de `listForSpendingMonth`).
+			const rows = await db.$queryRaw<Array<{ month: string }>>`
+				SELECT DISTINCT COALESCE(invoice_month, budget_month) AS month
+				FROM transactions WHERE deleted_at IS NULL ORDER BY month DESC`;
+			return rows.map((r) => r.month);
 		},
 
 		async listByInvoice(cardId, invoiceMonth) {

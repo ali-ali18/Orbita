@@ -750,6 +750,9 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			await tx.create(expense({ date: "2026-10-30", budgetMonth: "2026-11" }));
 			await tx.softDelete(gone.id);
 			expect(await tx.listBudgetMonths()).toEqual(["2026-11", "2026-09"]);
+			// Compra no cartão vale pelo mês da fatura, não pelo da data.
+			await tx.create(cardPurchase({ date: "2026-11-25", invoiceMonth: "2026-12" }));
+			expect(await tx.listBudgetMonths()).toEqual(["2026-12", "2026-11", "2026-09"]);
 		});
 
 		it("listByInvoice filtra por cartão e fatura", async () => {

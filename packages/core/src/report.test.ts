@@ -212,3 +212,69 @@ describe("monthReport", () => {
 		expect(() => monthReport({ ...base, month: "2026-13", transactions: [] })).toThrow();
 	});
 });
+
+describe("monthReport: gasto por fatura e investido", () => {
+	const txs = [
+		// Fatura que vence em novembro (comprada em outubro).
+		tx({
+			kind: "expense",
+			amountCents: 51000,
+			date: "2026-10-30",
+			budgetMonth: "2026-10",
+			invoiceMonth: "2026-11",
+			categoryId: "lazer",
+		}),
+		tx({
+			kind: "expense",
+			amountCents: 8687,
+			date: "2026-09-05",
+			budgetMonth: "2026-11",
+			invoiceMonth: "2026-11",
+			categoryId: "lazer",
+		}),
+		// Fatura aberta, vence em dezembro.
+		tx({
+			kind: "expense",
+			amountCents: 5150,
+			date: "2026-11-12",
+			invoiceMonth: "2026-12",
+			categoryId: "mercado",
+		}),
+		tx({ kind: "investment", amountCents: 200000, date: "2026-11-04", categoryId: "investimentos" }),
+		tx({ kind: "income", amountCents: 1234, date: "2026-11-06", categoryId: "investimentos" }),
+		// Outubro: gasto de cartão que vence em outubro e a aplicação de outubro.
+		tx({
+			kind: "expense",
+			amountCents: 10000,
+			date: "2026-09-20",
+			invoiceMonth: "2026-10",
+			categoryId: "mercado",
+		}),
+		tx({ kind: "investment", amountCents: 50000, date: "2026-10-04", categoryId: "investimentos" }),
+	];
+	const report = monthReport({ ...base, month: "2026-11", transactions: txs });
+
+	it("totais por fatura; investido fora do gasto e do saldo", () => {
+		expect(report.totals).toEqual({
+			incomeCents: 1234,
+			spentCents: 59687,
+			investedCents: 200000,
+			balanceCents: 1234 - 59687,
+			refundCreditCents: 0,
+		});
+		expect(report.topCategories.map((c) => c.categoryId)).toEqual(["lazer", "mercado"]);
+		expect(report.topCategories[1]).toMatchObject({
+			categoryId: "mercado",
+			spentCents: 0,
+			previousCents: 10000,
+		});
+	});
+
+	it("maiores despesas seguem o mês da fatura", () => {
+		expect(report.biggestExpenses.map((e) => e.amountCents)).toEqual([51000, 8687]);
+	});
+
+	it("o investido não entra na comparação do gasto", () => {
+		expect(report.vsPrevious?.spent).toMatchObject({ referenceCents: 10000, deltaCents: 49687 });
+	});
+});

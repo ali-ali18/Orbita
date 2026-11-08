@@ -217,7 +217,7 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 		},
 
 		async listBudgetMonths() {
-			return [...new Set(live().map((t) => t.budgetMonth))].sort().reverse();
+			return [...new Set(live().map((t) => t.invoiceMonth ?? t.budgetMonth))].sort().reverse();
 		},
 
 		async listByInvoice(cardId, invoiceMonth) {

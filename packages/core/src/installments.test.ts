@@ -25,7 +25,7 @@ describe("projectMissingInstallments", () => {
 	};
 	it("a parcela que ainda não veio entra no mês seguinte, pelo valor da última vista", () => {
 		expect(projectMissingInstallments([group], "card", "2026-12")).toEqual([
-			{ groupId: "g1", description: "Kabum", number: 5, count: 10, amountCents: 5150 },
+			{ groupId: "g1", description: "Kabum", number: 5, count: 10, amountCents: 5150, categoryId: null },
 		]);
 	});
 	it("não inventa parcela anterior nem repete a que já está na fatura", () => {
