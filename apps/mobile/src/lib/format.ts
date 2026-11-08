@@ -64,6 +64,38 @@ export function monthName(month: string): string {
 	return MONTHS_LONG[index] ?? month;
 }
 
+/** Data e hora de um instante ISO no fuso de São Paulo. `null` se o texto não é uma data. */
+export function saoPauloStamp(iso: string): { date: LocalDate; time: string } | null {
+	const instant = new Date(iso);
+	if (Number.isNaN(instant.getTime())) return null;
+	const parts = new Intl.DateTimeFormat("en-US", {
+		timeZone: "America/Sao_Paulo",
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23",
+	}).formatToParts(instant);
+	const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
+	const year = get("year");
+	const month = get("month");
+	const day = get("day");
+	const hour = get("hour");
+	const minute = get("minute");
+	if (!year || !month || !day || hour === undefined || minute === undefined) return null;
+	return { date: `${year}-${month}-${day}`, time: `${hour}:${minute}` };
+}
+
+/** "12:40" no dia, "ontem, 22:10" no dia anterior, "3 out, 09:12" antes disso. */
+export function arrivedLabel(iso: string, today: LocalDate): string {
+	const stamp = saoPauloStamp(iso);
+	if (!stamp) return "";
+	const day = relativeDate(stamp.date, today);
+	if (day === "Hoje") return stamp.time;
+	return `${day.toLocaleLowerCase("pt-BR")}, ${stamp.time}`;
+}
+
 /** "Hoje", "Ontem" ou "5 nov". `today` e `date` são datas de calendário ("YYYY-MM-DD"). */
 export function relativeDate(date: LocalDate, today: LocalDate): string {
 	if (date === today) return "Hoje";
