@@ -12,9 +12,9 @@ import { AiModelSheet } from "./AiModelSheet.tsx";
 import {
 	aiCostCaption,
 	aiCostLabel,
+	currentChoiceId,
 	FAST_MODEL_HINT,
 	FAST_MODEL_SHEET_TITLE,
-	FAST_OFF_ID,
 	fastModelChoices,
 	fastModelRowValue,
 	limitValueLabel,
@@ -151,20 +151,20 @@ function AiSection({
 		<SettingsSection title="IA (Anthropic)">
 			<SettingsRow
 				info
-				icon="enviar"
+				icon="grafico"
 				title="Custo neste mês"
 				caption={data ? aiCostCaption(data) : null}
 				value={data ? aiCostLabel(data) : "—"}
 			/>
 			<SettingsRow
-				icon="enviar"
+				icon="brilho"
 				title="Modelo"
 				caption={data?.chatModelCustom ? "Escolhido por você" : "Padrão do servidor"}
 				value={data ? modelRowValue(data) : "—"}
 				onPress={data ? onEditModel : undefined}
 			/>
 			<SettingsRow
-				icon="enviar"
+				icon="brilho"
 				title="Modelo rápido para perguntas simples"
 				caption={data?.chatModelFastCustom ? "Escolhido por você" : "Padrão do servidor"}
 				value={data ? fastModelRowValue(data) : "—"}
@@ -280,7 +280,7 @@ export function ServerScreen() {
 				title={MODEL_SHEET_TITLE}
 				hint={MODEL_HINT}
 				choices={mainModelChoices(aiQ.data?.modelOptions ?? [])}
-				currentId={aiQ.data?.chatModel ?? ""}
+				currentId={currentChoiceId(aiQ.data, "main")}
 				isCustom={aiQ.data?.chatModelCustom ?? false}
 				onPick={(id) => saveModels.mutateAsync({ chatModel: id })}
 				onClose={() => setEditingModel(false)}
@@ -290,7 +290,7 @@ export function ServerScreen() {
 				title={FAST_MODEL_SHEET_TITLE}
 				hint={FAST_MODEL_HINT}
 				choices={fastModelChoices(aiQ.data?.modelOptions ?? [])}
-				currentId={aiQ.data?.chatModelFast ?? FAST_OFF_ID}
+				currentId={currentChoiceId(aiQ.data, "fast")}
 				isCustom={aiQ.data?.chatModelFastCustom ?? false}
 				onPick={(id) => saveModels.mutateAsync({ chatModelFast: id })}
 				onClose={() => setEditingFast(false)}
