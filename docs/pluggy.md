@@ -29,6 +29,7 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 
 1. Pagamento de fatura: cada `payments[]` de `/bills` casa com **um** débito da conta (mesmo valor, até 3 dias de diferença; prefere o mesmo dia, depois o mais próximo; o pagamento é consumido) → `card_payment` ligado ao cartão daquela fatura, com qualquer número de cartões. Um aluguel de mesmo valor dois dias depois continua gasto. No cartão vale o mesmo: o crédito casado é o pagamento (ignorado) e um estorno real de mesmo valor continua estorno.
 2. Transferência própria: `paymentData.payer` e `receiver` com o mesmo CPF/CNPJ, ou a outra ponta igual ao `taxNumber` da conta.
+   Também pelo **nome**: a outra ponta (`paymentData.payer/receiver.name`, ou o texto depois do hífen em "Pix enviado - Nome") igual ao `owner` da conta, palavra por palavra, com pelo menos duas palavras. Homônimo parcial ("Maria Silva" x "Maria Souza Silva") continua sendo gasto. **Limites:** quando o banco não manda nem CPF nem nome do titular, Pix entre duas contas suas é indistinguível de Pix para um terceiro e conta como gasto em Transferências (o dono corrige o lançamento). Casar "saída de um lado com entrada igual do outro no mesmo dia" foi descartado: um Pix real de mesmo valor no mesmo dia seria engolido.
 3. Só se nada acima serve: nome da categoria (suposição), e **só liga a um cartão se o valor bate com o total (`totalAmount`) de uma fatura de um único cartão** da conexão. Senão o lançamento fica de fora (`card_payment_unlinked`, com aviso): o Órbita não tem "pagamento de fatura sem cartão" (`card_payment` exige conta e cartão), então ignorar é mais honesto que inventar um cartão ou contar como gasto.
 
 **Ainda suposição (o SDK não diz)**
@@ -241,3 +242,7 @@ Todas as de `/v1/pluggy/*` exigem `Authorization: Bearer`; as de `/pluggy/*` sã
 - `GET /v1/pluggy/status` → `{ keysConfigured, sync, lastSyncAt, connections }`
 
 A API precisa de `REDIS_URL` (o compose já passa) para enfileirar; sem ele as demais rotas funcionam.
+
+## Correção de lançamentos já gravados
+
+A sincronização é idempotente e antes nunca mexia no que já estava gravado. Agora, dentro da janela que ela baixa (no mínimo 4 meses), ela corrige dois casos sem ambiguidade, e nunca um lançamento cuja categoria o dono editou: (1) entrada (`CREDIT`) gravada como despesa vira receita; (2) transferência para si mesmo gravada como despesa é apagada (o identificador fica reservado, então não volta). O resultado traz `reclassified` e uma nota. Fora da janela, ou sem o nome/CPF do titular, o histórico não muda; o dono corrige à mão.

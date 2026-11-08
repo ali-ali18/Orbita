@@ -178,3 +178,81 @@ describe("summarizeMonth", () => {
 		expect(s.refundCreditCents).toBe(0);
 	});
 });
+
+describe("summarizeMonth: o mês de quem tem rendimento, fatura paga, Pix e transferência própria", () => {
+	// Mercado, Pix para terceiro, aplicação (saiu para investir) e uma compra no cartão são gasto; o resto não.
+	const month = (extra: Transaction[] = []) =>
+		summarizeMonth(
+			[
+				tx({ kind: "expense", amountCents: 25_000, date: "2026-11-03", categoryId: "mercado" }),
+				tx({ kind: "expense", amountCents: 30_000, date: "2026-11-04", categoryId: "outros" }),
+				// Compra no cartão: conta pela compra.
+				tx({ kind: "expense", amountCents: 83_010, date: "2026-11-05", categoryId: "lazer" }),
+				// Pix para terceiro (Rei Dos Coins): dinheiro que saiu de verdade.
+				tx({ kind: "expense", amountCents: 9_000, date: "2026-11-06", categoryId: "transferencias" }),
+				// Dinheiro enviado para investir: categoria própria, à parte do consumo.
+				tx({ kind: "expense", amountCents: 20_000, date: "2026-11-07", categoryId: "investimentos" }),
+				// Rendimento: receita em Investimentos, nunca gasto.
+				tx({ kind: "income", amountCents: 320, date: "2026-11-08", categoryId: "investimentos" }),
+				// Pagamento da fatura: as compras já contaram.
+				tx({ kind: "card_payment", amountCents: 83_010, date: "2026-11-09", categoryId: "outros" }),
+				// Entre contas do dono.
+				tx({ kind: "transfer", amountCents: 50_000, date: "2026-11-10", categoryId: "transferencias" }),
+				...extra,
+			],
+			"2026-11",
+		);
+
+	it("a quebra por categoria só tem despesa, e o total é a soma dela", () => {
+		const s = month();
+		expect(s.byCategory).toEqual({
+			mercado: 25_000,
+			outros: 30_000,
+			lazer: 83_010,
+			transferencias: 9_000,
+			investimentos: 20_000,
+		});
+		expect(s.spentCents).toBe(167_010);
+		expect(s.incomeCents).toBe(320);
+		expect(s.refundCreditCents).toBe(0);
+	});
+
+	it("rendimento, pagamento de fatura e transferência própria não mudam o gasto de nenhuma categoria", () => {
+		const withoutNoise = summarizeMonth(
+			[
+				tx({ kind: "expense", amountCents: 25_000, date: "2026-11-03", categoryId: "mercado" }),
+				tx({ kind: "expense", amountCents: 9_000, date: "2026-11-06", categoryId: "transferencias" }),
+			],
+			"2026-11",
+		);
+		const noisy = summarizeMonth(
+			[
+				tx({ kind: "expense", amountCents: 25_000, date: "2026-11-03", categoryId: "mercado" }),
+				tx({ kind: "expense", amountCents: 9_000, date: "2026-11-06", categoryId: "transferencias" }),
+				tx({ kind: "income", amountCents: 999, date: "2026-11-08", categoryId: "investimentos" }),
+				tx({ kind: "card_payment", amountCents: 70_000, date: "2026-11-09", categoryId: "transferencias" }),
+				tx({ kind: "transfer", amountCents: 40_000, date: "2026-11-10", categoryId: "transferencias" }),
+			],
+			"2026-11",
+		);
+		expect(noisy.byCategory).toEqual(withoutNoise.byCategory);
+		expect(noisy.spentCents).toBe(withoutNoise.spentCents);
+	});
+
+	it("estorno abate só a categoria da compra original", () => {
+		const purchase = tx({ kind: "expense", amountCents: 12_000, date: "2026-11-11", categoryId: "lazer" });
+		const s = month([
+			purchase,
+			tx({
+				kind: "refund",
+				amountCents: 2_000,
+				date: "2026-11-12",
+				refundOf: purchase.id,
+				categoryId: "outros",
+			}),
+		]);
+		expect(s.byCategory.lazer).toBe(83_010 + 10_000);
+		expect(s.byCategory.outros).toBe(30_000);
+		expect(s.spentCents).toBe(167_010 + 10_000);
+	});
+});
