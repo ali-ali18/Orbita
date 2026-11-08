@@ -9,6 +9,10 @@ export const CARD_ARCHIVED_MESSAGE = "O cartão informado está arquivado.";
 export const CATEGORY_ARCHIVED_MESSAGE = "A categoria informada está arquivada.";
 export const HAS_REFUNDS_MESSAGE =
 	"Este gasto tem estornos: apague os estornos antes de mudar o tipo do lançamento.";
+export const SPLIT_KIND_MESSAGE = "Só despesa ou receita pode ser dividida em categorias.";
+export const SPLIT_INSTALLMENT_MESSAGE =
+	"Parcela não pode ser dividida: apague o parcelamento e lance de novo.";
+export const SPLIT_HAS_REFUNDS_MESSAGE = "Este gasto tem estornos: apague os estornos antes de dividir.";
 export const POSTING_DELETED_MESSAGE = "Não dá para ligar uma recorrência a um lançamento apagado.";
 export const POSTING_KIND_MESSAGE =
 	"O tipo do lançamento (gasto ou receita) não combina com o da recorrência.";

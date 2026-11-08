@@ -4,7 +4,7 @@ import type { Prisma } from "./generated/prisma/client.ts";
 import { fromDbDate, toDbDate } from "./local-date.ts";
 import type { Clock } from "./memory-state.ts";
 import { byGroup, byInstallment } from "./memory-transaction-store.ts";
-import { HAS_REFUNDS_MESSAGE } from "./messages.ts";
+import { HAS_REFUNDS_MESSAGE, SPLIT_HAS_REFUNDS_MESSAGE } from "./messages.ts";
 import { translate } from "./prisma-errors.ts";
 import { checkReferences } from "./prisma-references.ts";
 import { cleanMonth } from "./rules.ts";
@@ -22,6 +22,7 @@ import {
 	mergeTransaction,
 	normalizeExternalInstallment,
 	normalizeInstallmentGroup,
+	normalizeSplit,
 	normalizeTransaction,
 	refundTargetError,
 } from "./transaction-data.ts";
@@ -232,6 +233,24 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 				return toRecord(
 					await tx.transaction.update({ where: { id }, data: { ...toColumns(changed), updatedAt: now() } }),
 				);
+			});
+		},
+
+		async splitTransaction(id, parts) {
+			return db.$transaction(async (tx) => {
+				// Trava a linha: duas divisões (ou uma divisão e uma edição) ao mesmo tempo se enfileiram.
+				const locked = await tx.$queryRaw<Array<{ id: string }>>`
+					SELECT id FROM transactions WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`;
+				if (locked.length === 0) throw notFound("Lançamento", "o");
+				const row = await tx.transaction.findFirst({ where: { id, deletedAt: null } });
+				if (!row) throw notFound("Lançamento", "o");
+				const rows = normalizeSplit(dataOf(toRecord(row)), parts);
+				const refunds = await tx.transaction.count({ where: { refundOfId: id, deletedAt: null } });
+				if (refunds > 0) throw invalid(SPLIT_HAS_REFUNDS_MESSAGE);
+				await deleteCascade(tx, [id], now());
+				const created: TransactionRecord[] = [];
+				for (const data of rows) created.push(await insert(tx, data));
+				return created;
 			});
 		},
 

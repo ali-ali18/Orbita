@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { monthOf } from "@orbita/core";
+import { checkSplit, monthOf } from "@orbita/core";
 import type { TransactionSource } from "@orbita/shared";
 import {
 	cleanMerchantName,
@@ -14,9 +14,11 @@ import {
 	transactionInvariantError,
 } from "@orbita/shared";
 import { DataError, invalid } from "./errors.ts";
+import { SPLIT_INSTALLMENT_MESSAGE, SPLIT_KIND_MESSAGE } from "./messages.ts";
 import { applyPatch, cleanLocalDate } from "./rules.ts";
 import type {
 	InstallmentInput,
+	SplitPartInput,
 	TransactionCursor,
 	TransactionData,
 	TransactionFilter,
@@ -48,6 +50,7 @@ export type TransactionDraft = TransactionInput & {
 	installmentNumber?: number | null;
 	installmentCount?: number | null;
 	categoryEditedByOwner?: boolean;
+	splitGroupId?: string | null;
 };
 
 /** Lançamento avulso: campos de parcela que vierem (JS sem tipos) são descartados. */
@@ -90,7 +93,45 @@ function normalizeDraft(input: TransactionDraft): TransactionData {
 		sourceCategory: cleanSourceCategory(input.sourceCategory),
 		merchantName: cleanMerchantName(input.merchantName),
 		categoryEditedByOwner: input.categoryEditedByOwner === true,
+		splitGroupId: input.splitGroupId ?? null,
 	};
+}
+
+/**
+ * As partes de uma divisão, prontas para gravar. Quem confere a soma é o engine (`checkSplit`); aqui entram as
+ * regras de qual lançamento pode ser dividido. Cada parte herda tudo do original, menos valor, descrição,
+ * categoria e identidade externa (que fica com o original, apagado).
+ */
+export function normalizeSplit(
+	original: TransactionData,
+	parts: readonly SplitPartInput[],
+): TransactionData[] {
+	if (original.kind !== "expense" && original.kind !== "income") throw invalid(SPLIT_KIND_MESSAGE);
+	if (original.installmentGroupId !== null) throw invalid(SPLIT_INSTALLMENT_MESSAGE);
+	let check: ReturnType<typeof checkSplit>;
+	try {
+		check = checkSplit(
+			original.amountCents,
+			parts.map((p) => p.amountCents),
+		);
+	} catch (e) {
+		// Dinheiro fracionado ou fora do inteiro seguro: entrada ruim, não bug do store.
+		if (e instanceof RangeError || e instanceof TypeError) throw invalid("Valor da parte inválido.");
+		throw e;
+	}
+	if (!check.ok) throw invalid(check.message);
+	const splitGroupId = original.splitGroupId ?? randomUUID();
+	return parts.map((part) =>
+		normalizeDraft({
+			...original,
+			amountCents: part.amountCents,
+			description: part.description ?? original.description,
+			categoryId: part.categoryId ?? null,
+			externalId: null,
+			categoryEditedByOwner: true,
+			splitGroupId,
+		}),
+	);
 }
 
 /** Parcela importada: avulsa + posição no grupo informada por quem importa. */

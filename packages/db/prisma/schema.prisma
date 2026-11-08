@@ -197,6 +197,8 @@ model Transaction {
   merchantName          String?           @map("merchant_name")
   /// O dono trocou a categoria à mão: regras novas não reclassificam este lançamento.
   categoryEditedByOwner Boolean           @default(false) @map("category_edited_by_owner")
+  /// Partes de uma compra que o dono dividiu em categorias diferentes dividem este id. Sem unicidade: é só o agrupamento.
+  splitGroupId          String?           @map("split_group_id")
   createdAt             DateTime          @default(now()) @map("created_at")
   updatedAt             DateTime          @updatedAt @map("updated_at")
   /// Exclusão lógica: some de listas e buscas, mas segura o (source, externalId).
@@ -212,6 +214,7 @@ model Transaction {
 
   @@unique([source, externalId])
   @@unique([installmentGroupId, installmentNumber])
+  @@index([splitGroupId])
   @@index([budgetMonth])
   @@index([cardId, invoiceMonth])
   @@index([date])
