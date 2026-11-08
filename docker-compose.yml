@@ -29,6 +29,10 @@ x-app: &app
     PAIRING_AUTO: "${PAIRING_AUTO:-true}"
     # Proxies confiáveis na frente: 1 = Traefik do Dokploy, 2 = Cloudflare + Traefik, 0 = exposto direto.
     TRUSTED_PROXY_HOPS: "${TRUSTED_PROXY_HOPS:-1}"
+    # Chat com a IA (vazio = padrão do código): modelo, modelo barato ("off" desliga) e esforço (low, medium, high).
+    CHAT_MODEL: "${CHAT_MODEL:-}"
+    CHAT_MODEL_FAST: "${CHAT_MODEL_FAST:-}"
+    CHAT_EFFORT: "${CHAT_EFFORT:-}"
 
 services:
   postgres:

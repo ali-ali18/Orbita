@@ -8,6 +8,10 @@ const booleanString = (fallback: boolean) =>
 		.default(fallback ? "true" : "false")
 		.transform((v) => v === "true");
 
+// Variável de ambiente vazia (o compose repassa `""` quando o dono não definiu) vale como ausente.
+const optional = <T extends z.ZodType>(schema: T) =>
+	z.preprocess((value) => (value === "" ? undefined : value), schema);
+
 const envSchema = z.object({
 	DATABASE_URL: z.string().min(1, "Defina DATABASE_URL."),
 	APP_SECRET: z.string().min(32, "APP_SECRET precisa de pelo menos 32 caracteres (openssl rand -base64 48)."),
@@ -18,18 +22,18 @@ const envSchema = z.object({
 	OTA_DIR: z.string().min(1).default("/app/ota"),
 	/** Fila do Meu Pluggy (a mesma do worker). Sem isto, `POST /v1/pluggy/sync` responde 503. */
 	REDIS_URL: z.string().min(1).optional(),
+	/** Modelo do chat (padrão em `@orbita/agents`). Troca de modelo = trocar esta variável, sem mexer no código. */
+	CHAT_MODEL: optional(z.string().min(1).default(DEFAULT_CHAT_MODEL)),
+	/** Modelo barato para perguntas curtas só de leitura; "off" desliga e manda tudo para `CHAT_MODEL`. */
+	CHAT_MODEL_FAST: optional(z.string().min(1).default(DEFAULT_FAST_MODEL)),
+	/** Quanto o modelo pensa: `low` (padrão), `medium` ou `high`. Mais esforço, mais custo. */
+	CHAT_EFFORT: optional(
+		z.enum(["low", "medium", "high"], { error: "Use low, medium ou high." }).default(DEFAULT_CHAT_EFFORT),
+	),
 	/**
 	 * Quantos proxies confiáveis há na frente: 0 = nenhum (usa o IP do socket),
 	 * 1 = Traefik/Dokploy, 2 = Cloudflare + Traefik. Valor errado deixa forjar o IP.
 	 */
-	/** Modelo do chat (padrão em `@orbita/agents`). Troca de modelo = trocar esta variável, sem mexer no código. */
-	CHAT_MODEL: z.string().min(1).default(DEFAULT_CHAT_MODEL),
-	/** Modelo barato para perguntas curtas só de leitura; "off" desliga e manda tudo para `CHAT_MODEL`. */
-	CHAT_MODEL_FAST: z.string().min(1).default(DEFAULT_FAST_MODEL),
-	/** Quanto o modelo pensa: `low` (padrão), `medium` ou `high`. Mais esforço, mais custo. */
-	CHAT_EFFORT: z
-		.enum(["low", "medium", "high"], { error: "Use low, medium ou high." })
-		.default(DEFAULT_CHAT_EFFORT),
 	TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0, "Use um inteiro maior ou igual a 0.").default(0),
 });
 export type Env = z.infer<typeof envSchema>;
