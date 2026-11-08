@@ -341,14 +341,14 @@ function chartMonths(months: readonly MonthKey[], from: MonthKey, max: number): 
 }
 
 /**
- * Colunas do gráfico: meses anteriores, o atual e os seguintes (até `max`). `cardOrder` fixa a ordem das
- * fatias para a cor não pular de lugar entre meses. Sem parcela, fica só o mês atual vazio.
+ * Colunas do gráfico: meses anteriores, o atual e os seguintes (até `max`). A tela mostra oito de cada vez,
+ * começando no mês atual. `cardOrder` fixa a ordem das fatias. Sem parcela, fica só o mês atual vazio.
  */
 export function monthColumns(
 	groups: readonly InstallmentGroupLike[],
 	from: MonthKey,
 	cardOrder: readonly string[],
-	max = 12,
+	max = 24,
 ): MonthColumn[] {
 	const perMonth = new Map<MonthKey, Map<string, Cents>>();
 	for (const g of activeGroups(groups)) {
