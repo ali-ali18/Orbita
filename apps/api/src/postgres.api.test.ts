@@ -9,6 +9,7 @@ afterAll(async () => db?.$disconnect());
 
 async function clean(client: Db) {
 	// Ordem das chaves estrangeiras: quem aponta vem antes de quem é apontado.
+	await client.importBatch.deleteMany();
 	await client.recurrencePosting.deleteMany();
 	await client.transaction.deleteMany();
 	await client.recurrence.deleteMany();
@@ -231,5 +232,31 @@ describe.skipIf(!url)("API sobre Postgres", () => {
 		expect((await post({ ...body, amountCents: 1 })).status).toBe(422);
 		expect((await api.get("/v1/transactions?limit=100")).body.transactions).toHaveLength(1);
 		expect(await (db as Db).idempotencyKey.count()).toBe(1);
+	});
+
+	it("importar extrato: envios simultâneos do mesmo arquivo criam os pendentes uma vez só", async () => {
+		const { app, token, basics, api } = await setup();
+		const { account } = await basics();
+		const ofx = `OFXHEADER:100\n<OFX><BANKTRANLIST>
+<STMTTRN><DTPOSTED>20261102<TRNAMT>-45.90<FITID>F1<MEMO>MERCADO</STMTTRN>
+<STMTTRN><DTPOSTED>20261103<TRNAMT>3500.00<FITID>F2<MEMO>SALARIO</STMTTRN>
+</BANKTRANLIST></OFX>`;
+		const send = () => {
+			const form = new FormData();
+			form.set("file", new File([ofx], "extrato.ofx", { type: "application/x-ofx" }));
+			form.set("accountId", account.id);
+			return app.request("/v1/imports", {
+				method: "POST",
+				headers: { authorization: `Bearer ${token}` },
+				body: form,
+			});
+		};
+		const results = await Promise.all(Array.from({ length: 6 }, send));
+		expect(results.every((r) => [200, 201, 409].includes(r.status))).toBe(true);
+		expect(results.filter((r) => r.status === 201)).toHaveLength(1);
+		const pending = (await api.get("/v1/transactions/pending")).body.transactions as Json[];
+		expect(pending).toHaveLength(2);
+		expect(pending.every((t) => t.source === "import")).toBe(true);
+		expect(await (db as Db).importBatch.count()).toBe(1);
 	});
 });

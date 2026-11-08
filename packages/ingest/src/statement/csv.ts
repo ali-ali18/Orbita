@@ -375,6 +375,10 @@ export function parseCsv(bytes: Uint8Array, options: ParseOptions = {}): ParsedS
 		firstDataAt > 0 ? firstDataAt - 1 : null,
 		guess,
 		"Não encontrei o cabeçalho com data, descrição e valor. Diga qual coluna é qual.",
-		false,
+		// A linha antes dos dados serve de nome das colunas se for só texto (sem data nem valor).
+		firstDataAt > 0 &&
+			!(rows[firstDataAt - 1] as Row).cells.some(
+				(c) => parseStatementDate(c) !== null || parseAmount(c) !== null,
+			),
 	);
 }
