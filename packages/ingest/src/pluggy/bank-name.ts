@@ -30,7 +30,7 @@ const key = (v: string) =>
 
 // Só reconhece o banco quando o nome inteiro é o banco: "Mercado Pago Conta Corrente" continua com a conta.
 const KNOWN_BANKS: ReadonlyArray<readonly [name: string, match: RegExp]> = [
-	["Santander", /^(banco )?santander( brasil)?$/],
+	["Santander", /^(banco )?santander\b/],
 	["Inter", /^(banco )?inter$/],
 	["Nubank", /^(nubank|nu bank|nu pagamentos)$/],
 	["Mercado Pago", /^mercado pago$/],
@@ -88,7 +88,7 @@ export const isMeuPluggyConnector = (name: string | null | undefined): boolean =
 
 // Bancos reconhecidos DENTRO de um nome maior ("Conta Corrente Inter", "Nubank Mastercard Gold").
 const BANK_WORDS: ReadonlyArray<readonly [name: string, match: RegExp]> = [
-	["Santander", /\bsantander\b/],
+	["Santander", /\b(santander|van gogh|aadvantage)\b/],
 	["Nubank", /\b(nubank|nu bank)\b/],
 	["Inter", /\b(banco inter|inter)\b/],
 	["Mercado Pago", /\bmercado pago\b/],
@@ -101,12 +101,40 @@ const BANK_WORDS: ReadonlyArray<readonly [name: string, match: RegExp]> = [
 	["PicPay", /\b(picpay|pic pay)\b/],
 ];
 
+/**
+ * Cartões que só o Santander tem: o Pluggy manda só o nome do produto ("FREE VISA"), sem o banco. Só nome INTEIRO
+ * (produto + bandeira), para "Free" solto de outro banco não virar Santander.
+ */
+const SANTANDER_PRODUCTS =
+	/^(free|unlimited|sx|van gogh|smiles|aadvantage|esfera)( (visa|mastercard|platinum|black|infinite|gold))*$/;
+
 /** Banco conhecido citado em qualquer parte do nome ("Conta Corrente Inter" → "Inter"); `null` se nenhum. */
 export function findKnownBank(raw: string | null | undefined): string | null {
 	const k = key(squash(raw ?? ""));
 	if (k === "") return null;
 	for (const [name, match] of BANK_WORDS) if (match.test(k)) return name;
-	return null;
+	return SANTANDER_PRODUCTS.test(k) ? "Santander" : null;
+}
+
+/** ISPB (o mesmo de `bankLogoKey` e das cores do emissor no app) dos bancos que o Órbita conhece pelo nome curto. */
+const ISPB_BY_BANK: Readonly<Record<string, string>> = {
+	Santander: "90400888",
+	Nubank: "18236120",
+	Inter: "00416968",
+	"Mercado Pago": "10573521",
+	Itaú: "60701190",
+	Bradesco: "60746948",
+	"Banco do Brasil": "00000000",
+	Caixa: "00360305",
+	C6: "31872495",
+	BTG: "30306294",
+	PicPay: "22896431",
+};
+
+/** O ISPB do banco pelo nome curto ("Santander" → "90400888"); `null` se não for um banco conhecido. */
+export function bankIspb(bank: string | null | undefined): string | null {
+	const known = findKnownBank(bank) ?? null;
+	return known === null ? null : (ISPB_BY_BANK[known] ?? null);
 }
 
 // Palavras de bandeira/nível que não dizem de qual banco é o cartão.
