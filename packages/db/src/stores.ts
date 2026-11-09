@@ -1,4 +1,5 @@
 import type { AccountStore } from "./account-store.ts";
+import type { AgentActivityStore } from "./agent-activity-store.ts";
 import type { AgentStore } from "./agent-store.ts";
 import type { AiUsageStore } from "./ai-usage-store.ts";
 import type { AuthStore } from "./auth-store.ts";
@@ -15,6 +16,7 @@ import type { IdempotencyStore } from "./idempotency-store.ts";
 import type { ImportBatchStore } from "./import-batch-store.ts";
 import type { IncomeSourceStore } from "./income-source-store.ts";
 import { createMemoryAccountStore } from "./memory-account-store.ts";
+import { createMemoryAgentActivityStore } from "./memory-agent-activity-store.ts";
 import { createMemoryAgentStore } from "./memory-agent-store.ts";
 import { createMemoryAiUsageStore } from "./memory-ai-usage-store.ts";
 import { createMemoryAuthStore } from "./memory-auth-store.ts";
@@ -40,6 +42,7 @@ import type { PluggyConnectSessionStore } from "./pluggy-connect-session-store.t
 import type { PluggyConnectionStore } from "./pluggy-connection-store.ts";
 import type { PreferencesStore } from "./preferences-store.ts";
 import { createPrismaAccountStore } from "./prisma-account-store.ts";
+import { createPrismaAgentActivityStore } from "./prisma-agent-activity-store.ts";
 import { createPrismaAgentStore } from "./prisma-agent-store.ts";
 import { createPrismaAiUsageStore } from "./prisma-ai-usage-store.ts";
 import { createPrismaAuthStore } from "./prisma-auth-store.ts";
@@ -86,6 +89,7 @@ export interface Stores {
 	chat: ChatStore;
 	aiUsage: AiUsageStore;
 	agents: AgentStore;
+	agentActivity: AgentActivityStore;
 }
 
 export interface StoresOptions {
@@ -118,6 +122,7 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		chat: createPrismaChatStore(db, now),
 		aiUsage: createPrismaAiUsageStore(db),
 		agents: createPrismaAgentStore(db, now),
+		agentActivity: createPrismaAgentActivityStore(db, now),
 	};
 }
 
@@ -146,5 +151,6 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		chat: createMemoryChatStore(state.now, (id) => state.agents.has(id)),
 		aiUsage: createMemoryAiUsageStore(),
 		agents: createMemoryAgentStore(state),
+		agentActivity: createMemoryAgentActivityStore(state),
 	};
 }
