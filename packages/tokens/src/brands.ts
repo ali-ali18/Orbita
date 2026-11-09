@@ -2,8 +2,8 @@
  * Disco de cada loja ou serviço que o app reconhece: cor de fundo (a da marca, ou branco quando a marca é preta ou
  * escura demais para o fundo do app) e a cor do glifo em cima, escolhida para passar AA (4,5:1) sobre o disco.
  * A chave é o id do catálogo do app (`lib/brands.ts`). Banco com logo de imagem (Nubank, Inter, Santander, Itaú,
- * Bradesco, Caixa, Mercado Pago) não aparece aqui: usa o logo de `banks`. Cores de marca sem logo livre (Amazon,
- * Mercado Livre, Claro…) são aproximadas e valem só como identificação.
+ * Bradesco, Caixa, Mercado Pago) não aparece aqui: usa o logo de `banks`. Cores de marca sem logo livre (99, Claro,
+ * TIM, KaBuM!…) são aproximadas e valem só como identificação.
  */
 export interface BrandDisc {
 	disc: string;

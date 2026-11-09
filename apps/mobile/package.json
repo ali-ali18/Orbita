@@ -51,6 +51,7 @@
 	"devDependencies": {
 		"@types/react": "~19.3.0",
 		"logos-bancos-br": "0.8.4",
-		"simple-icons": "16.37.0"
+		"simple-icons": "16.37.0",
+		"svgpath": "2.6.0"
 	}
 }

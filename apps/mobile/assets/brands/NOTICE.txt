@@ -1,6 +1,6 @@
-Glifos de lojas e serviços (disco do lançamento e da assinatura).
+Glifos de lojas e serviços (disco do lançamento e da assinatura). Duas fontes:
 
-Origem: pacote npm `simple-icons` 16.37.0 (devDependency de @orbita/mobile), licença CC0-1.0 (domínio público).
+(1) Origem: pacote npm `simple-icons` 16.37.0 (devDependency de @orbita/mobile), licença CC0-1.0 (domínio público).
 https://github.com/simple-icons/simple-icons
 Os caminhos SVG (viewBox 24 x 24) são extraídos em build por `pnpm --filter @orbita/mobile marcas`
 (scripts/gerar-marcas.mjs) para src/ui/brand-glyphs.ts, só os usados. Nada é baixado em runtime.
@@ -8,14 +8,40 @@ Os caminhos SVG (viewBox 24 x 24) são extraídos em build por `pnpm --filter @o
 As marcas e os logotipos são dos respectivos donos. Uso nominativo apenas (identificar a loja ou o serviço de um
 lançamento), sem sugerir parceria ou patrocínio.
 
-Glifos embutidos (id do app -> slug do Simple Icons):
+Glifos do Simple Icons (id do app -> slug):
   spotify, google, googleone (googlegemini), youtube, netflix, apple, icloud, uber, ifood, steam, hostinger, vivo,
   shopee, airbnb, booking (bookingdotcom), anthropic, claude, github, max.
 
-Sem glifo livre (o Simple Icons não tem, por pedido dos donos): Amazon, Prime Video, 99, Mercado Livre, KaBuM!,
-Centauro, Claro, TIM, Shein, Magalu, Americanas, OpenAI/ChatGPT, xAI/Grok, Microsoft, Adobe, Disney+, Globoplay,
-Rappi, Drogasil, Raia, Pague Menos. Estas aparecem como um disco na cor aproximada da marca com um ícone genérico do
-próprio app (carrinho, celular, play…), sem desenhar o logotipo. Cores em packages/tokens/src/brands.ts.
+(2) theSVG (https://thesvg.org, repositório https://github.com/glincker/thesvg), obtido em 2026-11-09 de
+https://thesvg.org/icons/<slug>/default.svg. Os arquivos ficam em assets/brands/thesvg/<id>.svg, sem alteração, e o
+gerador os valida (só path/circle/g/defs/clipPath/rect/gradient; sem script, href, imagem, estilo ou evento) e os
+reduz a um caminho de 24 x 24. Nada é baixado em runtime.
+
+  id do app      slug no theSVG        licença registrada no catálogo do theSVG
+  amazon         amazon-badge          CC0-1.0
+  primevideo     amazon-prime          Fair use  (a marca Prime, do Amazon Prime / Prime Video)
+  mercadolivre   mercado-libre-badge   CC0-1.0   (Mercado Livre e Mercado Libre são a mesma marca)
+  microsoft      microsoft-badge       CC0-1.0
+  adobe          adobe                 MIT
+  disneyplus     disneyplus            MIT
+  openai         openai                MIT       (também usado para o ChatGPT)
+  grok           xai-grok              MIT       (também usado para a xAI)
+
+O que o theSVG diz sobre licença (README.md, LEGAL.md e TRADEMARK.md do repositório, e https://thesvg.org/legal):
+  "The theSVG codebase (website, build tools, npm packages, CLI, API, and MCP server) is licensed under the MIT License."
+  "All brand names, logos, and trademarks included in this library are the property of their respective owners."
+  "Brand icons are provided for identification and development purposes only, consistent with nominative fair use of
+  trademarks." / "theSVG does not grant trademark rights - those remain with the brand owner".
+  "Every icon in our library includes a license field in its metadata" (CC0-1.0, MIT, Fair Use, Proprietary…); os
+  marcados Fair Use ou Proprietary valem "only for identification".
+Ou seja: o MIT cobre o código, não dá direito de marca. Os logos são marcas registradas dos titulares e entram aqui
+apenas para identificar o estabelecimento ou o serviço de um lançamento (uso nominativo), sem sugerir parceria,
+afiliação ou patrocínio, e devem seguir as diretrizes de uso de cada marca. A pedido do titular, o glifo é removido.
+
+Sem glifo livre (nem no Simple Icons nem no theSVG, que não tem estas marcas): 99, KaBuM!, Centauro, Claro, TIM, Shein,
+Magalu, Americanas, Globoplay, Rappi, Drogasil, Raia, Pague Menos. Estas aparecem como um disco na cor aproximada da marca
+com um ícone genérico do próprio app (carrinho, celular, play…), sem desenhar o logotipo. Cores em
+packages/tokens/src/brands.ts.
 
 Bancos (Nubank, Inter, Santander, Itaú, Bradesco, Caixa, Mercado Pago) usam os PNGs de ../banks (ver ../banks/NOTICE.txt).
 
@@ -23,4 +49,5 @@ Bancos (Nubank, Inter, Santander, Itaú, Bradesco, Caixa, Mercado Pago) usam os 
 traço do conjunto (src/ui/icons.tsx), a partir do Lucide (ISC).
 
 Para acrescentar uma marca: inclua o id em src/lib/brands.ts, as cores em packages/tokens/src/brands.ts (o teste exige
-contraste AA entre disco e glifo) e, se o Simple Icons tiver o glifo, em scripts/gerar-marcas.mjs.
+contraste AA entre disco e glifo) e, se o Simple Icons tiver o glifo, em scripts/gerar-marcas.mjs; se for do theSVG, copie o SVG para
+assets/brands/thesvg/<id>.svg e registre a licença do arquivo acima.
