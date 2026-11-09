@@ -40,6 +40,19 @@ describe.each(contractSuites())("CardStore (%s)", (_name, make) => {
 		expect((await stores.cards.getConfig(card.id))?.closingRule).toBe("closing-day-included");
 	});
 
+	it("relinkExternal troca só o id externo; manual, inexistente ou id em uso dão null", async () => {
+		const base = { closingDay: 10, dueDay: 17, source: "pluggy" as const };
+		const c = await stores.cards.create({ name: "N", last4: "1234", externalId: "old", ...base });
+		await stores.cards.create({ name: "O", externalId: "busy", ...base });
+		const manual = await stores.cards.create({ name: "M", closingDay: 1, dueDay: 8 });
+		const moved = await stores.cards.relinkExternal(c.id, "new");
+		expect(moved).toMatchObject({ id: c.id, name: "N", last4: "1234", externalId: "new" });
+		expect(await stores.cards.findByExternal("pluggy", "old")).toBeNull();
+		expect(await stores.cards.relinkExternal(c.id, "busy")).toBeNull();
+		expect(await stores.cards.relinkExternal(manual.id, "x")).toBeNull();
+		expect(await stores.cards.relinkExternal("nada", "x")).toBeNull();
+	});
+
 	it("atualiza, arquiva e esconde da lista", async () => {
 		const card = await stores.cards.create({ name: "Nubank", closingDay: 10, dueDay: 17 });
 		const updated = await stores.cards.update(card.id, {

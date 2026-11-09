@@ -50,10 +50,15 @@ export function spendingDelta(tx: Transaction): Cents {
 	return 0;
 }
 
-/** Quanto o lançamento soma ao "Investido" (aplicação). Não é gasto: ver `spendingDelta`. */
+/**
+ * Quanto o lançamento soma ao "Investido": aplicação (+), resgate (−, o principal que volta). Não é gasto nem renda:
+ * ver `spendingDelta` e `incomeDelta`.
+ */
 export function investedDelta(tx: Transaction): Cents {
 	assertPositive(tx);
-	return tx.kind === "investment" ? tx.amountCents : 0;
+	if (tx.kind === "investment") return tx.amountCents;
+	if (tx.kind === "redemption") return -tx.amountCents;
+	return 0;
 }
 
 export function incomeDelta(tx: Transaction): Cents {
@@ -65,7 +70,11 @@ export interface MonthSummary {
 	/** Soma de `byCategory`; nunca negativo. */
 	spentCents: Cents;
 	incomeCents: Cents;
-	/** Aplicações do mês (dinheiro enviado a investimentos). Fora de `spentCents` e de `byCategory`. */
+	/**
+	 * Aplicações do mês menos os resgates (dinheiro enviado a investimentos, líquido do que voltou), nunca abaixo de
+	 * zero: o resgate que passa do aplicado no mês é de aplicações antigas e não vira número negativo. Fora de
+	 * `spentCents`, de `incomeCents` e de `byCategory`.
+	 */
 	investedCents: Cents;
 	/** Estorno que passou do gasto da categoria no mês e por isso não abateu nada. */
 	refundCreditCents: Cents;
@@ -113,6 +122,7 @@ export function summarizeMonth(transactions: readonly Transaction[], month: Mont
 		if (current !== undefined) byCategory[category] = current - applied;
 		refundCreditCents += tx.amountCents - applied;
 	}
+	investedCents = Math.max(0, investedCents);
 	let spentCents = 0;
 	for (const value of Object.values(byCategory)) spentCents += value;
 	if (![spentCents, incomeCents, investedCents, refundCreditCents].every(Number.isSafeInteger)) {

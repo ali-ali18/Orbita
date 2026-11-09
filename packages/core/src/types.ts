@@ -9,6 +9,15 @@ export type MonthKey = string;
 
 /**
  * - `investment`: aplicação (dinheiro que sai da conta para ações, cripto, CDB…). Não é gasto: aparece à parte, como
- *   "Investido". Rendimento e resgate entram como `income`.
+ *   "Investido". Rendimento entra como `income`.
+ * - `redemption`: resgate (o principal que volta de um investimento para a conta). Não é renda nem gasto: abate o
+ *   "Investido" do mês (até zero).
  */
-export type TransactionKind = "expense" | "income" | "transfer" | "card_payment" | "refund" | "investment";
+export type TransactionKind =
+	| "expense"
+	| "income"
+	| "transfer"
+	| "card_payment"
+	| "refund"
+	| "investment"
+	| "redemption";

@@ -9,6 +9,7 @@ import { translate } from "./prisma-errors.ts";
 import { checkReferences } from "./prisma-references.ts";
 import { cleanMonth } from "./rules.ts";
 import {
+	adoptExternalData,
 	changedColumns,
 	checkRecentOptions,
 	checkTarget,
@@ -188,6 +189,14 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			};
 			const existing = await find();
 			if (existing.found) return { created: false, transaction: existing.transaction };
+			// Grupo que o dono apagou (tem parcelas, nenhuma viva): a parcela nova do banco não o ressuscita.
+			const groupRows = await db.transaction.findMany({
+				where: { installmentGroupId: installment.groupId },
+				select: { deletedAt: true },
+			});
+			if (groupRows.length > 0 && groupRows.every((r) => r.deletedAt !== null)) {
+				return { created: false, transaction: null };
+			}
 			try {
 				await checkRefundTarget(db, data);
 				await checkReferences(db, refsOf(data));
@@ -200,6 +209,62 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 				const raced = await find();
 				if (raced.found) return { created: false, transaction: raced.transaction };
 				throw translate(e, () => new DataError("duplicate", DUPLICATE_INSTALLMENT_MESSAGE));
+			}
+		},
+
+		async adoptExternal(id, source, externalId, patch) {
+			try {
+				return await db.$transaction(async (tx) => {
+					const locked = await tx.$queryRaw<Array<{ id: string }>>`
+						SELECT id FROM transactions WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`;
+					if (locked.length === 0) return null;
+					const row = await tx.transaction.findFirst({ where: { id, deletedAt: null } });
+					if (!row || row.source === source) return null;
+					const before = dataOf(toRecord(row));
+					const data = adoptExternalData(before, source, externalId, patch);
+					const taken = await tx.transaction.findUnique({
+						where: { source_externalId: { source, externalId: data.externalId as string } },
+						select: { id: true },
+					});
+					if (taken) return null;
+					await checkReferences(tx, refsOf(data), refsOf(before));
+					const changed = changedColumns(before, data);
+					return toRecord(
+						await tx.transaction.update({
+							where: { id },
+							data: { ...toColumns(changed), updatedAt: now() },
+						}),
+					);
+				});
+			} catch (e) {
+				// Corrida: outra rodada tomou o identificador entre a checagem e a gravação.
+				const t = translate(e, duplicateExternal);
+				if (t instanceof DataError && t.code === "duplicate") return null;
+				throw t;
+			}
+		},
+
+		async rekeyExternal(id, source, externalId) {
+			try {
+				return await db.$transaction(async (tx) => {
+					const locked = await tx.$queryRaw<Array<{ id: string }>>`
+						SELECT id FROM transactions WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`;
+					if (locked.length === 0) return null;
+					const row = await tx.transaction.findFirst({ where: { id, deletedAt: null } });
+					if (!row || row.source !== source || row.externalId === null) return null;
+					const taken = await tx.transaction.findUnique({
+						where: { source_externalId: { source, externalId } },
+						select: { id: true },
+					});
+					if (taken) return null;
+					return toRecord(
+						await tx.transaction.update({ where: { id }, data: { externalId, updatedAt: now() } }),
+					);
+				});
+			} catch (e) {
+				const t = translate(e, duplicateExternal);
+				if (t instanceof DataError && t.code === "duplicate") return null;
+				throw t;
 			}
 		},
 

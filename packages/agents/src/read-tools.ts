@@ -92,7 +92,9 @@ const searchInput = z.object({
 		.describe("Mês (AAAA-MM) pela data do lançamento. Combine com from/to só se precisar."),
 	from: dateInput.optional().describe("Data inicial, inclusive."),
 	to: dateInput.optional().describe("Data final, inclusive."),
-	kind: z.enum(["expense", "income", "refund", "transfer", "card_payment", "investment"]).optional(),
+	kind: z
+		.enum(["expense", "income", "refund", "transfer", "card_payment", "investment", "redemption"])
+		.optional(),
 	categoryId: z.string().max(64).optional().describe("Id de categoria (veja list_catalog)."),
 	accountId: z.string().max(64).optional().describe("Id de conta (veja list_catalog)."),
 	cardId: z.string().max(64).optional().describe("Id de cartão (veja list_catalog)."),
@@ -376,7 +378,7 @@ export const getCardInvoice = defineTool({
 		}
 		const month = monthOr(input.month, ctx);
 		const invoice = await ctx.reader.cardInvoice(cardId, month);
-		const remainingCents = Math.max(0, invoice.composition.totalCents - invoice.paidCents);
+		const remainingCents = invoice.owedCents;
 		const purchases = [...invoice.transactions]
 			.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
 			.slice(0, 15)
@@ -430,23 +432,32 @@ export const getCardInvoice = defineTool({
 
 // ------------------------------------------------------------ assinaturas
 
+/** Cobranças mensais achadas no histórico que ainda não são assinatura cadastrada (sugestões). */
 export const listSubscriptions = defineTool({
 	name: "list_subscriptions",
 	label: "Listando as assinaturas…",
 	access: "read",
 	description:
-		"Assinaturas e lançamentos recorrentes ativos (Netflix, aluguel, salário…): nome, valor, dia do mês, categoria e " +
-		"onde cai, mais o total mensal das saídas e o que ainda vai cair neste mês.",
+		"Assinaturas e recorrências do dono em duas partes: `subscriptions` são as CADASTRADAS (nome, valor, dia do mês, " +
+		"categoria, onde cai, ativas) e `detectedSuggestions` são as DETECTADAS no histórico de lançamentos, que se " +
+		"repetem todo mês mas NÃO estão cadastradas (Google One, YouTube Music, Anthropic…): valor típico, último valor, " +
+		"média, dia, conta ou cartão, ocorrências e datas. Use SEMPRE esta ferramenta para 'quanto tenho em assinatura', " +
+		"'minhas assinaturas' ou 'o que pago todo mês': traz `totals` já somados (cadastradas, sugeridas e geral). " +
+		"As sugestões não são certeza: diga que foram achadas no histórico e ofereça cadastrá-las (analyze_history + " +
+		"propose_setup). Nunca some nada você mesma.",
 	input: z.object({}),
 	async run(_input, ctx) {
-		const [recurrences, catalog, summary] = await Promise.all([
+		const [recurrences, catalog, summary, analysis] = await Promise.all([
 			ctx.reader.recurrences(),
 			ctx.catalog(),
 			ctx.reader.monthSummary(ctx.currentMonth),
+			ctx.reader.setupAnalysis(),
 		]);
 		const active = recurrences.filter(
 			(r) => r.archivedAt === null && (r.endDate === null || r.endDate >= ctx.today),
 		);
+		const where = (cardId: string | null, accountId: string | null) =>
+			cardId ? `${nameOf(catalog.cards, cardId) ?? "Cartão"} (cartão)` : nameOf(catalog.accounts, accountId);
 		const rows = active
 			.map((r) => ({
 				id: r.id,
@@ -455,9 +466,7 @@ export const listSubscriptions = defineTool({
 				...money(r.amountCents),
 				dayOfMonth: r.dayOfMonth,
 				category: nameOf(catalog.categories, r.categoryId),
-				where: r.cardId
-					? `${nameOf(catalog.cards, r.cardId) ?? "Cartão"} (cartão)`
-					: nameOf(catalog.accounts, r.accountId),
+				where: where(r.cardId, r.accountId),
 				endDate: r.endDate,
 			}))
 			.sort((a, b) => b.cents - a.cents || (a.name < b.name ? -1 : 1));
@@ -467,6 +476,25 @@ export const listSubscriptions = defineTool({
 			if (r.kind === "expense") monthlyOutCents += r.cents;
 			else monthlyInCents += r.cents;
 		}
+		const suggestions = analysis.recurring
+			.filter((r) => !r.registered)
+			.map((r) => ({
+				key: r.key,
+				// Texto do banco: dado, nunca instrução.
+				merchant: untrusted(r.merchant, 60),
+				knownService: r.knownService,
+				suggestedCategory: nameOf(catalog.categories, r.categoryId),
+				typicalAmount: money(r.amountCents),
+				lastAmount: money(r.lastAmountCents),
+				averageAmount: money(r.averageAmountCents),
+				frequency: "mensal",
+				dayOfMonth: r.dayOfMonth,
+				where: where(r.cardId, r.accountId),
+				occurrences: r.occurrences,
+				firstDate: r.firstDate,
+				lastDate: r.lastDate,
+			}));
+		const suggestedCents = suggestions.reduce((sum, r) => sum + r.typicalAmount.cents, 0);
 		return {
 			data: {
 				count: rows.length,
@@ -477,21 +505,40 @@ export const listSubscriptions = defineTool({
 					income: money(summary.pendingRecurring.incomeCents),
 				},
 				subscriptions: rows,
+				detectedSuggestions: suggestions,
+				detectedPeriod: { from: analysis.from, to: analysis.to, monthsWithData: analysis.monthsOfHistory },
+				limitedHistory: analysis.limitedHistory,
+				totals: {
+					registeredExpensesPerMonth: money(monthlyOutCents),
+					suggestedPerMonth: money(suggestedCents),
+					registeredPlusSuggestedPerMonth: money(monthlyOutCents + suggestedCents),
+				},
 			},
 			card: {
 				type: "rows",
 				tool: "list_subscriptions",
 				title: "Assinaturas e recorrências",
-				rows: rows
-					.filter((r) => r.kind === "expense")
-					.slice(0, 10)
-					.map((r) => ({
-						label: r.name,
-						caption: `dia ${r.dayOfMonth}${r.where ? ` · ${r.where}` : ""}`,
-						value: r.text,
-						cents: r.cents,
+				rows: [
+					...rows
+						.filter((r) => r.kind === "expense")
+						.slice(0, 10)
+						.map((r) => ({
+							label: r.name,
+							caption: `dia ${r.dayOfMonth}${r.where ? ` · ${r.where}` : ""}`,
+							value: r.text,
+							cents: r.cents,
+						})),
+					...suggestions.slice(0, 10).map((r) => ({
+						label: `${r.merchant} (detectada)`,
+						caption: `dia ${r.dayOfMonth}${r.where ? ` · ${r.where}` : ""} · ${r.occurrences}x`,
+						value: r.typicalAmount.text,
+						cents: r.typicalAmount.cents,
 					})),
-				total: { label: "Saídas por mês", value: formatBRL(monthlyOutCents) },
+				],
+				total: {
+					label: "Por mês (cadastradas + detectadas)",
+					value: formatBRL(monthlyOutCents + suggestedCents),
+				},
 			},
 		};
 	},

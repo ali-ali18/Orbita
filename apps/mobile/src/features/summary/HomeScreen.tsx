@@ -165,7 +165,7 @@ export function HomeScreen() {
 						connection={c}
 						now={now}
 						loading={reconnecting}
-						onReconnect={() => void reconnect()}
+						onReconnect={() => void reconnect(c.id)}
 					/>
 				))}
 				{emptyHome ? <EmptyHero /> : null}

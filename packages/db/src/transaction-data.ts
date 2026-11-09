@@ -17,6 +17,7 @@ import { DataError, invalid } from "./errors.ts";
 import { SPLIT_INSTALLMENT_MESSAGE, SPLIT_KIND_MESSAGE } from "./messages.ts";
 import { applyPatch, cleanLocalDate } from "./rules.ts";
 import type {
+	AdoptExternalPatch,
 	InstallmentInput,
 	SplitPartInput,
 	TransactionCursor,
@@ -50,6 +51,7 @@ export type TransactionDraft = TransactionInput & {
 	installmentNumber?: number | null;
 	installmentCount?: number | null;
 	categoryEditedByOwner?: boolean;
+	editedByOwner?: boolean;
 	splitGroupId?: string | null;
 };
 
@@ -93,6 +95,7 @@ function normalizeDraft(input: TransactionDraft): TransactionData {
 		sourceCategory: cleanSourceCategory(input.sourceCategory),
 		merchantName: cleanMerchantName(input.merchantName),
 		categoryEditedByOwner: input.categoryEditedByOwner === true,
+		editedByOwner: input.editedByOwner === true,
 		splitGroupId: input.splitGroupId ?? null,
 	};
 }
@@ -129,6 +132,7 @@ export function normalizeSplit(
 			categoryId: part.categoryId ?? null,
 			externalId: null,
 			categoryEditedByOwner: true,
+			editedByOwner: true,
 			splitGroupId,
 		}),
 	);
@@ -166,6 +170,7 @@ const PATCHABLE = new Set([
 	"status",
 	"note",
 	"categoryEditedByOwner",
+	"editedByOwner",
 ]);
 
 /**
@@ -198,6 +203,27 @@ export function changedColumns(current: TransactionData, next: TransactionData):
 		if (next[key] !== current[key]) diff[key] = next[key];
 	}
 	return diff as Partial<TransactionData>;
+}
+
+/** O lançamento depois de adotado por uma origem externa: ver `TransactionStore.adoptExternal`. */
+export function adoptExternalData(
+	current: TransactionData,
+	source: TransactionSource,
+	externalId: string,
+	patch: AdoptExternalPatch,
+): TransactionData {
+	const defaultBudget = current.installmentGroupId === null && current.budgetMonth === monthOf(current.date);
+	return normalizeDraft({
+		...current,
+		source,
+		externalId,
+		date: patch.date,
+		budgetMonth: patch.budgetMonth ?? (defaultBudget ? monthOf(patch.date) : current.budgetMonth),
+		invoiceMonth: patch.invoiceMonth ?? current.invoiceMonth,
+		categoryId: current.categoryId ?? patch.categoryId ?? null,
+		sourceCategory: patch.sourceCategory ?? current.sourceCategory,
+		merchantName: patch.merchantName ?? current.merchantName,
+	});
 }
 
 /** Valida o grupo todo antes de gravar qualquer parcela e gera o id do grupo. */

@@ -548,13 +548,23 @@ describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () =>
 				: "refund";
 	};
 
-	it("aplicação é investimento (não gasto) em Investimentos; resgate e rendimento são receita nessa categoria", () => {
+	it("aplicação é investimento (não gasto); o resgate é `redemption` (abate o Investido) e só o rendimento é receita", () => {
 		expect(kindOf({ category: "Fixed income", categoryId: "03020000", amount: -500 })).toBe(
 			"investment:cat-investimentos",
 		);
 		expect(kindOf({ category: "Fixed income", categoryId: "03020000", type: "CREDIT", amount: 500 })).toBe(
-			"income:cat-investimentos",
+			"redemption:cat-investimentos",
 		);
+		// Categoria de investimento, mas a descrição diz o que é: rendimento continua sendo receita.
+		expect(
+			kindOf({
+				category: "Fixed income",
+				categoryId: "03020000",
+				type: "CREDIT",
+				amount: 5,
+				description: "Rendimentos CDB",
+			}),
+		).toBe("income:cat-investimentos");
 		// Sem o nome da folha conhecido, o pai da árvore decide.
 		expect(kindOf({ category: "Algo novo", categoryId: "03020000", amount: -1 })).toBe(
 			"investment:cat-investimentos",
@@ -578,7 +588,7 @@ describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () =>
 			"investment:cat-investimentos",
 		);
 		expect(kindOf({ description: "RESGATE CAIXINHA", category: "Other", type: "CREDIT", amount: 100 })).toBe(
-			"income:cat-investimentos",
+			"redemption:cat-investimentos",
 		);
 		expect(kindOf({ description: "Poupança do Zé", category: "Eating out", amount: -100 })).toBe(
 			"expense:cat-delivery",
@@ -587,6 +597,26 @@ describe("mapPluggyTransaction: classificação pela categoria do Pluggy", () =>
 		expect(kindOf({ description: "Resgatei meu cachorro", category: null, amount: -10 })).toBe(
 			"expense:cat-outros",
 		);
+	});
+
+	it("estorno/devolução que cai na conta é `refund` com a conta (a despesa original o sync acha), nunca renda", () => {
+		for (const extra of [
+			{ description: "Estorno compra Padaria Central", category: null },
+			{ description: "Devolução Pix", category: "Transfer - PIX" },
+			{ description: "Crédito", category: "Refund" },
+		]) {
+			const mapped = mapPluggyTransaction(parse({ type: "CREDIT", amount: 45.9, ...extra }), ctx);
+			expect(mapped).toMatchObject({
+				action: "refund",
+				input: { kind: "refund", accountId: "acc-1", amountCents: 4590 },
+				original: { amountCents: 4590 },
+			});
+		}
+		// Reembolso de terceiro e salário continuam receita.
+		expect(kindOf({ description: "Reembolso empresa", category: null, type: "CREDIT", amount: 50 })).toBe(
+			"income:null",
+		);
+		expect(kindOf({ category: "Salary", type: "CREDIT", amount: 10 })).toBe("income:null");
 	});
 
 	it("despesa vai para a categoria do Órbita pela folha, pelo pai ou cai em Outros", () => {

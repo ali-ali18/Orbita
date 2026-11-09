@@ -43,6 +43,20 @@ const bodies = {
 			<Path d="m21 15-5-5L6 21" />
 		</>
 	),
+	/** Anexar documento (PDF) no chat, no mesmo traço do conjunto. */
+	documento: (
+		<>
+			<Path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+			<Path d="M14 3v5h5M9 13h6M9 17h6" />
+		</>
+	),
+	/** Tirar foto no chat, no mesmo traço do conjunto. */
+	camera: (
+		<>
+			<Path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+			<Circle cx="12" cy="13.5" r="3.5" />
+		</>
+	),
 	revisar: (
 		<>
 			<Path d="M22 12h-6l-2 3h-4l-2-3H2" />

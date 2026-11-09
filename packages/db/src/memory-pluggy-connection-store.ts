@@ -1,7 +1,12 @@
 import { DataError } from "./errors.ts";
 import { byCreated, type MemoryState } from "./memory-state.ts";
 import { PLUGGY_CONNECTION_TAKEN_MESSAGE } from "./messages.ts";
-import { normalizeConnection, normalizeLabel, normalizeSyncResult } from "./pluggy-connection-rules.ts";
+import {
+	normalizeConnection,
+	normalizeLabel,
+	normalizeSyncResult,
+	olderDay,
+} from "./pluggy-connection-rules.ts";
 import type { PluggyConnectionStore } from "./pluggy-connection-store.ts";
 
 export function createMemoryPluggyConnectionStore(state: MemoryState): PluggyConnectionStore {
@@ -14,6 +19,7 @@ export function createMemoryPluggyConnectionStore(state: MemoryState): PluggyCon
 				...data,
 				createdAt: state.now(),
 				lastSyncAt: null,
+				historyFrom: null,
 				lastStatus: null,
 				lastError: null,
 				accountCount: 0,
@@ -41,6 +47,7 @@ export function createMemoryPluggyConnectionStore(state: MemoryState): PluggyCon
 				lastStatus: status,
 				lastError: error,
 				lastSyncAt: syncedAt ?? current.lastSyncAt,
+				historyFrom: olderDay(current.historyFrom, syncedAt ? result.historyFrom : undefined),
 				...(counts ?? {}),
 			};
 			state.pluggyConnections.set(id, next);

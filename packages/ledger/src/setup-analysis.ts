@@ -7,9 +7,10 @@ import {
 	knownServiceOf,
 	type LocalDate,
 	medianCents,
-	merchantKey,
 	monthOf,
 	parseLocalDate,
+	sameSubscriptionBrand,
+	subscriptionBrand,
 } from "@orbita/core";
 import {
 	derivePattern,
@@ -74,8 +75,19 @@ interface Charge extends HuntedCharge {
 /** O texto do estabelecimento: o nome que o banco deu, senão a descrição. */
 const textOf = (t: SetupTransaction) => t.merchantName ?? t.description;
 
-/** Marca de um estabelecimento: a primeira palavra do nome já sem prefixo de banco ("pix enviado", "compra no débito"). */
-const brandOf = (text: string) => merchantKey(normalizeMerchantName(text) || text, 1);
+/** Marca de assinatura de um texto já limpo: o serviço ("YouTube", "Google One") ou a primeira palavra do nome. */
+const brandOf = (text: string) => subscriptionBrand(normalizeMerchantName(text) || text);
+
+/**
+ * O texto de onde sai a marca: nome do estabelecimento e descrição juntos, cada um sem prefixo de banco. O Pluggy
+ * costuma dar só "Google" no nome e deixar "GOOGLE *YouTubeMusic" na descrição.
+ */
+const brandTextOf = (t: SetupTransaction): string => {
+	const parts = [t.merchantName, t.description]
+		.map((x) => normalizeMerchantName(x))
+		.filter((x, i, all) => x !== "" && all.indexOf(x) === i);
+	return parts.length > 0 ? parts.join(" ") : textOf(t);
+};
 
 /** O valor mais frequente (empate: o que aparece primeiro). */
 function mostCommon<T extends string>(values: readonly (T | null)[]): T | null {
@@ -113,14 +125,16 @@ export function analyzeHistory(input: SetupAnalysisInput): SetupAnalysis {
 	const outrosIds = new Set(input.categories.filter((c) => c.slug === "outros").map((c) => c.id));
 	const categoryBySlug = new Map(input.categories.map((c) => [c.slug, c.id]));
 	const isOutros = (id: string | null) => id === null || outrosIds.has(id);
-	const registered = new Set(input.registeredNames.map((n) => brandOf(n)).filter((k) => k !== ""));
+	const registered = input.registeredNames.map((n) => brandOf(n)).filter((k) => k !== "");
+	const isRegistered = (brand: string) => registered.some((b) => sameSubscriptionBrand(b, brand));
 	const months = new Set(txs.map((t) => monthOf(t.date)));
 
-	const toCharge = (t: SetupTransaction): Charge => ({
+	const toCharge = (t: SetupTransaction, withBrandText = false): Charge => ({
 		id: t.id,
 		date: t.date,
 		amountCents: t.amountCents,
 		merchant: textOf(t),
+		...(withBrandText ? { brandText: brandTextOf(t) } : {}),
 		accountId: t.accountId,
 		cardId: t.cardId,
 		categoryId: t.categoryId,
@@ -129,31 +143,39 @@ export function analyzeHistory(input: SetupAnalysisInput): SetupAnalysis {
 	// ---- cobranças mensais (despesas que não são parcela)
 	const expenses = txs.filter((t) => t.kind === "expense");
 	const runs = findMonthlyRuns({
-		charges: expenses.filter((t) => !t.installment).map(toCharge),
+		charges: expenses.filter((t) => !t.installment).map((t) => toCharge(t, true)),
 		today,
-		brandOf,
+		brandOf: subscriptionBrand,
 		minKnownOccurrences: 2,
 		knownBrands: KNOWN_SUBSCRIPTION_BRANDS,
 		...(input.recurringTransactionIds ? { excludeIds: input.recurringTransactionIds } : {}),
 	});
+	const runsPerBrand = new Map<string, number>();
+	for (const run of runs) runsPerBrand.set(run.brand, (runsPerBrand.get(run.brand) ?? 0) + 1);
 	const recurring: SetupRecurring[] = runs.map((run) => {
 		const first = run.charges[0] as Charge;
 		const last = run.charges.at(-1) as Charge;
-		const known = knownServiceOf(normalizeMerchantName(last.merchant) || last.merchant);
+		const known = knownServiceOf(last.brandText ?? last.merchant);
 		const fromRule = pickCategoryRule(input.rules, last.merchant)?.categoryId ?? null;
 		const fromBank = mostCommon(run.charges.map((c) => (isOutros(c.categoryId) ? null : c.categoryId)));
 		const fromCatalog = known ? (categoryBySlug.get(known.categorySlug) ?? null) : null;
 		return {
-			key: `rec:${run.brand}`,
+			// Planos diferentes da mesma marca (valores em faixas distintas) ganham o valor na chave.
+			key:
+				(runsPerBrand.get(run.brand) ?? 0) > 1 ? `rec:${run.brand}:${run.amountCents}` : `rec:${run.brand}`,
 			merchant: last.merchant,
 			amountCents: run.amountCents,
+			lastAmountCents: last.amountCents,
+			averageAmountCents: Math.round(
+				run.charges.reduce((sum, c) => sum + c.amountCents, 0) / run.charges.length,
+			),
 			dayOfMonth: dayOfMonthOf(run.charges.map((c) => c.date)),
 			occurrences: run.charges.length,
 			firstDate: first.date,
 			lastDate: last.date,
 			startDate: `${addMonths(monthOf(last.date), 1)}-01`,
 			...whereOf(run.charges),
-			registered: registered.has(run.brand),
+			registered: isRegistered(run.brand),
 			knownService: known?.name ?? null,
 			categoryId: fromRule ?? fromBank ?? fromCatalog,
 		};
@@ -194,7 +216,7 @@ export function analyzeHistory(input: SetupAnalysisInput): SetupAnalysis {
 	// ---- salário: crédito mensal parecido, sempre do mesmo pagador (só se ainda não há renda cadastrada)
 	let income: SetupIncome | null = null;
 	if (!input.hasIncome) {
-		const credits = txs.filter((t) => t.kind === "income").map(toCharge);
+		const credits = txs.filter((t) => t.kind === "income").map((t) => toCharge(t));
 		const payerOf = (text: string) => (derivePattern(text) ?? "").split(" ").slice(0, 2).join(" ");
 		const best = findMonthlyRuns({
 			charges: credits,

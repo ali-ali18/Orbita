@@ -156,7 +156,9 @@ export function usePluggyActions() {
 	});
 	// Cria a sessão de uso único; quem abre o navegador é a tela.
 	const connect = useMutation({
-		mutationFn: () => call(() => api.v1.pluggy["connect-sessions"].$post()),
+		// Com `connectionId` é reconexão: o Connect abre em modo de atualização do mesmo item (nada duplica).
+		mutationFn: (connectionId?: string) =>
+			call(() => api.v1.pluggy["connect-sessions"].$post({ json: connectionId ? { connectionId } : {} })),
 	});
 	return { sync, reimport, add, rename, remove, connect };
 }

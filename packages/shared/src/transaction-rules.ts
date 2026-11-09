@@ -17,6 +17,8 @@ export interface TransactionShape {
 	installmentNumber?: number | null | undefined;
 	installmentCount?: number | null | undefined;
 	note?: string | null | undefined;
+	/** Origem do lançamento. Ausente = manual (chat, app, API). */
+	source?: string | null | undefined;
 }
 
 export const DESCRIPTION_MAX = 200;
@@ -67,7 +69,8 @@ export function transactionInvariantError(t: TransactionShape): string | null {
 			if (hasCard) return "Transferência não usa cartão.";
 			break;
 		case "investment":
-			// Aplicação: o dinheiro sai de uma CONTA para investimento. Não é gasto e não passa pelo cartão.
+		case "redemption":
+			// Aplicação (ou resgate): o dinheiro sai de uma CONTA para investimento. Não é gasto e não passa pelo cartão.
 			if (hasCard) return INVESTMENT_ON_CARD_MESSAGE;
 			if (!hasAccount) return "A aplicação precisa de uma conta.";
 			if (hasCounterpart) return "A conta de destino só vale para transferência.";
@@ -82,7 +85,10 @@ export function transactionInvariantError(t: TransactionShape): string | null {
 	if (isCardRow && !has(t.invoiceMonth)) return "Compra no cartão precisa do mês da fatura.";
 	if (!isCardRow && has(t.invoiceMonth)) return "Só compra ou estorno no cartão tem mês de fatura.";
 
-	if (t.kind === "refund" && !has(t.refundOfId)) return "O estorno precisa apontar para a despesa original.";
+	// Só o banco (Pluggy) pode trazer crédito no cartão sem achar a compra original (estorno parcial, cashback,
+	// anuidade/IOF estornados): o engine abate da própria categoria. Lançamento do dono sempre aponta a despesa.
+	if (t.kind === "refund" && !has(t.refundOfId) && t.source !== "pluggy")
+		return "O estorno precisa apontar para a despesa original.";
 	if (t.kind !== "refund" && has(t.refundOfId)) return "Só estorno aponta para uma despesa original.";
 
 	const parts = [t.installmentGroupId, t.installmentNumber, t.installmentCount].filter(has).length;

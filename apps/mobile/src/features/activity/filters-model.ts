@@ -32,12 +32,20 @@ export const PERIOD_OPTIONS: readonly { id: PeriodPreset; label: string }[] = [
 export const TYPE_OPTIONS: readonly {
 	id: TypeId;
 	label: string;
-	kinds: readonly ("expense" | "income" | "refund" | "transfer" | "card_payment" | "investment")[];
+	kinds: readonly (
+		| "expense"
+		| "income"
+		| "refund"
+		| "transfer"
+		| "card_payment"
+		| "investment"
+		| "redemption"
+	)[];
 }[] = [
 	{ id: "out", label: "Saídas", kinds: ["expense"] },
 	{ id: "in", label: "Entradas", kinds: ["income", "refund"] },
 	{ id: "transfer", label: "Transferências", kinds: ["transfer", "card_payment"] },
-	{ id: "invest", label: "Investimentos", kinds: ["investment"] },
+	{ id: "invest", label: "Investimentos", kinds: ["investment", "redemption"] },
 ];
 
 export const SOURCE_OPTIONS: readonly { id: TransactionSource; label: string }[] = [

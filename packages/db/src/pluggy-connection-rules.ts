@@ -40,3 +40,11 @@ export function normalizeSyncResult(result: PluggySyncResult) {
 		counts: result.counts ? normalizeCounts(result.counts) : null,
 	};
 }
+
+/** O dia mais antigo entre dois `AAAA-MM-DD` (qualquer um pode faltar). Valor torto é ignorado. */
+export function olderDay(a: string | null | undefined, b: string | null | undefined): string | null {
+	const ok = (d: string | null | undefined): d is string =>
+		typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d);
+	if (ok(a) && ok(b)) return a <= b ? a : b;
+	return ok(a) ? a : ok(b) ? b : null;
+}

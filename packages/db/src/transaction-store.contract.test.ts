@@ -437,6 +437,37 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect((await tx.get(a.transaction?.id ?? ""))?.categoryEditedByOwner).toBe(true);
 		});
 
+		it("editedByOwner nasce desligada, liga só pelo update e vale também para as partes de uma divisão", async () => {
+			const a = await tx.upsertByExternal("pluggy", "own-1", incoming({ status: "confirmed" }));
+			expect(a.transaction?.editedByOwner).toBe(false);
+			// Não nasce ligada nem por um create comum.
+			expect((await tx.create(expense())).editedByOwner).toBe(false);
+			const id = a.transaction?.id ?? "";
+			// O upsert repetido do sync nunca a apaga.
+			await tx.update(id, { editedByOwner: true, kind: "income" });
+			expect((await tx.get(id))?.editedByOwner).toBe(true);
+			const again = await tx.upsertByExternal("pluggy", "own-1", incoming({ status: "confirmed" }));
+			expect(again.created).toBe(false);
+			expect(again.transaction?.editedByOwner).toBe(true);
+			// Não confunde com a marca da categoria.
+			expect((await tx.get(id))?.categoryEditedByOwner).toBe(false);
+			// Desligar (desfazer a confirmação) também é pelo update.
+			await tx.update(id, { editedByOwner: false });
+			expect((await tx.get(id))?.editedByOwner).toBe(false);
+
+			const whole = await tx.create(expense({ amountCents: 1000 }));
+			const parts = await tx.splitTransaction(whole.id, [{ amountCents: 400 }, { amountCents: 600 }]);
+			expect(parts.every((p) => p.editedByOwner)).toBe(true);
+		});
+
+		it("resgate (redemption) vale só em conta, como a aplicação", async () => {
+			const ok = await tx.create({ ...expense(), kind: "redemption" });
+			expect(ok.kind).toBe("redemption");
+			await expect(tx.create({ ...cardPurchase(), kind: "redemption" })).rejects.toMatchObject({
+				code: "invalid",
+			});
+		});
+
 		describe("upsertInstallmentByExternal", () => {
 			const parcel = (number: number) =>
 				tx.upsertInstallmentByExternal(
@@ -445,7 +476,7 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 					incoming({
 						accountId: null,
 						cardId: b.card.id,
-						invoiceMonth: `2026-${String(10 + number).padStart(2, "0")}`,
+						invoiceMonth: `2026-${String(Math.min(12, 10 + number)).padStart(2, "0")}`,
 					}),
 					{ groupId: "pluggy-g1", number, count: 10 },
 				);
@@ -471,6 +502,29 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 				expect(again.transaction).toEqual(first.transaction);
 				await tx.softDelete(first.transaction?.id ?? "");
 				expect(await parcel(1)).toEqual({ created: false, transaction: null });
+			});
+
+			it("grupo apagado não ressuscita com a parcela seguinte, mas outro grupo segue", async () => {
+				const first = await parcel(1);
+				await parcel(2);
+				expect(await tx.softDeleteGroup(first.transaction?.installmentGroupId ?? "")).toBe(2);
+				expect(await parcel(3)).toEqual({ created: false, transaction: null });
+				expect(await tx.findByExternal("pluggy", "p-3")).toBeNull();
+				expect(await tx.listInstallmentGroups("2026-01")).toHaveLength(0);
+				const other = await tx.upsertInstallmentByExternal(
+					"pluggy",
+					"q-1",
+					incoming({ accountId: null, cardId: b.card.id, invoiceMonth: "2026-11" }),
+					{ groupId: "pluggy-g2", number: 1, count: 10 },
+				);
+				expect(other.created).toBe(true);
+			});
+
+			it("grupo com parcela viva segue crescendo mesmo com uma apagada", async () => {
+				const first = await parcel(1);
+				await parcel(2);
+				await tx.softDelete(first.transaction?.id ?? "");
+				expect((await parcel(3)).created).toBe(true);
 			});
 
 			it("outra compra no mesmo grupo e número é duplicate", async () => {
@@ -655,6 +709,133 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			// Sem id externo, nada impede dois iguais.
 			await tx.create(expense());
 			await tx.create(expense());
+		});
+	});
+
+	describe("adoptExternal", () => {
+		const patch = { date: "2026-11-06" as const };
+
+		it("passa a apontar para a origem externa, mantém o que o dono definiu e usa a data do banco", async () => {
+			const mine = await tx.create(
+				expense({ description: "Padaria da esquina", note: "pão", categoryId: b.food.id }),
+			);
+			const adopted = await tx.adoptExternal(mine.id, "pluggy", "px-1", {
+				...patch,
+				categoryId: null,
+				merchantName: "PADARIA SAO JOAO",
+			});
+			expect(adopted).toMatchObject({
+				id: mine.id,
+				source: "pluggy",
+				externalId: "px-1",
+				date: "2026-11-06",
+				budgetMonth: "2026-11",
+				description: "Padaria da esquina",
+				note: "pão",
+				categoryId: b.food.id,
+				status: "confirmed",
+				amountCents: 1990,
+				merchantName: "PADARIA SAO JOAO",
+			});
+			expect(await tx.get(mine.id)).toEqual(adopted);
+			// O próximo upsert acha o mesmo registro: não cria outro.
+			const again = await tx.upsertByExternal("pluggy", "px-1", expense());
+			expect(again.created).toBe(false);
+			expect(again.transaction?.id).toBe(mine.id);
+			expect(await tx.countMatching()).toBe(1);
+		});
+
+		it("a categoria do banco só entra se o lançamento não tinha uma", async () => {
+			const mine = await tx.create(expense());
+			const adopted = await tx.adoptExternal(mine.id, "pluggy", "px-2", { ...patch, categoryId: b.food.id });
+			expect(adopted?.categoryId).toBe(b.food.id);
+		});
+
+		it("o mês do orçamento acompanha a data nova quando era o padrão", async () => {
+			const mine = await tx.create(expense({ date: "2026-10-31" }));
+			const adopted = await tx.adoptExternal(mine.id, "pluggy", "px-3", { date: "2026-11-01" });
+			expect(adopted).toMatchObject({ date: "2026-11-01", budgetMonth: "2026-11" });
+		});
+
+		it("cartão: a fatura do banco vale", async () => {
+			const mine = await tx.create(cardPurchase());
+			const adopted = await tx.adoptExternal(mine.id, "pluggy", "px-4", {
+				...patch,
+				invoiceMonth: "2026-12",
+			});
+			expect(adopted).toMatchObject({ cardId: b.card.id, invoiceMonth: "2026-12" });
+		});
+
+		it("devolve null e não muda nada: apagado, inexistente, já da origem ou identificador em uso", async () => {
+			const gone = await tx.create(expense());
+			await tx.softDelete(gone.id);
+			expect(await tx.adoptExternal(gone.id, "pluggy", "px-5", patch)).toBeNull();
+			expect(
+				await tx.adoptExternal("00000000-0000-4000-8000-000000000000", "pluggy", "px-5", patch),
+			).toBeNull();
+
+			const already = (await tx.upsertByExternal("pluggy", "px-6", expense())).transaction;
+			expect(await tx.adoptExternal(already?.id as string, "pluggy", "px-7", patch)).toBeNull();
+
+			const mine = await tx.create(expense());
+			expect(await tx.adoptExternal(mine.id, "pluggy", "px-6", patch)).toBeNull();
+			// Identificador de um lançamento apagado continua reservado.
+			await tx.softDelete(already?.id as string);
+			expect(await tx.adoptExternal(mine.id, "pluggy", "px-6", patch)).toBeNull();
+			expect(await tx.get(mine.id)).toMatchObject({ source: "manual", externalId: null, date: "2026-11-05" });
+		});
+
+		it("mantém o parcelamento do lançamento adotado", async () => {
+			const [first] = await tx.createInstallmentGroup([
+				{ ...cardPurchase({ amountCents: 5000 }), installmentNumber: 1, installmentCount: 2 },
+				{
+					...cardPurchase({ amountCents: 5000, date: "2026-12-05", invoiceMonth: "2026-12" }),
+					installmentNumber: 2,
+					installmentCount: 2,
+				},
+			]);
+			const adopted = await tx.adoptExternal(first?.id as string, "pluggy", "px-8", patch);
+			expect(adopted).toMatchObject({
+				installmentGroupId: first?.installmentGroupId,
+				installmentNumber: 1,
+				installmentCount: 2,
+				budgetMonth: first?.budgetMonth,
+			});
+		});
+	});
+
+	describe("rekeyExternal", () => {
+		it("troca só o identificador externo de um lançamento da origem; o próximo upsert acha o mesmo", async () => {
+			const old = (await tx.upsertByExternal("pluggy", "item1-t1", expense({ note: "minha nota" })))
+				.transaction;
+			const moved = await tx.rekeyExternal(old?.id as string, "pluggy", "item2-t1");
+			expect(moved).toMatchObject({
+				id: old?.id,
+				source: "pluggy",
+				externalId: "item2-t1",
+				note: "minha nota",
+			});
+			expect(await tx.existsByExternal("pluggy", "item1-t1")).toBe(false);
+			const again = await tx.upsertByExternal("pluggy", "item2-t1", expense());
+			expect(again.created).toBe(false);
+			expect(again.transaction?.id).toBe(old?.id);
+			expect(await tx.countMatching()).toBe(1);
+		});
+
+		it("devolve null e não muda nada: manual, de outra origem, apagado, inexistente ou id em uso", async () => {
+			const mine = await tx.create(expense());
+			expect(await tx.rekeyExternal(mine.id, "pluggy", "k-1")).toBeNull();
+			const a = (await tx.upsertByExternal("pluggy", "k-a", expense())).transaction;
+			const other = (await tx.upsertByExternal("pluggy", "k-b", expense())).transaction;
+			expect(await tx.rekeyExternal(a?.id as string, "import", "k-9")).toBeNull();
+			expect(await tx.rekeyExternal(a?.id as string, "pluggy", "k-b")).toBeNull();
+			await tx.softDelete(other?.id as string);
+			// O id do apagado continua reservado.
+			expect(await tx.rekeyExternal(a?.id as string, "pluggy", "k-b")).toBeNull();
+			expect(await tx.rekeyExternal("00000000-0000-4000-8000-000000000000", "pluggy", "k-8")).toBeNull();
+			await tx.softDelete(a?.id as string);
+			expect(await tx.rekeyExternal(a?.id as string, "pluggy", "k-7")).toBeNull();
+			expect(await tx.get(mine.id)).toMatchObject({ source: "manual", externalId: null });
 		});
 	});
 

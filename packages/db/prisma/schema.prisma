@@ -63,6 +63,7 @@ enum TransactionKind {
   card_payment
   refund
   investment
+  redemption
 
   @@map("transaction_kind")
 }
@@ -200,6 +201,8 @@ model Transaction {
   merchantName          String?           @map("merchant_name")
   /// O dono trocou a categoria à mão: regras novas não reclassificam este lançamento.
   categoryEditedByOwner Boolean           @default(false) @map("category_edited_by_owner")
+  /// O dono mexeu no tipo, data, valor, conta ou cartão (ou revisou um pendente): sincronização e pareamento não o reescrevem.
+  editedByOwner         Boolean           @default(false) @map("edited_by_owner")
   /// Partes de uma compra que o dono dividiu em categorias diferentes dividem este id. Sem unicidade: é só o agrupamento.
   splitGroupId          String?           @map("split_group_id")
   createdAt             DateTime          @default(now()) @map("created_at")
@@ -388,6 +391,8 @@ model PluggyConnection {
   createdAt          DateTime  @default(now()) @map("created_at")
   /// Início da última sincronização que terminou sem erro (a próxima janela parte daqui).
   lastSyncAt         DateTime? @map("last_sync_at")
+  /// Dia mais antigo (AAAA-MM-DD) que alguma sincronização boa já buscou. Nulo = nunca buscou os 6 meses: a próxima busca o histórico inteiro uma vez.
+  historyFrom        String?   @map("history_from")
   /// "ok" | "partial" | "error" | "no_keys".
   lastStatus         String?   @map("last_status")
   /// Mensagem já sanitizada (sem segredo).
@@ -407,6 +412,8 @@ model PluggyConnectSession {
   tokenHash String    @unique @map("token_hash")
   /// O aparelho que pediu a sessão: se for revogado, a sessão deixa de valer.
   deviceId  String    @map("device_id")
+  /// Reconexão: o item que o Pluggy Connect deve ATUALIZAR (mesmo item, mesmos ids). Nulo = conexão nova.
+  updateItemId String? @map("update_item_id")
   expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
   createdAt DateTime  @default(now()) @map("created_at")

@@ -73,7 +73,12 @@ export function createApp(deps: AppDeps) {
 		maxSize: MAX_BODY_BYTES,
 		onError: (c) => c.json(apiError("corpo_grande", "O pedido é grande demais."), 413),
 	});
-	app.use(async (c, next) => (c.req.path.startsWith("/v1/imports") ? next() : smallBody(c, next)));
+	// O chat aceita anexos (foto ou PDF): `POST /v1/chat` tem o próprio limite, aplicado depois de autenticar.
+	app.use(async (c, next) =>
+		c.req.path.startsWith("/v1/imports") || (c.req.method === "POST" && c.req.path === "/v1/chat")
+			? next()
+			: smallBody(c, next),
+	);
 
 	app.get("/health", (c) => c.json({ ok: true }));
 	// Módulo novo = pasta em `modules/` + uma linha aqui.

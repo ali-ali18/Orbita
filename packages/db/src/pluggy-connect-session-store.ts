@@ -2,6 +2,8 @@ export interface PluggyConnectSessionRecord {
 	/** O aparelho que pediu a sessão (se for revogado, a sessão não vale mais). */
 	deviceId: string;
 	createdAt: Date;
+	/** Reconexão: o item existente que o widget deve atualizar. `null` = conexão nova. */
+	updateItemId: string | null;
 }
 
 /**
@@ -13,7 +15,14 @@ export interface PluggyConnectSessionStore {
 	 * Cria a sessão e expira as anteriores ainda vivas: só uma fica ativa por vez, mesmo com pedidos simultâneos
 	 * (lock no banco). Apaga as velhas.
 	 */
-	create(input: { tokenHash: string; deviceId: string; expiresAt: Date; now: Date }): Promise<void>;
+	create(input: {
+		tokenHash: string;
+		deviceId: string;
+		expiresAt: Date;
+		now: Date;
+		/** Só na reconexão: o item que será atualizado. */
+		updateItemId?: string;
+	}): Promise<void>;
 	/** A sessão, se existe, não foi usada e não expirou. Não gasta nada. */
 	find(tokenHash: string, now: Date): Promise<PluggyConnectSessionRecord | null>;
 	/** Gasta a sessão (uso único), de forma atômica. `false` se não existe, expirou ou já foi usada. */

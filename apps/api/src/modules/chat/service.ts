@@ -3,6 +3,7 @@ import {
 	ALL_TOOLS,
 	applyProposal,
 	buildAgentSystem,
+	buildUserContent,
 	type ChatModelConfig,
 	costMicroUsd,
 	isMainModel,
@@ -30,8 +31,10 @@ import {
 } from "@orbita/db";
 import { budgetBlock, limitMessage } from "@orbita/ledger";
 import {
+	ATTACHMENT_MARKER,
 	appliedView,
 	CHAT_ERROR_CODES,
+	type ChatAttachment,
 	type ChatCard,
 	type ChatMessageDto,
 	chatCardSchema,
@@ -278,6 +281,8 @@ export interface ChatTurnInput {
 	message?: string | undefined;
 	/** "Configurar com a Órbita": a tarefa vem do servidor, não do que o dono digitou. */
 	intent?: "setup" | undefined;
+	/** Fotos e PDFs desta mensagem (já conferidos). Vão ao modelo só nesta volta; o banco guarda só o marcador. */
+	attachments?: ChatAttachment[] | undefined;
 	ownerName: string | null;
 	emit: (
 		event: AgentEvent | { type: "meta"; conversationId: string; model?: string },
@@ -342,10 +347,13 @@ export async function runChatTurn(
 	const { stores } = deps;
 	const setup = input.intent === "setup";
 	// Na tarefa fixa, o que aparece como fala do dono é o rótulo do botão, e o que o modelo recebe é o texto da tarefa.
-	const shown = setup ? SETUP_USER_MESSAGE : (input.message ?? "");
+	const attachments = setup ? [] : (input.attachments ?? []);
+	const typed = setup ? SETUP_USER_MESSAGE : (input.message ?? "");
+	// O arquivo nunca vai para o banco: no histórico fica o texto do dono e o marcador.
+	const shown = attachments.length > 0 ? [typed, ATTACHMENT_MARKER].filter(Boolean).join("\n") : typed;
 	const conversation =
 		pre.conversationId === null
-			? await stores.chat.createConversation(shown, { agentId: pre.agent?.id ?? null })
+			? await stores.chat.createConversation(typed || "Anexo", { agentId: pre.agent?.id ?? null })
 			: await stores.chat.getConversation(pre.conversationId);
 	if (!conversation) throw new DataError("not_found", "Conversa não encontrada.");
 
@@ -376,7 +384,11 @@ export async function runChatTurn(
 			? resolvePersona(pre.agent)
 			: { roleText: "", tools: ALL_TOOLS };
 	// O modelo escolhido para o agente vale; senão, a mesma escolha do chat (o barato só na Órbita, em pergunta curta).
-	const picked = pickModel(models, { text: shown, isFirstMessage: before.length === 0 });
+	const picked = pickModel(models, {
+		text: typed,
+		// Ler imagem ou PDF pede o modelo principal, nunca o barato.
+		isFirstMessage: before.length === 0 && attachments.length === 0,
+	});
 	const { model, effort } = setup
 		? { model: models.main, effort: models.effort }
 		: pre.agent?.model && isMainModel(pre.agent.model)
@@ -426,7 +438,8 @@ export async function runChatTurn(
 			effort,
 			system: buildAgentSystem({ today, month, ownerName: input.ownerName }, persona.roleText),
 			history,
-			userText: setup ? SETUP_TASK_TEXT : shown,
+			userText: setup ? SETUP_TASK_TEXT : typed,
+			...(attachments.length > 0 ? { userContent: buildUserContent(typed, attachments) } : {}),
 			...(input.signal ? { signal: input.signal } : {}),
 			// O fluxo pode ter fechado (o app saiu da tela): escrever nele falha em silêncio, o turno segue e é gravado.
 			emit: (event) => {

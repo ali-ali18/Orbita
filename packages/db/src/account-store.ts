@@ -37,4 +37,10 @@ export interface AccountStore {
 	get(id: string): Promise<AccountRecord | null>;
 	/** A conta ligada a um cadastro de fora, arquivada ou não. */
 	findByExternal(source: TransactionSource, externalId: string): Promise<AccountRecord | null>;
+	/**
+	 * Aponta uma conta de fora (`source` diferente de "manual") para outro identificador externo da MESMA origem: o
+	 * banco refez a conexão e os ids mudaram. Só mexe no `externalId`; nome, lançamentos e arquivamento ficam.
+	 * `null`, sem mudar nada, se a conta não existe, é manual ou a identidade nova já está em uso.
+	 */
+	relinkExternal(id: string, externalId: string): Promise<AccountRecord | null>;
 }

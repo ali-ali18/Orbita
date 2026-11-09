@@ -216,7 +216,7 @@ export type SkipReason =
 	| "card_payment" // o lado do cartão do pagamento da fatura (o lado do banco é quem conta)
 	| "card_payment_unlinked" // pagamento de fatura que não dá para ligar a um cartão (o Órbita não tem pagamento "sem cartão")
 	| "bills_unavailable" // as faturas não carregaram: não dá para saber se o débito/crédito é pagamento de fatura
-	| "refund_without_original"; // estorno no cartão sem a compra original gravada (o sync tenta de novo)
+	| "refund_without_original"; // estorno na conta sem a despesa original gravada (o sync tenta de novo)
 
 /** O que decidiu a categoria de uma despesa, na ordem de prioridade. */
 export type CategorySource = "rule" | "mcc" | "cnae" | "pluggy" | "none";
@@ -319,7 +319,7 @@ export type PaymentCardMatch = { kind: "one"; cardId: string } | { kind: "ambigu
 export function matchPaymentCard(
 	amountCents: number,
 	description: string,
-	ctx: Pick<TransactionContext, "billTotals" | "cards" | "bills">,
+	ctx: Pick<TransactionContext, "billTotals" | "cards" | "bills" | "payments">,
 	date?: LocalDate,
 ): PaymentCardMatch {
 	// Faturas de QUALQUER conexão: o valor é o total ou o que faltava pagar, e o dia cai a até 5 dias do vencimento.
@@ -332,6 +332,15 @@ export function matchPaymentCard(
 		...new Set([
 			...(ctx.billTotals ?? []).filter((b) => b.amountCents === amountCents).map((b) => b.cardId),
 			...billHits.map((b) => b.cardId),
+			// Pagamento que o próprio banco registrou na fatura (qualquer conexão, qualquer dia antes do vencimento).
+			...(date === undefined
+				? []
+				: (ctx.payments ?? [])
+						.filter(
+							(p) =>
+								p.amountCents === amountCents && Math.abs(daysBetween(p.date, date)) <= BILL_PAYMENT_DAYS,
+						)
+						.map((p) => p.cardId)),
 		]),
 	];
 	const named = cardsNamedIn(description, ctx.cards ?? []);
@@ -416,6 +425,8 @@ export interface TransactionContext {
 	billTotals?: readonly BillTotal[];
 	/** Faturas de todos os cartões conectados, de qualquer conexão (total, falta pagar e vencimento). */
 	bills?: readonly BillInfo[];
+	/** `payments[]` das faturas de TODAS as conexões: um pagamento parcial ou adiantado saído de outra conexão. */
+	payments?: readonly BillPayment[];
 	/** Os cartões vivos da conexão (nome e final), para ler o emissor na descrição do pagamento da fatura. */
 	cards?: readonly { id: string; name: string; last4: string | null }[];
 	/** Mês de cada fatura (`billId` → mês do vencimento): vale mais que o cálculo pelo dia de fechamento. */
@@ -596,6 +607,13 @@ function chooseCategory(
 }
 
 /**
+ * O dono mexeu neste lançamento (categoria, tipo, data, valor, conta/cartão, ou revisou um pendente)? Então nenhum
+ * recálculo da sincronização ou do pareamento (tipo, data do cartão, transferência, pagamento de fatura) o toca.
+ */
+export const touchedByOwner = (t: { categoryEditedByOwner: boolean; editedByOwner: boolean }) =>
+	t.categoryEditedByOwner || t.editedByOwner;
+
+/**
  * Lançamento já gravado, que o dono não editou, e que caiu em Outros: a sincronização pode trocar para uma
  * categoria específica. Não mexe no que o dono escolheu, nem apaga uma categoria boa.
  */
@@ -627,6 +645,14 @@ export function pluggyInstallmentGroupId(input: {
 		.update(JSON.stringify([input.cardId, input.purchaseDate, input.count, name]))
 		.digest("hex");
 	return `pluggy-${hash.slice(0, 40)}`;
+}
+
+/** Categoria ou descrição que diz estorno/devolução/chargeback ("Estorno compra X", "Devolução Pix", "Refund"). */
+const REFUND_TEXT = /\b(refunds?|estornos?|estornad[oa]|devolucao|devolvid[oa]|chargeback)\b/;
+
+/** Crédito na conta que desfaz uma despesa (e não renda). Reembolso de terceiro não entra: pode ser renda de verdade. */
+export function isRefundCredit(chain: readonly string[], description: string): boolean {
+	return chain.some((name) => REFUND_TEXT.test(name)) || REFUND_TEXT.test(plain(description));
 }
 
 function describe(tx: PluggyTransaction): string {
@@ -692,14 +718,20 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 			};
 		}
 		// 2) Aplicação sai do saldo e vira `investment` (categoria Investimentos): NÃO é gasto, aparece à parte como
-		// "Investido". Resgate e rendimento voltam como receita nessa categoria. Transferência entre contas suas continua de fora (abaixo).
+		// "Investido". O resgate (o principal que volta) vira `redemption`: nem renda nem gasto, abate o "Investido". Só o
+		// rendimento é receita. Transferência entre contas suas continua de fora (abaixo).
 		if (family === "investment" || family === "yield") {
 			const categoryId = ctx.categoryIds?.get("investimentos") ?? null;
 			if (tx.type === "CREDIT") {
 				return {
 					action: "upsert",
 					externalId: tx.id,
-					input: { ...base, kind: "income", accountId: ctx.accountId, categoryId },
+					input: {
+						...base,
+						kind: family === "yield" ? "income" : "redemption",
+						accountId: ctx.accountId,
+						categoryId,
+					},
 				};
 			}
 			return {
@@ -766,6 +798,18 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 					counterpartAccountId: ctx.ownTransferCounterparts?.get(tx.id) ?? null,
 					categoryId: ctx.categoryIds?.get("transferencias") ?? null,
 				},
+			};
+		}
+		// Estorno ou devolução que caiu na conta (compra no débito, Pix devolvido): desfaz a despesa original, não é
+		// renda. O sync procura a despesa; sem ela o crédito espera a próxima rodada (como o estorno do cartão).
+		if (tx.type === "CREDIT" && isRefundCredit(chain, description)) {
+			const refundChoice = choose();
+			return {
+				action: "refund",
+				externalId: tx.id,
+				input: { ...base, kind: "refund", accountId: ctx.accountId, categoryId: refundChoice.categoryId },
+				categorySource: refundChoice.source,
+				original: { amountCents: amount, description, date },
 			};
 		}
 		// Rendimento de investimento é receita de verdade (o principal que volta, não: ver acima).

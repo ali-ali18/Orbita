@@ -7,6 +7,7 @@ import {
 	pluggyConnectionCreateBody,
 	pluggyConnectionIdParam,
 	pluggyConnectionRenameBody,
+	pluggyConnectSessionBody,
 } from "@orbita/shared";
 import { Hono } from "hono";
 import { apiError, defined, orNotFound } from "../../http/errors.ts";
@@ -101,6 +102,15 @@ export function routes({
 			return c.json({ connection: toPluggyConnectionDto(connection) });
 		})
 		.post("/v1/pluggy/connect-sessions", async (c) => {
+			// Corpo opcional: `{ connectionId }` pede a RECONEXÃO de uma conexão já cadastrada.
+			const raw: unknown = await c.req.json().catch(() => ({}));
+			const parsed = pluggyConnectSessionBody.safeParse(raw ?? {});
+			if (!parsed.success) return c.json(apiError("dados_invalidos", "Pedido inválido."), 400);
+			const { connectionId } = parsed.data;
+			// Só se reconecta o que é do dono: o item tem de estar entre as conexões cadastradas.
+			if (connectionId && !(await pluggyConnections.get(connectionId))) {
+				return c.json(apiError("nao_encontrado", "Conexão não encontrada."), 404);
+			}
 			// Quem não tem as chaves não chega à página: avisa já, no app.
 			if (!(await readKeys(vault))) {
 				return c.json(
@@ -112,6 +122,7 @@ export function routes({
 				stores.pluggyConnectSessions,
 				c.get("device").id,
 				now(),
+				connectionId,
 			);
 			const body: PluggyConnectSessionResponse = {
 				path: connectPagePath(token),

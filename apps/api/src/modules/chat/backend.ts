@@ -35,7 +35,8 @@ export function createAgentWriter(stores: Stores, now: () => Date): AgentWriter 
 		},
 		async revertConfirmation(id) {
 			if (!(await stores.transactions.get(id))) return;
-			await stores.transactions.update(id, { status: "pending" });
+			// Desfazer a confirmação também desfaz a marca que ela ligou.
+			await stores.transactions.update(id, { status: "pending", editedByOwner: false });
 		},
 		async deleteTransaction(id) {
 			try {

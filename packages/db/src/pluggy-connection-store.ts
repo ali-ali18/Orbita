@@ -7,6 +7,8 @@ export interface PluggyConnectionRecord {
 	createdAt: Date;
 	/** Início da última sincronização que terminou sem erro; a próxima janela parte daqui. */
 	lastSyncAt: Date | null;
+	/** Dia (AAAA-MM-DD) mais antigo que uma sincronização boa já buscou; `null` = nunca buscou o histórico de 6 meses. */
+	historyFrom: string | null;
 	lastStatus: PluggySyncStatus | null;
 	/** Mensagem sanitizada (sem segredo). */
 	lastError: string | null;
@@ -29,6 +31,8 @@ export interface PluggySyncResult {
 	error?: string | null;
 	/** Só quando a sincronização terminou "ok": avança a janela da próxima. */
 	syncedAt?: Date;
+	/** Com `syncedAt`: de que dia a janela buscou. Guarda o mais antigo já visto (nunca "encurta" o histórico). */
+	historyFrom?: string;
 	/** Quantas contas e cartões a sincronização ligou à conexão. Ausente (erro antes de ligar) = não mexe. */
 	counts?: { accounts: number; cards: number };
 }

@@ -4,6 +4,7 @@ import { assertRefs, type MemoryState, type StoredTransaction } from "./memory-s
 import { HAS_REFUNDS_MESSAGE, SPLIT_HAS_REFUNDS_MESSAGE } from "./messages.ts";
 import { cleanMonth } from "./rules.ts";
 import {
+	adoptExternalData,
 	byDateAsc,
 	byRecent,
 	changedColumns,
@@ -119,6 +120,13 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 			const existing = findExternal(data);
 			if (existing)
 				return { created: false, transaction: existing.deletedAt === null ? view(existing) : null };
+			// Grupo que o dono apagou (tem parcelas, nenhuma viva): a parcela nova do banco não o ressuscita.
+			const groupRows = [...state.transactions.values()].filter(
+				(t) => t.installmentGroupId === installment.groupId,
+			);
+			if (groupRows.length > 0 && groupRows.every((t) => t.deletedAt !== null)) {
+				return { created: false, transaction: null };
+			}
 			checkReferences(data);
 			// Mesma unicidade do banco: (grupo, número), contando também as apagadas.
 			if (
@@ -128,6 +136,35 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 			)
 				throw new DataError("duplicate", DUPLICATE_INSTALLMENT_MESSAGE);
 			return { created: true, transaction: view(insert(data)) };
+		},
+
+		async adoptExternal(id, source, externalId, patch) {
+			const current = state.transactions.get(id);
+			if (!current || current.deletedAt !== null || current.source === source) return null;
+			const data = adoptExternalData(dataOf(current), source, externalId, patch);
+			if (findExternal(data)) return null;
+			checkReferences(data, dataOf(current));
+			const next: StoredTransaction = { ...current, ...data, updatedAt: state.now() };
+			state.transactions.set(id, next);
+			return view(next);
+		},
+
+		async rekeyExternal(id, source, externalId) {
+			const current = state.transactions.get(id);
+			if (
+				!current ||
+				current.deletedAt !== null ||
+				current.source !== source ||
+				current.externalId === null
+			) {
+				return null;
+			}
+			if ([...state.transactions.values()].some((t) => t.source === source && t.externalId === externalId)) {
+				return null;
+			}
+			const next: StoredTransaction = { ...current, externalId, updatedAt: state.now() };
+			state.transactions.set(id, next);
+			return view(next);
 		},
 
 		async existsByExternal(source, externalId) {

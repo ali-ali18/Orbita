@@ -1,8 +1,10 @@
 import type { ChatModelConfig } from "@orbita/agents";
-import { describeModelError, type ModelClient } from "@orbita/agents";
+import { checkAttachments, describeModelError, type ModelClient } from "@orbita/agents";
 import type { ChatConversationRecord, SecretVault } from "@orbita/db";
 import { createRateLimiter } from "@orbita/security";
 import {
+	ATTACHMENT_MAX_BYTES,
+	ATTACHMENTS_MAX,
 	chatConversationRenameBody,
 	chatConversationsQuery,
 	chatRequestBody,
@@ -10,6 +12,7 @@ import {
 	proposalConfirmBody,
 } from "@orbita/shared";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { apiError, orNotFound } from "../../http/errors.ts";
 import type { ModuleDeps } from "../../http/module-deps.ts";
@@ -43,6 +46,9 @@ const toConversationDto = (r: ChatConversationRecord) => ({
 	agentId: r.agentId,
 });
 
+/** Até 3 anexos de 5 MB em base64 (4/3 do tamanho) mais o texto. O resto da API segue com o limite de 16 KB. */
+export const CHAT_MAX_BODY_BYTES = Math.ceil((ATTACHMENTS_MAX * ATTACHMENT_MAX_BYTES * 4) / 3) + 64 * 1024;
+
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 export const DEFAULT_CHAT_RATE_LIMIT = 30;
 
@@ -68,11 +74,19 @@ export function routes(deps: ChatRoutesDeps) {
 		.use("/v1/chat/*", requireDevice)
 		.post(
 			"/v1/chat",
+			bodyLimit({
+				maxSize: CHAT_MAX_BODY_BYTES,
+				onError: (c) =>
+					c.json(apiError("corpo_grande", "O anexo passa de 5 MB. Escolha um arquivo menor."), 413),
+			}),
 			// O limite conta só quem chega a pedir IA (o corpo inválido nem gasta o limite).
 			validate("json", chatRequestBody),
 			rateLimit(limiter, (c) => c.get("device").id),
 			async (c) => {
 				const body = c.req.valid("json");
+				// O tipo declarado tem de bater com o conteúdo (foto de verdade, PDF de verdade).
+				const attachmentProblem = checkAttachments(body.attachments ?? []);
+				if (attachmentProblem) return c.json(apiError("anexo_invalido", attachmentProblem), 400);
 				let pre: Awaited<ReturnType<typeof preflightChat>>;
 				try {
 					pre = await preflightChat(service, body.conversationId, body.agentId, {
@@ -97,6 +111,7 @@ export function routes(deps: ChatRoutesDeps) {
 							conversationId: body.conversationId,
 							message: body.message,
 							intent: body.intent,
+							attachments: body.attachments,
 							ownerName: profile.displayName,
 							signal: controller.signal,
 							emit: (event) => send(event),

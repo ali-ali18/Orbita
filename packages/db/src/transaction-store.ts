@@ -31,6 +31,11 @@ export interface TransactionData {
 	merchantName: string | null;
 	/** O dono trocou a categoria à mão (PATCH): regras novas não reclassificam. */
 	categoryEditedByOwner: boolean;
+	/**
+	 * O dono mexeu no que o lançamento É (tipo, data, valor, conta ou cartão) ou revisou um pendente: a sincronização e o
+	 * pareamento nunca reclassificam nem reescrevem este lançamento. Só liga pelo `update` (a API liga no PATCH).
+	 */
+	editedByOwner: boolean;
 	/** Id das partes de uma compra dividida (todas as partes, e as partes de uma parte, compartilham o mesmo). */
 	splitGroupId: string | null;
 }
@@ -129,6 +134,22 @@ export interface ExternalInstallment {
 	count: number;
 }
 
+/**
+ * O que o banco diz de um lançamento que o dono já tinha (ver `adoptExternal`). Só data e meses entram sempre;
+ * categoria só se o lançamento não tinha uma.
+ */
+export interface AdoptExternalPatch {
+	/** Data oficial do banco. */
+	date: LocalDate;
+	/** Sem informar, vale o do lançamento (ou o mês da data nova, se o dele era o padrão e não é parcela). */
+	budgetMonth?: MonthKey | null | undefined;
+	invoiceMonth?: MonthKey | null | undefined;
+	/** Só usada se o lançamento ainda não tem categoria. */
+	categoryId?: string | null | undefined;
+	sourceCategory?: string | null | undefined;
+	merchantName?: string | null | undefined;
+}
+
 export type UpsertByExternalInput = Omit<TransactionInput, "source" | "externalId">;
 
 export type UpsertResult =
@@ -183,6 +204,8 @@ export interface TransactionStore {
 	 * Como `upsertByExternal`, para uma parcela importada de um grupo que cresce com o tempo (o banco manda uma
 	 * parcela por fatura). O grupo nasce com a primeira parcela vista e as seguintes entram nele; não exige as N
 	 * parcelas. `duplicate` se o grupo já tem outra parcela com esse número (compras iguais confundidas).
+	 * Grupo apagado pelo dono (tem parcelas, nenhuma viva) não ressuscita: a parcela nova devolve
+	 * `{ created: false, transaction: null }`, como o lançamento apagado, e nada é gravado.
 	 */
 	upsertInstallmentByExternal(
 		source: TransactionSource,
@@ -190,6 +213,25 @@ export interface TransactionStore {
 		input: UpsertByExternalInput,
 		installment: ExternalInstallment,
 	): Promise<UpsertResult>;
+	/**
+	 * Adota um lançamento que NÃO veio de `source` (manual, chat, extrato…): ele passa a ter a origem e o
+	 * identificador externo dados, e os próximos `upsertByExternal` com eles o encontram em vez de criar outro.
+	 * Mantém tudo o que o dono definiu (descrição, nota, categoria, situação, marca de categoria escolhida) e aplica
+	 * só o que está em `patch`. Devolve `null`, sem mudar nada, se o lançamento não existe mais, foi apagado, já é
+	 * de `source` ou se a identidade externa já está em uso (inclusive de um lançamento apagado).
+	 */
+	adoptExternal(
+		id: string,
+		source: TransactionSource,
+		externalId: string,
+		patch: AdoptExternalPatch,
+	): Promise<TransactionRecord | null>;
+	/**
+	 * Troca o identificador externo de um lançamento VIVO que já é de `source` (o banco refez a conexão e os ids
+	 * mudaram). Não mexe em mais nada. `null`, sem mudar nada, se o lançamento não existe, foi apagado, não é de
+	 * `source` ou se a identidade nova já está em uso (inclusive de um lançamento apagado).
+	 */
+	rekeyExternal(id: string, source: TransactionSource, externalId: string): Promise<TransactionRecord | null>;
 	/**
 	 * Já existe lançamento com esta identidade externa? Conta também o apagado: o identificador continua
 	 * reservado (a ingestão não recria o que o dono apagou). Serve para decidir antes de montar o lançamento.

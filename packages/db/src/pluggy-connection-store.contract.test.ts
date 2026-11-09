@@ -116,6 +116,34 @@ describe.each(contractSuites())("PluggyConnectionStore (%s)", (_name, make) => {
 		expect(noKeys).toMatchObject({ lastStatus: "no_keys", lastError: null, lastSyncAt: at });
 	});
 
+	it("historyFrom guarda o dia mais antigo já buscado, só com sincronização ok, e nunca encurta", async () => {
+		await stores.pluggyConnections.add({ id: ITEM });
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ historyFrom: null });
+		const at = new Date("2026-11-07T09:00:00Z");
+		await stores.pluggyConnections.recordSync(ITEM, { status: "partial", historyFrom: "2026-05-08" });
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ historyFrom: null });
+		await stores.pluggyConnections.recordSync(ITEM, {
+			status: "ok",
+			syncedAt: at,
+			historyFrom: "2026-07-10",
+		});
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ historyFrom: "2026-07-10" });
+		await stores.pluggyConnections.recordSync(ITEM, {
+			status: "ok",
+			syncedAt: at,
+			historyFrom: "2026-05-08",
+		});
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ historyFrom: "2026-05-08" });
+		await stores.pluggyConnections.recordSync(ITEM, {
+			status: "ok",
+			syncedAt: at,
+			historyFrom: "2026-07-10",
+		});
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ historyFrom: "2026-05-08" });
+		await stores.pluggyConnections.recordSync(ITEM, { status: "ok", syncedAt: at });
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ historyFrom: "2026-05-08" });
+	});
+
 	it("corta mensagem de erro comprida e devolve null para conexão que sumiu", async () => {
 		await stores.pluggyConnections.add({ id: ITEM });
 		const res = await stores.pluggyConnections.recordSync(ITEM, { status: "error", error: "e".repeat(900) });

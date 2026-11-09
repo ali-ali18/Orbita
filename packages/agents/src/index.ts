@@ -31,6 +31,12 @@ export {
 	type StreamLike,
 } from "./anthropic-client.ts";
 export {
+	ATTACHMENT_DEFAULT_ASK,
+	buildUserContent,
+	checkAttachment,
+	checkAttachments,
+} from "./attachments.ts";
+export {
 	type AgentReader,
 	type AgentWriter,
 	type Catalog,

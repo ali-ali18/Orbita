@@ -19,6 +19,7 @@ import {
 	RECOMPUTED_TRANSFER_NOTE,
 	reconcileAcrossConnections,
 } from "./cross.ts";
+import { adoptEarlyEntry, POSSIBLE_DUPLICATE_NOTE } from "./early.ts";
 import { PluggyError, safeErrorMessage } from "./errors.ts";
 import {
 	assignBillPayments,
@@ -26,6 +27,7 @@ import {
 	type BillPayment,
 	type BillTotal,
 	isEstimatedCardDates,
+	type MappedAccount,
 	type MappedTransaction,
 	mapPluggyAccount,
 	mapPluggyTransaction,
@@ -37,8 +39,17 @@ import {
 	type SkipReason,
 	shouldUpgradeCategory,
 	type TransactionContext,
+	touchedByOwner,
 	transactionFacts,
 } from "./mapping.ts";
+import {
+	createRelinkGuard,
+	pickRelinkAccount,
+	pickRelinkCard,
+	type RelinkGuard,
+	rekeyRelinked,
+	relinkKey,
+} from "./relink.ts";
 import type { PluggyAccount, PluggyBill, PluggyTransaction } from "./schemas.ts";
 
 export { type OwnTransferLeg, pairOwnTransfers };
@@ -51,10 +62,12 @@ export const PLUGGY_MANUAL_JOB = "pluggy-agora";
 export const PLUGGY_MANUAL_JOB_ID = "pluggy-agora";
 
 /**
- * Quantos dias para trás a sincronização sempre olha: 4 meses. Parcelas e o relatório delas precisam das
- * faturas anteriores, não só do que entrou desde a última rodada.
+ * Quantos dias para trás a primeira sincronização de uma conexão olha: 6 meses (e o backfill único das conexões
+ * que nunca buscaram tanto: ver `syncWindowStart`).
  */
-export const FIRST_SYNC_DAYS = 122;
+export const FIRST_SYNC_DAYS = 183;
+/** Nas rodadas seguintes, a janela nunca é menor que 4 meses (parcelas e faturas anteriores). */
+export const ROUTINE_SYNC_DAYS = 122;
 /**
  * Depois: recomeça tantos dias antes da última sincronização boa. Lançamento de cartão pode levar semanas para
  * efetivar (aparece na fatura com a data da compra); a gravação é idempotente, então a folga só custa uma consulta maior.
@@ -92,6 +105,14 @@ export interface ConnectionSyncResult {
 	failed: number;
 	/** Lançamentos antigos corrigidos nesta rodada (receita gravada como despesa, transferência própria que contava como gasto). */
 	reclassified?: number;
+	/** Lançamentos do dono (manual, chat, extrato) que o Pluggy trouxe depois e passaram a ser o mesmo registro. */
+	adopted?: number;
+	/** Lançamentos do Pluggy gravados para revisão porque mais de um lançamento do dono servia (possível duplicata). */
+	possibleDuplicates?: number;
+	/** Contas e cartões de uma conexão antiga do mesmo banco religados ao item novo (ids novos, sem duplicar). */
+	relinkedAccounts?: number;
+	/** Lançamentos já gravados pelo item antigo que passaram a ter o id do item novo (nada duplicou). */
+	rekeyed?: number;
 	skipped: Partial<Record<SkipReason | "archived_account", number>>;
 	/** Avisos que não são erro (conta ignorada, por exemplo). Sem segredo. */
 	notes: string[];
@@ -112,7 +133,7 @@ const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().t
  *
  * - Idempotente: o lançamento é gravado por `upsertByExternal("pluggy", id do Pluggy)`; rodar de novo não duplica
  *   nem altera o que já está gravado. Conta e cartão são ligados por `findByExternal`.
- * - Janela: sempre pelo menos 4 meses (`FIRST_SYNC_DAYS`); se a última sincronização boa é mais antiga, desde ela
+ * - Janela: primeira vez (ou backfill único, `historyFrom`) 6 meses (`FIRST_SYNC_DAYS`); depois pelo menos 4 meses (`ROUTINE_SYNC_DAYS`); se a última sincronização boa é mais antiga, desde ela
  *   menos 40 dias. `lastSyncAt` só avança quando a
  *   conexão termina `ok` (um `partial` repete a janela na próxima). Item que não está `UPDATED`, falha em /bills e
  *   conta que não sincronizou deixam a conexão `partial`.
@@ -152,10 +173,13 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 	const startedAt = now();
 	const lookups = createLookups(deps, client);
 	const results: ConnectionSyncResult[] = [];
-	const shared: RunShared = { cards: [], bills: [] };
+	const shared: RunShared = { owners: new Map(), cards: [], bills: [], payments: [] };
 	for (const connection of connections) {
-		const result = await syncConnection(deps, client, connection, startedAt, lookups, shared);
-		results.push(await finish(deps, connection, result, startedAt));
+		const guard = createRelinkGuard(client, connection, connections);
+		const result = await syncConnection(deps, client, connection, startedAt, lookups, shared, guard);
+		results.push(
+			await finish(deps, connection, result, startedAt, syncWindowStart(toLocalDate(startedAt), connection)),
+		);
 		log(
 			`pluggy: ${result.status} contas=${result.accounts} novos=${result.created} existentes=${result.existing}`,
 		);
@@ -174,8 +198,12 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 
 /** O que as conexões já sincronizadas desta rodada sabem dos cartões e das faturas (para as conexões seguintes e o passo final). */
 interface RunShared {
+	/** Titular de cada conta (id da conta do Órbita → `owner` do Pluggy), para o sinal de titularidade do passo final. */
+	owners: Map<string, string | null>;
 	cards: { id: string; name: string; last4: string | null }[];
 	bills: BillInfo[];
+	/** `payments[]` das faturas de todas as conexões vistas. */
+	payments: BillPayment[];
 }
 
 /** Passo final, com todas as conexões já gravadas: pagamento de fatura e transferência entre contas de conexões diferentes. */
@@ -193,6 +221,8 @@ async function crossConnections(
 			today: toLocalDate(startedAt),
 			cards: shared.cards,
 			bills: shared.bills,
+			payments: shared.payments,
+			owners: new Map(shared.owners),
 		});
 		const n = done.billPayments + done.ownTransfers;
 		if (n > 0) {
@@ -262,11 +292,15 @@ async function finish(
 	connection: PluggyConnectionRecord,
 	result: ConnectionSyncResult,
 	startedAt?: Date,
+	/** Dia de onde a janela desta rodada buscou; vai para `historyFrom` quando a conexão termina `ok`. */
+	from?: string,
 ): Promise<ConnectionSyncResult> {
 	await deps.stores.pluggyConnections.recordSync(connection.id, {
 		status: result.status,
 		error: result.error,
-		...(result.status === "ok" && startedAt ? { syncedAt: startedAt } : {}),
+		...(result.status === "ok" && startedAt
+			? { syncedAt: startedAt, ...(from ? { historyFrom: from } : {}) }
+			: {}),
 		...(result.counts ? { counts: result.counts } : {}),
 	});
 	return result;
@@ -279,13 +313,14 @@ async function syncConnection(
 	startedAt: Date,
 	lookups: Lookups,
 	shared: RunShared,
+	guard: RelinkGuard,
 ): Promise<ConnectionSyncResult> {
 	const result = blank(connection.id, "ok", null);
 	// Motivos para a conexão terminar `partial`: não avança `lastSyncAt`, então a próxima rodada refaz a janela.
 	const partial: string[] = [];
 	try {
 		const today = toLocalDate(startedAt);
-		const from = syncWindowStart(today, connection.lastSyncAt);
+		const from = syncWindowStart(today, connection);
 
 		const item = await client.item(connection.id);
 		if (NEEDS_USER.has(item.status)) {
@@ -320,15 +355,20 @@ async function syncConnection(
 			accountNames: pluggyAccounts.flatMap((a) => [a.marketingName, a.name]),
 			connectionLabel: connection.label,
 		});
-		const { linked, deferredCards } = await linkAccounts(
+		const { linked, deferredCards, deferredRelink, relinked } = await linkAccounts(
 			deps,
 			pluggyAccounts,
 			item.connector?.name,
 			billsOf,
 			result,
 			bankName,
+			guard,
 		);
 		if (deferredCards > 0) partial.push(`${deferredCards} cartão(ões) esperam as faturas para ter as datas`);
+		if (deferredRelink > 0) {
+			partial.push(`${deferredRelink} conta(s) esperam a conferência das outras conexões`);
+		}
+		if (relinked > 0) await retireOldConnections(deps, guard, connection, item.connector, bankName, result);
 		result.counts = {
 			accounts: linked.filter((l) => l.account !== null && l.account.archivedAt === null).length,
 			cards: linked.filter((l) => l.card !== null && l.card.archivedAt === null).length,
@@ -371,6 +411,10 @@ async function syncConnection(
 					billPayments.push({ cardId, amountCents, date });
 				}
 			}
+		}
+		shared.payments.push(...billPayments);
+		for (const l of linked) {
+			if (l.account && l.ownerName) shared.owners.set(l.account.id, l.ownerName);
 		}
 		for (const l of liveCards) {
 			if (l.card && !shared.cards.some((c) => c.id === l.card?.id)) {
@@ -452,6 +496,7 @@ async function syncConnection(
 			// Cartões e faturas de todas as conexões já vistas: o pagamento sai de uma conta e pode ser de cartão de outro banco.
 			cards: shared.cards,
 			bills: shared.bills,
+			payments: shared.payments,
 			billMonths,
 			billsUnavailable,
 			...(categoryIndex ? { categoryIndex } : {}),
@@ -472,17 +517,39 @@ async function syncConnection(
 					direction: tx.type === "DEBIT" ? "out" : "in",
 					amountCents: mapped.input.amountCents,
 					date: mapped.input.date,
+					// O mapeamento só grava `transfer` com sinal (CPF/CNPJ, nome do titular, categoria ou texto de titularidade).
+					ownerSignal: true,
 				});
 			}
 		}
 		const counterparts = pairOwnTransfers(legs);
 		for (const { target, txs } of fetched) {
 			const ctx = contextOf(target, counterparts);
-			await storeTransactions(deps, txs, ctx, result, others);
+			await storeTransactions(deps, txs, ctx, result, others, new Set(txs.map((t) => t.id)));
+		}
+		if ((result.relinkedAccounts ?? 0) > 0) {
+			result.notes.push(
+				`${result.relinkedAccounts} conta(s)/cartão(ões) de uma conexão antiga deste banco foram religados à nova, sem duplicar.`,
+			);
+		}
+		if ((result.rekeyed ?? 0) > 0) {
+			result.notes.push(
+				`${result.rekeyed} lançamento(s) da conexão antiga foram religados à nova, sem duplicar.`,
+			);
 		}
 		if ((result.reclassified ?? 0) > 0) {
 			result.notes.push(
 				`${result.reclassified} lançamento(s) antigo(s) foram corrigidos (receita ou transferência entre contas suas que estavam como gasto).`,
+			);
+		}
+		if ((result.adopted ?? 0) > 0) {
+			result.notes.push(
+				`${result.adopted} lançamento(s) que você já tinha feito foram ligados ao banco, sem duplicar.`,
+			);
+		}
+		if ((result.possibleDuplicates ?? 0) > 0) {
+			result.notes.push(
+				`${result.possibleDuplicates} lançamento(s) do banco parecem repetir mais de um lançamento seu e foram para revisão.`,
 			);
 		}
 		const othersNote = describeOthers(others);
@@ -547,6 +614,62 @@ interface Linked {
 	card: CardRecord | null;
 }
 
+type Inherit<T> = T | "defer" | null;
+
+/** Conta do item antigo do mesmo banco que o item novo deve herdar (ver `relink.ts`). `defer`: esperar a próxima rodada. */
+async function inheritAccount(
+	deps: SyncPluggyDeps,
+	guard: RelinkGuard,
+	mapped: Extract<ReturnType<typeof mapPluggyAccount>, { kind: "account" }>,
+	currentIds: ReadonlySet<string>,
+	rivals: number,
+): Promise<Inherit<AccountRecord>> {
+	const candidate = pickRelinkAccount(await deps.stores.accounts.list(), currentIds, mapped.input, rivals);
+	if (!candidate?.externalId) return null;
+	if (await guard.undecided()) return "defer";
+	if (await guard.heldElsewhere(candidate.externalId)) return null;
+	return deps.stores.accounts.relinkExternal(candidate.id, mapped.externalId);
+}
+
+async function inheritCard(
+	deps: SyncPluggyDeps,
+	guard: RelinkGuard,
+	mapped: Extract<ReturnType<typeof mapPluggyAccount>, { kind: "card" }>,
+	currentIds: ReadonlySet<string>,
+	rivals: number,
+): Promise<Inherit<CardRecord>> {
+	const candidate = pickRelinkCard(await deps.stores.cards.list(), currentIds, mapped.input, rivals);
+	if (!candidate?.externalId) return null;
+	if (await guard.undecided()) return "defer";
+	if (await guard.heldElsewhere(candidate.externalId)) return null;
+	return deps.stores.cards.relinkExternal(candidate.id, mapped.externalId);
+}
+
+/**
+ * Depois de religar contas ao item novo, arquiva (`remove`: só para de sincronizar; contas e lançamentos ficam) as
+ * conexões antigas do mesmo banco que estão paradas (pedem login) ou que o Pluggy já esqueceu.
+ */
+async function retireOldConnections(
+	deps: SyncPluggyDeps,
+	guard: RelinkGuard,
+	connection: PluggyConnectionRecord,
+	connector: { id?: number | null | undefined; name?: string | undefined } | null | undefined,
+	bankName: string | null,
+	result: ConnectionSyncResult,
+): Promise<void> {
+	try {
+		const names = [connector?.name, bankName, connection.label].filter((n): n is string => !!n);
+		const old = await guard.retirable(connector?.id ?? null, names);
+		for (const o of old) {
+			if (await deps.stores.pluggyConnections.remove(o.id)) {
+				result.notes.push(`A conexão antiga "${o.label ?? "sem nome"}" foi arquivada: a nova a substitui.`);
+			}
+		}
+	} catch {
+		result.notes.push("Não deu para arquivar a conexão antiga agora.");
+	}
+}
+
 /** Acha ou cria a conta/cartão do Órbita de cada conta do Pluggy. */
 async function linkAccounts(
 	deps: SyncPluggyDeps,
@@ -555,18 +678,36 @@ async function linkAccounts(
 	billsOf: ReadonlyMap<string, BillsOf>,
 	result: ConnectionSyncResult,
 	bankName: string | null,
-): Promise<{ linked: Linked[]; deferredCards: number }> {
+	guard: RelinkGuard,
+): Promise<{ linked: Linked[]; deferredCards: number; deferredRelink: number; relinked: number }> {
 	const { accounts, cards } = deps.stores;
 	const out: Linked[] = [];
 	let deferredCards = 0;
-	for (const pa of pluggyAccounts) {
-		const mapped = mapPluggyAccount(
+	let deferredRelink = 0;
+	let relinked = 0;
+	const currentIds: ReadonlySet<string> = new Set(pluggyAccounts.map((a) => a.id));
+	const mappedAll = pluggyAccounts.map((pa) => ({
+		pa,
+		mapped: mapPluggyAccount(
 			pa,
 			connectorName,
 			billsOf.get(pa.id)?.bills,
 			// O banco citado no próprio cartão vale mais que o da conexão.
 			findKnownBank(pa.marketingName) ?? findKnownBank(pa.name) ?? bankName,
-		);
+		),
+	}));
+	// Quantas contas/cartões novos "parecem" a mesma (mesmo nome e banco): com mais de uma, não dá para saber qual herda.
+	const identity = (m: MappedAccount) =>
+		m.kind === "ignored"
+			? ""
+			: [
+					m.kind,
+					m.input.name.toLowerCase(),
+					m.input.bankCode ?? "",
+					m.kind === "card" ? (m.input.last4 ?? "") : "",
+				].join("|");
+	const sameAs = (m: MappedAccount) => mappedAll.filter((o) => identity(o.mapped) === identity(m)).length;
+	for (const { pa, mapped } of mappedAll) {
 		if (mapped.kind === "ignored") {
 			// Tipos que o Órbita não usa (investimento) são normais; o resto merece aviso.
 			if (pa.type === "BANK" || pa.type === "CREDIT") result.notes.push(`Conta ignorada: ${mapped.reason}.`);
@@ -575,6 +716,21 @@ async function linkAccounts(
 		result.accounts += 1;
 		if (mapped.kind === "account") {
 			let account = await accounts.findByExternal(PLUGGY_SOURCE, mapped.externalId);
+			if (!account) {
+				const inherited = await inheritAccount(deps, guard, mapped, currentIds, sameAs(mapped));
+				if (inherited === "defer") {
+					deferredRelink += 1;
+					result.notes.push(
+						`A conta "${mapped.input.name}" ainda não foi ligada: não deu para conferir as outras conexões.`,
+					);
+					continue;
+				}
+				if (inherited) {
+					account = inherited;
+					relinked += 1;
+					result.relinkedAccounts = (result.relinkedAccounts ?? 0) + 1;
+				}
+			}
 			if (!account) {
 				try {
 					account = await accounts.create(mapped.input);
@@ -601,6 +757,21 @@ async function linkAccounts(
 			continue;
 		}
 		let card = await cards.findByExternal(PLUGGY_SOURCE, mapped.externalId);
+		if (!card) {
+			const inherited = await inheritCard(deps, guard, mapped, currentIds, sameAs(mapped));
+			if (inherited === "defer") {
+				deferredRelink += 1;
+				result.notes.push(
+					`O cartão "${mapped.input.name}" ainda não foi ligado: não deu para conferir as outras conexões.`,
+				);
+				continue;
+			}
+			if (inherited) {
+				card = inherited;
+				relinked += 1;
+				result.relinkedAccounts = (result.relinkedAccounts ?? 0) + 1;
+			}
+		}
 		if (!card) {
 			// As faturas falharam e o `creditData` não tem as datas: criar agora fixaria dias inventados (o sync nunca
 			// os corrige depois). Espera a próxima rodada, que já volta `partial`.
@@ -663,15 +834,24 @@ async function linkAccounts(
 			card,
 		});
 	}
-	return { linked: out, deferredCards };
+	return { linked: out, deferredCards, deferredRelink, relinked };
 }
 
-/** O começo da janela: no mínimo 4 meses, ou mais se a última sincronização boa for anterior a isso. */
-export function syncWindowStart(today: string, lastSyncAt: Date | null): string {
-	const history = addDays(today, -FIRST_SYNC_DAYS);
-	if (lastSyncAt === null) return history;
+/**
+ * O começo da janela. Conexão nova (sem sincronização boa) ou que nunca buscou os 6 meses (`historyFrom` ausente ou
+ * mais recente que hoje − 183 dias, como as criadas quando o histórico era de 4 meses): desde hoje − 183 dias, uma vez
+ * (a rodada boa registra `historyFrom`). Depois: no mínimo 4 meses, ou mais se a última sincronização boa for anterior.
+ */
+export function syncWindowStart(
+	today: string,
+	connection: Pick<PluggyConnectionRecord, "lastSyncAt" | "historyFrom">,
+): string {
+	const full = addDays(today, -FIRST_SYNC_DAYS);
+	const { lastSyncAt, historyFrom } = connection;
+	if (lastSyncAt === null || historyFrom === null || historyFrom > full) return full;
+	const routine = addDays(today, -ROUTINE_SYNC_DAYS);
 	const overlap = addDays(toLocalDate(lastSyncAt), -OVERLAP_DAYS);
-	return [history, overlap].sort()[0] ?? history;
+	return [routine, overlap].sort()[0] ?? routine;
 }
 
 const bump = (counts: ConnectionSyncResult["skipped"], key: SkipReason | "archived_account") => {
@@ -684,10 +864,29 @@ async function storeTransactions(
 	ctx: TransactionContext,
 	result: ConnectionSyncResult,
 	others: Map<string, number>,
+	/** Os ids do Pluggy desta resposta: o que está gravado com OUTRO id do Pluggy veio de um item antigo. */
+	currentIds: ReadonlySet<string>,
 ): Promise<void> {
 	const { transactions } = deps.stores;
 	// Estornos por último: assim a compra original, se veio na mesma resposta, já está gravada.
 	const mappedAll = txs.map((tx) => ({ tx, mapped: safeMap(tx, ctx) }));
+	// Quantos do banco têm a mesma identidade (valor, dia, descrição…): casam um a um com os do item antigo.
+	const twins = new Map<string, number>();
+	const keyOf = (m: Extract<MappedTransaction, { action: "upsert" | "refund" }>) =>
+		relinkKey(m.input, "installment" in m ? m.installment : undefined);
+	for (const { mapped } of mappedAll) {
+		if (mapped?.action === "upsert" || mapped?.action === "refund") {
+			twins.set(keyOf(mapped), (twins.get(keyOf(mapped)) ?? 0) + 1);
+		}
+	}
+	const rekey = async (m: Extract<MappedTransaction, { action: "upsert" | "refund" }>) => {
+		const key = keyOf(m);
+		const left = twins.get(key) ?? 1;
+		twins.set(key, left - 1);
+		const out = await rekeyRelinked(transactions, m, currentIds, left);
+		if (out.outcome === "rekeyed") result.rekeyed = (result.rekeyed ?? 0) + 1;
+		return out;
+	};
 	const ordered = [
 		...mappedAll.filter((m) => m.mapped?.action !== "refund"),
 		...mappedAll.filter((m) => m.mapped?.action === "refund"),
@@ -703,7 +902,30 @@ async function storeTransactions(
 				continue;
 			}
 			if (mapped.action === "upsert") {
-				const res = await upsertTransaction(transactions, mapped, result);
+				// Primeiro o que um item ANTIGO do mesmo banco já gravou (só troca o id); depois o lançamento do dono.
+				const relinkedTx = await rekey(mapped);
+				const early =
+					relinkedTx.outcome === "none"
+						? await adoptEarlyEntry(transactions, PLUGGY_SOURCE, mapped)
+						: relinkedTx.outcome === "ambiguous"
+							? relinkedTx
+							: ({ outcome: "none" } as const);
+				if (early.outcome === "adopted") result.adopted = (result.adopted ?? 0) + 1;
+				// Vários lançamentos do dono servem: não adota às cegas. Grava o do banco para revisão.
+				const toStore =
+					early.outcome === "ambiguous"
+						? {
+								...mapped,
+								input: {
+									...mapped.input,
+									status: "pending" as const,
+									note: mapped.input.note ?? POSSIBLE_DUPLICATE_NOTE,
+								},
+							}
+						: mapped;
+				const res = await upsertTransaction(transactions, toStore, result);
+				if (early.outcome === "ambiguous" && res.created)
+					result.possibleDuplicates = (result.possibleDuplicates ?? 0) + 1;
 				if (res.created) {
 					result.created += 1;
 					if (mapped.categorySource === "none" && mapped.input.kind === "expense") {
@@ -718,7 +940,9 @@ async function storeTransactions(
 					// compra pesa no mês dela (o upsert por si só nunca corrigia). O que o engine calculou não mexe.
 					if (
 						mapped.invoiceFromBill &&
-						res.transaction?.cardId != null &&
+						res.transaction &&
+						!touchedByOwner(res.transaction) &&
+						res.transaction.cardId != null &&
 						mapped.input.invoiceMonth != null &&
 						res.transaction.invoiceMonth !== mapped.input.invoiceMonth
 					) {
@@ -732,7 +956,7 @@ async function storeTransactions(
 						res.transaction &&
 						res.transaction.kind === "expense" &&
 						mapped.input.kind === "expense" &&
-						!res.transaction.categoryEditedByOwner &&
+						!touchedByOwner(res.transaction) &&
 						mapped.input.budgetMonth != null &&
 						(res.transaction.date !== mapped.input.date ||
 							res.transaction.budgetMonth !== mapped.input.budgetMonth)
@@ -756,25 +980,66 @@ async function storeTransactions(
 			}
 			// Estorno: só entra se a compra original está gravada. Sem ela, fica de fora e a próxima rodada tenta de novo.
 			if (await transactions.existsByExternal(PLUGGY_SOURCE, mapped.externalId)) {
+				// Estorno na conta que um sync antigo gravou como receita: vira estorno assim que a despesa original aparece.
+				const stored = await transactions.findByExternal(PLUGGY_SOURCE, mapped.externalId);
+				// Estorno gravado sem a compra (crédito no cartão): se ela apareceu depois, liga agora (o dono não mexeu).
+				if (stored && stored.kind === "refund" && stored.refundOfId === null && !touchedByOwner(stored)) {
+					const found = ctx.card
+						? await findRefundOriginal(
+								transactions,
+								ctx.card,
+								mapped.original,
+								mapped.input.invoiceMonth as MonthKey,
+							)
+						: ctx.accountId
+							? await findAccountRefundOriginal(transactions, ctx.accountId, mapped.original)
+							: null;
+					if (found !== null) await transactions.update(stored.id, { refundOfId: found });
+				}
+				if (!ctx.card && stored && stored.kind === "income" && !touchedByOwner(stored) && ctx.accountId) {
+					const originalId = await findAccountRefundOriginal(transactions, ctx.accountId, mapped.original);
+					if (originalId !== null) {
+						await transactions.update(stored.id, { kind: "refund", refundOfId: originalId });
+						result.reclassified = (result.reclassified ?? 0) + 1;
+					}
+				}
 				result.existing += 1;
 				continue;
 			}
-			const originalId = ctx.card
-				? await findRefundOriginal(
-						transactions,
-						ctx.card,
-						mapped.original,
-						mapped.input.invoiceMonth as MonthKey,
-					)
-				: null;
-			if (originalId === null) {
+			const relinkedRefund = await rekey(mapped);
+			if (relinkedRefund.outcome === "rekeyed") {
+				result.existing += 1;
+				continue;
+			}
+			let originalId: string | null = null;
+			if (ctx.card) {
+				originalId = await findRefundOriginal(
+					transactions,
+					ctx.card,
+					mapped.original,
+					mapped.input.invoiceMonth as MonthKey,
+				);
+			} else if (ctx.accountId) {
+				originalId = await findAccountRefundOriginal(transactions, ctx.accountId, mapped.original);
+			}
+			// Crédito no cartão que não é pagamento de fatura (o mapeamento já descartou esses) entra como estorno mesmo sem
+			// achar a compra: estorno parcial, com outra descrição, de parcelada, cashback, anuidade ou IOF estornados. O
+			// engine abate da própria categoria e o excedente vira crédito (`refundCreditCents`). Na conta, sem a original,
+			// continua fora: lá o crédito pode ser outra coisa.
+			if (originalId === null && !ctx.card) {
 				bump(result.skipped, "refund_without_original");
 				continue;
 			}
 			const res = await transactions.upsertByExternal(PLUGGY_SOURCE, mapped.externalId, {
 				...mapped.input,
-				refundOfId: originalId,
+				...(relinkedRefund.outcome === "ambiguous"
+					? { status: "pending" as const, note: mapped.input.note ?? POSSIBLE_DUPLICATE_NOTE }
+					: {}),
+				...(originalId === null ? {} : { refundOfId: originalId }),
 			});
+			if (res.created && relinkedRefund.outcome === "ambiguous") {
+				result.possibleDuplicates = (result.possibleDuplicates ?? 0) + 1;
+			}
 			if (res.created) result.created += 1;
 			else result.existing += 1;
 		} catch (e) {
@@ -787,10 +1052,13 @@ async function storeTransactions(
 
 /**
  * Recálculo do que já foi gravado errado (a sincronização é idempotente e nunca mexia no tipo). Só quando o lançamento
- * existente é despesa ou receita e o mapeamento de hoje diz o contrário, e nunca se o dono editou a categoria:
+ * existente é despesa ou receita e o mapeamento de hoje diz o contrário, e nunca se o dono mexeu no lançamento
+ * (`touchedByOwner`: categoria trocada, tipo/data/valor/conta corrigidos ou pendente confirmado):
  * - o mapeamento diz `investment` (aplicação) e está gravado como despesa → vira `investment`: sai do gasto e vai
  *   para o "Investido" (e, se já era `investment`, nada muda);
  * - entrou dinheiro (o Pluggy diz CREDIT, o mapeamento diz `income`) e está gravado como despesa → vira receita;
+ * - resgate de investimento (o mapeamento diz `redemption`) gravado como despesa ou receita → vira `redemption`: deixa
+ *   de contar como renda e abate o "Investido";
  * - o mapeamento reconhece transferência para si mesmo e está gravado como despesa ou receita → vira `transfer` no
  *   lugar (continua nas Atividades, categoria mantida, observação avisando) e deixa de contar como gasto ou renda;
  * - já é `transfer` sem destino e agora há um par único → preenche o destino.
@@ -801,6 +1069,7 @@ async function fixKind(
 		id: string;
 		kind: string;
 		categoryEditedByOwner: boolean;
+		editedByOwner: boolean;
 		note: string | null;
 		counterpartAccountId: string | null;
 		cardId?: string | null;
@@ -814,7 +1083,7 @@ async function fixKind(
 		note?: string | null | undefined;
 	},
 ): Promise<boolean> {
-	if (current.categoryEditedByOwner) return false;
+	if (touchedByOwner(current)) return false;
 	// Pagamento de fatura: gravado como gasto/transferência (ou "Fatura de cartão"/revisão) e agora o mapeamento sabe de
 	// qual cartão é → vira `card_payment` (0 no gasto). Idempotente: depois de virar, `current.kind` já é card_payment.
 	if (
@@ -851,6 +1120,11 @@ async function fixKind(
 	}
 	if (current.kind === "expense" && next.kind === "income") {
 		await transactions.update(current.id, { kind: "income", categoryId: next.categoryId ?? null });
+		return true;
+	}
+	// Resgate gravado como despesa ou receita (antes o principal que voltava contava como renda): vira `redemption`.
+	if ((current.kind === "expense" || current.kind === "income") && next.kind === "redemption") {
+		await transactions.update(current.id, { kind: "redemption", categoryId: next.categoryId ?? null });
 		return true;
 	}
 	if (next.kind !== "transfer") return false;
@@ -920,6 +1194,69 @@ function safeMap(tx: PluggyTransaction, ctx: TransactionContext) {
 		if (e instanceof RangeError) return null;
 		throw e;
 	}
+}
+
+/** Palavras de estorno/devolução que não dizem de qual compra é. */
+const REFUND_FILLER = new Set([
+	"estorno",
+	"estornos",
+	"estornado",
+	"estornada",
+	"devolucao",
+	"devolvido",
+	"devolvida",
+	"refund",
+	"chargeback",
+	"compra",
+	"pix",
+	"debito",
+	"cartao",
+	"pagamento",
+	"credito",
+	"recebido",
+	"recebida",
+	"enviado",
+	"enviada",
+	"transferencia",
+	"transf",
+	"para",
+	"por",
+	"com",
+	"dos",
+	"das",
+]);
+
+const refundWords = (text: string) =>
+	plain(text)
+		.split(/[^a-z0-9]+/)
+		.filter((w) => w.length >= 3 && !REFUND_FILLER.has(w) && !/^\d+$/.test(w));
+
+/** Quantos dias para trás a despesa de um estorno na conta pode estar. */
+const ACCOUNT_REFUND_LOOKBACK_DAYS = 90;
+
+/**
+ * A despesa que um estorno/devolução na CONTA desfaz: mesma conta, mesmo valor, de data igual ou anterior (até 90
+ * dias) e ainda sem estorno. A descrição do estorno ("Estorno compra Mercado X") precisa citar uma palavra da despesa;
+ * estorno sem palavra que sirva (só "Estorno") casa com a única despesa de mesmo valor. Na dúvida, o mais recente.
+ */
+async function findAccountRefundOriginal(
+	transactions: SyncPluggyDeps["stores"]["transactions"],
+	accountId: string,
+	original: { amountCents: number; description: string; date: string },
+): Promise<string | null> {
+	const range = { from: addDays(original.date, -ACCOUNT_REFUND_LOOKBACK_DAYS), to: original.date };
+	const rows = await transactions.listByTarget({ accountId }, range);
+	const refunded = new Set(rows.filter((r) => r.kind === "refund").map((r) => r.refundOfId));
+	const wanted = refundWords(original.description);
+	const sameAmount = rows.filter(
+		(r) => r.kind === "expense" && r.amountCents === original.amountCents && !refunded.has(r.id),
+	);
+	const named = sameAmount.filter((r) => {
+		const words = refundWords(r.description);
+		return wanted.some((w) => words.includes(w) || plain(r.description).includes(w));
+	});
+	const pool = wanted.length > 0 ? named : sameAmount.length === 1 ? sameAmount : [];
+	return [...pool].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))[0]?.id ?? null;
 }
 
 /**

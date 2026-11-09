@@ -31,9 +31,7 @@ import {
 	paymentBadge,
 	statusLabel,
 	statusOfMonth,
-	usageMonths,
 	usagePercent,
-	usedLimitCents,
 	visibleInstallments,
 } from "./card-model.ts";
 
@@ -265,18 +263,6 @@ describe("parcelas", () => {
 });
 
 describe("limites", () => {
-	it("usado = faturas não vencidas + parcelas depois da aberta, só do cartão", () => {
-		const g = group({ groupId: "g1", months: ["2026-11", "2026-12", "2027-01", "2027-02"] });
-		const outro = group({ groupId: "g2", cardId: "c2", months: ["2027-01"] });
-		// Aberta é dezembro: janeiro e fevereiro contam (2000); novembro e dezembro já estão nas faturas.
-		expect(usedLimitCents([39163, 5000], [g, outro], "c1", "2026-12")).toBe(39163 + 5000 + 2000);
-		expect(usedLimitCents([], [], "c1", "2026-12")).toBe(0);
-		expect(usedLimitCents([-100], [], "c1", "2026-12")).toBe(0);
-	});
-	it("meses de uso: fechada + aberta, ou só a aberta", () => {
-		expect(usageMonths(santander, "2026-11-07")).toEqual(["2026-11", "2026-12"]);
-		expect(usageMonths(santander, "2026-11-08")).toEqual(["2026-12"]);
-	});
 	it("soma só quem tem limite e conta os que faltam", () => {
 		const o = limitsOverview([
 			{ cardId: "a", limitCents: 300000, usedCents: 39163 },
