@@ -39,6 +39,34 @@ export function dictationErrorMessage(code: string): string | null {
 	}
 }
 
+/** O que o ditado faz depois do pedido de permissão do microfone. */
+export type DictationPermissionOutcome = "start" | "denied-ask-again" | "denied-settings";
+
+/**
+ * Decide o passo seguinte com a resposta do pedido de permissão (feito sempre ao tocar no microfone): concedida começa
+ * a ouvir; negada que ainda pode ser pedida só avisa curto; negada de vez (`canAskAgain` falso) manda o dono para as
+ * configurações do aparelho.
+ */
+export function dictationPermissionOutcome(permission: {
+	granted: boolean;
+	canAskAgain?: boolean | undefined;
+}): DictationPermissionOutcome {
+	if (permission.granted) return "start";
+	return permission.canAskAgain === false ? "denied-settings" : "denied-ask-again";
+}
+
+/** Mensagem para a permissão negada; `null` quando concedida. */
+export function dictationPermissionMessage(outcome: DictationPermissionOutcome): string | null {
+	switch (outcome) {
+		case "start":
+			return null;
+		case "denied-ask-again":
+			return "Toque no microfone de novo e permita o acesso para ditar.";
+		case "denied-settings":
+			return "Permita o microfone nas configurações do aparelho para ditar.";
+	}
+}
+
 /** Texto da primeira alternativa do resultado do reconhecimento (parcial ou final). */
 export function transcriptOf(results: ReadonlyArray<{ transcript: string }> | undefined): string {
 	return results?.[0]?.transcript ?? "";

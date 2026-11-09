@@ -17,6 +17,7 @@ export * from "./merchant.ts";
 export * from "./money.ts";
 export * from "./recurrence.ts";
 export * from "./report.ts";
+export * from "./salary.ts";
 export * from "./split.ts";
 export * from "./subscription-hunt.ts";
 export * from "./types.ts";

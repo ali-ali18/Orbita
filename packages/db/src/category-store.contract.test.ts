@@ -68,6 +68,7 @@ describe.each(contractSuites())("CategoryStore (%s)", (_name, make) => {
 			["transferencias", 7, true],
 			["investimentos", 8, true],
 			["outros", 9, true],
+			["salario", null, true],
 			["fatura-cartao", null, true],
 		]);
 		const mercado = list[0];
@@ -77,7 +78,7 @@ describe.each(contractSuites())("CategoryStore (%s)", (_name, make) => {
 			name: "Supermercado",
 			chartSlot: 3,
 		});
-		expect(await stores.categories.list()).toHaveLength(11);
+		expect(await stores.categories.list()).toHaveLength(12);
 	});
 
 	it("ensureDefaults não recria a que o usuário arquivou", async () => {

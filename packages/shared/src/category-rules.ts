@@ -111,6 +111,26 @@ export function normalizeMerchantName(raw: string | null | undefined): string {
 	return out.trim();
 }
 
+const LOWER_WORDS = new Set(["de", "da", "do", "das", "dos", "e", "a", "o"]);
+
+/**
+ * Nome do estabelecimento "limpo" para mostrar ao dono: sem prefixo de banco, sem código e com iniciais maiúsculas
+ * ("UNIP*MENSALIDADE 0423" → "Unip Mensalidade"). Vazio se não sobra nada.
+ */
+export function friendlyMerchantName(...texts: Array<string | null | undefined>): string {
+	const words = texts
+		.map(normalizeMerchantName)
+		.find((n) => n !== "")
+		?.split(" ")
+		.filter(Boolean);
+	if (!words) return "";
+	return words
+		.map((w, i) =>
+			i > 0 && LOWER_WORDS.has(w) ? w : `${w.charAt(0).toLocaleUpperCase("pt-BR")}${w.slice(1)}`,
+		)
+		.join(" ");
+}
+
 /** Padrão de uma regra a partir dos textos do lançamento (nome do estabelecimento primeiro). `null` se não serve. */
 export function derivePattern(...texts: Array<string | null | undefined>): string | null {
 	for (const text of texts) {

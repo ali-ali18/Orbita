@@ -2,7 +2,9 @@ import type { ChatCard, ChatRowsCard, ProposalDto, SetupSelection } from "@orbit
 import { chart, colors, radius, spacing } from "@orbita/tokens";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, type ScrollViewInstance, TextInput, View } from "react-native";
-import { KeyboardAvoidingView, KeyboardEvents } from "react-native-keyboard-controller";
+import { KeyboardEvents, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { percentOf } from "../../lib/format.ts";
 import {
 	Button,
@@ -15,6 +17,7 @@ import {
 	SheetRow,
 	Text,
 } from "../../ui/index.ts";
+import { keyboardPadding } from "../../ui/keyboard-model.ts";
 import { hello } from "../settings/profile-model.ts";
 import { type AttachKind, canSend, type PendingAttachment, shortName } from "./attachment-model.ts";
 import { type ChatBubble, NO_KEY_ACTION_LABEL, PROPOSAL_STATUS_LABEL, proposalAmount } from "./chat-model.ts";
@@ -346,6 +349,11 @@ export function ChatView({
 	const [attachOpen, setAttachOpen] = useState(false);
 	const empty = messages.length === 0;
 	const dictation = useDictation({ draft, onDraft: setDraft });
+	const insets = useSafeAreaInsets();
+	const keyboard = useReanimatedKeyboardAnimation();
+	const avoid = useAnimatedStyle(() => ({
+		paddingBottom: keyboardPadding(keyboard.height.value, insets.bottom),
+	}));
 	const scroll = useRef<ScrollViewInstance>(null);
 	const toEnd = () => scroll.current?.scrollToEnd({ animated: true });
 	// Teclado aberto: a lista volta para a última mensagem, que fica logo acima do campo.
@@ -365,11 +373,12 @@ export function ChatView({
 	return (
 		<Screen>
 			{/*
-			 * Android de ponta a ponta (obrigatório no Android 15+): o sistema não encolhe a janela e o KeyboardAvoidingView
-			 * do React Native erra a conta, deixando o teclado sobre o campo. O do keyboard-controller lê a altura real do
-			 * teclado (insets do IME) e já desconta a área segura de baixo que o Screen reserva abaixo desta vista.
+			 * Android de ponta a ponta (obrigatório no Android 15+): a janela não encolhe e o teclado fica por cima. O
+			 * KeyboardAvoidingView (RN e keyboard-controller) decide pela posição medida do próprio quadro, e foi por isso que
+			 * o campo continuou coberto. Aqui o conteúdo ganha folga embaixo igual à altura real do teclado (insets do IME,
+			 * animada no UI thread), sem medir nada: a lista encolhe e o campo sobe junto, nos dois estados da tela.
 			 */}
-			<KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+			<Animated.View style={[{ flex: 1 }, avoid]}>
 				<View style={{ flex: 1, paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.lg }}>
 					<View style={{ flexDirection: "row", alignItems: "center" }}>
 						<IconButton icon="fechar" label="Fechar" onPress={onClose} />
@@ -439,7 +448,7 @@ export function ChatView({
 						dictation={dictation}
 					/>
 				</View>
-			</KeyboardAvoidingView>
+			</Animated.View>
 			<AttachSheet
 				visible={attachOpen}
 				onClose={() => setAttachOpen(false)}

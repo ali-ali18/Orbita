@@ -1,5 +1,11 @@
 import type { ChatCard, ChatRowsCard, ProposalDto } from "@orbita/shared";
 import {
+	collectAllowedCents,
+	findUngroundedAmounts,
+	redactUngroundedAmounts,
+	regenerationRequest,
+} from "./grounding.ts";
+import {
 	addUsage,
 	type Effort,
 	isTextBlock,
@@ -56,6 +62,11 @@ export interface AgentRunInput {
 	maxTokens?: number;
 	/** Teto de voltas modelo → ferramentas → modelo. */
 	maxIterations?: number;
+	/**
+	 * Confere o texto final: valor em R$ que nenhuma ferramenta devolveu (nem o dono disse) faz o modelo refazer a
+	 * resposta, e se insistir o valor é apagado. Padrão: ligado, menos quando há anexo (o modelo lê valores da imagem).
+	 */
+	verifyAmounts?: boolean;
 	signal?: AbortSignal;
 	emit?: (event: AgentEvent) => void;
 }
@@ -78,6 +89,9 @@ const REFUSAL_TEXT = "Não posso ajudar com esse pedido.";
 const TRUNCATED_TEXT = "A resposta ficou grande demais e foi cortada. Pergunte de um jeito mais específico.";
 const TOO_MANY_STEPS_TEXT =
 	"Precisei de passos demais para responder. Tente dividir o pedido em partes menores.";
+/** Fim de frase: o texto só é liberado até aqui enquanto a conferência dos valores pode precisar segurá-lo. */
+const SENTENCE_END = /[.!?\n](?=[^.!?\n]*$)/;
+
 const GENERIC_TOOL_ERROR = "Não consegui consultar isso agora.";
 
 const isExpectedError = (error: unknown): error is Error =>
@@ -89,6 +103,17 @@ function describeZodIssue(error: { issues: Array<{ path: PropertyKey[]; message:
 	const field = issue.path.map(String).join(".");
 	return field ? `Entrada inválida em "${field}": ${issue.message}` : `Entrada inválida: ${issue.message}`;
 }
+
+const isTextPart = (block: unknown): block is { type: "text"; text: string } =>
+	typeof block === "object" && block !== null && (block as { type?: unknown }).type === "text";
+
+/** Os textos de um conteúdo de mensagem (string ou blocos). */
+function textsOf(content: ModelMessage["content"] | undefined): string[] {
+	if (content === undefined) return [];
+	if (typeof content === "string") return [content];
+	return content.filter(isTextPart).map((b) => b.text);
+}
+const textsOfMessage = (m: ModelMessage): string[] => textsOf(m.content);
 
 interface ToolResultBlock {
 	type: "tool_result";
@@ -108,6 +133,20 @@ export async function runAgent(deps: AgentLoopDeps, input: AgentRunInput): Promi
 	let text = "";
 	let usage = ZERO_USAGE;
 	const maxIterations = input.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+	// Conferência de valores: o que a conversa legitima (fala do dono, histórico e, a cada volta, os resultados das ferramentas).
+	const hasFileBlocks =
+		Array.isArray(input.userContent) &&
+		input.userContent.some((b) => (b as { type?: string }).type !== "text");
+	const verify = (input.verifyAmounts ?? true) && !hasFileBlocks;
+	const allowed = verify
+		? collectAllowedCents(
+				[input.userText, ...textsOf(input.userContent), ...input.history.flatMap(textsOfMessage)],
+				{
+					integersAsReais: true,
+				},
+			)
+		: new Set<number>();
+	let regenerated = false;
 
 	const say = (delta: string) => {
 		if (!delta) return;
@@ -127,6 +166,26 @@ export async function runAgent(deps: AgentLoopDeps, input: AgentRunInput): Promi
 		}
 
 		let separator = text ? "\n\n" : "";
+		// Com a conferência ligada o texto sai por frases: uma frase com "R$" fica retida até a volta acabar.
+		let unsent = "";
+		let holding = false;
+		const release = (chunk: string) => {
+			if (!chunk) return;
+			say(separator + chunk);
+			separator = "";
+		};
+		const onDelta = (delta: string) => {
+			if (!verify) return release(delta);
+			unsent += delta;
+			if (holding) return;
+			const at = unsent.indexOf("R$");
+			const head = at >= 0 ? unsent.slice(0, at) : unsent;
+			const end = head.search(SENTENCE_END);
+			const cut = end >= 0 ? end + 1 : 0;
+			release(unsent.slice(0, cut));
+			unsent = unsent.slice(cut);
+			if (at >= 0) holding = true;
+		};
 		const response = await deps.client.turn(
 			{
 				model: input.model,
@@ -137,11 +196,8 @@ export async function runAgent(deps: AgentLoopDeps, input: AgentRunInput): Promi
 				...(input.effort ? { effort: input.effort } : {}),
 			},
 			{
-				onText: (delta) => {
-					// Texto de uma volta nova (depois de ferramentas) não cola no da anterior.
-					say(separator + delta);
-					separator = "";
-				},
+				// Texto de uma volta nova (depois de ferramentas) não cola no da anterior.
+				onText: onDelta,
 			},
 			input.signal,
 		);
@@ -152,15 +208,31 @@ export async function runAgent(deps: AgentLoopDeps, input: AgentRunInput): Promi
 		messages.push({ role: "assistant", content: response.content });
 
 		if (response.stopReason === "tool_use") {
+			release(unsent);
+			unsent = "";
 			const calls = response.content.filter(isToolUseBlock);
 			const results: ToolResultBlock[] = [];
 			for (const call of calls) {
 				const tool = deps.tools.find((t) => t.name === call.name);
 				if (tool) emit({ type: "tool", name: tool.name, label: tool.label });
-				results.push(await runTool(deps, tool, call, pushCard));
+				const result = await runTool(deps, tool, call, pushCard);
+				if (verify) for (const c of collectAllowedCents([result.content])) allowed.add(c);
+				results.push(result);
 			}
 			messages.push({ role: "user", content: results as unknown as ModelBlock[] });
 			continue;
+		}
+
+		// Fim da resposta: o que ficou retido só sai se os valores em R$ vieram de ferramenta.
+		if (unsent) {
+			const bad = holding ? findUngroundedAmounts(unsent, allowed) : [];
+			if (bad.length > 0 && !regenerated && step + 1 < maxIterations) {
+				regenerated = true;
+				messages.push({ role: "user", content: regenerationRequest(bad) });
+				continue;
+			}
+			release(bad.length > 0 ? redactUngroundedAmounts(unsent, allowed) : unsent);
+			unsent = "";
 		}
 
 		if (response.stopReason === "refusal") {

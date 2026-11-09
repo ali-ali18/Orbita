@@ -1,6 +1,13 @@
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { useCallback, useRef, useState } from "react";
-import { DICTATION_LOCALE, dictationErrorMessage, mergeDictation, transcriptOf } from "./dictation-model.ts";
+import {
+	DICTATION_LOCALE,
+	dictationErrorMessage,
+	dictationPermissionMessage,
+	dictationPermissionOutcome,
+	mergeDictation,
+	transcriptOf,
+} from "./dictation-model.ts";
 
 /** O aparelho (ou o navegador) sabe reconhecer fala? Sem isso o botão do microfone nem aparece. */
 function recognitionAvailable(): boolean {
@@ -41,8 +48,9 @@ export function useDictation({ draft, onDraft }: { draft: string; onDraft: (text
 		setError(null);
 		try {
 			const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-			if (!permission.granted) {
-				setError(dictationErrorMessage("not-allowed"));
+			const outcome = dictationPermissionOutcome(permission);
+			if (outcome !== "start") {
+				setError(dictationPermissionMessage(outcome));
 				return;
 			}
 			base.current = draft;
