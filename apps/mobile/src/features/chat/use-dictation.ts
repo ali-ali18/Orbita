@@ -1,5 +1,5 @@
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	DICTATION_LOCALE,
 	dictationErrorMessage,
@@ -26,7 +26,9 @@ function recognitionAvailable(): boolean {
 export function useDictation({ draft, onDraft }: { draft: string; onDraft: (text: string) => void }) {
 	const [listening, setListening] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [supported] = useState(recognitionAvailable);
+	// Checado depois de montar (e protegido): um módulo nativo ausente ou com defeito só esconde o microfone.
+	const [supported, setSupported] = useState(false);
+	useEffect(() => setSupported(recognitionAvailable()), []);
 	// O que estava digitado quando o ditado começou: a fala é sempre somada a isto, não ao parcial anterior.
 	const base = useRef("");
 

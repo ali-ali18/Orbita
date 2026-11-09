@@ -2,8 +2,7 @@ import type { ChatCard, ChatRowsCard, ProposalDto, SetupSelection } from "@orbit
 import { chart, colors, radius, spacing } from "@orbita/tokens";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, type ScrollViewInstance, TextInput, View } from "react-native";
-import { KeyboardEvents, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
-import Animated, { useAnimatedStyle } from "react-native-reanimated";
+import { KeyboardEvents } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { percentOf } from "../../lib/format.ts";
 import {
@@ -350,18 +349,25 @@ export function ChatView({
 	const empty = messages.length === 0;
 	const dictation = useDictation({ draft, onDraft: setDraft });
 	const insets = useSafeAreaInsets();
-	const keyboard = useReanimatedKeyboardAnimation();
-	const avoid = useAnimatedStyle(() => ({
-		paddingBottom: keyboardPadding(keyboard.height.value, insets.bottom),
-	}));
+	// Altura real do teclado, vinda dos eventos do keyboard-controller (sem hook de reanimated na tela do chat).
+	const [keyboardHeight, setKeyboardHeight] = useState(0);
+	const avoid = { paddingBottom: keyboardPadding(keyboardHeight, insets.bottom) };
 	const scroll = useRef<ScrollViewInstance>(null);
 	const toEnd = () => scroll.current?.scrollToEnd({ animated: true });
 	// Teclado aberto: a lista volta para a última mensagem, que fica logo acima do campo.
 	useEffect(() => {
-		const sub = KeyboardEvents.addListener("keyboardDidShow", () =>
-			setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 50),
-		);
-		return () => sub.remove();
+		const subs = [
+			KeyboardEvents.addListener("keyboardWillShow", (e) => setKeyboardHeight(e.height)),
+			KeyboardEvents.addListener("keyboardDidShow", (e) => {
+				setKeyboardHeight(e.height);
+				setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 50);
+			}),
+			KeyboardEvents.addListener("keyboardWillHide", () => setKeyboardHeight(0)),
+			KeyboardEvents.addListener("keyboardDidHide", () => setKeyboardHeight(0)),
+		];
+		return () => {
+			for (const sub of subs) sub.remove();
+		};
 	}, []);
 	const send = () => {
 		const text = draft.trim();
@@ -376,9 +382,9 @@ export function ChatView({
 			 * Android de ponta a ponta (obrigatório no Android 15+): a janela não encolhe e o teclado fica por cima. O
 			 * KeyboardAvoidingView (RN e keyboard-controller) decide pela posição medida do próprio quadro, e foi por isso que
 			 * o campo continuou coberto. Aqui o conteúdo ganha folga embaixo igual à altura real do teclado (insets do IME,
-			 * animada no UI thread), sem medir nada: a lista encolhe e o campo sobe junto, nos dois estados da tela.
+			 * atualizada pelos eventos do teclado), sem medir nada: a lista encolhe e o campo sobe junto, nos dois estados da tela.
 			 */}
-			<Animated.View style={[{ flex: 1 }, avoid]}>
+			<View style={[{ flex: 1 }, avoid]}>
 				<View style={{ flex: 1, paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.lg }}>
 					<View style={{ flexDirection: "row", alignItems: "center" }}>
 						<IconButton icon="fechar" label="Fechar" onPress={onClose} />
@@ -448,7 +454,7 @@ export function ChatView({
 						dictation={dictation}
 					/>
 				</View>
-			</Animated.View>
+			</View>
 			<AttachSheet
 				visible={attachOpen}
 				onClose={() => setAttachOpen(false)}
