@@ -219,3 +219,25 @@ export function cardDisplayName(own: string, bank: string | null): string {
 	if (isWeakCardName(own)) return bank;
 	return key(own).includes(key(bank)) ? own : `${bank} ${own}`;
 }
+
+/** O nome como o Pluggy mandou, sem invisíveis nem o prefixo "MeuPluggy" (sem mapear para o banco curto). */
+export function rawBankName(raw: string): string {
+	let text = squash(raw);
+	while (PREFIX.test(text)) text = squash(text.replace(PREFIX, ""));
+	return text;
+}
+
+/**
+ * O nome gravado é o que as versões antigas guardavam do Pluggy, a razão social crua ("Nu Pagamentos S.A. -
+ * Instituição de Pagamento…", cortada em 60 caracteres, às vezes com o banco na frente)? Esse nome o dono nunca
+ * editou: pode ser trocado pelo nome curto, uma vez.
+ */
+export function isLegacyRawName(stored: string, raw: string | null | undefined, maxLength = 60): boolean {
+	const own = rawBankName(raw ?? "")
+		.slice(0, maxLength)
+		.trim()
+		.toLowerCase();
+	const name = squash(stored).toLowerCase();
+	if (own === "" || name === "") return false;
+	return name === own || name.endsWith(` ${own}`);
+}
