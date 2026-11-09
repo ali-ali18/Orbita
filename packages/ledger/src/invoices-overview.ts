@@ -1,14 +1,33 @@
 import { addMonths, type Cents, invoiceFor, type LocalDate, type MonthKey, monthOf } from "@orbita/core";
-import { type CardRecord, type Stores, toCardConfig } from "@orbita/db";
+import { type BillRecord, type CardRecord, type Stores, toCardConfig } from "@orbita/db";
+import type {
+	CardLimitDto,
+	InvoiceHistoryPointDto,
+	InvoiceState,
+	InvoiceTotalSource,
+	LimitsTotalDto,
+} from "@orbita/shared";
 import { activeInstallments, cardInvoice } from "./summary.ts";
 
-/** Uma fatura como a visão "Faturas" a mostra: tudo vem do engine (`cardInvoice`), nada é recalculado fora dele. */
+/** Quantos meses de fatura o gráfico de barras mostra (o aberto é o último). */
+export const INVOICE_HISTORY_MONTHS = 6;
+
+/**
+ * Uma fatura como a visão "Faturas" a mostra. Fechada com fatura do banco (`/bills`): total e pagamentos vêm dele;
+ * senão (e sempre na aberta, que o banco não manda) é a soma dos lançamentos do engine (`cardInvoice`).
+ */
 export interface InvoiceLine {
 	month: MonthKey;
 	closingDate: LocalDate;
 	dueDate: LocalDate;
 	status: "open" | "closed" | "overdue";
 	paymentStatus: "paid" | "partial" | "unpaid" | "open";
+	/** Situação honesta para o app: paga, fechada (a vencer), vencida ou aberta. */
+	state: InvoiceState;
+	/** De onde vêm `totalCents` e `paidCents`. */
+	source: InvoiceTotalSource;
+	/** Quando o Órbita leu a fatura no banco (`source` "bank"); senão `null`. */
+	bankSyncedAt: string | null;
 	totalCents: Cents;
 	paidCents: Cents;
 	/** O que ainda se deve nesta fatura: o total se ainda aberta; o total menos o pago se fechada (nunca negativo). */
@@ -25,18 +44,21 @@ export interface CardInvoicesLine {
 	owedCents: Cents;
 	/** O vencimento mais próximo ainda por pagar (fechada com saldo; senão o da aberta, se tem compra). */
 	nextDueDate: LocalDate | null;
-	/**
-	 * Limite comprometido: o que se deve (`owedCents`) mais as parcelas que caem depois da fatura aberta. Fatura
-	 * fechada já paga não entra. O app só exibe; o banco não manda o limite disponível.
-	 */
+	/** Limite em uso (o mesmo de `limit.usedCents`; mantido por compatibilidade). */
 	usedLimitCents: Cents;
+	/** Limite, disponível e usado, com a idade da leitura do banco. */
+	limit: CardLimitDto;
 }
 
 export interface InvoicesOverview {
 	cards: CardInvoicesLine[];
-	/** O total que ainda se deve em todos os cartões. */
+	/** O que ainda se deve em todos os cartões (aberta mais fechadas sem pagar; fatura paga nunca entra). */
 	owedCents: Cents;
 	nextDueDate: LocalDate | null;
+	/** Limites de todos os cartões somados. */
+	limits: LimitsTotalDto;
+	/** Total de faturas por mês, os últimos 6 (o último inclui a aberta), para o gráfico de barras. */
+	history: InvoiceHistoryPointDto[];
 }
 
 /** O que ainda se deve numa fatura: o total se aberta; o total menos o pago se fechada (nunca negativo). */
@@ -44,29 +66,116 @@ export function invoiceOwedCents(status: InvoiceLine["status"], totalCents: Cent
 	return status === "open" ? Math.max(0, totalCents) : Math.max(0, totalCents - paidCents);
 }
 
+const sum = (values: Iterable<number>) => {
+	let total = 0;
+	for (const v of values) total += v;
+	return total;
+};
+
+/** A fatura do banco de `month`: o mês do vencimento é o mês da fatura. */
+const billOfMonth = (bills: readonly BillRecord[], month: MonthKey): BillRecord | null =>
+	bills
+		.filter((b) => monthOf(b.dueDate) === month)
+		.sort((a, b) => b.syncedAt.getTime() - a.syncedAt.getTime())[0] ?? null;
+
 async function lineOf(
 	stores: Stores,
 	cardId: string,
+	bills: readonly BillRecord[],
 	month: MonthKey,
 	today: LocalDate,
 ): Promise<InvoiceLine> {
 	const { invoice, composition } = await cardInvoice(stores, cardId, month, today);
-	const totalCents = composition.totalCents;
+	const bill = invoice.status === "open" ? null : billOfMonth(bills, month);
+	if (!bill) {
+		const totalCents = composition.totalCents;
+		return {
+			month,
+			closingDate: invoice.closingDate,
+			dueDate: invoice.dueDate,
+			status: invoice.status,
+			paymentStatus: invoice.paymentStatus,
+			state: stateOf(invoice.status, invoice.paymentStatus),
+			source: "ledger",
+			bankSyncedAt: null,
+			totalCents,
+			paidCents: invoice.paidCents,
+			owedCents: invoiceOwedCents(invoice.status, totalCents, invoice.paidCents),
+		};
+	}
+	// O banco registra o pagamento da fatura N nos `payments` da N+1 (doc da Pluggy). Sem a N+1 ainda (é a última
+	// fechada), só resta o `card_payment` casado. As duas medidas são do MESMO pagamento: vale a maior, nunca a soma.
+	const next = billOfMonth(bills, addMonths(month, 1));
+	const bankPaid = next ? sum(next.payments.map((p) => p.amountCents)) : 0;
+	const paidCents = Math.max(bankPaid, invoice.paidCents);
+	const totalCents = bill.totalAmountCents;
+	const dueDate = bill.dueDate;
+	const status = dueDate < today ? "overdue" : "closed";
+	const paymentStatus =
+		totalCents <= 0 || paidCents >= totalCents ? "paid" : paidCents > 0 ? "partial" : "unpaid";
 	return {
 		month,
-		closingDate: invoice.closingDate,
-		dueDate: invoice.dueDate,
-		status: invoice.status,
-		paymentStatus: invoice.paymentStatus,
+		closingDate: bill.closeDate ?? invoice.closingDate,
+		dueDate,
+		status,
+		paymentStatus,
+		state: stateOf(status, paymentStatus),
+		source: "bank",
+		bankSyncedAt: bill.syncedAt.toISOString(),
 		totalCents,
-		paidCents: invoice.paidCents,
-		owedCents: invoiceOwedCents(invoice.status, totalCents, invoice.paidCents),
+		paidCents,
+		owedCents: invoiceOwedCents(status, totalCents, paidCents),
+	};
+}
+
+function stateOf(status: InvoiceLine["status"], paymentStatus: InvoiceLine["paymentStatus"]): InvoiceState {
+	if (status === "open") return "open";
+	if (paymentStatus === "paid") return "paid";
+	return status === "overdue" ? "overdue" : "closed";
+}
+
+/**
+ * Limite do cartão. Com o disponível do banco: usado = limite − disponível (a doc da Pluggy: limite = disponível +
+ * saldo em aberto + dívida anterior, então já inclui parcelas futuras e fatura fechada). Sem ele (cartão manual ou
+ * ainda não lido): o que o Órbita estima (`estimatedUsedCents`, o que se deve mais as parcelas futuras).
+ */
+export function cardLimit(card: CardRecord, estimatedUsedCents: Cents): CardLimitDto {
+	const { limitCents, availableCents } = card;
+	if (limitCents !== null && availableCents !== null) {
+		return {
+			limitCents,
+			availableCents,
+			usedCents: Math.max(0, limitCents - availableCents),
+			source: "bank",
+			syncedAt: card.limitSyncedAt?.toISOString() ?? null,
+		};
+	}
+	return {
+		limitCents,
+		availableCents: limitCents === null ? null : Math.max(0, limitCents - estimatedUsedCents),
+		usedCents: estimatedUsedCents,
+		source: limitCents === null ? "none" : "estimated",
+		syncedAt: null,
+	};
+}
+
+function limitsTotal(limits: readonly CardLimitDto[]): LimitsTotalDto {
+	const counted = limits.filter((l) => l.limitCents !== null);
+	const synced = limits.flatMap((l) => (l.source === "bank" && l.syncedAt ? [l.syncedAt] : [])).sort();
+	return {
+		limitCents: sum(counted.map((l) => l.limitCents as Cents)),
+		usedCents: sum(counted.map((l) => l.usedCents)),
+		availableCents: sum(counted.map((l) => l.availableCents ?? 0)),
+		cardsCounted: counted.length,
+		cardsWithoutLimit: limits.length - counted.length,
+		oldestSyncedAt: synced[0] ?? null,
 	};
 }
 
 /**
  * "Faturas" do Início: para cada cartão ativo, a fatura a pagar (com o pago e o que falta), a aberta e o quanto
- * ainda se deve (a aberta mais as fechadas sem pagar, já descontados os pagamentos).
+ * ainda se deve (a aberta mais as fechadas sem pagar, já descontados os pagamentos), o limite (do banco, com
+ * fallback para a estimativa) e a série dos últimos 6 meses.
  *
  * Meses olhados: a aberta, a anterior a ela (a fechada que está para vencer, mesmo quando vence só no mês seguinte
  * ao fechamento) e o mês anterior e o atual do calendário (vencida há pouco). Fatura mais velha sem pagamento
@@ -76,15 +185,32 @@ async function lineOf(
 export async function invoicesOverview(stores: Stores, today: LocalDate): Promise<InvoicesOverview> {
 	const cards = (await stores.cards.list()).filter((c) => c.archivedAt === null);
 	const thisMonth = monthOf(today);
-	const installmentGroups = await activeInstallments(stores, thisMonth);
+	const installmentGroups = await activeInstallments(stores, thisMonth, today);
 	const lines: CardInvoicesLine[] = [];
+	const memo = new Map<string, InvoiceLine>();
+	const billsByCard = new Map<string, BillRecord[]>();
+	const line = async (card: CardRecord, month: MonthKey) => {
+		const key = `${card.id}|${month}`;
+		const hit = memo.get(key);
+		if (hit) return hit;
+		let bills = billsByCard.get(card.id);
+		if (!bills) {
+			bills = await stores.bills.listByCard(card.id);
+			billsByCard.set(card.id, bills);
+		}
+		const made = await lineOf(stores, card.id, bills, month, today);
+		memo.set(key, made);
+		return made;
+	};
+	const openMonths: MonthKey[] = [];
 	for (const card of cards) {
 		const openMonth = invoiceFor(today, toCardConfig(card)).month;
+		openMonths.push(openMonth);
 		const months = [
 			...new Set([addMonths(thisMonth, -1), thisMonth, addMonths(openMonth, -1), openMonth]),
 		].sort();
 		const byMonth = new Map<MonthKey, InvoiceLine>();
-		for (const m of months) byMonth.set(m, await lineOf(stores, card.id, m, today));
+		for (const m of months) byMonth.set(m, await line(card, m));
 		const all = [...byMonth.values()];
 		const open = byMonth.get(openMonth) as InvoiceLine;
 		const pending = all.filter((l) => l.owedCents > 0).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
@@ -93,7 +219,7 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 			pending.find((l) => l.status !== "open") ??
 			closed.find((l) => l.dueDate >= today) ??
 			(byMonth.get(thisMonth) as InvoiceLine);
-		const owedCents = all.reduce((sum, l) => sum + l.owedCents, 0);
+		const owedCents = all.reduce((total, l) => total + l.owedCents, 0);
 		let futureCents = 0;
 		for (const g of installmentGroups) {
 			if (g.cardId !== card.id || g.remainingCount <= 0) continue;
@@ -101,19 +227,37 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 				if (t.invoiceMonth !== null && t.invoiceMonth > openMonth) futureCents += t.amountCents;
 			}
 		}
+		const limit = cardLimit(card, owedCents + futureCents);
 		lines.push({
 			card,
 			due,
 			open,
 			owedCents,
 			nextDueDate: pending[0]?.dueDate ?? null,
-			usedLimitCents: owedCents + futureCents,
+			usedLimitCents: limit.usedCents,
+			limit,
 		});
 	}
+
+	const lastMonth = openMonths.sort().at(-1) ?? thisMonth;
+	const history: InvoiceHistoryPointDto[] = [];
+	for (let i = INVOICE_HISTORY_MONTHS - 1; i >= 0; i--) {
+		const month = addMonths(lastMonth, -i);
+		const own = await Promise.all(cards.map(async (card) => ({ card, l: await line(card, month) })));
+		history.push({
+			month,
+			totalCents: sum(own.map((o) => Math.max(0, o.l.totalCents))),
+			open: own.some((o) => o.l.status === "open"),
+			byCard: own.map((o) => ({ cardId: o.card.id, totalCents: Math.max(0, o.l.totalCents) })),
+		});
+	}
+
 	const dates = lines.flatMap((l) => (l.nextDueDate ? [l.nextDueDate] : [])).sort();
 	return {
 		cards: lines,
-		owedCents: lines.reduce((sum, l) => sum + l.owedCents, 0),
+		owedCents: lines.reduce((total, l) => total + l.owedCents, 0),
 		nextDueDate: dates[0] ?? null,
+		limits: limitsTotal(lines.map((l) => l.limit)),
+		history,
 	};
 }

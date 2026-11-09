@@ -10,6 +10,8 @@ export const colors = {
 	textTertiary: "#5A5A5A",
 	/** Dinheiro que entra (receita, estorno, pagamento de fatura). Só em valor de dinheiro; ver styleguide. */
 	positive: "#34D17A",
+	/** Ação destrutiva ("Remover" no menu do widget): texto e ícone, sempre junto de um rótulo. Nunca em valor de dinheiro. */
+	danger: "#FF6B6B",
 	accent: "#FFFFFF",
 	onAccent: "#000000",
 } as const;

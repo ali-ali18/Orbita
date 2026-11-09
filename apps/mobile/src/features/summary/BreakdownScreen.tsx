@@ -7,7 +7,9 @@ import { toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { Card, ErrorState, IconButton, ListRow, Screen, Skeleton, Text } from "../../ui/index.ts";
 import { type BreakdownRow, cardGroups, rowCaption, sections } from "./breakdown-model.ts";
-import { useBreakdown, useCategories } from "./queries.ts";
+import { CategoryDonut } from "./CategoryDonut.tsx";
+import { useBreakdown, useCategories, useSummary } from "./queries.ts";
+import { categoryShares } from "./summary-model.ts";
 
 /**
  * "Como chegamos nesse número": cada lançamento que somou ao Gasto do mês, agrupado por onde veio (conta ou cartão, com o
@@ -20,6 +22,11 @@ export function BreakdownScreen({ month }: { month?: string }) {
 	const target = month ?? clock.month;
 	const breakdown = toLoadable(useBreakdown(target));
 	const categoriesQ = useCategories();
+	const summaryQ = useSummary(target);
+	// A rosca usa o mesmo gasto por categoria do Início; sem ele (ou sem categorias) a tela segue só com a lista.
+	const shares = summaryQ.data
+		? categoryShares(summaryQ.data.summary.byCategory, categoriesQ.data?.categories ?? [])
+		: [];
 	const names = new Map((categoriesQ.data?.categories ?? []).map((c) => [c.id, c.name]));
 
 	const renderRow = (r: BreakdownRow) => (
@@ -85,6 +92,11 @@ export function BreakdownScreen({ month }: { month?: string }) {
 								</Text>
 							) : null}
 						</Card>
+						{shares.length > 0 ? (
+							<Card>
+								<CategoryDonut shares={shares} hidden={hidden} />
+							</Card>
+						) : null}
 						{sections(breakdown.data.rows, breakdown.data.branches).map((section) => (
 							<Card key={section.branch}>
 								<View style={{ flexDirection: "row", justifyContent: "space-between", gap: spacing.md }}>

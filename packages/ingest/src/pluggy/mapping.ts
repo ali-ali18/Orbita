@@ -28,6 +28,9 @@ import {
 	categoryChain,
 	classifyFamily,
 	isGoogleDigitalCharge,
+	normalizeOperationType,
+	operationExcludesCardPayment,
+	operationSignal,
 	plain,
 	readableCategory,
 	suggestSpendingSlug,
@@ -210,7 +213,11 @@ export function mapPluggyAccount(
 // -------------------------------------------------------- lançamentos
 
 export type SkipReason =
-	| "pending" // ainda não efetivado: pode mudar de id ao efetivar
+	/**
+	 * PENDING que o Órbita não conta: tudo na CONTA (agendado, em processamento: docs.pluggy.ai/docs/transactions) e o
+	 * crédito pendente do cartão. A compra pendente do CARTÃO entra (ver `mapPluggyTransaction`).
+	 */
+	| "pending"
 	| "invalid" // valor, data ou tipo que o Órbita não aceita
 	| "foreign_currency"
 	| "investment" // aplicação, resgate, caixinha, poupança: o dinheiro só mudou de bolso (o Órbita não tem conta de investimento)
@@ -232,7 +239,10 @@ export type MappedTransaction =
 			categorySource?: CategorySource;
 			/** Parcela de compra parcelada no cartão: entra num grupo que cresce a cada fatura. */
 			installment?: { groupId: string; number: number; count: number };
-			/** O `invoiceMonth` veio da fatura do banco (`billId`), não do cálculo pelo fechamento: vale corrigir o já gravado. */
+			/**
+			 * O `invoiceMonth` veio do banco (`billId` ou `billForecastDate`), não do cálculo pelo fechamento: vale corrigir
+			 * o já gravado.
+			 */
 			invoiceFromBill?: true;
 	  }
 	/** Estorno no cartão: o sync procura a compra original antes de gravar. */
@@ -568,6 +578,8 @@ const CARD_SIDE_PAYMENT_DESCRIPTIONS = [
 	"payment received",
 ];
 
+const FORECAST_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+
 const includesAny = (text: string, needles: readonly string[]) => needles.some((n) => text.includes(n));
 
 interface CategoryChoice {
@@ -694,10 +706,55 @@ function amountCentsOf(tx: PluggyTransaction): number | "foreign_currency" | nul
 	}
 }
 
+/** Rótulo (pt-BR) de `creditCardMetadata.feeType` (docs.pluggy.ai/reference/transactions-list). */
+const FEE_LABELS: Readonly<Record<string, string>> = {
+	ANNUAL_FEE: "anuidade",
+	ATM_WITHDRAWAL_DOMESTIC: "saque no Brasil",
+	ATM_WITHDRAWAL_INTERNATIONAL: "saque no exterior",
+	EMERGENCY_CREDIT_EVALUATION: "avaliação de crédito emergencial",
+	CARD_REISSUE: "segunda via do cartão",
+	BILL_PAYMENT_FEE: "pagamento da fatura",
+	SMS: "SMS",
+};
+
+export const CARD_CREDIT_OPERATION_NOTE =
+	"Crédito contratado no cartão (rotativo, parcelamento da fatura ou empréstimo): pode repetir compras que já estão no gasto. Confira.";
+
+/**
+ * Sinais de `operationType`/`creditCardMetadata` numa despesa do cartão (docs.pluggy.ai/reference/transactions-list):
+ * - TARIFA ou `feeType`: tarifa do cartão; a observação diz qual (anuidade, saque…). Continua despesa;
+ * - OPERACOES_CREDITO_CONTRATADAS_CARTAO ou `otherCreditsType` (REVOLVING_CREDIT, BILL_INSTALLMENT, LOAN): o banco lançou
+ *   uma operação de crédito, não uma compra. INFERÊNCIA do Órbita (a doc não diz): o valor pode repetir compras já
+ *   lançadas, então vai para "Para revisar" (continua contando) em vez de entrar calado.
+ */
+function cardOperationReview(
+	tx: PluggyTransaction,
+	note: string | null,
+): { note?: string | null; status?: "pending" } {
+	const op = normalizeOperationType(tx.operationType);
+	const meta = tx.creditCardMetadata;
+	if (op === "OPERACOES_CREDITO_CONTRATADAS_CARTAO" || meta?.otherCreditsType) {
+		return { note: note ?? CARD_CREDIT_OPERATION_NOTE, status: "pending" };
+	}
+	if (op === "TARIFA" || meta?.feeType) {
+		const label = FEE_LABELS[(meta?.feeType ?? "").toUpperCase()];
+		return { note: note ?? (label ? `Tarifa do cartão: ${label}.` : "Tarifa do cartão.") };
+	}
+	return {};
+}
+
 /** Decide o que fazer com um lançamento do Pluggy. Não toca em banco nem em rede. */
 export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionContext): MappedTransaction {
-	if (tx.status === "PENDING") return { action: "skip", reason: "pending" };
 	if (tx.type !== "DEBIT" && tx.type !== "CREDIT") return { action: "skip", reason: "invalid" };
+	// PENDING (docs.pluggy.ai/docs/transactions, propriedade `status`; docs.pluggy.ai/docs/credit-card-installments):
+	// - cartão, DEBIT: compra da fatura ABERTA ("a purchase not yet included in a closed bill"). Entra como despesa
+	//   (`bankPending`) pela data da compra; vira POSTED, normalmente com o mesmo id, quando a fatura vence;
+	// - conta: "a transaction the institution is still processing or a scheduled payment", com data futura. Não é gasto
+	//   ainda (pode nem acontecer, e a Pluggy refaz o vínculo ao liquidar): fica de fora até virar POSTED;
+	// - cartão, CREDIT pendente (estorno ou baixa ainda não lançada): fica de fora até virar POSTED.
+	const pending = tx.status === "PENDING";
+	if (pending && (ctx.accountType !== "CREDIT" || tx.type !== "DEBIT"))
+		return { action: "skip", reason: "pending" };
 	const amount = amountCentsOf(tx);
 	if (amount === "foreign_currency") return { action: "skip", reason: "foreign_currency" };
 	const date = pluggyDateToLocal(tx.date);
@@ -710,6 +767,7 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 		description,
 		direction: tx.type === "DEBIT" ? "out" : "in",
 		allowDescriptionFallback: ctx.accountType === "BANK",
+		operationType: tx.operationType,
 	});
 	const isCardPayment = family === "card_payment";
 	const merchantName = cleanMerchantName(tx.merchant?.name?.trim() || tx.merchant?.businessName?.trim());
@@ -721,6 +779,10 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 		status: "confirmed" as const,
 		sourceCategory: cleanSourceCategory(readableCategory(tx, ctx.categoryIndex)),
 		merchantName,
+		// Âncoras do banco contra recriação com id novo (docs.pluggy.ai/docs/transactions, "Transaction Id can change").
+		providerId: tx.providerId ?? null,
+		providerCode: tx.providerCode ?? null,
+		bankPending: pending,
 	};
 	const choose = () => chooseCategory(tx, chain, description, merchantName, ctx);
 
@@ -852,7 +914,12 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 	const meta = tx.creditCardMetadata;
 	// A fatura que o próprio Pluggy indica (billId → mês do vencimento) vale mais que o cálculo pelo fechamento.
 	const billMonth = meta?.billId ? ctx.billMonths?.get(meta.billId) : undefined;
-	const invoiceMonth = billMonth ?? invoiceFor(date, ctx.card.config).month;
+	// Compra ainda sem billId (fatura aberta): `billForecastDate` é a fatura prevista pelo banco ("provided for pending
+	// and future transactions too", docs.pluggy.ai/reference/transactions-list). Sem ela, o cálculo do engine.
+	const forecast =
+		meta?.billForecastDate && FORECAST_MONTH.test(meta.billForecastDate) ? meta.billForecastDate : null;
+	const invoiceMonth = billMonth ?? forecast ?? invoiceFor(date, ctx.card.config).month;
+	const invoiceFromBank = billMonth !== undefined || forecast !== null;
 	const installment =
 		meta?.installmentNumber && meta.totalInstallments && meta.totalInstallments > 1
 			? `Parcela ${meta.installmentNumber}/${meta.totalInstallments}`
@@ -909,20 +976,28 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 				invoiceMonth,
 				note,
 				categoryId: choice.categoryId,
+				...cardOperationReview(tx, note),
 			},
 			categorySource: choice.source,
 			...(groupInput ? { installment: groupInput.installment } : {}),
-			...(billMonth === undefined ? {} : { invoiceFromBill: true as const }),
+			...(invoiceFromBank ? { invoiceFromBill: true as const } : {}),
 		};
 	}
-	if (ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
-	const side = plain(tx.description) || plain(tx.descriptionRaw);
-	if (
-		ctx.billPaymentMatches?.has(tx.id) ||
-		isCardPayment ||
-		includesAny(side, CARD_SIDE_PAYMENT_DESCRIPTIONS)
-	) {
-		return { action: "skip", reason: "card_payment" };
+	// Crédito no cartão. `operationType` decide primeiro (docs.pluggy.ai/docs/transactions): PAGAMENTO_FATURA é baixa da
+	// fatura (o lado do banco é quem conta) e ESTORNO/CASHBACK são crédito que abate a fatura; só sem esse sinal valem a
+	// descrição e a categoria.
+	const signal = operationSignal(tx.operationType, "in");
+	if (signal === "card_payment") return { action: "skip", reason: "card_payment" };
+	if (signal !== "refund") {
+		if (ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
+		const side = plain(tx.description) || plain(tx.descriptionRaw);
+		if (
+			ctx.billPaymentMatches?.has(tx.id) ||
+			isCardPayment ||
+			(!operationExcludesCardPayment(tx.operationType) && includesAny(side, CARD_SIDE_PAYMENT_DESCRIPTIONS))
+		) {
+			return { action: "skip", reason: "card_payment" };
+		}
 	}
 	const refundChoice = choose();
 	return {

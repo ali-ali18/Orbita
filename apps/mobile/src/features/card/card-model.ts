@@ -314,6 +314,17 @@ export interface InstallmentGroupLike {
 	remainingCents: Cents;
 	paidCount: number;
 	remainingCount: number;
+	/** A parcela vista da fatura vigente ("11 de 21"); `null` se nenhuma já pesou. */
+	currentNumber: number | null;
+	/** Valor da parcela vista. */
+	installmentCents: Cents;
+	/** Parte do "pago" é estimativa (parcelas que o Órbita nunca viu). */
+	paidEstimated: boolean;
+	remainingEstimated: boolean;
+	/** O que as parcelas do mês de referência somam (do servidor). */
+	committedMonthCents: Cents;
+	/** Fatura (mês do vencimento) da última parcela. */
+	lastInvoiceMonth: MonthKey | null;
 	installments: readonly InstallmentLike[];
 }
 
@@ -335,6 +346,22 @@ export function commitment(groups: readonly InstallmentGroupLike[], month: Month
 		}
 	}
 	return { committedCents, futureCents };
+}
+
+/**
+ * Totais do topo da aba: o comprometido no mês e o que resta, somando o que o servidor calculou por parcelamento
+ * (só os ativos). `estimated` avisa que parte do "resta" é estimativa.
+ */
+export function installmentTotals(groups: readonly InstallmentGroupLike[]) {
+	let committedCents = 0;
+	let remainingCents = 0;
+	let estimated = false;
+	for (const g of activeGroups(groups)) {
+		committedCents += g.committedMonthCents;
+		remainingCents += g.remainingCents;
+		if (g.remainingEstimated) estimated = true;
+	}
+	return { committedCents, remainingCents, estimated, count: activeGroups(groups).length };
 }
 
 export interface MonthColumn {
@@ -425,42 +452,37 @@ export interface InstallmentCardModel {
 	cardId: string | null;
 	/** "Parcela 11 de 21". */
 	progressLabel: string;
-	/** Parcela do mês (ou a próxima), em centavos; 0 se a API não trouxe. */
+	/** Valor da parcela (a vista da fatura vigente). */
 	currentCents: Cents;
 	paidCents: Cents;
 	remainingCents: Cents;
+	paidEstimated: boolean;
+	remainingEstimated: boolean;
 	percent: number;
-	/** "Termina em agosto de 2027 · faltam 10". */
+	/** "Última parcela em agosto de 2027 · faltam 10". */
 	endLabel: string;
 }
 
-/**
- * Cartão de um parcelamento. A parcela "atual" é a primeira que cai de `from` em diante (a da fatura aberta
- * ainda conta como "falta": só está paga depois do pagamento, que o engine não acompanha).
- */
-export function installmentCard(group: InstallmentGroupLike, from: MonthKey): InstallmentCardModel {
-	const ordered = [...group.installments].sort(
-		(a, b) => (a.installmentNumber ?? 0) - (b.installmentNumber ?? 0),
-	);
-	const current = ordered.find((t) => t.invoiceMonth !== null && t.invoiceMonth >= from) ?? ordered.at(-1);
-	const lastMonth = scheduleAmounts(group).reduce<MonthKey | null>(
-		(acc, t) => (acc === null || t.month > acc ? t.month : acc),
-		null,
-	);
+/** Cartão de um parcelamento: tudo pela parcela vista (n de N), como o servidor contou. */
+export function installmentCard(group: InstallmentGroupLike): InstallmentCardModel {
 	const left = group.remainingCount;
-	const end = lastMonth ? `Termina em ${monthYear(lastMonth)} · ` : "";
+	const end = group.lastInvoiceMonth
+		? `Última parcela em ${monthYear(group.lastInvoiceMonth)}`
+		: "Sem data da última parcela";
 	return {
 		groupId: group.groupId,
 		title: group.description || "Compra parcelada",
 		cardId: group.cardId,
-		progressLabel: current?.installmentNumber
-			? `Parcela ${current.installmentNumber} de ${group.count}`
+		progressLabel: group.currentNumber
+			? `Parcela ${group.currentNumber} de ${group.count}`
 			: `${group.count} parcelas`,
-		currentCents: current?.amountCents ?? 0,
+		currentCents: group.installmentCents,
 		paidCents: group.paidCents,
 		remainingCents: group.remainingCents,
+		paidEstimated: group.paidEstimated,
+		remainingEstimated: group.remainingEstimated,
 		percent: percentOf(group.paidCents, group.totalCents),
-		endLabel: `${end}${left === 1 ? "falta 1" : `faltam ${left}`}`,
+		endLabel: `${end} · ${left === 1 ? "falta 1" : `faltam ${left}`}`,
 	};
 }
 
@@ -468,11 +490,10 @@ export function installmentCard(group: InstallmentGroupLike, from: MonthKey): In
 export function visibleInstallments(
 	groups: readonly InstallmentGroupLike[],
 	cardId: string | null,
-	from: MonthKey,
 ): InstallmentCardModel[] {
 	return activeGroups(groups)
 		.filter((g) => cardId === null || g.cardId === cardId)
-		.map((g) => installmentCard(g, from))
+		.map((g) => installmentCard(g))
 		.sort((a, b) => b.remainingCents - a.remainingCents || a.title.localeCompare(b.title, "pt-BR"));
 }
 

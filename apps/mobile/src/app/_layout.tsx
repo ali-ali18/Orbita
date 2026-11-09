@@ -39,6 +39,9 @@ function Routes() {
 				<Stack.Screen name="assinaturas" />
 				<Stack.Screen name="relatorio" />
 				<Stack.Screen name="gasto" />
+				<Stack.Screen name="gasto-do-mes" />
+				<Stack.Screen name="saldo" />
+				<Stack.Screen name="fluxo" />
 				<Stack.Screen name="assinatura" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
 				<Stack.Screen name="agentes" />
 				<Stack.Screen name="agente" />

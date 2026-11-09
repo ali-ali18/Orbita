@@ -167,6 +167,69 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 			return view(next);
 		},
 
+		async markSeen(source, externalIds, at) {
+			const ids = new Set(externalIds);
+			if (ids.size > 500) throw invalid("Informe de 0 a 500 identificadores externos.");
+			let count = 0;
+			for (const t of live()) {
+				if (t.source !== source || t.externalId === null || !ids.has(t.externalId)) continue;
+				state.transactions.set(t.id, { ...t, lastSeenAt: at, removedByBankAt: null });
+				count += 1;
+			}
+			return count;
+		},
+
+		async listByProvider(source, target, anchors) {
+			const where = checkTarget(target);
+			const { providerId, providerCode } = anchors;
+			if (!providerId && !providerCode) return [];
+			return live()
+				.filter(
+					(t) =>
+						t.source === source &&
+						(where.accountId !== undefined ? t.accountId === where.accountId : t.cardId === where.cardId) &&
+						((providerId && t.providerId === providerId) ||
+							(providerCode && t.providerCode === providerCode)),
+				)
+				.sort(byDateAsc)
+				.map(view);
+		},
+
+		async removeByBank(id, at) {
+			const current = state.transactions.get(id);
+			if (!current || current.deletedAt !== null) return false;
+			if (live().some((t) => t.refundOfId === id)) return false;
+			state.postings = state.postings.filter((p) => p.transactionId !== id);
+			state.transactions.set(id, { ...current, deletedAt: at, removedByBankAt: at, updatedAt: at });
+			return true;
+		},
+
+		async flagMissingByBank(id, at, review) {
+			const current = state.transactions.get(id);
+			if (!current || current.deletedAt !== null) return null;
+			const before = dataOf(current);
+			const data = mergeTransaction(before, { status: review.status, note: review.note });
+			const next: StoredTransaction = { ...current, ...data, removedByBankAt: at, updatedAt: state.now() };
+			state.transactions.set(id, next);
+			return view(next);
+		},
+
+		async reviveRemovedByBank(source, externalId, at) {
+			const found = [...state.transactions.values()].find(
+				(t) => t.source === source && t.externalId === externalId,
+			);
+			if (!found || found.deletedAt === null || found.removedByBankAt === null) return null;
+			const next: StoredTransaction = {
+				...found,
+				deletedAt: null,
+				removedByBankAt: null,
+				lastSeenAt: at,
+				updatedAt: state.now(),
+			};
+			state.transactions.set(found.id, next);
+			return view(next);
+		},
+
 		async existsByExternal(source, externalId) {
 			return [...state.transactions.values()].some((t) => t.source === source && t.externalId === externalId);
 		},

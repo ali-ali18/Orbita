@@ -142,6 +142,9 @@ describe("rótulos", () => {
 		expect(sourceTitle("manual")).toBe("Lançado por você");
 		expect(statusText("pending").title).toBe("Para revisar");
 		expect(statusText("confirmed").title).toBe("Confirmado");
+		// Pendente no banco não é "Para revisar": conta nos números e só informa.
+		expect(statusText("confirmed", true).title).toBe("Pendente no banco");
+		expect(statusText("pending", true).title).toBe("Para revisar");
 	});
 });
 

@@ -4,7 +4,7 @@ import { Pressable, View } from "react-native";
 import type { CategoriesView, MonthSummary } from "../../lib/api.ts";
 import { formatWholeReais, money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
-import { Card, ErrorState, ProgressBar, Skeleton, Text } from "../../ui/index.ts";
+import { Card, ErrorState, ProgressBar, Skeleton, Text, useWidgetLongPress } from "../../ui/index.ts";
 import { budgetAlertNotice, categoryShares, heroBarParts, heroModel } from "./summary-model.ts";
 
 /** Mesmo valor de `TOTAL_BUDGET_SCOPE` em `@orbita/db` (o app não importa o banco). */
@@ -12,15 +12,17 @@ const TOTAL_BUDGET_SCOPE = "total";
 
 const TITLE = "Dá pra gastar até o fim do mês";
 
-/** "Gasto R$ X" que abre "Como chegamos nesse número" (cada lançamento que somou, por ramo). */
+/** "Gasto R$ X" que abre o Gasto do mês (a linha dia a dia; de lá vai a "Como chegamos nesse número"). */
 function SpentLine({ month, cents, hidden }: { month: string; cents: number; hidden: boolean }) {
 	const router = useRouter();
+	const longPress = useWidgetLongPress();
 	return (
 		<Pressable
 			accessibilityRole="button"
-			accessibilityLabel={`Gasto ${hidden ? "escondido" : money(cents, false, { sign: "never" })}, ver como chegamos nesse número`}
+			accessibilityLabel={`Gasto ${hidden ? "escondido" : money(cents, false, { sign: "never" })}, ver o gasto do mês`}
 			hitSlop={8}
-			onPress={() => router.push({ pathname: "/gasto", params: { mes: month } })}
+			onPress={() => router.push({ pathname: "/gasto-do-mes", params: { mes: month } })}
+			onLongPress={longPress}
 			style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
 		>
 			<Text variant="caption" tone="secondary" style={{ textDecorationLine: "underline" }}>
@@ -44,9 +46,12 @@ function Shell({ title = TITLE, children }: { title?: string; children: React.Re
 export function HeroCard({
 	state,
 	hidden,
+	compact = false,
 }: {
 	state: Loadable<[MonthSummary, CategoriesView]>;
 	hidden: boolean;
+	/** 2x4: o número e uma linha de apoio, sem a barra e o "Gasto". */
+	compact?: boolean;
 }) {
 	if (state.phase === "loading") {
 		return (
@@ -107,8 +112,33 @@ export function HeroCard({
 		? money(hero.availableCents, hidden)
 		: money(Math.max(0, hero.availableCents), hidden);
 
+	const title = hero.overBudget ? "Você passou do orçamento do mês" : TITLE;
+	const caption = hero.overBudget
+		? `Passou ${masked(spent - hero.limitCents)} do orçamento de ${masked(hero.limitCents)}`
+		: hero.reserveExceeds
+			? `${masked(hero.reservedCents)} reservados para contas do mês`
+			: `≈ ${masked(safe.perDayCents)} por dia · orçamento de ${masked(hero.limitCents)}`;
+	if (compact) {
+		return (
+			<Shell title={title}>
+				<Text
+					variant="numberHero"
+					style={{ marginTop: spacing.xs }}
+					adjustsFontSizeToFit
+					numberOfLines={1}
+					accessibilityLabel={hidden ? "Valor escondido" : undefined}
+				>
+					{bigValue}
+				</Text>
+				<Text variant="caption" tone="secondary" style={{ marginTop: spacing.sm }}>
+					{caption}
+				</Text>
+			</Shell>
+		);
+	}
+
 	return (
-		<Shell title={hero.overBudget ? "Você passou do orçamento do mês" : TITLE}>
+		<Shell title={title}>
 			<Text
 				variant="numberHero"
 				style={{ marginTop: spacing.xs }}
@@ -119,17 +149,8 @@ export function HeroCard({
 				{bigValue}
 			</Text>
 			<Text variant="caption" tone="secondary" style={{ marginTop: spacing.sm }}>
-				{hero.overBudget
-					? `Passou ${masked(spent - hero.limitCents)} do orçamento de ${masked(hero.limitCents)}`
-					: hero.reserveExceeds
-						? `${masked(hero.reservedCents)} reservados para contas do mês`
-						: `≈ ${masked(safe.perDayCents)} por dia · orçamento de ${masked(hero.limitCents)}`}
+				{caption}
 			</Text>
-			{hero.reserveExceeds ? (
-				<Text variant="caption" tone="secondary">
-					O que falta pagar este mês passa do que sobra.
-				</Text>
-			) : null}
 			<View style={{ marginTop: spacing.xl }}>
 				<ProgressBar parts={bar} />
 			</View>
@@ -139,19 +160,9 @@ export function HeroCard({
 					{hero.percent}% do orçamento
 				</Text>
 			</View>
-			{invested > 0 ? (
-				<Text variant="caption" tone="secondary" style={{ marginTop: spacing.xs }}>
-					Investido {money(invested, hidden, { sign: "never" })}
-				</Text>
-			) : null}
 			{notice ? (
 				<Text variant="caption" accessibilityRole="alert" style={{ marginTop: spacing.sm }}>
 					{notice}
-				</Text>
-			) : null}
-			{hero.reservedCents > 0 && !hero.overBudget ? (
-				<Text variant="caption" tone="secondary" style={{ marginTop: spacing.xs }}>
-					Contas a vencer (listradas) {money(hero.reservedCents, hidden, { sign: "never" })}
 				</Text>
 			) : null}
 		</Shell>

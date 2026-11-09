@@ -212,6 +212,16 @@ model Transaction {
   editedByOwner         Boolean           @default(false) @map("edited_by_owner")
   /// Partes de uma compra que o dono dividiu em categorias diferentes dividem este id. Sem unicidade: é só o agrupamento.
   splitGroupId          String?           @map("split_group_id")
+  /// O banco ainda não efetivou (Pluggy `status: PENDING`: compra da fatura aberta do cartão). Não é o `status` de revisão ("Para revisar"): conta no gasto normalmente.
+  bankPending           Boolean           @default(false) @map("bank_pending")
+  /// `providerId` do Pluggy (id do lançamento no banco; só conectores Open Finance): âncora para reconhecer o mesmo lançamento recriado com id novo.
+  providerId            String?           @map("provider_id")
+  /// `providerCode` do Pluggy (código da instituição, ex. NSU; formato varia): âncora mais fraca, sempre com valor e data.
+  providerCode          String?           @map("provider_code")
+  /// Última sincronização em que o Pluggy trouxe este lançamento. Nulo = ainda não acompanhado (o relógio começa na primeira rodada).
+  lastSeenAt            DateTime?         @map("last_seen_at")
+  /// A sincronização notou que o banco parou de informar este lançamento (apagado, ou só marcado para revisão se o dono o editou). Limpo quando ele volta.
+  removedByBankAt       DateTime?         @map("removed_by_bank_at")
   createdAt             DateTime          @default(now()) @map("created_at")
   updatedAt             DateTime          @updatedAt @map("updated_at")
   /// Exclusão lógica: some de listas e buscas, mas segura o (source, externalId).
@@ -235,6 +245,8 @@ model Transaction {
   @@index([date])
   @@index([status])
   @@index([installmentGroupId])
+  @@index([providerId])
+  @@index([providerCode])
   @@map("transactions")
 }
 
@@ -378,6 +390,16 @@ model AppPreferences {
   @@map("app_preferences")
 }
 
+/// Layout dos widgets do Início (ordem, tamanho e visibilidade). App de um usuário só: uma única linha (id "main").
+/// `items` é uma lista `[{ id, size, visible }]`; o servidor a põe em dia com o catálogo de widgets a cada leitura.
+model HomeLayout {
+  id        String   @id @default("main")
+  items     Json     @default("[]")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("home_layout")
+}
+
 /// Chave de API ou credencial colada no app, guardada cifrada (AES-GCM, AAD = nome). O valor nunca sai em claro nem em parte.
 model ServerSecret {
   name       String   @id
@@ -409,6 +431,8 @@ model PluggyConnection {
   /// Contas e cartões que a última sincronização ligou a esta conexão (o Pluggy não guarda o vínculo item → conta no Órbita).
   accountCount       Int       @default(0) @map("account_count")
   cardCount          Int       @default(0) @map("card_count")
+  /// O conector do item usa as APIs regulamentadas do Open Finance (`connector.isOpenFinance`). Nulo = ainda não visto. Diz se `providerId`, `operationType` e `billId` podem vir.
+  isOpenFinance      Boolean?  @map("is_open_finance")
 
   @@map("pluggy_connections")
 }

@@ -13,7 +13,7 @@ import {
 import type { InvoicesOverviewView } from "../../lib/api.ts";
 import { money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
-import { BankLogo, Card, ErrorState, Skeleton, Text } from "../../ui/index.ts";
+import { BankLogo, Card, ErrorState, Skeleton, Text, useWidgetLongPress } from "../../ui/index.ts";
 import {
 	bandLook,
 	bandRight,
@@ -69,6 +69,7 @@ export function WalletBlock({
 	onOpen: () => void;
 }) {
 	const reduceMotion = useReduceMotion();
+	const longPress = useWidgetLongPress();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [page, setPage] = useState(0);
 	// Largura de uma página: a tela menos a margem do Início (lg) e o enchimento do card (xl), dos dois lados.
@@ -154,6 +155,7 @@ export function WalletBlock({
 							<Pressable
 								accessibilityRole="button"
 								accessibilityLabel={`${line.card.name}${line.card.last4 ? ` final ${line.card.last4}` : ""}, ver a fatura`}
+								onLongPress={longPress}
 								onPressIn={() => animate(line.card.id, LIFT)}
 								onPressOut={() => animate(line.card.id, 0)}
 								onPress={() => {
@@ -218,6 +220,7 @@ export function WalletBlock({
 							accessibilityState={{ selected: active }}
 							accessibilityLabel={`${line.card.name}${line.card.last4 ? ` final ${line.card.last4}` : ""}`}
 							onPress={() => setSelectedId(line.card.id)}
+							onLongPress={longPress}
 							hitSlop={8}
 							style={{ opacity: active ? 1 : 0.5 }}
 						>
@@ -282,7 +285,12 @@ export function WalletBlock({
 						</Pressable>
 					))}
 				</View>
-				<Pressable accessibilityRole="button" onPress={onOpen} style={{ marginTop: spacing.sm }}>
+				<Pressable
+					accessibilityRole="button"
+					onPress={onOpen}
+					onLongPress={longPress}
+					style={{ marginTop: spacing.sm }}
+				>
 					<Text variant="caption" tone="secondary">
 						Abrir cartões
 					</Text>

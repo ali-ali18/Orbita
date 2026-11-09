@@ -2,8 +2,10 @@ import {
 	addMonths,
 	budgetStatus,
 	type Cents,
+	installmentStanding,
 	invoiceByMonth,
 	invoiceComposition,
+	invoiceFor,
 	invoiceStatus,
 	type LocalDate,
 	type MonthKey,
@@ -15,7 +17,6 @@ import {
 	pendingInMonth,
 	projectMissingInstallments,
 	projectMonth,
-	remainingInstallments,
 	safeToSpend,
 	summarizeMonth,
 	type Transaction,
@@ -154,6 +155,26 @@ export async function plannedInstallments(
 		),
 	);
 	return perCard.flat();
+}
+
+/**
+ * O Gasto oficial do mês: o conjunto (`loadSpendingMonth`) e o total que o Início mostra (`summarizeMonth`, já com o
+ * abatimento dos estornos). Quem desenha o Gasto de outro jeito (dia a dia, estabelecimentos) parte daqui.
+ */
+export async function spendingOfMonth(stores: Stores, month: MonthKey, today: LocalDate) {
+	const [txs, categories] = await Promise.all([
+		loadSpendingMonth(stores, month, today),
+		stores.categories.list(),
+	]);
+	const active = categories.filter((c) => c.archivedAt === null);
+	const bySlug = new Map(active.map((c) => [c.slug, c.id]));
+	const outros = active.find((c) => c.slug === "outros") ?? null;
+	const originals = await refundOriginalsOutside(stores, txs);
+	const raw = summarizeMonth(
+		[...txs, ...originals].map((t) => toCoreTransaction(t, outros?.id ?? null, bySlug)),
+		month,
+	);
+	return { txs, spentCents: raw.spentCents };
 }
 
 /**
@@ -363,6 +384,11 @@ function projectedRows(
 		categoryEditedByOwner: false,
 		editedByOwner: false,
 		splitGroupId: null,
+		bankPending: false,
+		providerId: null,
+		providerCode: null,
+		lastSeenAt: null,
+		removedByBankAt: null,
 		createdAt: EPOCH,
 		updatedAt: EPOCH,
 	}));
@@ -390,8 +416,22 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 	});
 	// Pago = pagamentos de fatura (`card_payment`) atribuídos a esta fatura (regra em `invoice-payment.ts` do core).
 	const paidCents = paidForInvoice(payments, month, config);
+	// A fatura fechada que o banco informou (o total dele pode diferir da soma dos lançamentos: é o que se paga).
+	const bill = open
+		? undefined
+		: (await stores.bills.listByCard(cardId))
+				.filter((b) => monthOf(b.dueDate) === month)
+				.sort((a, b) => b.syncedAt.getTime() - a.syncedAt.getTime())[0];
 	return {
 		card,
+		bank: bill
+			? {
+					totalCents: bill.totalAmountCents,
+					dueDate: bill.dueDate,
+					closeDate: bill.closeDate,
+					syncedAt: bill.syncedAt.toISOString(),
+				}
+			: null,
 		invoice: {
 			...invoice,
 			status: invoiceStatus(invoice, today),
@@ -403,40 +443,50 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 	};
 }
 
-export async function activeInstallments(stores: Stores, from: MonthKey) {
-	const groups = await stores.transactions.listInstallmentGroups(from);
-	return groups.map((g) => installmentGroupView(g, from));
+/**
+ * Parcelamentos em andamento. `from` é a fatura de referência; com `today`, a de referência de cada cartão é a mais
+ * nova entre `from` e a fatura que o cartão tem aberta hoje (cartão que vence no mês seguinte já está na do mês
+ * que vem), para a parcela vista da fatura aberta contar como a vigente.
+ */
+export async function activeInstallments(stores: Stores, from: MonthKey, today?: LocalDate) {
+	const [groups, cards] = await Promise.all([
+		stores.transactions.listInstallmentGroups(from),
+		today === undefined ? Promise.resolve([]) : stores.cards.list(),
+	]);
+	const openMonth = new Map(
+		cards.map((c) => [c.id, invoiceFor(today as LocalDate, toCardConfig(c)).month] as const),
+	);
+	return groups.map((g) => {
+		const open = openMonth.get(g.installments[0]?.cardId ?? "");
+		return installmentGroupView(g, open !== undefined && open > from ? open : from, from);
+	});
 }
 
-function installmentGroupView(group: InstallmentGroupRecord, from: MonthKey) {
+/**
+ * Parcelamento como o app o mostra: tudo pela parcela vista (n/N), ver `installmentStanding` no engine. Pago, falta,
+ * comprometido no mês e "última parcela em" vêm prontos; `paidEstimated`/`remainingEstimated` dizem quando parte do
+ * número é estimativa (parcelas que o Órbita nunca viu).
+ */
+function installmentGroupView(group: InstallmentGroupRecord, refMonth: MonthKey, from: MonthKey) {
 	const first = group.installments[0];
 	const last = group.installments.at(-1);
-	const count = first?.installmentCount ?? group.installments.length;
-	const progress = remainingInstallments(
+	const count = last?.installmentCount ?? first?.installmentCount ?? group.installments.length;
+	const standing = installmentStanding(
 		group.installments.map((t) => ({
 			number: t.installmentNumber ?? 0,
 			count: t.installmentCount ?? 0,
 			amountCents: t.amountCents,
 			invoiceMonth: t.invoiceMonth ?? t.budgetMonth,
-			budgetMonth: t.budgetMonth,
 		})),
+		count,
+		refMonth,
 		from,
 	);
-	// Grupo que cresce (parcelas importadas do banco, uma por fatura): as parcelas depois da última vista ainda não
-	// existem. Contam como "faltam", pelo valor da última parcela vista (estimativa; a real chega com a fatura).
-	// Parcelas ANTES da primeira vista não entram: o Órbita não sabe o que foram.
-	const unseen = Math.max(0, count - (last?.installmentNumber ?? count));
-	const estimateCents = last ? unseen * last.amountCents : 0;
 	return {
 		groupId: group.groupId,
 		description: first?.description ?? "",
 		cardId: first?.cardId ?? null,
-		count,
-		totalCents: progress.paidCents + progress.remainingCents + estimateCents,
-		paidCents: progress.paidCents,
-		remainingCents: progress.remainingCents + estimateCents,
-		paidCount: progress.paidCount,
-		remainingCount: progress.remainingCount + unseen,
+		...standing,
 		installments: group.installments,
 	};
 }

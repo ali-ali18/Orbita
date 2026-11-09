@@ -26,7 +26,13 @@ import { isUnreachableQuery } from "../server/server-model.ts";
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { TransactionDisc } from "../summary/TransactionDisc.tsx";
-import { amountSignMode, amountTone, signedAmount, transactionIcon } from "../summary/transaction-model.ts";
+import {
+	amountSignMode,
+	amountTone,
+	signedAmount,
+	transactionBadge,
+	transactionIcon,
+} from "../summary/transaction-model.ts";
 import {
 	type ActivityFilter,
 	type ActivityTransaction,
@@ -202,7 +208,7 @@ export function ActivityScreen() {
 				caption={activityCaption(t, category?.name, sources)}
 				value={money(signedAmount(t), hidden, { sign: amountSignMode(t.kind) })}
 				valueTone={amountTone(t.kind)}
-				{...(t.status === "pending" ? { badge: "Pendente" } : {})}
+				{...(transactionBadge(t) ? { badge: transactionBadge(t) as string } : {})}
 			/>
 		);
 	};

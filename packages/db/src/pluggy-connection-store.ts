@@ -17,6 +17,11 @@ export interface PluggyConnectionRecord {
 	/** Contas e cartões (não arquivados) que a última sincronização ligou a esta conexão. */
 	accountCount: number;
 	cardCount: number;
+	/**
+	 * O conector do item usa as APIs regulamentadas do Open Finance (`connector.isOpenFinance` do Pluggy). `null` = ainda
+	 * não visto. Só nessas conexões vêm `providerId`, `billId` e `billForecastDate` (docs.pluggy.ai/docs/transactions).
+	 */
+	isOpenFinance: boolean | null;
 }
 
 export interface PluggyConnectionInput {
@@ -35,6 +40,8 @@ export interface PluggySyncResult {
 	historyFrom?: string;
 	/** Quantas contas e cartões a sincronização ligou à conexão. Ausente (erro antes de ligar) = não mexe. */
 	counts?: { accounts: number; cards: number };
+	/** `connector.isOpenFinance` do item, quando a rodada chegou a lê-lo. Ausente = não mexe. */
+	isOpenFinance?: boolean | null;
 }
 
 /**

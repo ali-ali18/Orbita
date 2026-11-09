@@ -57,6 +57,33 @@ export function useInvoice(cardId: string | undefined, month: string | undefined
 	});
 }
 
+/** "Saldo em contas": o saldo que o banco informou, por conta, com a idade da leitura. */
+export function useAccountBalances() {
+	const { api, baseUrl } = useScoped();
+	return useQuery({
+		queryKey: [baseUrl, "accounts", "balances"],
+		queryFn: () => call(() => api.v1.accounts.balances.$get()),
+	});
+}
+
+/** "Fluxo de caixa": o que entrou e saiu das contas no mês. */
+export function useCashFlow(month: string) {
+	const { api, baseUrl } = useScoped();
+	return useQuery({
+		queryKey: [baseUrl, "cash-flow", month],
+		queryFn: () => call(() => api.v1["cash-flow"][":month"].$get({ param: { month } })),
+	});
+}
+
+/** "Gasto do mês": acumulado dia a dia (mês e anterior), variação e top estabelecimentos. */
+export function useSpendingDaily(month: string) {
+	const { api, baseUrl } = useScoped();
+	return useQuery({
+		queryKey: [baseUrl, "summary", month, "daily"],
+		queryFn: () => call(() => api.v1.summary[":month"].daily.$get({ param: { month } })),
+	});
+}
+
 export function useInstallments() {
 	const { api, baseUrl } = useScoped();
 	const from = useClock().month;

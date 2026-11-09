@@ -38,6 +38,22 @@ export interface TransactionData {
 	editedByOwner: boolean;
 	/** Id das partes de uma compra dividida (todas as partes, e as partes de uma parte, compartilham o mesmo). */
 	splitGroupId: string | null;
+	/**
+	 * O banco ainda não efetivou o lançamento (Pluggy `status: PENDING`: compra da fatura aberta do cartão). NÃO é o
+	 * `status` de revisão ("Para revisar"): um lançamento pendente no banco conta no gasto normalmente.
+	 */
+	bankPending: boolean;
+	/** `providerId` do Pluggy (só Open Finance): reconhece o mesmo lançamento quando o banco o recria com id novo. */
+	providerId: string | null;
+	/** `providerCode` do Pluggy (código da instituição; formato varia): âncora mais fraca, usada com valor e data. */
+	providerCode: string | null;
+	/** Última sincronização que o trouxe. `null` = ainda não acompanhado. Só quem sincroniza (`markSeen`) grava. */
+	lastSeenAt: Date | null;
+	/**
+	 * A sincronização notou que o banco parou de informar este lançamento: ele foi apagado (então nunca aparece numa
+	 * lista) ou, se o dono o editou, só ficou marcado para revisão. Volta a `null` quando o banco o traz de novo.
+	 */
+	removedByBankAt: Date | null;
 }
 
 /**
@@ -86,6 +102,11 @@ export interface TransactionInput {
 	/** Só importados. Saneado e limitado a 120 letras pelo store. */
 	sourceCategory?: string | null;
 	merchantName?: string | null;
+	/** Só importados do banco: o banco ainda não efetivou (padrão `false`). */
+	bankPending?: boolean;
+	/** Só importados do Pluggy: `providerId` e `providerCode` (ver `TransactionData`). Saneados pelo store. */
+	providerId?: string | null;
+	providerCode?: string | null;
 }
 
 /** Uma parte da divisão de um lançamento. Sem `description`, vale a do original. */
@@ -124,6 +145,8 @@ export type TransactionPatch = Partial<
 		| "sourceCategory"
 		| "merchantName"
 		| "splitGroupId"
+		| "lastSeenAt"
+		| "removedByBankAt"
 	>
 >;
 
@@ -232,6 +255,44 @@ export interface TransactionStore {
 	 * `source` ou se a identidade nova já está em uso (inclusive de um lançamento apagado).
 	 */
 	rekeyExternal(id: string, source: TransactionSource, externalId: string): Promise<TransactionRecord | null>;
+	/**
+	 * A sincronização viu estes lançamentos agora: `lastSeenAt = at` e `removedByBankAt` volta a `null` (o banco o trouxe
+	 * de novo). Só os vivos de `source`. Devolve quantos. Aceita de 0 a 500 ids.
+	 */
+	markSeen(source: TransactionSource, externalIds: readonly string[], at: Date): Promise<number>;
+	/**
+	 * Lançamentos VIVOS de `source` da conta OU do cartão (exatamente um) com este `providerId` ou este `providerCode`
+	 * (qualquer um que vier). Sem nenhum dos dois, lista vazia. Serve a reconhecer um lançamento recriado com id novo.
+	 */
+	listByProvider(
+		source: TransactionSource,
+		target: { accountId?: string; cardId?: string },
+		anchors: { providerId?: string | null | undefined; providerCode?: string | null | undefined },
+	): Promise<TransactionRecord[]>;
+	/**
+	 * O banco parou de informar o lançamento: apaga (exclusão lógica, `removedByBankAt = at`; a identidade externa
+	 * continua reservada, mas `reviveRemovedByBank` a libera se ele voltar). NÃO apaga estornos: se há estorno vivo, ou o
+	 * lançamento não existe mais, devolve `false` sem mudar nada.
+	 */
+	removeByBank(id: string, at: Date): Promise<boolean>;
+	/**
+	 * Como `removeByBank`, para o que o dono editou: não apaga, só marca `removedByBankAt = at` e aplica `review`
+	 * (situação "Para revisar" e a observação). `null` se o lançamento não existe ou foi apagado.
+	 */
+	flagMissingByBank(
+		id: string,
+		at: Date,
+		review: { status: TransactionStatus; note: string | null },
+	): Promise<TransactionRecord | null>;
+	/**
+	 * O banco trouxe de novo um lançamento que `removeByBank` apagou (mesma identidade externa): volta a existir, com
+	 * `lastSeenAt = at`. O que o DONO apagou nunca volta: devolve `null`, e também se não existe ou já está vivo.
+	 */
+	reviveRemovedByBank(
+		source: TransactionSource,
+		externalId: string,
+		at: Date,
+	): Promise<TransactionRecord | null>;
 	/**
 	 * Já existe lançamento com esta identidade externa? Conta também o apagado: o identificador continua
 	 * reservado (a ingestão não recria o que o dono apagou). Serve para decidir antes de montar o lançamento.

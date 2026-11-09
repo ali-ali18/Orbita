@@ -87,7 +87,7 @@ export function CardChip({
 	/** Parcelas mostra o nome do banco no lugar dos 4 dígitos. */
 	showName?: boolean;
 }) {
-	const label = card === null ? "Todos" : showName ? card.name : cardLabel(card);
+	const label = card === null ? "Todos os cartões" : showName ? card.name : cardLabel(card);
 	const filled = card === null && selected;
 	return (
 		<Pressable
