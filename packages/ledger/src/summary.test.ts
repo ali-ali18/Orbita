@@ -1,6 +1,7 @@
 import { createMemoryStores } from "@orbita/db";
 import { PAYMENT_REVIEW_NOTE } from "@orbita/ingest";
 import { describe, expect, it } from "vitest";
+import { invoicesOverview } from "./invoices-overview.ts";
 import { cardInvoice, countsAsSpending, loadSpendingMonth, monthSummary } from "./summary.ts";
 
 const NOW = new Date("2026-11-12T15:00:00Z");
@@ -158,5 +159,25 @@ describe("fatura paga com pagamento adiantado", () => {
 		const dez = await cardInvoice(stores, card.id, "2026-12", "2026-11-28");
 		expect(dez.invoice.paidCents).toBe(0);
 		expect(dez.invoice.paymentStatus).toBe("unpaid");
+	});
+
+	it("fatura do banco paga pelos payments da seguinte: cardInvoice concorda com o overview (paga, sem saldo a pagar)", async () => {
+		const { stores, card, bill } = await manualCard();
+		await bill("b-nov", "2026-11-05", "2026-10-25", 34_370);
+		await stores.bills.upsert({
+			cardId: card.id,
+			source: "pluggy",
+			externalId: "b-dez",
+			dueDate: "2026-12-05",
+			closeDate: "2026-11-25",
+			totalAmountCents: 10_000,
+			payments: [{ externalId: "p1", date: "2026-11-03", amountCents: 34_370 } as never],
+			syncedAt: NOW,
+		});
+		const nov = await cardInvoice(stores, card.id, "2026-11", "2026-11-28");
+		expect(nov.invoice).toMatchObject({ paidCents: 34_370, paymentStatus: "paid" });
+		const overview = await invoicesOverview(stores, "2026-11-28");
+		const novLine = overview.history.find((h) => h.month === "2026-11");
+		expect(novLine?.state).toBe("paid");
 	});
 });

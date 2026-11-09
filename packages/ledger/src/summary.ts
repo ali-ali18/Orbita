@@ -431,7 +431,7 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 	// inclusive o adiantado de antes do fechamento que a fatura anterior, já quitada, não absorveu.
 	const previousBill = open ? undefined : bankTotalOf(previousMonth);
 	const olderBill = open ? undefined : bankTotalOf(addMonths(month, -2));
-	const paidCents = paidWithAdvance({
+	const ledgerPaidCents = paidWithAdvance({
 		payments,
 		month,
 		card: config,
@@ -441,6 +441,12 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 		previousTotalCents: previousBill?.totalAmountCents ?? null,
 		olderTotalCents: olderBill?.totalAmountCents ?? invoiceComposition(olderPosted).totalCents,
 	});
+	// O banco registra o pagamento da fatura N nos `payments` da N+1 (doc da Pluggy): a mesma regra do overview
+	// (`lineOf`), para a barra, a legenda e o botão de pagar nunca se contradizerem. As duas medidas são do mesmo
+	// pagamento: vale a maior, nunca a soma.
+	const nextBill = open || !bill ? undefined : bankTotalOf(addMonths(month, 1));
+	const bankPaidCents = nextBill ? nextBill.payments.reduce((total, p) => total + p.amountCents, 0) : 0;
+	const paidCents = Math.max(ledgerPaidCents, bankPaidCents);
 	return {
 		card,
 		bank: bill
