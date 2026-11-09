@@ -976,8 +976,22 @@ async function storeTransactions(
 			// Estorno: só entra se a compra original está gravada. Sem ela, fica de fora e a próxima rodada tenta de novo.
 			if (await transactions.existsByExternal(PLUGGY_SOURCE, mapped.externalId)) {
 				// Estorno na conta que um sync antigo gravou como receita: vira estorno assim que a despesa original aparece.
-				const stored = ctx.card ? null : await transactions.findByExternal(PLUGGY_SOURCE, mapped.externalId);
-				if (stored && stored.kind === "income" && !touchedByOwner(stored) && ctx.accountId) {
+				const stored = await transactions.findByExternal(PLUGGY_SOURCE, mapped.externalId);
+				// Estorno gravado sem a compra (crédito no cartão): se ela apareceu depois, liga agora (o dono não mexeu).
+				if (stored && stored.kind === "refund" && stored.refundOfId === null && !touchedByOwner(stored)) {
+					const found = ctx.card
+						? await findRefundOriginal(
+								transactions,
+								ctx.card,
+								mapped.original,
+								mapped.input.invoiceMonth as MonthKey,
+							)
+						: ctx.accountId
+							? await findAccountRefundOriginal(transactions, ctx.accountId, mapped.original)
+							: null;
+					if (found !== null) await transactions.update(stored.id, { refundOfId: found });
+				}
+				if (!ctx.card && stored && stored.kind === "income" && !touchedByOwner(stored) && ctx.accountId) {
 					const originalId = await findAccountRefundOriginal(transactions, ctx.accountId, mapped.original);
 					if (originalId !== null) {
 						await transactions.update(stored.id, { kind: "refund", refundOfId: originalId });
@@ -1003,7 +1017,11 @@ async function storeTransactions(
 			} else if (ctx.accountId) {
 				originalId = await findAccountRefundOriginal(transactions, ctx.accountId, mapped.original);
 			}
-			if (originalId === null) {
+			// Crédito no cartão que não é pagamento de fatura (o mapeamento já descartou esses) entra como estorno mesmo sem
+			// achar a compra: estorno parcial, com outra descrição, de parcelada, cashback, anuidade ou IOF estornados. O
+			// engine abate da própria categoria e o excedente vira crédito (`refundCreditCents`). Na conta, sem a original,
+			// continua fora: lá o crédito pode ser outra coisa.
+			if (originalId === null && !ctx.card) {
 				bump(result.skipped, "refund_without_original");
 				continue;
 			}
@@ -1012,7 +1030,7 @@ async function storeTransactions(
 				...(relinkedRefund.outcome === "ambiguous"
 					? { status: "pending" as const, note: mapped.input.note ?? POSSIBLE_DUPLICATE_NOTE }
 					: {}),
-				refundOfId: originalId,
+				...(originalId === null ? {} : { refundOfId: originalId }),
 			});
 			if (res.created && relinkedRefund.outcome === "ambiguous") {
 				result.possibleDuplicates = (result.possibleDuplicates ?? 0) + 1;

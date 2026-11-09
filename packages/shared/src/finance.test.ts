@@ -164,3 +164,25 @@ describe("divisão de lançamento", () => {
 		);
 	});
 });
+
+describe("transactionInvariantError: estorno sem a despesa original", () => {
+	const refund = {
+		kind: "refund",
+		amountCents: 1500,
+		date: "2026-11-05",
+		description: "ESTORNO AMAZON",
+		cardId: "c1",
+		invoiceMonth: "2026-12",
+	} as const;
+
+	it("o dono (manual) sempre aponta a despesa original", () => {
+		expect(transactionInvariantError(refund)).toBe("O estorno precisa apontar para a despesa original.");
+		expect(transactionInvariantError({ ...refund, source: "manual" })).toBe(
+			"O estorno precisa apontar para a despesa original.",
+		);
+	});
+
+	it("o banco (Pluggy) pode trazer crédito no cartão sem achar a compra", () => {
+		expect(transactionInvariantError({ ...refund, source: "pluggy" })).toBeNull();
+	});
+});

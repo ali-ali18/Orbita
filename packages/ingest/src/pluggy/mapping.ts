@@ -216,7 +216,7 @@ export type SkipReason =
 	| "card_payment" // o lado do cartão do pagamento da fatura (o lado do banco é quem conta)
 	| "card_payment_unlinked" // pagamento de fatura que não dá para ligar a um cartão (o Órbita não tem pagamento "sem cartão")
 	| "bills_unavailable" // as faturas não carregaram: não dá para saber se o débito/crédito é pagamento de fatura
-	| "refund_without_original"; // estorno no cartão sem a compra original gravada (o sync tenta de novo)
+	| "refund_without_original"; // estorno na conta sem a despesa original gravada (o sync tenta de novo)
 
 /** O que decidiu a categoria de uma despesa, na ordem de prioridade. */
 export type CategorySource = "rule" | "mcc" | "cnae" | "pluggy" | "none";

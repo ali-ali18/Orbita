@@ -121,7 +121,7 @@ describe("syncPluggy", () => {
 		const rows = await everything(t.stores);
 		const byExt = Object.fromEntries(rows.map((r) => [r.externalId, r]));
 		// b-5 (pendente) e c-3 (pagamento recebido) ficam de fora; b-3 (transferência própria) entra como transfer.
-		expect(Object.keys(byExt).sort()).toEqual(["b-1", "b-2", "b-3", "b-4", "c-1", "c-2", "c-4"]);
+		expect(Object.keys(byExt).sort()).toEqual(["b-1", "b-2", "b-3", "b-4", "c-1", "c-2", "c-4", "c-5"]);
 		expect(byExt["b-3"]).toMatchObject({ kind: "transfer", amountCents: 30_000, counterpartAccountId: null });
 		expect(byExt["b-1"]).toMatchObject({
 			kind: "expense",
@@ -159,8 +159,8 @@ describe("syncPluggy", () => {
 		const [connection] = await t.stores.pluggyConnections.list();
 		expect(connection).toMatchObject({ lastStatus: "ok", lastError: null, lastSyncAt: NOW });
 		expect(result.connections[0]).toMatchObject({
-			created: 7,
-			skipped: { pending: 1, card_payment: 1, refund_without_original: 1 },
+			created: 8,
+			skipped: { pending: 1, card_payment: 1 },
 		});
 		expect(connection).toMatchObject({ historyFrom: "2026-05-13" });
 	});
@@ -173,8 +173,8 @@ describe("syncPluggy", () => {
 		expect(after).toEqual(before);
 		expect(await t.stores.accounts.list()).toHaveLength(1);
 		expect(await t.stores.cards.list()).toHaveLength(1);
-		// A segunda rodada relê os 4 meses: os 6 lançamentos já existem.
-		expect(second.connections[0]).toMatchObject({ created: 0, existing: 7, status: "ok" });
+		// A segunda rodada relê os 4 meses: os 8 lançamentos já existem.
+		expect(second.connections[0]).toMatchObject({ created: 0, existing: 8, status: "ok" });
 	});
 
 	it("busca 6 meses na primeira vez e 4 meses nas sincronizações seguintes", async () => {
@@ -260,6 +260,63 @@ describe("syncPluggy", () => {
 				bankTxs.pop();
 			}
 		});
+	});
+
+	it("crédito no cartão que não é pagamento entra como estorno mesmo sem achar a compra", async () => {
+		const extra = [
+			tx("c-ext-1", {
+				description: "ESTORNO AMAZON",
+				type: "CREDIT",
+				amount: -15,
+				date: "2026-11-08T00:00:00.000Z",
+			}),
+			tx("c-ext-2", {
+				description: "Cashback",
+				type: "CREDIT",
+				amount: -3.5,
+				date: "2026-11-08T00:00:00.000Z",
+			}),
+			tx("c-ext-3", {
+				description: "Estorno anuidade",
+				type: "CREDIT",
+				amount: -29.9,
+				date: "2026-11-08T00:00:00.000Z",
+			}),
+		];
+		cardTxs.push(...extra);
+		try {
+			await t.run();
+		} finally {
+			cardTxs.length -= extra.length;
+		}
+		const byExt = Object.fromEntries((await everything(t.stores)).map((r) => [r.externalId, r]));
+		const card = (await t.stores.cards.list())[0];
+		expect(byExt["c-ext-1"]).toMatchObject({
+			kind: "refund",
+			refundOfId: null,
+			amountCents: 1500,
+			cardId: card?.id,
+		});
+		expect(byExt["c-ext-2"]).toMatchObject({ kind: "refund", refundOfId: null, amountCents: 350 });
+		expect(byExt["c-ext-3"]).toMatchObject({ kind: "refund", refundOfId: null, amountCents: 2990 });
+		// O pagamento recebido (c-3) continua de fora: nunca vira estorno.
+		expect(byExt["c-3"]).toBeUndefined();
+	});
+
+	it("estorno sem ligação respeita o dono: o que ele editou não é religado nem reescrito", async () => {
+		await t.run();
+		const c5 = (await everything(t.stores)).find((r) => r.externalId === "c-5");
+		await t.stores.transactions.update(c5?.id ?? "", { editedByOwner: true, note: "meu" });
+		cardTxs.push(
+			tx("c-6", { description: "Loja que não existe", amount: 20, date: "2026-11-06T00:00:00.000Z" }),
+		);
+		try {
+			await t.run();
+		} finally {
+			cardTxs.pop();
+		}
+		const after = (await everything(t.stores)).find((r) => r.externalId === "c-5");
+		expect(after).toMatchObject({ refundOfId: null, note: "meu" });
 	});
 
 	it("o lançamento que o dono apagou não volta", async () => {
@@ -579,9 +636,10 @@ describe("syncPluggy", () => {
 		expect((await t.stores.pluggyConnections.get(missing))?.lastError).toContain("não achou esta conexão");
 	});
 
-	it("o estorno que ainda não achava a compra entra quando ela aparece", async () => {
+	it("o estorno que não achava a compra entra sem ligação e é ligado quando ela aparece", async () => {
 		await t.run();
-		expect((await everything(t.stores)).some((r) => r.externalId === "c-5")).toBe(false);
+		const first = (await everything(t.stores)).find((r) => r.externalId === "c-5");
+		expect(first).toMatchObject({ kind: "refund", refundOfId: null, amountCents: 2000 });
 		// A compra "Loja que não existe" chega depois (efetivada com atraso).
 		cardTxs.push(
 			tx("c-6", { description: "Loja que não existe", amount: 20, date: "2026-11-06T00:00:00.000Z" }),
