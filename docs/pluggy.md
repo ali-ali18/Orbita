@@ -84,7 +84,7 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 
 ## Números que o banco entrega (saldo, limite disponível, faturas)
 
-Além de recalcular por lançamentos, o sync **grava o que o banco informa**, como veio, em centavos inteiros (código em `packages/ingest/src/pluggy/balances.ts`, chamado de `sync.ts` logo depois de ligar contas e cartões e ler as faturas). Nesta fase só persiste; as telas e o engine ainda não leem estes campos.
+Além de recalcular por lançamentos, o sync **grava o que o banco informa**, como veio, em centavos inteiros (código em `packages/ingest/src/pluggy/balances.ts`, chamado de `sync.ts` logo depois de ligar contas e cartões e ler as faturas). As leituras do `@orbita/ledger` já usam estes campos (limite, faturas, saldo; ver "Definições" em [plano](plano.md)), sempre com fallback para o cálculo por lançamentos quando o dado do banco não existe.
 
 | Pluggy                                              | Órbita                                                                        | Observação                                                                |
 | --------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------- |

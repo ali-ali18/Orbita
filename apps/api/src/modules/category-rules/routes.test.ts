@@ -218,12 +218,16 @@ describe("parcelamento importado (grupo parcial)", () => {
 		const group = (await api.get("/v1/installments")).body.groups[0];
 		expect(group).toMatchObject({
 			count: 6,
-			paidCount: 1,
-			paidCents: 25_000,
+			currentNumber: 3,
+			// A 1 nunca foi vista: estimada pelo valor da primeira vista (a 2); a 2 já foi paga.
+			paidCount: 2,
+			paidCents: 50_000,
+			paidEstimated: true,
 			// A parcela 3 (fatura atual) + 3 que ainda não vieram (4, 5, 6).
 			remainingCount: 4,
 			remainingCents: 100_000,
-			totalCents: 125_000,
+			remainingEstimated: true,
+			totalCents: 150_000,
 		});
 		expect(group.installments.map((i: { installmentNumber: number }) => i.installmentNumber)).toEqual([2, 3]);
 		// O gasto do mês é só a parcela do mês.

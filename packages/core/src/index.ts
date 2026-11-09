@@ -8,6 +8,7 @@ export * from "./fit-limits.ts";
 export * from "./goals.ts";
 export * from "./income.ts";
 export * from "./income-plan.ts";
+export * from "./installment-standing.ts";
 export * from "./installments.ts";
 export * from "./invoice.ts";
 export * from "./invoice-composition.ts";

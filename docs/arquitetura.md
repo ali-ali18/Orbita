@@ -18,7 +18,7 @@ packages/
   ingest/     Fontes de lançamentos: Meu Pluggy (ver pluggy.md) e extratos CSV/OFX/PDF (statement/).
   core/       Engine financeiro: funções puras (próxima fase).
   agents/     Ferramentas, prompt e laço da IA (Anthropic), e os avisos dos agentes. Só fala com o mundo por portas injetadas.
-  ledger/     Leituras que juntam stores e engine (resumo do mês, fatura, relatório, metas, leitor dos agentes). A API e o worker usam as mesmas.
+  ledger/     Leituras que juntam stores e engine (resumo do mês, fatura, limite, saldo, fluxo de caixa, gasto dia a dia, relatório, metas, leitor dos agentes). A API e o worker usam as mesmas.
 ```
 
 ### Quem pode importar quem
