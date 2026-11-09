@@ -93,6 +93,7 @@ Fontes:
 - **Ferramentas de leitura**: lançamentos, resumo do mês, fatura, orçamento, projeção.
 - **Ferramentas de escrita**: lançar, recategorizar, aplicar o plano da renda, configurar o app com o histórico (assinaturas, regras de categoria, renda), criar orçamento/meta/alerta. Toda escrita gera um card no chat com **Desfazer**.
 - Os avisos são decididos pelo **worker** (determinístico); o agente só escreve o texto em cima dos números prontos.
+- **Autonomia com níveis** (agente Economia): "Só avisar" (padrão) ou "Agir no que é reversível" (categorizar, cadastrar assinatura detectada, criar limite, marcar duplicata, criar meta de economia). Toda ação autônoma fica no **registro de atividades** com motivo, evidência e Desfazer, com limite por execução. Nunca sozinho: apagar lançamento, mover dinheiro, pagar, mexer em dado do banco ou no que o dono editou. Ver [arquitetura](arquitetura.md#economia-onde-cortar-e-autonomia).
 
 | Agente          | Papel                                                                      |
 | --------------- | -------------------------------------------------------------------------- |
@@ -102,6 +103,7 @@ Fontes:
 | Metas           | Acompanha metas, avisa atraso, guarda a sobra do mês.                      |
 | Caça-assinatura | Acha cobranças que se repetem, renovações e aumentos de preço.             |
 | Cofrinho        | Sugere quanto guardar e onde o dinheiro parado renderia mais (só sugere).  |
+| Economia        | Acha onde cortar custos (assinaturas repetidas, taxas, categoria acima da média…) e, se o dono deixar, age sozinho **só no que tem Desfazer**, com registro. |
 
 ## Segurança e privacidade
 
@@ -119,7 +121,7 @@ Fontes:
 4. **Ingestão**: notificações → comprovante e extrato → conciliador → Revisão.
 5. **Meu Pluggy**: sincronização diária.
 6. **Agentes**: chat com a Órbita, depois Vigia e Fechamento.
-7. **Metas, assinaturas e os demais agentes.**
+7. **Metas, assinaturas e os demais agentes**, incluindo o Economia (onde cortar, com autonomia em níveis).
 
 Cada fase entrega algo usável.
 
