@@ -313,6 +313,59 @@ describe("marcar fatura como paga", () => {
 		expect((await api.post(payUrl("2026-11"), { accountId: account.id, amountCents: 1 })).status).toBe(400);
 	});
 
+	// Banco: fatura de novembro 1.000,00; o Órbita só tem 600,00 em lançamentos e 700,00 pagos.
+	async function bankInvoice(totalAmountCents: number, paidCents: number) {
+		const ctx = await withNovInvoice();
+		const tv = (await ctx.stores.transactions.listByInvoice(ctx.card.id, "2026-11"))[0];
+		if (!tv) throw new Error("sem lançamento");
+		await ctx.stores.transactions.update(tv.id, { amountCents: 60_000 });
+		await ctx.stores.bills.upsert({
+			cardId: ctx.card.id,
+			source: "pluggy",
+			externalId: "b-nov",
+			dueDate: "2026-11-20",
+			closeDate: "2026-11-10",
+			totalAmountCents,
+			payments: [],
+			syncedAt: new Date("2026-11-15T12:00:00Z"),
+		});
+		if (paidCents > 0) {
+			await ctx.api.post("/v1/transactions", {
+				kind: "card_payment",
+				amountCents: paidCents,
+				date: "2026-11-12",
+				description: "Fatura",
+				accountId: ctx.account.id,
+				cardId: ctx.card.id,
+			});
+		}
+		return ctx;
+	}
+
+	it("total do banco 1.000 / lançamentos 600 / pago 700: o endpoint diz que faltam 300 e o POST pagar aceita 300", async () => {
+		const { api, account, payUrl, card } = await bankInvoice(100_000, 70_000);
+		const detail = (await api.get(`/v1/cards/${card.id}/invoices/2026-11`)).body;
+		expect(detail.composition.totalCents).toBe(60_000);
+		expect(detail.invoice).toMatchObject({
+			totalCents: 100_000,
+			paidCents: 70_000,
+			owedCents: 30_000,
+			paymentStatus: "partial",
+		});
+		const res = await api.post(payUrl("2026-11"), { accountId: account.id });
+		expect(res.status).toBe(201);
+		expect(res.body.transaction.amountCents).toBe(30_000);
+		const after = (await api.get(`/v1/cards/${card.id}/invoices/2026-11`)).body.invoice;
+		expect(after).toMatchObject({ paidCents: 100_000, owedCents: 0, paymentStatus: "paid" });
+	});
+
+	it("total do banco 0 (lançamentos 600): paga, nada a dever, e o POST pagar recusa", async () => {
+		const { api, account, payUrl, card } = await bankInvoice(0, 0);
+		const detail = (await api.get(`/v1/cards/${card.id}/invoices/2026-11`)).body;
+		expect(detail.invoice).toMatchObject({ totalCents: 0, owedCents: 0, paymentStatus: "paid" });
+		expect((await api.post(payUrl("2026-11"), { accountId: account.id })).status).toBe(409);
+	});
+
 	it("fatura antiga: o pagamento cai na janela dela, não na da fatura seguinte", async () => {
 		const { api, account, card, payUrl, inv } = await withNovInvoice();
 		// A fatura de outubro (compra de 20/09) fechou 10/10; hoje (15/11) já é da janela de novembro.

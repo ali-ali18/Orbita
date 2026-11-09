@@ -18,6 +18,8 @@ interface BrandBase {
 	 * qualquer sufixo ("uber*" casa "uberrides"). Nome curto ou que também é palavra, sobrenome ou lugar ("claro",
 	 * "tim", "inter", "vivo", "99", "claude", "amazon*", "gemini", "disney") só entra com contexto ("claro tv",
 	 * "banco inter", "claude ai") ou como chave exata: o texto do banco não distingue "Posto Rio Claro" da operadora.
+	 * Chave com `=` no começo ("=uber") só vale quando o nome INTEIRO do estabelecimento é ela: a palavra solta dentro de
+	 * outro nome ("Uber Lanches", "Auto Posto Itau", "Tim Sá Restaurante") é outro lugar.
 	 */
 	keys: readonly string[];
 }
@@ -53,8 +55,8 @@ export const BRANDS: readonly Brand[] = [
 	),
 	disc("amazon", "compras", "amazon", "amazoncom*", "amazonmkt*", "amazonmktplace*", "amzn*"),
 	disc("icloud", "assinatura", "icloud*", "appleservices"),
-	disc("apple", "assinatura", "apple", "applecombill", "applemusic", "appletv", "applecom"),
-	disc("uber", "transporte", "uber", "uberrides", "ubertrip", "ubereats", "uberbr"),
+	disc("apple", "assinatura", "=apple", "applecombill", "applemusic", "appletv", "applecom"),
+	disc("uber", "transporte", "=uber", "uberrides", "ubertrip", "ubereats", "uberbr"),
 	disc("99", "transporte", "99pop", "99food", "99taxi", "99app", "99tecnologia"),
 	disc("ifood", "comida", "ifood*"),
 	disc("rappi", "comida", "rappi*"),
@@ -62,15 +64,15 @@ export const BRANDS: readonly Brand[] = [
 	disc("mercadolivre", "compras", "mercadolivre*", "mercadolibre*"),
 	disc("kabum", "compras", "kabum*"),
 	disc("centauro", "compras", "centauro*"),
-	disc("steam", "lazer", "steam*", "steampowered"),
+	disc("steam", "lazer", "steam", "steampowered", "steamgames*", "steampurchase*"),
 	disc("hostinger", "codigo", "hostinger*"),
-	disc("vivo", "celular", "contavivo", "vivofibra", "vivomovel", "telefonica*"),
+	disc("vivo", "celular", "contavivo", "vivofibra", "vivomovel", "=telefonica", "telefonicabrasil*"),
 	disc("claro", "celular", "clarosa", "clarotv", "claromovel", "claronet", "clarobrasil"),
-	disc("tim", "celular", "timsa", "timcelular", "timbrasil", "timparticipacoes"),
+	disc("tim", "celular", "=timsa", "timcelular", "timbrasil", "timparticipacoes"),
 	bank("nubank", "18236120", "nubank*", "nupagamentos"),
 	bank("inter", "00416968", "bancointer*", "interco"),
 	bank("santander", "90400888", "santander*"),
-	bank("itau", "60701190", "itau", "itauunibanco*", "bancoitau*"),
+	bank("itau", "60701190", "=itau", "itauunibanco*", "bancoitau*"),
 	bank("bradesco", "60746948", "bradesco*"),
 	bank("caixa", "00360305", "caixaeconomica*", "cef"),
 	disc("shopee", "compras", "shopee*"),
@@ -90,7 +92,7 @@ export const BRANDS: readonly Brand[] = [
 	disc("max", "reproduzir", "hbomax*", "hbo"),
 	disc("globoplay", "reproduzir", "globoplay*"),
 	disc("drogasil", "saude", "drogasil*"),
-	disc("raia", "saude", "raia", "drogaraia*", "drogariaraia"),
+	disc("raia", "saude", "=raia", "drogaraia*", "drogariaraia"),
 	disc("paguemenos", "saude", "paguemenos*"),
 ];
 
@@ -121,13 +123,16 @@ const isTransfer = (text: string): boolean =>
 /** "Disney+" vira "disneyplus" (a pontuação some na separação em palavras e perderia a diferença para "Disney"). */
 const withPlus = (text: string): string => text.replace(/(\p{L})\+/gu, "$1plus");
 
-const keyMatches = (key: string, candidate: string): boolean =>
-	key.endsWith("*") ? candidate.startsWith(key.slice(0, -1)) : candidate === key;
+/** `whole`: o nome inteiro do estabelecimento (junto, sem espaços), para as chaves com `=`; sem ele, elas não casam. */
+const keyMatches = (key: string, candidate: string, whole: string | null): boolean => {
+	if (key.startsWith("=")) return whole !== null && whole === key.slice(1);
+	return key.endsWith("*") ? candidate.startsWith(key.slice(0, -1)) : candidate === key;
+};
 
-function firstBrand(candidates: readonly string[]): Brand | null {
+function firstBrand(candidates: readonly string[], whole: string | null = null): Brand | null {
 	if (candidates.length === 0) return null;
 	for (const brand of BRANDS) {
-		if (brand.keys.some((key) => candidates.some((c) => keyMatches(key, c)))) return brand;
+		if (brand.keys.some((key) => candidates.some((c) => keyMatches(key, c, whole)))) return brand;
 	}
 	return null;
 }
@@ -156,7 +161,7 @@ export function brandOf(...texts: Array<string | null | undefined>): Brand | nul
 				? null
 				: firstBrand(windows(tokensOf(service)).slice(0, 1));
 		if (byService) return byService;
-		const byName = firstBrand(windows(name));
+		const byName = firstBrand(windows(name), name.join(""));
 		if (byName) return byName;
 	}
 	return null;

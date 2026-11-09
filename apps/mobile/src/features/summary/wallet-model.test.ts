@@ -21,6 +21,7 @@ const invoice = (extra: Partial<WalletInvoice> = {}): WalletInvoice => ({
 	paymentStatus: "unpaid",
 	totalCents: 69_194,
 	paidCents: 0,
+	owedCents: 69_194,
 	...extra,
 });
 
@@ -85,10 +86,10 @@ describe("textos", () => {
 		expect(bandRight({ last4: null })).toBe("");
 	});
 	it("'Vence dd/mm R$ X' com paga, falta ou nada", () => {
-		expect(dueLine(invoice({ paymentStatus: "paid", paidCents: 69_194 }), reais)).toBe(
+		expect(dueLine(invoice({ paymentStatus: "paid", paidCents: 69_194, owedCents: 0 }), reais)).toBe(
 			"Vence 12/11 R$ 691.94 · paga",
 		);
-		expect(dueLine(invoice({ paymentStatus: "partial", paidCents: 19_194 }), reais)).toBe(
+		expect(dueLine(invoice({ paymentStatus: "partial", paidCents: 19_194, owedCents: 50_000 }), reais)).toBe(
 			"Vence 12/11 R$ 691.94 · falta R$ 500.00",
 		);
 		expect(dueLine(invoice(), reais)).toBe("Vence 12/11 R$ 691.94");

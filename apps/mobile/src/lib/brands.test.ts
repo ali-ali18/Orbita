@@ -95,10 +95,25 @@ describe("brandOf", () => {
 			"Oficina Disney",
 			"Posto Vivo",
 			"Pix enviado - Tim Souza",
+			// Sobrenome ou nome de lugar que coincide com a marca: com outra palavra no nome, é outro estabelecimento.
+			"PIX ENVIADO Tim Sa",
+			"Tim Sá Restaurante",
+			"Raia Restaurante",
+			"Auto Posto Itau",
+			"Cabine Telefonica",
+			"Uber Lanches",
+			"Apple Lanches",
+			"Steamhouse Burger",
 		]) {
 			expect(idOf(text), text).toBeNull();
 		}
 		expect(idOf("")).toBeNull();
+		// O nome inteiro continua valendo.
+		expect(idOf("UBER")).toBe("uber");
+		expect(idOf("Apple")).toBe("apple");
+		expect(idOf("RAIA")).toBe("raia");
+		expect(idOf("ITAU")).toBe("itau");
+		expect(idOf("TIM SA")).toBe("tim");
 	});
 
 	it("usa o primeiro texto que reconhece", () => {

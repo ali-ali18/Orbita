@@ -19,6 +19,13 @@ describe("faturas: visão geral", () => {
 		expect(invoiceStateLabel({ state: "overdue", dueDate: "2026-11-03" })).toBe("Vencida · venceu 03/11");
 		expect(invoiceStateLabel({ state: "open", dueDate: "2026-12-08" })).toBe("Aberta");
 		expect(dueShort("2026-01-09")).toBe("09/01");
+		// Histórica: fatura antiga sem pagamento registrado; sem vencimento, sem cobrança.
+		expect(invoiceStateLabel({ state: "history", dueDate: "2026-07-10", closingDate: "2026-07-03" })).toBe(
+			"Fechada em 07/26",
+		);
+		expect(invoiceStateWord("history")).toBe("Histórico");
+		expect(invoiceStateTone("history")).toBe("secondary");
+		expect(payableForState("history", 34_370)).toBe(0);
 	});
 
 	it("só a paga é verde", () => {

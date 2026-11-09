@@ -48,8 +48,11 @@ export type LimitsTotalDto = z.infer<typeof limitsTotalDto>;
 
 // --------------------------------------------------------------- faturas
 
-/** Situação honesta de uma fatura: paga, fechada (a vencer), vencida ou aberta (ainda recebe compras). */
-export const INVOICE_STATES = ["paid", "closed", "overdue", "open"] as const;
+/**
+ * Situação honesta de uma fatura: paga, fechada (a vencer), vencida, aberta (ainda recebe compras) ou histórica (fatura
+ * antiga sem pagamento registrado: anterior ao Órbita, sem cobrança).
+ */
+export const INVOICE_STATES = ["paid", "closed", "overdue", "open", "history"] as const;
 export type InvoiceState = (typeof INVOICE_STATES)[number];
 
 /** `bank`: total e pagamentos do banco (`/bills`); `ledger`: soma dos lançamentos do Órbita. */

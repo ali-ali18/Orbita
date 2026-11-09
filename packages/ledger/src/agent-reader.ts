@@ -4,7 +4,6 @@ import type { Stores } from "@orbita/db";
 import { toCardDto, toRecurrenceDto, toTransactionDto } from "./dto.ts";
 import { listGoals } from "./goals.ts";
 import { buildIncomePlan } from "./income-plan.ts";
-import { invoiceOwedCents } from "./invoices-overview.ts";
 import { loadSetupAnalysis } from "./setup.ts";
 import { cardInvoice, monthSummary } from "./summary.ts";
 import { listRecentPage } from "./transaction-list.ts";
@@ -63,12 +62,10 @@ export function createAgentReader(stores: Stores, now: () => Date): AgentReader 
 				dueDate: result.invoice.dueDate,
 				status: result.invoice.status,
 				paymentStatus: result.invoice.paymentStatus,
+				// Total e o que falta são os mesmos do endpoint e do app (`cardInvoice`): o do banco, quando há.
+				totalCents: result.invoice.totalCents,
 				paidCents: result.invoice.paidCents,
-				owedCents: invoiceOwedCents(
-					result.invoice.status,
-					result.composition.totalCents,
-					result.invoice.paidCents,
-				),
+				owedCents: result.invoice.owedCents,
 				composition: result.composition,
 				transactions: result.transactions.map(toTransactionDto),
 			};

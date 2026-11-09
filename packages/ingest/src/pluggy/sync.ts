@@ -1216,6 +1216,9 @@ async function storeTransactions(
 							(bank.ruleChanged === true &&
 								ctx.card != null &&
 								res.transaction?.invoiceMonth != null &&
+								// Compara antes do await: com a fatura já certa não há o que refazer nem consulta a gastar.
+								mapped.input.invoiceMonth != null &&
+								res.transaction.invoiceMonth !== mapped.input.invoiceMonth &&
 								(await invoiceCanBeRecomputed(
 									transactions,
 									ctx.card,

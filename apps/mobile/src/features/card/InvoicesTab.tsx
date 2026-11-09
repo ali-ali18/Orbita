@@ -85,13 +85,15 @@ export function InvoicesTab({
 
 	// Situação honesta do mês escolhido; a data de vencimento vem da fatura (quando ainda carrega, só a palavra).
 	const owed =
-		invoice.phase === "ready"
-			? payableForState(bar?.state, payableCents(invoice.data.invoice, invoice.data.composition.totalCents))
-			: 0;
+		invoice.phase === "ready" ? payableForState(bar?.state, payableCents(invoice.data.invoice)) : 0;
 	const stateCaption = !bar
 		? ""
 		: invoice.phase === "ready"
-			? `${invoiceStateLabel({ state: bar.state, dueDate: invoice.data.invoice.dueDate })}${
+			? `${invoiceStateLabel({
+					state: bar.state,
+					dueDate: invoice.data.invoice.dueDate,
+					closingDate: invoice.data.invoice.closingDate,
+				})}${
 					invoice.data.invoice.paymentStatus === "partial" && owed > 0
 						? ` · falta ${money(owed, hidden, { sign: "never" })}`
 						: ""
@@ -156,10 +158,7 @@ export function InvoicesTab({
 						key={`${card.id}:${month}`}
 						cardId={card.id}
 						month={month}
-						remainingCents={payableForState(
-							bar?.state,
-							payableCents(invoice.data.invoice, invoice.data.composition.totalCents),
-						)}
+						remainingCents={payableForState(bar?.state, payableCents(invoice.data.invoice))}
 						hidden={hidden}
 					/>
 				</>

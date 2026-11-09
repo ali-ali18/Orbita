@@ -1,6 +1,7 @@
 import {
 	addMonths,
 	budgetStatus,
+	type CardPaymentLine,
 	type Cents,
 	installmentStanding,
 	invoiceByMonth,
@@ -10,6 +11,8 @@ import {
 	type LocalDate,
 	type MonthKey,
 	monthOf,
+	type PaymentStatus,
+	paidForInvoice,
 	paidWithAdvance,
 	passedThreshold,
 	paymentStatus,
@@ -23,6 +26,7 @@ import {
 	UNCATEGORIZED,
 } from "@orbita/core";
 import {
+	type CardRecord,
 	DataError,
 	type InstallmentGroupRecord,
 	type Stores,
@@ -394,12 +398,31 @@ function projectedRows(
 	}));
 }
 
+/** O que ainda se deve numa fatura: o total se aberta; o total menos o pago se fechada (nunca negativo). */
+export function invoiceOwedCents(
+	status: "open" | "closed" | "overdue",
+	totalCents: Cents,
+	paidCents: Cents,
+): Cents {
+	return status === "open" ? Math.max(0, totalCents) : Math.max(0, totalCents - paidCents);
+}
+
+/**
+ * Os meses de fatura que contam como dívida de um cartão: a aberta, a anterior a ela, o mês atual e o anterior do
+ * calendário. Fatura mais velha sem pagamento registrado é histórico anterior ao Órbita, não cobrança.
+ */
+export function consideredInvoiceMonths(card: CardRecord, today: LocalDate): Set<MonthKey> {
+	const thisMonth = monthOf(today);
+	const openMonth = invoiceFor(today, toCardConfig(card)).month;
+	return new Set([addMonths(thisMonth, -1), thisMonth, addMonths(openMonth, -1), openMonth]);
+}
+
 export async function cardInvoice(stores: Stores, cardId: string, month: MonthKey, today: LocalDate) {
 	const card = orNotFound(await stores.cards.get(cardId), "Cartão", "o");
 	const invoice = invoiceByMonth(month, toCardConfig(card));
 	const config = toCardConfig(card);
 	const previousMonth = addMonths(month, -1);
-	const [posted, payments, groups, olderPosted] = await Promise.all([
+	const [posted, payments, groups] = await Promise.all([
 		stores.transactions.listByInvoice(cardId, month),
 		// Da janela da fatura anterior à desta: o pagamento adiantado que sobra da anterior vale para esta.
 		stores.transactions.listCardPayments(cardId, {
@@ -408,7 +431,6 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 		}),
 		// A parcela de dezembro pode ainda não ter lançamento: o grupo visto nos meses anteriores a projeta.
 		stores.transactions.listInstallmentGroups(addMonths(month, -71)),
-		stores.transactions.listByInvoice(cardId, addMonths(month, -2)),
 	]);
 	const open = invoiceStatus(invoice, today) === "open";
 	const txs = [...posted, ...(open ? projectedRows(groups, cardId, month, invoice.closingDate, posted) : [])];
@@ -427,26 +449,42 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 			.filter((b) => monthOf(b.dueDate) === m)
 			.sort((a, b) => b.syncedAt.getTime() - a.syncedAt.getTime())[0];
 	const bill = open ? undefined : bankTotalOf(month);
+	// Os pagamentos que o banco lista (`payments[]` de qualquer fatura) valem pela DATA, na janela de pagamento da
+	// fatura (do fechamento ao fechamento seguinte): nem todo banco os põe na fatura seguinte (alguns, na própria).
+	const bankPayments = new Map<string, CardPaymentLine>();
+	for (const b of bills) {
+		b.payments.forEach((p, i) => {
+			if (Number.isSafeInteger(p.amountCents) && p.amountCents > 0) {
+				bankPayments.set(p.externalId ?? `${b.id}:${i}`, { date: p.date, amountCents: p.amountCents });
+			}
+		});
+	}
+	const bankPaidOf = (m: MonthKey) => paidForInvoice([...bankPayments.values()], m, config);
 	// Pago = pagamentos de fatura (`card_payment`) atribuídos a esta fatura (regra em `invoice-payment.ts` do core),
 	// inclusive o adiantado de antes do fechamento que a fatura anterior, já quitada, não absorveu.
 	const previousBill = open ? undefined : bankTotalOf(previousMonth);
 	const olderBill = open ? undefined : bankTotalOf(addMonths(month, -2));
+	// O total é UM só (o do banco, quando há): paymentStatus, o que falta, o botão de pagar e a IA partem dele.
+	const totalCents = bill?.totalAmountCents ?? composition.totalCents;
 	const ledgerPaidCents = paidWithAdvance({
 		payments,
 		month,
 		card: config,
 		today,
-		totalCents: bill?.totalAmountCents ?? composition.totalCents,
-		// Só o total do banco prova o quanto a anterior absorve; a soma dos lançamentos pode ignorar compras de antes do Órbita.
+		totalCents,
+		// Só o total do banco prova o quanto a anterior (e a de dois meses antes) absorve; a soma dos lançamentos
+		// pode ignorar compras de antes do Órbita.
 		previousTotalCents: previousBill?.totalAmountCents ?? null,
-		olderTotalCents: olderBill?.totalAmountCents ?? invoiceComposition(olderPosted).totalCents,
+		olderTotalCents: olderBill?.totalAmountCents ?? null,
+		olderPaidCents: bankPaidOf(addMonths(month, -2)),
 	});
-	// O banco registra o pagamento da fatura N nos `payments` da N+1 (doc da Pluggy): a mesma regra do overview
-	// (`lineOf`), para a barra, a legenda e o botão de pagar nunca se contradizerem. As duas medidas são do mesmo
-	// pagamento: vale a maior, nunca a soma.
-	const nextBill = open || !bill ? undefined : bankTotalOf(addMonths(month, 1));
-	const bankPaidCents = nextBill ? nextBill.payments.reduce((total, p) => total + p.amountCents, 0) : 0;
+	// As duas medidas são do mesmo pagamento (o `card_payment` casa com o do banco): vale a maior, nunca a soma.
+	// Limitado ao total (como o do ledger): o que passa dele (juros, atraso) não é desta fatura.
+	const bankPaidCents = open || !bill ? 0 : Math.min(bankPaidOf(month), Math.max(0, totalCents));
 	const paidCents = Math.max(ledgerPaidCents, bankPaidCents);
+	let status: PaymentStatus = paymentStatus(invoice, totalCents, paidCents, today);
+	// Fechada fora dos meses considerados, sem nenhum pagamento registrado: histórico (anterior ao Órbita), não cobrança.
+	if (status === "unpaid" && !consideredInvoiceMonths(card, today).has(month)) status = "history";
 	return {
 		card,
 		bank: bill
@@ -461,13 +499,13 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 			...invoice,
 			status: invoiceStatus(invoice, today),
 			paidCents,
+			// O total que se paga (o do banco, quando há) e o que falta dele: a fonte única para a IA, o endpoint, o
+			// botão de pagar e o app, que só exibem.
+			totalCents,
+			owedCents:
+				status === "history" ? 0 : invoiceOwedCents(invoiceStatus(invoice, today), totalCents, paidCents),
 			// O total do banco, quando há, é o que se paga: fatura que ele mostra com total 0 está quitada (pagou antes de fechar).
-			paymentStatus: paymentStatus(
-				invoice,
-				bill?.totalAmountCents ?? composition.totalCents,
-				paidCents,
-				today,
-			),
+			paymentStatus: status,
 		},
 		composition,
 		transactions: txs,

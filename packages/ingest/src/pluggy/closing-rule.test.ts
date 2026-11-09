@@ -263,6 +263,21 @@ describe("sync guarda a regra inferida no cartão", () => {
 		expect(await row("2026-11")).toBeDefined();
 	});
 
+	it("regra inferida: a rodada seguinte, com a fatura já certa, nem consulta os pagamentos (compara o mês antes do await)", async () => {
+		const { stores, run, card } = await realSync();
+		await run();
+		expect(await card("7054")).toMatchObject({ closingRuleSource: "inferred" });
+		let calls = 0;
+		const original = stores.transactions.listCardPayments.bind(stores.transactions);
+		stores.transactions.listCardPayments = async (...args) => {
+			calls += 1;
+			return original(...args);
+		};
+		await run();
+		// Nada mudou de fatura: não há o que recalcular, então nenhuma consulta é gasta.
+		expect(calls).toBe(0);
+	});
+
 	it("regra mudada não mexe em linha de fatura fechada que já tem pagamento", async () => {
 		// Fatura 2026-11 (fechou em 05/11) já tem o pagamento de 07/11 da fixture: a compra dela não é movida.
 		const { stores, run, mp, row } = await withExtraPurchase("2026-10-05");

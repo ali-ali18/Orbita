@@ -232,10 +232,13 @@ describe("paga / falta na fatura que vence neste mês", () => {
 	const inv = (
 		totalCents: number,
 		paidCents: number,
-		paymentStatus: "paid" | "partial" | "unpaid" | "open",
+		paymentStatus: "paid" | "partial" | "unpaid" | "open" | "history",
 	) => ({
 		totalCents,
 		paidCents,
+		// O que falta é o do servidor (total do banco menos o pago); aqui o caso simples.
+		owedCents:
+			paymentStatus === "history" || paymentStatus === "open" ? 0 : Math.max(0, totalCents - paidCents),
 		paymentStatus,
 		status: paymentStatus === "open" ? ("open" as const) : ("closed" as const),
 		closingDate: "2026-11-05",
@@ -246,5 +249,10 @@ describe("paga / falta na fatura que vence neste mês", () => {
 		expect(paidSuffix(inv(69_194, 20_000, "partial"), reais)).toBe("falta R$ 491.94");
 		expect(paidSuffix(inv(69_194, 0, "unpaid"), reais)).toBeNull();
 		expect(paidSuffix(inv(5_150, 0, "open"), reais)).toBeNull();
+		expect(paidSuffix(inv(5_150, 0, "history"), reais)).toBeNull();
+		// Total do banco 1.000, lançamentos 600, pago 700: o texto usa o `owedCents` do servidor (300).
+		expect(paidSuffix({ ...inv(60_000, 70_000, "partial"), owedCents: 30_000 }, reais)).toBe(
+			"falta R$ 300.00",
+		);
 	});
 });
