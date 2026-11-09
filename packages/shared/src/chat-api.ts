@@ -19,6 +19,41 @@ export const CHAT_ERROR_CODES = {
 	monthlyLimit: "limite_mensal_ia",
 } as const;
 
+// -------------------------------------------------------------- anexos
+
+/** Tipos que o chat aceita como anexo (a Messages API lê imagens e PDF). */
+export const ATTACHMENT_MEDIA_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"] as const;
+export type AttachmentMediaType = (typeof ATTACHMENT_MEDIA_TYPES)[number];
+/** Tamanho máximo de um anexo, já decodificado (é também o teto de imagem da Anthropic). */
+export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+export const ATTACHMENTS_MAX = 3;
+/** Marcador que fica no histórico no lugar do arquivo (o binário nunca vai para o banco). */
+export const ATTACHMENT_MARKER = "📎 anexo";
+
+export const ATTACHMENT_TYPE_MESSAGE = "Só aceito foto (JPEG, PNG ou WebP) e PDF.";
+export const ATTACHMENT_SIZE_MESSAGE = "O anexo passa de 5 MB. Escolha um arquivo menor.";
+
+/** Bytes do conteúdo a partir do tamanho do texto base64 (sem decodificar). */
+export function base64ByteLength(data: string): number {
+	const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+	return Math.floor((data.length * 3) / 4) - padding;
+}
+
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+export const chatAttachmentSchema = z.object({
+	mediaType: z.enum(ATTACHMENT_MEDIA_TYPES, { error: ATTACHMENT_TYPE_MESSAGE }),
+	/** O arquivo em base64, sem prefixo `data:`. */
+	data: z
+		.string({ error: "Anexo inválido." })
+		.min(1, "Anexo vazio.")
+		// Folga de 4 caracteres: o limite exato é conferido abaixo, sem varrer um corpo gigante.
+		.max(Math.ceil((ATTACHMENT_MAX_BYTES * 4) / 3) + 4, ATTACHMENT_SIZE_MESSAGE)
+		.refine((v) => base64ByteLength(v) <= ATTACHMENT_MAX_BYTES, ATTACHMENT_SIZE_MESSAGE)
+		.refine((v) => v.length % 4 === 0 && BASE64.test(v), "Anexo inválido."),
+});
+export type ChatAttachment = z.infer<typeof chatAttachmentSchema>;
+
 export const chatRequestBody = z
 	.object({
 		/** Ausente = conversa nova. */
@@ -39,10 +74,19 @@ export const chatRequestBody = z
 			.min(1, "Escreva a mensagem.")
 			.max(CHAT_MESSAGE_MAX, `A mensagem tem até ${CHAT_MESSAGE_MAX} letras.`)
 			.optional(),
+		/** Fotos e PDFs para a IA ler (comprovante, nota). O conteúdo é dado, nunca instrução. */
+		attachments: z
+			.array(chatAttachmentSchema)
+			.max(ATTACHMENTS_MAX, `Anexe até ${ATTACHMENTS_MAX} arquivos por mensagem.`)
+			.optional(),
 	})
 	.strict()
 	.superRefine((v, ctx) => {
-		if (v.intent === undefined && v.message === undefined) {
+		const hasFiles = (v.attachments?.length ?? 0) > 0;
+		if (v.intent !== undefined && hasFiles) {
+			ctx.addIssue({ code: "custom", path: ["attachments"], message: "Esta tarefa não leva anexo." });
+		}
+		if (v.intent === undefined && v.message === undefined && !hasFiles) {
 			ctx.addIssue({ code: "custom", path: ["message"], message: "Escreva a mensagem." });
 		}
 		if (v.intent !== undefined && v.message !== undefined) {
