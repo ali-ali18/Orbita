@@ -328,6 +328,14 @@ export function BanksScreen() {
 						<Button label={MANUAL_BUTTON} variant="secondary" onPress={() => setAdding(true)} />
 						{data.connections.length > 0 ? (
 							<Button
+								label="Diagnóstico da conexão"
+								variant="secondary"
+								disabled={!data.keysConfigured}
+								onPress={() => router.push("/configuracoes/diagnostico-pluggy")}
+							/>
+						) : null}
+						{data.connections.length > 0 ? (
+							<Button
 								label={REIMPORT_BUTTON}
 								variant="secondary"
 								disabled={!canSync(data)}
