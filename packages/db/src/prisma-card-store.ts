@@ -89,10 +89,9 @@ export function createPrismaCardStore(db: Db, now: Clock): CardStore {
 			// `updatedAt` explícito: o `@updatedAt` do Prisma o moveria, e isto não é edição do dono.
 			const data = {
 				availableCents: cleanAvailable(availableCents),
-				// Saldo ausente mantém o último, como o disponível.
-				...(balanceCents === undefined || balanceCents === null
-					? {}
-					: { balanceCents: cleanAvailable(balanceCents) }),
+				// Saldo ausente na leitura grava null: o último, de outra rodada, enganaria a conferência do limite.
+				balanceCents:
+					balanceCents === undefined || balanceCents === null ? null : cleanAvailable(balanceCents),
 				limitSyncedAt: syncedAt,
 				updatedAt: current.updatedAt,
 			};

@@ -190,6 +190,31 @@ describe("Faturas e limites (dados fictícios)", () => {
 		});
 	});
 
+	it("antes do sync gravar o saldo: Nubank sem balance usa a estimativa, e o topo soma limites efetivos coerentes", async () => {
+		const nu = cardLine("5172").card;
+		// Cartão como estava antes do sync gravar o saldo: só limite aprovado e disponível.
+		const noBalance = {
+			...stores,
+			cards: {
+				...stores.cards,
+				list: async (...args: Parameters<Stores["cards"]["list"]>) =>
+					(await stores.cards.list(...args)).map((c) => (c.id === nu.id ? { ...c, balanceCents: null } : c)),
+			},
+		} as Stores;
+		const before = await invoicesOverview(noBalance, TODAY);
+		const line = before.cards.find((c) => c.card.id === nu.id);
+		// Disponível 5.244,08 + usado estimado 555,92 = 5.800 efetivo; nunca "aprovado − disponível" (8.655,92).
+		expect(line?.limit).toMatchObject({
+			limitCents: 580000,
+			approvedLimitCents: 1390000,
+			usedCents: 55592,
+			source: "estimated",
+		});
+		expect(before.limits.limitCents).toBe(1132000 + 1400000 + 1154000 + 580000);
+		expect(before.limits.usedCents).toBe(61800 + 173740 + 107466 + 55592);
+		expect(before.limits.limitCents - before.limits.usedCents).toBe(before.limits.availableCents);
+	});
+
 	it("o usado do Nubank (555,92) é o que o Órbita também conta por lançamentos: fatura de dezembro 249,28 + 2 parcelas futuras da Centauro", () => {
 		expect(24928 + 2 * 15332).toBe(55592);
 	});
@@ -225,8 +250,10 @@ describe("cardLimit: coerência do número do banco", () => {
 
 	it("sem saldo do banco, o usado incoerente com o que o Órbita conhece vira estimado (com o disponível do banco)", () => {
 		const incoherent = cardLimit(card(1390000, 524408, null), 55592, 55592);
+		// Limite efetivo = disponível + estimado (580.000), o aprovado vai à parte: % e total não misturam os dois.
 		expect(incoherent).toMatchObject({
-			limitCents: 1390000,
+			limitCents: 580000,
+			approvedLimitCents: 1390000,
 			availableCents: 524408,
 			usedCents: 55592,
 			source: "estimated",
@@ -238,11 +265,25 @@ describe("cardLimit: coerência do número do banco", () => {
 		});
 	});
 
+	it("limite baixado só vale se o saldo confere com o que o Órbita sabe dever (fatura fechada não paga + compras novas)", () => {
+		// Saldo do banco 555,92 mas o Órbita sabe dever 3.000: o saldo é velho, não prova limite baixado.
+		const stale = cardLimit(card(1390000, 524408, 55592), 300000, 300000, 300000);
+		expect(stale).toMatchObject({ source: "estimated", usedCents: 300000 });
+		expect(stale.limitCents).not.toBe(580000);
+		// Dentro de R$ 1 do devido: continua valendo.
+		expect(cardLimit(card(1390000, 524408, 55592), 55592, 55592, 55692)).toMatchObject({
+			limitCents: 580000,
+			usedCents: 55592,
+			source: "bank",
+		});
+	});
+
 	it("disponível + saldo ≥ limite (não fecha de jeito nenhum): cai na estimativa", () => {
 		expect(cardLimit(card(200000, 40000, 180000), 10000, 10000)).toMatchObject({
 			usedCents: 10000,
 			source: "estimated",
-			limitCents: 200000,
+			limitCents: 50000,
+			approvedLimitCents: 200000,
 		});
 	});
 });

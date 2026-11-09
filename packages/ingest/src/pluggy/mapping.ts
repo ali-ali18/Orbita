@@ -279,6 +279,31 @@ export interface BillInfo {
 	totalCents: number;
 	remainingCents: number;
 	dueDate: LocalDate | null;
+	/**
+	 * Fatura aberta sintética (soma das compras PENDING, o banco não a manda em `/bills`): as pendentes por dia. O
+	 * pagamento adiantado casa com a soma das que têm data até o dia do débito (compra nova depois do pagamento não o
+	 * quebra), e só numa janela em torno delas (`OPEN_BILL_WINDOW_DAYS` depois da última). Sem isto vale `totalCents`.
+	 */
+	pending?: readonly { date: LocalDate; amountCents: number }[];
+}
+
+/** Quantos dias depois da última compra pendente um pagamento ainda pode ser o da fatura aberta sintética. */
+export const OPEN_BILL_WINDOW_DAYS = 31;
+
+/** O débito (valor e dia) é a soma das pendentes até o dia dele, dentro da janela da fatura aberta sintética. */
+function matchesOpenBill(
+	pending: readonly { date: LocalDate; amountCents: number }[],
+	amountCents: number,
+	date: LocalDate | undefined,
+): boolean {
+	if (date === undefined || pending.length === 0) return false;
+	const dates = pending.map((p) => p.date).sort();
+	const first = dates[0] as LocalDate;
+	const last = dates[dates.length - 1] as LocalDate;
+	if (date < first || daysBetween(last, date) > OPEN_BILL_WINDOW_DAYS) return false;
+	let sum = 0;
+	for (const p of pending) if (p.date <= date) sum += p.amountCents;
+	return sum === amountCents;
 }
 
 export const CARD_BILL_SLUG = "fatura-cartao";
@@ -334,10 +359,11 @@ export function matchPaymentCard(
 	date?: LocalDate,
 ): PaymentCardMatch {
 	// Faturas de QUALQUER conexão: o valor é o total ou o que faltava pagar, e o dia cai a até 5 dias do vencimento.
-	const billHits = (ctx.bills ?? []).filter(
-		(b) =>
-			(b.totalCents === amountCents || (b.remainingCents > 0 && b.remainingCents === amountCents)) &&
-			(date === undefined || b.dueDate === null || Math.abs(daysBetween(b.dueDate, date)) <= BILL_DUE_DAYS),
+	const billHits = (ctx.bills ?? []).filter((b) =>
+		b.pending
+			? matchesOpenBill(b.pending, amountCents, date)
+			: (b.totalCents === amountCents || (b.remainingCents > 0 && b.remainingCents === amountCents)) &&
+				(date === undefined || b.dueDate === null || Math.abs(daysBetween(b.dueDate, date)) <= BILL_DUE_DAYS),
 	);
 	const byTotal = [
 		...new Set([
@@ -917,12 +943,11 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 			? meta.billForecastDate
 			: null;
 	// Compra PENDING sem `billId` = "not yet included in a closed bill" (docs): cai na fatura em que o banco vai lançá-la.
-	// `billPostDate` é o dia em que ela entra na fatura (a compra no dia do fechamento já é a da fatura que fecha); sem
-	// ele, vale o dia do lançamento. Parcela pendente não pode usar a data da compra (meses atrás).
+	// `billPostDate` é o dia em que ela entra na fatura; sem ele, vale o dia do lançamento. Parcela pendente não pode
+	// usar a data da compra (meses atrás). O dia do fechamento segue a regra do cartão (`closingRule`), que o sync deduz
+	// das faturas do próprio cartão (`inferClosingRule`); sem evidência não há deslocamento de um dia.
 	const postDate = meta?.billPostDate ? pluggyDateToLocal(meta.billPostDate) : null;
-	const included = ctx.card.config.closingRule === "closing-day-included";
-	const invoiceRef =
-		pending && postDate !== null && !billMonth ? (included ? postDate : addDays(postDate, -1)) : date;
+	const invoiceRef = pending && postDate !== null && !billMonth ? postDate : date;
 	const invoiceMonth = billMonth ?? forecast ?? invoiceFor(invoiceRef, ctx.card.config).month;
 	const invoiceFromBank = billMonth !== undefined || forecast !== null;
 	const installment =

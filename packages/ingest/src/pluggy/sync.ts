@@ -1,4 +1,4 @@
-import { addDays, addMonths, decimalToCents, type MonthKey, toLocalDate } from "@orbita/core";
+import { addDays, addMonths, decimalToCents, type LocalDate, type MonthKey, toLocalDate } from "@orbita/core";
 import {
 	type AccountRecord,
 	type CardRecord,
@@ -12,9 +12,21 @@ import {
 } from "@orbita/db";
 import { PLUGGY_RECONNECT_MESSAGE, type PluggySyncStatus, type SecretName } from "@orbita/shared";
 import { type BankNumbersResult, recordBankNumbers, recordBills } from "./balances.ts";
-import { detectBankName, findKnownBank, hasMeuPluggyPrefix, isWeakCardName } from "./bank-name.ts";
-import { buildCategoryIndex, type CategoryIndex, operationSignal } from "./classify.ts";
+import {
+	detectBankName,
+	findKnownBank,
+	hasMeuPluggyPrefix,
+	isLegacyRawName,
+	isWeakCardName,
+} from "./bank-name.ts";
+import {
+	buildCategoryIndex,
+	type CategoryIndex,
+	isCardChargeOperation,
+	operationSignal,
+} from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
+import { inferClosingRule } from "./closing-rule.ts";
 import { chooseConnectionLabel } from "./connection-label.ts";
 import {
 	isPaymentNote,
@@ -514,6 +526,16 @@ async function syncConnection(
 				result.notes.push(`Uma conta não sincronizou: ${safeErrorMessage(e)}`);
 			}
 		}
+		// Regra de fechamento de cada cartão, lida das faturas dele: o cartão que o banco fecha "incluindo" o dia do
+		// fechamento (e ainda está na regra padrão) passa a ela; sem evidência não muda nada. Só sobe de "next" para
+		// "included": o que o dono escolheu ou o padrão não é revertido por um dado ambíguo.
+		for (const { target, txs } of fetched) {
+			if (target.card?.closingRule !== "closing-day-next") continue;
+			const rule = inferClosingRule(txs, billsOf.get(target.pluggyId)?.bills ?? []);
+			if (rule === "closing-day-included") {
+				target.card = await deps.stores.cards.update(target.card.id, { closingRule: rule });
+			}
+		}
 		if (dropped > 0)
 			result.notes.push(`${dropped} lançamento(s) vieram fora do formato e foram descartados.`);
 
@@ -522,18 +544,22 @@ async function syncConnection(
 		// pagar o valor das pendentes), e esse débito só se liga ao cartão por este total. Entra como fatura sem vencimento.
 		for (const { target, txs } of fetched) {
 			if (!target.card) continue;
-			let openCents = 0;
+			const pending: Array<{ date: LocalDate; amountCents: number }> = [];
 			for (const tx of txs) {
 				if (tx.status !== "PENDING" || tx.type !== "DEBIT") continue;
 				const facts = transactionFacts(tx);
-				if (facts) openCents += facts.amountCents;
+				if (facts) pending.push(facts);
 			}
+			const openCents = pending.reduce((total, p) => total + p.amountCents, 0);
 			if (openCents > 0) {
+				// O pagamento casa com a soma das pendentes até o dia do débito (`pending`), numa janela: compra nova
+				// depois do pagamento adiantado não o desfaz, e o total sem data não casa com qualquer dia.
 				shared.bills.push({
 					cardId: target.card.id,
 					totalCents: openCents,
 					remainingCents: openCents,
 					dueDate: null,
+					pending,
 				});
 			}
 		}
@@ -548,6 +574,8 @@ async function syncConnection(
 				// O banco já disse que este crédito do cartão é estorno ou cashback, não pagamento de fatura. (PAGAMENTO não
 				// exclui: nos dados reais é o rótulo da baixa da fatura no Inter e no Santander.)
 				if (target.card && operationSignal(tx.operationType, "in") === "refund") return [];
+				// Tarifa e operação de crédito do cartão (IOF, juros, parcelamento da fatura) também não são pagamento.
+				if (target.card && isCardChargeOperation(tx.operationType)) return [];
 				const facts = transactionFacts(tx);
 				if (!facts || tx.type !== (target.card ? "CREDIT" : "DEBIT")) return [];
 				return [{ id: tx.id, ...facts }];
@@ -876,7 +904,12 @@ async function linkAccounts(
 					if (!(e instanceof DataError && e.code === "duplicate")) throw e;
 					account = await accounts.findByExternal(PLUGGY_SOURCE, mapped.externalId);
 				}
-			} else if (account.archivedAt === null && hasMeuPluggyPrefix(account.name)) {
+			} else if (
+				account.archivedAt === null &&
+				account.name !== mapped.input.name &&
+				(hasMeuPluggyPrefix(account.name) ||
+					isLegacyRawName(account.name, pa.marketingName?.trim() || pa.name))
+			) {
 				// Importada antes da limpeza do nome ("MeuPluggy Inter"): o prefixo é a marca de que o dono ainda não
 				// mexeu no nome, então troca uma vez; depois do nome novo isto não roda de novo.
 				account = await accounts.update(account.id, { name: mapped.input.name });
@@ -947,7 +980,9 @@ async function linkAccounts(
 			card &&
 			card.archivedAt === null &&
 			card.name !== mapped.input.name &&
-			(hasMeuPluggyPrefix(card.name) || (isWeakCardName(card.name) && !isWeakCardName(mapped.input.name)))
+			(hasMeuPluggyPrefix(card.name) ||
+				isLegacyRawName(card.name, pa.marketingName?.trim() || pa.name) ||
+				(isWeakCardName(card.name) && !isWeakCardName(mapped.input.name)))
 		) {
 			card = await cards.update(card.id, { name: mapped.input.name });
 		}
@@ -1124,8 +1159,12 @@ async function storeTransactions(
 					}
 					// A fatura que o banco indica vale mais que a gravada por quem só calculava pelo fechamento: a
 					// compra pesa no mês dela (o upsert por si só nunca corrigia). O que o engine calculou não mexe.
+					// Também recalcula a compra ainda pendente sem fatura do banco: versões antigas gravavam nela o mês de
+					// `billForecastDate` (hoje ignorado em conector que não é Open Finance) e a fatura ficava errada para sempre.
 					if (
-						mapped.invoiceFromBill &&
+						(mapped.invoiceFromBill ||
+							mapped.input.bankPending === true ||
+							res.transaction?.bankPending === true) &&
 						res.transaction &&
 						!touchedByOwner(res.transaction) &&
 						res.transaction.cardId != null &&
