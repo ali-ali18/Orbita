@@ -104,7 +104,7 @@ export const notificationBatchResponse = z.object({
 export type NotificationBatchResponse = z.infer<typeof notificationBatchResponse>;
 
 /** Por que uma notificação está na lista "Não entendi": formato desconhecido, ou não achei o cartão/conta dela. */
-export const NOTIFICATION_INBOX_REASONS = ["format", "target"] as const;
+export const NOTIFICATION_INBOX_REASONS = ["format", "target", "installment"] as const;
 export type NotificationInboxReason = (typeof NOTIFICATION_INBOX_REASONS)[number];
 
 /** `GET /v1/notifications/inbox`. */

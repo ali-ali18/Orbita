@@ -11,7 +11,9 @@ import {
 import {
 	isSensitiveNotification,
 	NOTIFICATION_APP_LABELS,
+	NOTIFICATION_APPS_VERIFIED,
 	type NotificationApp,
+	type NotificationInboxReason,
 	type NotificationItem,
 	type NotificationResult,
 	notificationAppOfPackage,
@@ -32,6 +34,11 @@ import { type ParsedNotification, parseNotification } from "./parse.ts";
  */
 
 export const NOTIFICATION_SOURCE = "notification" as const;
+
+export const UNCERTAIN_TARGET_NOTE =
+	"Pago a um estabelecimento sem dizer se foi no saldo ou no cartão do Mercado Pago. Confira a conta e o cartão para não ficar duplicado.";
+export const UNVERIFIED_BANK_NOTE =
+	"Lido da notificação de um banco cujo formato ainda não foi conferido. Confira o valor e o estabelecimento.";
 
 export interface NotificationDeps {
 	stores: Pick<
@@ -127,12 +134,22 @@ async function build(
 ): Promise<Built> {
 	const { accounts, cards, categoryRules } = deps.stores;
 	const description = describe(parsed);
+	// Vai para "Para revisar" quando o dono pediu, quando o banco não tem formato conferido ou quando o texto não diz de
+	// onde saiu o dinheiro: nesses casos nunca entra confirmado sozinho.
+	const unverified = !NOTIFICATION_APPS_VERIFIED.includes(n.app);
+	const review = prefs.notificationAskFirst || unverified || parsed.uncertainTarget === true;
+	const reviewNote = parsed.uncertainTarget
+		? UNCERTAIN_TARGET_NOTE
+		: unverified
+			? UNVERIFIED_BANK_NOTE
+			: null;
 	const base = {
 		amountCents: parsed.amountCents,
 		date,
 		description,
 		// "Para revisar" (o dono confirma) ou direto, contando no gasto, só "aguardando o banco".
-		status: prefs.notificationAskFirst ? ("pending" as const) : ("confirmed" as const),
+		status: review ? ("pending" as const) : ("confirmed" as const),
+		note: reviewNote,
 		bankPending: true,
 		merchantName: parsed.merchant,
 	};
@@ -212,7 +229,7 @@ async function process(
 ): Promise<NotificationResult> {
 	const { transactions, notificationInbox } = deps.stores;
 	const result = parseNotification({ app: n.app, title: n.title, text: n.text });
-	const toInbox = async (reason: "format" | "target") => {
+	const toInbox = async (reason: NotificationInboxReason) => {
 		await notificationInbox.add({
 			key: n.key,
 			app: n.app,
@@ -226,7 +243,7 @@ async function process(
 	if (result.outcome === "skip") return "ignored";
 	if (result.outcome === "unrecognized") {
 		// Sem valor em R$ é propaganda; e o dono pode ter desligado a lista.
-		return result.hasAmount && prefs.notificationToReview ? toInbox("format") : "ignored";
+		return result.hasAmount && prefs.notificationToReview ? toInbox(result.reason) : "ignored";
 	}
 	// A data é a do momento em que o Android registrou (nunca no futuro, mesmo com o relógio do aparelho errado).
 	const posted = n.postedAt.getTime() > deps.now().getTime() ? deps.now() : n.postedAt;

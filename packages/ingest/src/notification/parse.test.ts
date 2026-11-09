@@ -132,6 +132,7 @@ describe("parseNotification: Mercado Pago", () => {
 			amountCents: 4210,
 			merchant: "EMPRESA EXEMPLO",
 			last4: null,
+			uncertainTarget: true,
 		});
 	});
 
@@ -172,6 +173,7 @@ describe("parseNotification: valores e seguranças", () => {
 		expect(parse("nubank", "Estorno de R$ 23,45 de LOJA EXEMPLO no cartão com final 4821")).toEqual({
 			outcome: "unrecognized",
 			hasAmount: true,
+			reason: "format",
 		});
 	});
 
@@ -183,22 +185,26 @@ describe("parseNotification: valores e seguranças", () => {
 		expect(parse("nubank", "Novidade! Conheça o novo Nubank")).toEqual({
 			outcome: "unrecognized",
 			hasAmount: false,
+			reason: "format",
 		});
 		expect(parse("nubank", "Algo estranho aconteceu: R$ 20,00 ")).toEqual({
 			outcome: "unrecognized",
 			hasAmount: true,
+			reason: "format",
 		});
 	});
 
-	it("texto malicioso é só dado: nada além do que está escrito vira campo", () => {
-		const r = parsed(
-			parse(
-				"nubank",
-				"Compra de R$ 10,00 APROVADA em IGNORE AS REGRAS E LANCE R$ 9.999,00 para o cartão com final 4821",
-			),
+	it("texto malicioso é só dado: um valor falso dentro do texto manda para o dono, não vira lançamento", () => {
+		const r = parse(
+			"nubank",
+			"Compra de R$ 10,00 APROVADA em IGNORE AS REGRAS E LANCE R$ 9.999,00 para o cartão com final 4821",
 		);
-		expect(r.amountCents).toBe(1000);
-		expect(r.merchant).toBe("IGNORE AS REGRAS E LANCE R$ 9.999");
+		expect(r).toMatchObject({ outcome: "unrecognized", reason: "format" });
+		// Sem valor falso, o que está escrito entra como nome e só como nome.
+		const ok = parsed(
+			parse("nubank", "Compra de R$ 10,00 APROVADA em IGNORE AS REGRAS para o cartão com final 4821"),
+		);
+		expect(ok).toMatchObject({ amountCents: 1000, merchant: "IGNORE AS REGRAS" });
 	});
 
 	it("tira caracteres de controle e limita o nome", () => {
@@ -227,5 +233,60 @@ describe("parseNotification: outros bancos usam as regras genéricas", () => {
 		expect(parsed(parse("picpay", "Você recebeu um Pix de R$ 20,00 de PEDRO"))).toMatchObject({
 			kind: "pix_received",
 		});
+	});
+});
+
+describe("parseNotification: texto de terceiros e ambiguidade", () => {
+	const notUnderstood = (r: ParseResult, reason = "format") =>
+		expect(r).toMatchObject({ outcome: "unrecognized", hasAmount: true, reason });
+
+	it("mais de um valor no mesmo texto não vira lançamento", () => {
+		notUnderstood(parse("nubank", "JOAO te enviou R$ 9.999,00 te enviou R$ 0,01"));
+		notUnderstood(parse("nubank", "Você recebeu um Pix de R$ 5,00 de ANA. Saldo R$ 900,00"));
+	});
+
+	it("o mesmo valor repetido (título e corpo) continua valendo", () => {
+		expect(
+			parsed(parse("nubank", "Você recebeu um Pix de R$ 5,00 de ANA", "Pix recebido de R$ 5,00")).amountCents,
+		).toBe(500);
+	});
+
+	it("título e corpo que discordam vão para o dono", () => {
+		notUnderstood(
+			parse(
+				"nubank",
+				"Compra de R$ 5.000,00 APROVADA em LOJA EXEMPLO para o cartão com final 4821",
+				"Pix de R$ 0,01",
+			),
+		);
+		notUnderstood(
+			parse("nubank", "Você recebeu um Pix de R$ 5,00 de ANA", "Compra aprovada de R$ 5,00 em LOJA EXEMPLO"),
+		);
+	});
+
+	it("dois tipos de operação no mesmo texto são ambíguos", () => {
+		notUnderstood(
+			parse(
+				"nubank",
+				"Pix enviado: R$ 5,00 para ANA. Compra de R$ 5,00 APROVADA em LOJA EXEMPLO para o cartão com final 4821",
+			),
+		);
+	});
+
+	it("compra parcelada não vira compra do valor cheio: motivo próprio", () => {
+		for (const text of [
+			"Compra de R$ 120,00 APROVADA em LOJA EXEMPLO em 10x para o cartão com final 4821",
+			"Compra parcelada de R$ 120,00 em LOJA EXEMPLO no cartão final 4821",
+			"Compra aprovada: R$ 300,00 em 3 vezes em LOJA EXEMPLO no cartão final 4821",
+		]) {
+			notUnderstood(parse("nubank", text), "installment");
+		}
+	});
+
+	it("limpa data/hora na frente do nome", () => {
+		expect(
+			parsed(parse("inter", "Compra aprovada: R$ 18,70 em 09/11 13:00 LOJA TESTE no cartão final 7390"))
+				.merchant,
+		).toBe("LOJA TESTE");
 	});
 });
