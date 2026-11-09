@@ -24,6 +24,7 @@ const bodies = {
 	),
 	"seta-direita": <Path d="m9 18 6-6-6-6" />,
 	"seta-baixo": <Path d="m6 9 6 6 6-6" />,
+	"seta-cima": <Path d="m18 15-6-6-6 6" />,
 	voltar: <Path d="m15 18-6-6 6-6" />,
 	escanear: (
 		<>

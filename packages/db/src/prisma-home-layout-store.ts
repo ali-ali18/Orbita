@@ -13,10 +13,11 @@ export function createPrismaHomeLayoutStore(db: Db): HomeLayoutStore {
 		},
 		async set(items) {
 			const clean = cleanHomeLayout(items);
+			const json = clean.map(({ id, size, visible }) => ({ id, size, visible }));
 			await db.homeLayout.upsert({
 				where: { id: ID },
-				update: { items: clean },
-				create: { id: ID, items: clean },
+				update: { items: json },
+				create: { id: ID, items: json },
 			});
 			return clean;
 		},

@@ -1,6 +1,7 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
+import { useWidgetLongPress } from "./long-press.ts";
 import { Text, type TextTone } from "./Text.tsx";
 
 /** Linha de lista: ícone/avatar à esquerda, título + legenda, valor à direita (com legenda opcional). */
@@ -26,6 +27,7 @@ export function ListRow({
 	/** Torna a linha um botão (abre o detalhe). */
 	onPress?: () => void;
 }) {
+	const longPress = useWidgetLongPress();
 	const row = (
 		<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 64 }}>
 			{leading}
@@ -75,6 +77,7 @@ export function ListRow({
 			accessibilityRole="button"
 			accessibilityLabel={spoken}
 			onPress={onPress}
+			onLongPress={longPress}
 			style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
 		>
 			{row}
