@@ -31,6 +31,7 @@ export async function cleanDatabase(client: Db): Promise<void> {
 	await client.idempotencyKey.deleteMany();
 	await client.importBatch.deleteMany();
 	await client.appPreferences.deleteMany();
+	await client.homeLayout.deleteMany();
 	await client.recurrencePosting.deleteMany();
 	await client.goalContribution.deleteMany();
 	await client.transaction.deleteMany();

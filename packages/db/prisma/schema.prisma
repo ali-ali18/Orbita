@@ -390,6 +390,16 @@ model AppPreferences {
   @@map("app_preferences")
 }
 
+/// Layout dos widgets do Início (ordem, tamanho e visibilidade). App de um usuário só: uma única linha (id "main").
+/// `items` é uma lista `[{ id, size, visible }]`; o servidor a põe em dia com o catálogo de widgets a cada leitura.
+model HomeLayout {
+  id        String   @id @default("main")
+  items     Json     @default("[]")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("home_layout")
+}
+
 /// Chave de API ou credencial colada no app, guardada cifrada (AES-GCM, AAD = nome). O valor nunca sai em claro nem em parte.
 model ServerSecret {
   name       String   @id

@@ -10,6 +10,7 @@ import type { CategoryStore } from "./category-store.ts";
 import type { ChatStore } from "./chat-store.ts";
 import type { Db } from "./client.ts";
 import type { GoalStore } from "./goal-store.ts";
+import type { HomeLayoutStore } from "./home-layout-store.ts";
 import type { IdempotencyStore } from "./idempotency-store.ts";
 import type { ImportBatchStore } from "./import-batch-store.ts";
 import type { IncomeSourceStore } from "./income-source-store.ts";
@@ -24,6 +25,7 @@ import { createMemoryCategoryRuleStore } from "./memory-category-rule-store.ts";
 import { createMemoryCategoryStore } from "./memory-category-store.ts";
 import { createMemoryChatStore } from "./memory-chat-store.ts";
 import { createMemoryGoalStore } from "./memory-goal-store.ts";
+import { createMemoryHomeLayoutStore } from "./memory-home-layout-store.ts";
 import { createMemoryIdempotencyStore } from "./memory-idempotency-store.ts";
 import { createMemoryImportBatchStore } from "./memory-import-batch-store.ts";
 import { createMemoryIncomeSourceStore } from "./memory-income-source-store.ts";
@@ -48,6 +50,7 @@ import { createPrismaCategoryRuleStore } from "./prisma-category-rule-store.ts";
 import { createPrismaCategoryStore } from "./prisma-category-store.ts";
 import { createPrismaChatStore } from "./prisma-chat-store.ts";
 import { createPrismaGoalStore } from "./prisma-goal-store.ts";
+import { createPrismaHomeLayoutStore } from "./prisma-home-layout-store.ts";
 import { createPrismaIdempotencyStore } from "./prisma-idempotency-store.ts";
 import { createPrismaImportBatchStore } from "./prisma-import-batch-store.ts";
 import { createPrismaIncomeSourceStore } from "./prisma-income-source-store.ts";
@@ -77,6 +80,7 @@ export interface Stores {
 	idempotency: IdempotencyStore;
 	imports: ImportBatchStore;
 	preferences: PreferencesStore;
+	homeLayout: HomeLayoutStore;
 	goals: GoalStore;
 	incomeSources: IncomeSourceStore;
 	chat: ChatStore;
@@ -108,6 +112,7 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		idempotency: createPrismaIdempotencyStore(db),
 		imports: createPrismaImportBatchStore(db),
 		preferences: createPrismaPreferencesStore(db),
+		homeLayout: createPrismaHomeLayoutStore(db),
 		goals: createPrismaGoalStore(db, now),
 		incomeSources: createPrismaIncomeSourceStore(db, now),
 		chat: createPrismaChatStore(db, now),
@@ -135,6 +140,7 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		idempotency: createMemoryIdempotencyStore(),
 		imports: createMemoryImportBatchStore(),
 		preferences: createMemoryPreferencesStore(state),
+		homeLayout: createMemoryHomeLayoutStore(),
 		goals: createMemoryGoalStore(state),
 		incomeSources: createMemoryIncomeSourceStore(state),
 		chat: createMemoryChatStore(state.now, (id) => state.agents.has(id)),
