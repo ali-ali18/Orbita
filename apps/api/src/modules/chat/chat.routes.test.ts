@@ -672,6 +672,46 @@ describe("lista de conversas", () => {
 		expect(listed.find((c: Json) => c.id === made.id).agentId).toBe(agent.id);
 	});
 
+	it("conversa com o agente escolhido: papel e ferramentas dele, e retomar mantém o agente", async () => {
+		const ctx = await setup([say("Sou o Vigia."), say("Continuando."), say("Sou a Órbita.")]);
+		await ctx.vault.put("anthropic_api_key", KEY, "Teste");
+		const agents = (await ctx.api.get("/v1/agents")).body.agents as Json[];
+		const vigia = agents.find((a) => a.builtinKey === "vigia") as Json;
+		const orbita = agents.find((a) => a.builtinKey === "orbita") as Json;
+
+		const first = await chatBody(ctx, { message: "O que você vigia?", agentId: vigia.id });
+		const conversationId = first.events[0].conversationId as string;
+		const asVigia = ctx.model.requests[0] as ModelRequest;
+		expect(JSON.stringify(asVigia.system)).toContain("Você é o Vigia");
+		const vigiaTools = asVigia.tools.map((t) => t.name);
+		expect(vigiaTools).toContain("get_budget_status");
+		expect(vigiaTools).not.toContain("propose_create_transaction");
+		expect((await ctx.api.get(`/v1/chat/conversations/${conversationId}`)).body.conversation.agentId).toBe(
+			vigia.id,
+		);
+
+		// Retomar com outro agente no pedido não troca o papel: vale o da conversa.
+		await chatBody(ctx, { message: "E agora?", agentId: orbita.id, conversationId });
+		expect(JSON.stringify((ctx.model.requests[1] as ModelRequest).system)).toContain("Você é o Vigia");
+
+		// Sem agente: a Órbita, com todas as ferramentas e sem papel extra.
+		const plain = await chat(ctx, "oi");
+		const asOrbita = ctx.model.requests[2] as ModelRequest;
+		expect(JSON.stringify(asOrbita.system)).not.toContain("Você é o Vigia");
+		expect(asOrbita.tools.map((t) => t.name)).toContain("propose_create_transaction");
+		expect(
+			(await ctx.api.get(`/v1/chat/conversations/${plain.events[0].conversationId}`)).body.conversation
+				.agentId,
+		).toBeNull();
+	});
+
+	it("agente que não existe recusa com 404", async () => {
+		const ctx = await setup([say("x")]);
+		await ctx.vault.put("anthropic_api_key", KEY, "Teste");
+		const { res } = await chatBody(ctx, { message: "oi", agentId: "fantasma" });
+		expect(res.status).toBe(404);
+	});
+
 	it("renomeia (PATCH), recusa nome vazio ou grande e dá 404 se não existe", async () => {
 		const ctx = await setup([]);
 		const made = await ctx.stores.chat.createConversation("Original");
