@@ -51,6 +51,7 @@ import {
 	rekeyRelinked,
 	relinkKey,
 } from "./relink.ts";
+import { categorizeSalaryCredits } from "./salary.ts";
 import type { PluggyAccount, PluggyBill, PluggyTransaction } from "./schemas.ts";
 
 export { type OwnTransferLeg, pairOwnTransfers };
@@ -81,7 +82,8 @@ export interface SyncPluggyDeps {
 	stores: Pick<
 		Stores,
 		"accounts" | "cards" | "categories" | "categoryRules" | "transactions" | "pluggyConnections"
-	>;
+	> &
+		Partial<Pick<Stores, "incomeSources">>;
 	/** Lê uma chave do cofre (`vault.read`). Devolve `null` se não cadastrada; pode lançar se não abre. */
 	readSecret: (
 		name: Extract<SecretName, "pluggy_client_id" | "pluggy_client_secret">,
@@ -186,6 +188,7 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 		);
 	}
 	await crossConnections(deps, shared, startedAt, results);
+	await labelSalary(deps, startedAt, log);
 	const statuses = new Set(results.map((r) => r.status));
 	const status: PluggySyncStatus = statuses.has("error")
 		? statuses.size === 1
@@ -195,6 +198,29 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 			? "partial"
 			: "ok";
 	return { status, connections: results };
+}
+
+/** Rotula o salário entre as entradas (pagador recorrente ou renda cadastrada). Só conforto: nunca derruba a rodada. */
+async function labelSalary(
+	deps: SyncPluggyDeps,
+	startedAt: Date,
+	log: (line: string) => void,
+): Promise<void> {
+	if (!deps.stores.incomeSources) return;
+	try {
+		await deps.stores.categories.ensureDefaults();
+		const labeled = await categorizeSalaryCredits(
+			{
+				transactions: deps.stores.transactions,
+				categories: deps.stores.categories,
+				incomeSources: deps.stores.incomeSources,
+			},
+			toLocalDate(startedAt),
+		);
+		if (labeled > 0) log(`pluggy: salário reconhecido em ${labeled} entrada(s)`);
+	} catch {
+		log("pluggy: não deu para reconhecer o salário agora");
+	}
 }
 
 /** O que as conexões já sincronizadas desta rodada sabem dos cartões e das faturas (para as conexões seguintes e o passo final). */

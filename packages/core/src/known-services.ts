@@ -15,19 +15,22 @@ export interface KnownService {
 	categorySlug: "assinaturas" | "saude" | "delivery" | "transporte";
 	/** `true` = cobrança mensal fixa (assinatura); `false` = só dica de categoria (iFood, Uber). */
 	subscription: boolean;
+	/** Nome curto para mostrar ao dono (o do app, sem explicação entre parênteses). Padrão: `name`. */
+	short?: string;
 }
 
 const sub = (
 	name: string,
 	brands: string[],
 	categorySlug: KnownService["categorySlug"] = "assinaturas",
-): KnownService => ({ name, brands, categorySlug, subscription: true });
+	short?: string,
+): KnownService => ({ name, brands, categorySlug, subscription: true, ...(short ? { short } : {}) });
 
 export const KNOWN_SERVICES: readonly KnownService[] = [
 	sub("Netflix", ["netflix"]),
 	sub("Spotify", ["spotify"]),
-	sub("YouTube (Premium ou Music)", ["youtube"]),
-	sub("Google One (Gemini)", ["googleone"]),
+	sub("YouTube (Premium ou Music)", ["youtube"], "assinaturas", "YouTube"),
+	sub("Google One (Gemini)", ["googleone"], "assinaturas", "Google One"),
 	sub("Prime Video", ["amazonprime", "primevideo"]),
 	sub("Disney+", ["disney", "disneyplus"]),
 	sub("iCloud", ["icloud", "apple"]),
@@ -36,7 +39,7 @@ export const KNOWN_SERVICES: readonly KnownService[] = [
 	sub("Deezer", ["deezer"]),
 	sub("ChatGPT", ["openai", "chatgpt"]),
 	sub("Claude", ["anthropic", "claude"]),
-	sub("Grok (SuperGrok)", ["grok"]),
+	sub("Grok (SuperGrok)", ["grok"], "assinaturas", "Grok"),
 	sub("F1 TV", ["f1"]),
 	sub("Microsoft 365", ["microsoft"]),
 	sub("Adobe", ["adobe"]),
@@ -105,7 +108,9 @@ const PAYMENT_PROCESSORS: ReadonlySet<string> = new Set([
 const BRAND_RULES: ReadonlyArray<readonly [brand: string, match: RegExp]> = [
 	["youtube", /youtube/],
 	["googleone", /google(one|storage|drive)|gemini|googleai/],
-	["googleplay", /googleplay/],
+	// ChatGPT: o mesmo serviço chega como "OPENAI *CHATGPT SUBSCR" (direto) e como "DL*GOOGLE ChatGP" (Google Play).
+	["chatgpt", /chatgpt|openai/],
+	["grok", /grok/],
 	["amazonprime", /amazon(prime|music|kindle)|primevideo/],
 	["applemusic", /applemusic/],
 	["icloud", /icloud|appleservices/],
@@ -132,6 +137,9 @@ const GOOGLE_PLAY_NOISE: ReadonlySet<string> = new Set([
 	"ireland",
 	"com",
 	"gsuite",
+	"internet",
+	"servicos",
+	"online",
 ]);
 
 const canonicalGoogleApp = (token: string): string => {
@@ -188,7 +196,39 @@ export function subscriptionBrand(text: string | null | undefined): string {
 	const tokens = brandTokens(text);
 	const joined = tokens.join("");
 	for (const [brand, match] of BRAND_RULES) if (match.test(joined)) return brand;
-	return googlePlayBrand(tokens) ?? tokens[0] ?? "";
+	// "X.AI", "xAI LLC": o Grok cobrado pela empresa, sem a palavra "grok".
+	if (tokens[0] === "xai" || (tokens[0] === "x" && tokens[1] === "ai")) return "grok";
+	const play = googlePlayBrand(tokens);
+	// "Google Play" sem o app dito: a marca é a loja.
+	if (play === "google" && /googleplay/.test(joined)) return "googleplay";
+	return play ?? tokens[0] ?? "";
+}
+
+/** Produtos do próprio Google: aparecem no extrato como "Google ..." e não precisam do aviso "(Google Play)". */
+const GOOGLE_OWN_BRANDS: ReadonlySet<string> = new Set(["youtube", "googleone", "google", "googleplay"]);
+/** Serviços que também se assinam direto no site: o nome diz por onde a cobrança passa, para o dono saber onde cancelar. */
+const ALSO_SOLD_DIRECT: ReadonlySet<string> = new Set(["chatgpt", "claude", "grok"]);
+
+const titleCase = (word: string): string => `${word.charAt(0).toLocaleUpperCase("pt-BR")}${word.slice(1)}`;
+
+/**
+ * Nome amigável do serviço por trás de uma cobrança, para mostrar ao dono no lugar do nome do banco ("GOOGLE BRASIL
+ * INTERNET LTDA.", "DL*GOOGLE ChatGP"): o nome curto do catálogo ("YouTube", "Google One", "F1 TV"; "ChatGPT (Google
+ * Play)" quando o serviço também se assina direto), ou o app vendido pelo Google Play ("Google Pierre Control" →
+ * "Pierre"). `null` quando não dá para saber (o chamador usa o nome limpo do estabelecimento).
+ */
+export function serviceDisplayName(text: string | null | undefined): string | null {
+	const tokens = brandTokens(text);
+	if (tokens.length === 0) return null;
+	const brand = subscriptionBrand(text);
+	const known = BY_BRAND.get(brand) ?? null;
+	const viaGoogle = tokens.includes("google") && !GOOGLE_OWN_BRANDS.has(brand);
+	if (known) {
+		const base = known.short ?? known.name;
+		return viaGoogle && ALSO_SOLD_DIRECT.has(brand) ? `${base} (Google Play)` : base;
+	}
+	if (viaGoogle && isGooglePlayApp(text)) return titleCase(brand);
+	return null;
 }
 
 /** Duas marcas são do mesmo serviço: iguais, ou uma começa pela outra ("amazon" cadastrado, "amazonprime" cobrado). */

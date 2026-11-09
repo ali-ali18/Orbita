@@ -1,3 +1,4 @@
+import type { SetupRecurring } from "@orbita/shared";
 import { describe, expect, it } from "vitest";
 import { ToolError } from "./backend.ts";
 import { READ_TOOLS } from "./read-tools.ts";
@@ -498,5 +499,104 @@ describe("ferramentas de escrita só propõem", () => {
 		await expect(run("propose_confirm_transaction", { transactionId: "m1" }, reader)).rejects.toThrow(
 			/já está confirmado/,
 		);
+	});
+});
+
+describe("assinaturas: nomes dos apps e totais prontos", () => {
+	const withGoogle = () => {
+		const [first, netflix, spotify] = setupAnalysis().recurring;
+		const unip = first as SetupRecurring;
+		return fakeReader({
+			setup: setupAnalysis({
+				recurring: [
+					{
+						...unip,
+						key: "rec:youtube",
+						merchant: "GOOGLE BRASIL INTERNET LTDA.",
+						displayName: "YouTube",
+						amountCents: 2190,
+						lastAmountCents: 2190,
+						averageAmountCents: 2190,
+					},
+					{
+						...unip,
+						key: "rec:pierre",
+						merchant: "GOOGLE BRASIL INTERNET LTDA.",
+						displayName: "Pierre",
+						amountCents: 3899,
+						lastAmountCents: 3899,
+						averageAmountCents: 3899,
+					},
+					{
+						...unip,
+						key: "rec:chatgpt",
+						merchant: "GOOGLE BRASIL INTERNET LTDA.",
+						displayName: "ChatGPT (Google Play)",
+						amountCents: 9599,
+						lastAmountCents: 9599,
+						averageAmountCents: 9599,
+					},
+					{ ...(netflix as SetupRecurring), registered: true },
+					{ ...(spotify as SetupRecurring), registered: true },
+				],
+			}),
+		}).reader;
+	};
+
+	it("o card e o resultado usam o nome do app, não o texto do banco", async () => {
+		const out = await run("list_subscriptions", {}, withGoogle());
+		const names = (out.data.detectedSuggestions as Array<{ name: string }>).map((s) => s.name);
+		expect(names.sort()).toEqual(["ChatGPT (Google Play)", "Pierre", "YouTube"]);
+		const labels = out.card?.rows.map((r) => r.label) ?? [];
+		expect(labels).toContain("Pierre (detectada)");
+		expect(labels.join("|")).not.toContain("GOOGLE BRASIL");
+	});
+
+	it("totals vem primeiro e já traz o total geral (nenhuma soma fica para o modelo)", async () => {
+		const out = await run("list_subscriptions", {}, withGoogle());
+		expect(Object.keys(out.data)[0]).toBe("totals");
+		expect(out.data.totals).toMatchObject({
+			suggestedPerMonth: { cents: 15688, text: "R$ 156,88" },
+			registeredPlusSuggestedPerMonth: { cents: 15688 },
+		});
+		expect(out.card?.total?.value).toBe("R$ 156,88");
+	});
+
+	it("keys: soma só os itens escolhidos e o card mostra só eles", async () => {
+		const out = await run("list_subscriptions", { keys: ["rec:youtube", "rec:pierre"] }, withGoogle());
+		expect(out.data.totals).toMatchObject({
+			selectedPerMonth: { cents: 6089, text: "R$ 60,89", count: 2, items: ["YouTube", "Pierre"] },
+		});
+		expect(out.card?.title).toBe("Assinaturas escolhidas");
+		expect(out.card?.rows.map((r) => r.label)).toEqual(["YouTube (detectada)", "Pierre (detectada)"]);
+		expect(out.card?.total?.value).toBe("R$ 60,89");
+	});
+
+	it("keys desconhecidas viram erro claro para o modelo", async () => {
+		await expect(run("list_subscriptions", { keys: ["rec:nada"] }, withGoogle())).rejects.toBeInstanceOf(
+			ToolError,
+		);
+	});
+});
+
+describe("search_transactions: o card corresponde ao que foi consultado", () => {
+	it("filtrando por conta e período, o título diz qual conta e qual período", async () => {
+		const reader = fakeReader({ transactions: [tx({ id: "t1" })] }).reader;
+		const out = await run(
+			"search_transactions",
+			{ accountId: "acc-1", from: "2026-10-01", to: "2026-10-31" },
+			reader,
+		);
+		expect(out.card?.title).toBe("Lançamentos · Conta Inter · 01/10/2026 a 31/10/2026");
+		expect(out.data.scope).toBe("Conta Inter · 01/10/2026 a 31/10/2026");
+		expect(out.data).not.toHaveProperty("warning");
+	});
+
+	it("sem conta nem cartão (havendo várias) avisa o modelo e o título não finge um recorte", async () => {
+		const { reader } = fakeReader({ transactions: [tx({ id: "t1" })] });
+		const out = await run("search_transactions", {}, reader);
+		expect(out.card?.title).toBe("Lançamentos");
+		expect(out.data.scope).toContain("todos os lançamentos");
+		expect(out.data.warning).toContain("accountId");
 	});
 });

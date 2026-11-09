@@ -65,13 +65,17 @@ const lastUserBlocks = (request: { messages: Array<{ role: string; content: unkn
 describe("laço do agente", () => {
 	it("pergunta simples: sem ferramenta, o texto chega em pedaços e o uso é registrado", async () => {
 		const t = setup([
-			() => ({ content: [textBlock("Olá!")], stopReason: "end_turn", streamText: ["Ol", "á!"] }),
+			() => ({
+				content: [textBlock("Olá! Tudo bem?")],
+				stopReason: "end_turn",
+				streamText: ["Olá! Tudo", " bem?"],
+			}),
 		]);
 		const result = await t.run("oi");
-		expect(result).toMatchObject({ text: "Olá!", stop: "end_turn", cards: [] });
+		expect(result).toMatchObject({ text: "Olá! Tudo bem?", stop: "end_turn", cards: [] });
 		expect(t.events.filter((e) => e.type === "text").map((e) => (e as { delta: string }).delta)).toEqual([
-			"Ol",
-			"á!",
+			"Olá!",
+			" Tudo bem?",
 		]);
 		expect(t.usage).toHaveLength(1);
 		expect(t.requests[0]?.tools.length).toBe(ALL_TOOLS.length);
@@ -284,5 +288,89 @@ describe("laço do agente", () => {
 		});
 		expect(t.requests[0]?.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
 		expect(t.requests[0]?.effort).toBe("low");
+	});
+
+	describe("conferência dos valores em R$ (a IA nunca faz conta)", () => {
+		const summaryStep = () => ({
+			content: [toolUse("tu1", "get_month_summary", {})],
+			stopReason: "tool_use" as const,
+		});
+		const say = (text: string) => () => ({
+			content: [textBlock(text)],
+			stopReason: "end_turn" as const,
+			streamText: [text.slice(0, 12), text.slice(12)],
+		});
+		const textEvents = (events: AgentEvent[]) =>
+			events.filter((e) => e.type === "text").map((e) => (e as { delta: string }).delta);
+
+		it("valor que veio de ferramenta passa direto", async () => {
+			const t = setup([summaryStep, say("Você gastou R$ 520,67 neste mês.")]);
+			const result = await t.run("quanto gastei?");
+			expect(result.text).toBe("Você gastou R$ 520,67 neste mês.");
+			expect(t.requests).toHaveLength(2);
+		});
+
+		it("soma feita pela IA: o texto errado nunca chega ao app e o modelo é mandado refazer", async () => {
+			const t = setup([
+				summaryStep,
+				say("Sua conta fecha assim. O total fica em R$ 531,71 por mês."),
+				say("Você gastou R$ 520,67 neste mês."),
+			]);
+			const result = await t.run("quanto gastei?");
+			expect(result.text).not.toContain("531,71");
+			expect(result.text).toContain("R$ 520,67");
+			expect(textEvents(t.events).join("")).not.toContain("531,71");
+			expect(t.requests).toHaveLength(3);
+			const last = t.requests[2]?.messages.at(-1);
+			expect(last?.role).toBe("user");
+			expect(JSON.stringify(last?.content)).toContain("R$ 531,71");
+			expect(JSON.stringify(last?.content)).toContain("Aviso do servidor");
+		});
+
+		it("se o modelo insiste no número inventado, o valor é apagado (só uma volta extra)", async () => {
+			const t = setup([
+				summaryStep,
+				say("O total fica em R$ 531,71 por mês."),
+				say("De novo: R$ 531,71 por mês."),
+			]);
+			const result = await t.run("quanto gastei?");
+			expect(result.text).toContain("(valor não confirmado)");
+			expect(result.text).not.toContain("531,71");
+			expect(t.requests).toHaveLength(3);
+		});
+
+		it("aceita o valor dito pelo dono, o do histórico e formatos diferentes do mesmo valor", async () => {
+			const t = setup([
+				summaryStep,
+				say("Você gastou R$ 520,67, ou seja, R$ 521 mais ou menos, e falou de R$ 50."),
+			]);
+			const result = await t.run("tenho R$ 50,00 sobrando, quanto gastei?");
+			expect(result.text).toContain("R$ 50");
+			expect(t.requests).toHaveLength(2);
+		});
+
+		it("com anexo a conferência não age (o modelo lê os valores da imagem)", async () => {
+			const t = setup([say("O extrato mostra R$ 1.234,56 de saldo.")]);
+			const result = await t.run("confere", {
+				userContent: [
+					{ type: "text", text: "confere" },
+					{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+				] as never,
+			});
+			expect(result.text).toContain("R$ 1.234,56");
+			expect(t.requests).toHaveLength(1);
+		});
+
+		it("texto sem R$ continua saindo em frases, sem espera até o fim", async () => {
+			const t = setup([
+				() => ({
+					content: [textBlock("Tudo certo por aqui. Posso ajudar com mais alguma coisa?")],
+					stopReason: "end_turn",
+					streamText: ["Tudo certo por aqui.", " Posso ajudar", " com mais alguma coisa?"],
+				}),
+			]);
+			await t.run("oi");
+			expect(textEvents(t.events)).toEqual(["Tudo certo por aqui.", " Posso ajudar com mais alguma coisa?"]);
+		});
 	});
 });

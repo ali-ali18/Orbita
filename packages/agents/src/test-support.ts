@@ -161,6 +161,7 @@ export function setupAnalysis(overrides: Partial<SetupAnalysis> = {}): SetupAnal
 				cardId: null,
 				registered: false,
 				knownService: null,
+				displayName: "Unip Mensalidade",
 				categoryId: null,
 			},
 			{
@@ -178,6 +179,7 @@ export function setupAnalysis(overrides: Partial<SetupAnalysis> = {}): SetupAnal
 				cardId: "card-1",
 				registered: false,
 				knownService: "Netflix",
+				displayName: "Netflix",
 				categoryId: "cat-out",
 			},
 			{
@@ -195,6 +197,7 @@ export function setupAnalysis(overrides: Partial<SetupAnalysis> = {}): SetupAnal
 				cardId: "card-1",
 				registered: true,
 				knownService: "Spotify",
+				displayName: "Spotify",
 				categoryId: null,
 			},
 		],

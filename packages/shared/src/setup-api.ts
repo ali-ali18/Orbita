@@ -49,6 +49,11 @@ export const setupRecurringSchema = z.object({
 	registered: z.boolean(),
 	/** Nome do serviço, se estiver no catálogo conhecido (Netflix…). */
 	knownService: z.string().nullable(),
+	/**
+	 * Nome para mostrar ao dono no lugar do nome do banco: o app ("YouTube", "ChatGPT (Google Play)", "Pierre") ou, sem
+	 * pista, o estabelecimento limpo ("Unip Mensalidade"). Só rótulo: nunca decide nada.
+	 */
+	displayName: z.string(),
 	/** Categoria mais provável pelo histórico (regra, banco ou catálogo); `null` = sem palpite. */
 	categoryId: idSchema.nullable(),
 });

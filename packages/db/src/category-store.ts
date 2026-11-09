@@ -29,6 +29,8 @@ export const DEFAULT_CATEGORIES: readonly Required<CategoryInput>[] = [
 	{ slug: "transferencias", name: "Transferências", chartSlot: 7, isSystem: true },
 	{ slug: "investimentos", name: "Investimentos", chartSlot: 8, isSystem: true },
 	{ slug: "outros", name: "Outros", chartSlot: 9, isSystem: true },
+	/** Entrada de salário reconhecida (pagador recorrente ou renda cadastrada). Só rotula receita: não é categoria de gasto. */
+	{ slug: "salario", name: "Salário", chartSlot: null, isSystem: true },
 	/** Pagamento de fatura de cartão que o Órbita não vê (cartão não conectado): o único rastro desse gasto. */
 	{ slug: "fatura-cartao", name: "Fatura de cartão", chartSlot: null, isSystem: true },
 ];

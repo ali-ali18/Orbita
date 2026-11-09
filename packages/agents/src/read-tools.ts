@@ -104,6 +104,25 @@ const searchInput = z.object({
 	limit: z.number().int().min(1).max(30).default(15).describe("Quantos lançamentos mostrar (1 a 30)."),
 });
 
+/** "Santander · 01/10/2026 a 31/10/2026": o recorte de uma busca, em palavras (vazio = sem filtro de conta nem de data). */
+function scopeOf(
+	input: z.infer<typeof searchInput>,
+	from: string | undefined,
+	to: string | undefined,
+	catalog: Catalog,
+): string[] {
+	const br = (d: string) => d.split("-").reverse().join("/");
+	const parts: string[] = [];
+	if (input.accountId) parts.push(untrusted(nameOf(catalog.accounts, input.accountId), 30) || "conta");
+	if (input.cardId) parts.push(`${untrusted(nameOf(catalog.cards, input.cardId), 30) || "Cartão"} (cartão)`);
+	if (input.categoryId)
+		parts.push(untrusted(nameOf(catalog.categories, input.categoryId), 30) || "categoria");
+	if (from && to) parts.push(`${br(from)} a ${br(to)}`);
+	else if (from) parts.push(`desde ${br(from)}`);
+	else if (to) parts.push(`até ${br(to)}`);
+	return parts;
+}
+
 export const searchTransactions = defineTool({
 	name: "search_transactions",
 	label: "Procurando lançamentos…",
@@ -111,7 +130,10 @@ export const searchTransactions = defineTool({
 	description:
 		"Lista e busca lançamentos (gastos, receitas, parcelas…) com filtros. Devolve as linhas mais recentes e os TOTAIS " +
 		"já somados de tudo que casou (despesas, receitas, estornos). Use sempre que o dono perguntar quanto gastou com " +
-		"algo, em um período, num estabelecimento, numa categoria, conta ou cartão. Nunca some linhas por conta própria.",
+		"algo, em um período, num estabelecimento, numa categoria, conta ou cartão. Nunca some linhas por conta própria. " +
+		"Para CONFERIR um extrato ou fatura anexado: filtre SEMPRE pela conta (ou cartão) do documento e pelo período dele " +
+		"(from/to), com os ids de list_catalog; sem isso o resultado mistura todas as contas e o card mostra lançamentos " +
+		"que não têm a ver com o documento.",
 	input: searchInput,
 	async run(input, ctx) {
 		const catalog = await ctx.catalog();
@@ -158,13 +180,16 @@ export const searchTransactions = defineTool({
 		} while (cursor !== undefined && scanned < SCAN_CAP);
 
 		const shown = matched.slice(0, input.limit);
+		const scope = scopeOf(input, from, to, catalog);
+		const unfilteredByAccount = !input.accountId && !input.cardId;
 		const expensesCents = sumBy(matched, "expense");
 		const incomeCents = sumBy(matched, "income");
 		const refundsCents = sumBy(matched, "refund");
 		const card: ChatRowsCard = {
 			type: "rows",
 			tool: "search_transactions",
-			title: input.text ? `Lançamentos: ${untrusted(input.text, 30)}` : "Lançamentos",
+			// O título diz o que foi consultado (conta, cartão, período): o card tem de corresponder ao que a IA olhou.
+			title: [input.text ? `Lançamentos: ${untrusted(input.text, 30)}` : "Lançamentos", ...scope].join(" · "),
 			rows: shown.slice(0, 8).map((t) => {
 				const info = describeTransaction(t, catalog);
 				return {
@@ -188,6 +213,15 @@ export const searchTransactions = defineTool({
 			data: {
 				matchedCount: matched.length,
 				shownCount: shown.length,
+				// O que esta consulta cobre (a IA diz isto ao dono, e o card mostra o mesmo).
+				scope: scope.length > 0 ? scope.join(" · ") : "todos os lançamentos, de todas as contas e cartões",
+				...(unfilteredByAccount && catalog.accounts.length + catalog.cards.length > 1
+					? {
+							warning:
+								"Sem filtro de conta/cartão: o resultado mistura todas as contas. Para conferir um extrato ou fatura, " +
+								"chame de novo com accountId (ou cardId) e o período do documento.",
+						}
+					: {}),
 				// Se a lista é maior que a varredura, os totais valem só para o que foi visto.
 				totalsAreComplete: !more,
 				totals: {
@@ -438,15 +472,26 @@ export const listSubscriptions = defineTool({
 	label: "Listando as assinaturas…",
 	access: "read",
 	description:
-		"Assinaturas e recorrências do dono em duas partes: `subscriptions` são as CADASTRADAS (nome, valor, dia do mês, " +
-		"categoria, onde cai, ativas) e `detectedSuggestions` são as DETECTADAS no histórico de lançamentos, que se " +
-		"repetem todo mês mas NÃO estão cadastradas (Google One, YouTube Music, Anthropic…): valor típico, último valor, " +
-		"média, dia, conta ou cartão, ocorrências e datas. Use SEMPRE esta ferramenta para 'quanto tenho em assinatura', " +
-		"'minhas assinaturas' ou 'o que pago todo mês': traz `totals` já somados (cadastradas, sugeridas e geral). " +
-		"As sugestões não são certeza: diga que foram achadas no histórico e ofereça cadastrá-las (analyze_history + " +
-		"propose_setup). Nunca some nada você mesma.",
-	input: z.object({}),
-	async run(_input, ctx) {
+		"Assinaturas e recorrências do dono. O campo `totals` (o primeiro do resultado) já traz TODAS as somas prontas, " +
+		"em centavos e em texto: `totals.registeredExpensesPerMonth` (só as cadastradas), `totals.suggestedPerMonth` (só " +
+		"as detectadas) e `totals.registeredPlusSuggestedPerMonth` (cadastradas + detectadas: o total geral por mês). " +
+		"Copie o `text` do total que o dono pediu; NUNCA some itens por conta própria. `subscriptions` são as " +
+		"CADASTRADAS e `detectedSuggestions` as DETECTADAS no histórico (cobranças mensais que ainda não estão " +
+		"cadastradas); em cada item, `name` é o nome do app (use-o; `merchant` é o texto cru do banco). Para o total de " +
+		"só ALGUNS itens (ex.: 'sem o YouTube', 'só as de IA'), chame de novo com `keys` (as `key` das detectadas e/ou " +
+		"os `id` das cadastradas): `totals.selectedPerMonth` traz a soma. Use SEMPRE esta ferramenta para 'quanto tenho " +
+		"em assinatura', 'minhas assinaturas' ou 'o que pago todo mês'. As sugestões não são certeza: diga que foram " +
+		"achadas no histórico e ofereça cadastrá-las (analyze_history + propose_setup).",
+	input: z.object({
+		keys: z
+			.array(z.string().max(100))
+			.max(40)
+			.optional()
+			.describe(
+				"Opcional: `key` de detectadas e/ou `id` de cadastradas, para somar só esses itens (`totals.selectedPerMonth`).",
+			),
+	}),
+	async run(input, ctx) {
 		const [recurrences, catalog, summary, analysis] = await Promise.all([
 			ctx.reader.recurrences(),
 			ctx.catalog(),
@@ -480,6 +525,8 @@ export const listSubscriptions = defineTool({
 			.filter((r) => !r.registered)
 			.map((r) => ({
 				key: r.key,
+				// O nome do app ("YouTube", "ChatGPT (Google Play)", "Pierre"): é ele que o dono reconhece.
+				name: untrusted(r.displayName, 60),
 				// Texto do banco: dado, nunca instrução.
 				merchant: untrusted(r.merchant, 60),
 				knownService: r.knownService,
@@ -495,8 +542,55 @@ export const listSubscriptions = defineTool({
 				lastDate: r.lastDate,
 			}));
 		const suggestedCents = suggestions.reduce((sum, r) => sum + r.typicalAmount.cents, 0);
+		const totals: Record<string, unknown> = {
+			registeredExpensesPerMonth: money(monthlyOutCents),
+			suggestedPerMonth: money(suggestedCents),
+			registeredPlusSuggestedPerMonth: money(monthlyOutCents + suggestedCents),
+		};
+		let selectionRows: Array<{ label: string; caption: string; value: string; cents: number }> | null = null;
+		if (input.keys && input.keys.length > 0) {
+			const wanted = new Set(input.keys);
+			const pickedRegistered = rows.filter((r) => r.kind === "expense" && wanted.has(r.id));
+			const pickedSuggested = suggestions.filter((r) => wanted.has(r.key));
+			const known = new Set([...pickedRegistered.map((r) => r.id), ...pickedSuggested.map((r) => r.key)]);
+			const unknown = input.keys.filter((k) => !known.has(k));
+			if (unknown.length > 0) {
+				throw new ToolError(
+					`Não achei estas chaves entre as assinaturas: ${unknown.join(", ")}. Use as \`key\` das detectadas e os \`id\` das cadastradas.`,
+				);
+			}
+			const selectedCents =
+				pickedRegistered.reduce((sum, r) => sum + r.cents, 0) +
+				pickedSuggested.reduce((sum, r) => sum + r.typicalAmount.cents, 0);
+			totals.selectedPerMonth = {
+				...money(selectedCents),
+				items: [...pickedRegistered.map((r) => r.name), ...pickedSuggested.map((r) => r.name)],
+			};
+			selectionRows = [
+				...pickedRegistered.map((r) => ({
+					label: r.name,
+					caption: `dia ${r.dayOfMonth}${r.where ? ` · ${r.where}` : ""}`,
+					value: r.text,
+					cents: r.cents,
+				})),
+				...pickedSuggested.map((r) => ({
+					label: `${r.name} (detectada)`,
+					caption: `dia ${r.dayOfMonth}${r.where ? ` · ${r.where}` : ""} · ${r.occurrences}x`,
+					value: r.typicalAmount.text,
+					cents: r.typicalAmount.cents,
+				})),
+			];
+			if (selectionRows.length === 0)
+				throw new ToolError("Nenhum item escolhido é uma assinatura de despesa.");
+			totals.selectedPerMonth = {
+				...(totals.selectedPerMonth as object),
+				count: selectionRows.length,
+			};
+		}
 		return {
 			data: {
+				// Primeiro: é daqui que se copia qualquer total.
+				totals,
 				count: rows.length,
 				monthlyExpenses: money(monthlyOutCents),
 				monthlyIncome: money(monthlyInCents),
@@ -508,17 +602,12 @@ export const listSubscriptions = defineTool({
 				detectedSuggestions: suggestions,
 				detectedPeriod: { from: analysis.from, to: analysis.to, monthsWithData: analysis.monthsOfHistory },
 				limitedHistory: analysis.limitedHistory,
-				totals: {
-					registeredExpensesPerMonth: money(monthlyOutCents),
-					suggestedPerMonth: money(suggestedCents),
-					registeredPlusSuggestedPerMonth: money(monthlyOutCents + suggestedCents),
-				},
 			},
 			card: {
 				type: "rows",
 				tool: "list_subscriptions",
-				title: "Assinaturas e recorrências",
-				rows: [
+				title: selectionRows ? "Assinaturas escolhidas" : "Assinaturas e recorrências",
+				rows: selectionRows ?? [
 					...rows
 						.filter((r) => r.kind === "expense")
 						.slice(0, 10)
@@ -529,16 +618,21 @@ export const listSubscriptions = defineTool({
 							cents: r.cents,
 						})),
 					...suggestions.slice(0, 10).map((r) => ({
-						label: `${r.merchant} (detectada)`,
+						label: `${r.name} (detectada)`,
 						caption: `dia ${r.dayOfMonth}${r.where ? ` · ${r.where}` : ""} · ${r.occurrences}x`,
 						value: r.typicalAmount.text,
 						cents: r.typicalAmount.cents,
 					})),
 				],
-				total: {
-					label: "Por mês (cadastradas + detectadas)",
-					value: formatBRL(monthlyOutCents + suggestedCents),
-				},
+				total: selectionRows
+					? {
+							label: "Por mês (só os escolhidos)",
+							value: (totals.selectedPerMonth as { text: string }).text,
+						}
+					: {
+							label: "Por mês (cadastradas + detectadas)",
+							value: formatBRL(monthlyOutCents + suggestedCents),
+						},
 			},
 		};
 	},

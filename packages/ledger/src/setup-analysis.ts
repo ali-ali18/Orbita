@@ -10,10 +10,12 @@ import {
 	monthOf,
 	parseLocalDate,
 	sameSubscriptionBrand,
+	serviceDisplayName,
 	subscriptionBrand,
 } from "@orbita/core";
 import {
 	derivePattern,
+	friendlyMerchantName,
 	normalizeMerchantName,
 	pickCategoryRule,
 	SETUP_LOOKBACK_MONTHS,
@@ -177,6 +179,9 @@ export function analyzeHistory(input: SetupAnalysisInput): SetupAnalysis {
 			...whereOf(run.charges),
 			registered: isRegistered(run.brand),
 			knownService: known?.name ?? null,
+			displayName:
+				serviceDisplayName(last.brandText ?? last.merchant) ??
+				(friendlyMerchantName(last.merchant) || last.merchant),
 			categoryId: fromRule ?? fromBank ?? fromCatalog,
 		};
 	});
