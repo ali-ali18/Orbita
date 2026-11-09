@@ -51,11 +51,11 @@ describe("isSensitiveNotification", () => {
 
 	it("deixa passar compra, Pix e fatura (números de cartão e valores não são código)", () => {
 		for (const text of [
-			"Compra de R$ 47,98 APROVADA em FARMACIAS X para o cartão com final 0695",
-			"Compra aprovada: R$ 51,50 em KABUM no cartão final 9697",
-			"Compra aprovada no cartão final 3143, R$ 31,90, SPOTIFY",
-			"Você pagou R$ 61,51 a VIVO",
-			"Você recebeu um Pix de R$ 2.300,00 de FULANO",
+			"Compra de R$ 23,45 APROVADA em LOJA EXEMPLO para o cartão com final 4821",
+			"Compra aprovada: R$ 18,70 em LOJA TESTE no cartão final 7390",
+			"Compra aprovada no cartão final 5512, R$ 12,34, SERVICO EXEMPLO",
+			"Você pagou R$ 42,10 a EMPRESA EXEMPLO",
+			"Você recebeu um Pix de R$ 6.604,00 de FULANO",
 			"Pagamento da fatura de R$ 830,10 realizado",
 		]) {
 			expect(isSensitiveNotification(text), text).toBe(false);

@@ -87,24 +87,24 @@ const PATTERNS: readonly Pattern[] = [
 	{ kind: "invoice_payment", re: re(String.raw`pagamento d[ea] fatura(?:(?!r\$).)*?${MONEY}`) },
 	{ kind: "invoice_payment", re: re(String.raw`voce pagou a fatura(?:(?!r\$).)*?${MONEY}`) },
 	{ kind: "invoice_payment", re: re(String.raw`fatura(?:(?!r\$).)*?${MONEY}\s+(?:foi\s+)?paga`) },
-	// Compra. Nubank: "Compra de R$ 47,98 APROVADA em FARMACIAS X para o cartão com final 0695".
+	// Compra. Nubank: "Compra de R$ 23,45 APROVADA em LOJA EXEMPLO para o cartão com final 4821".
 	{
 		kind: "credit_purchase",
 		re: re(`compra (?:no (?:debito|credito) )?de ${MONEY}(?: aprovada)? em ${WHO}${END}`),
 	},
-	// Inter: "Compra aprovada: R$ 51,50 em KABUM no cartão final 9697".
+	// Inter: "Compra aprovada: R$ 18,70 em LOJA TESTE no cartão final 7390".
 	{
 		kind: "credit_purchase",
 		re: re(String.raw`compra (?:no (?:debito|credito) )?aprovada:?\s*${MONEY}\s+(?:em|no|na)\s+${WHO}${END}`),
 	},
-	// Santander: "Compra aprovada no cartão final 3143, R$ 31,90, SPOTIFY".
+	// Santander: "Compra aprovada no cartão final 5512, R$ 12,34, SERVICO EXEMPLO".
 	{
 		kind: "credit_purchase",
 		re: re(
 			String.raw`compra (?:no (?:debito|credito) )?aprovada(?:(?!r\$).)*?${MONEY}\s*[,;:-]\s*${WHO}${END}`,
 		),
 	},
-	// Mercado Pago: "Você pagou R$ 61,51 a VIVO" (sai do saldo ou do cartão do app: tratado como pagamento da conta).
+	// Mercado Pago: "Você pagou R$ 42,10 a EMPRESA EXEMPLO" (sai do saldo ou do cartão do app: tratado como pagamento da conta).
 	{ kind: "debit_purchase", re: re(String.raw`voce pagou ${MONEY}\s+(?:a|para|ao|na|no)\s+${WHO}${END}`) },
 	// Genéricas de compra: "compra … R$ X em LOJA", "compra … LOJA … R$ X".
 	{
