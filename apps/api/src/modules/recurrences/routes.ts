@@ -1,3 +1,4 @@
+import { subscriptionCommitment, toLocalDate } from "@orbita/core";
 import { idParam, recurrenceCreateBody, recurrencePostBody, recurrenceUpdateBody } from "@orbita/shared";
 import { Hono } from "hono";
 import { defined, orNotFound } from "../../http/errors.ts";
@@ -8,14 +9,17 @@ import { toTransactionDto } from "../transactions/dto.ts";
 import { toPostingDto, toRecurrenceDto } from "./dto.ts";
 import { postRecurrence } from "./service.ts";
 
-export function routes({ stores, requireDevice }: ModuleDeps) {
+export function routes({ stores, now, requireDevice }: ModuleDeps) {
 	const { recurrences } = stores;
 	return new Hono<AppEnv>()
 		.use("/v1/recurrences", requireDevice)
 		.use("/v1/recurrences/*", requireDevice)
-		.get("/v1/recurrences", async (c) =>
-			c.json({ recurrences: (await recurrences.list()).map(toRecurrenceDto) }),
-		)
+		.get("/v1/recurrences", async (c) => {
+			const list = await recurrences.list();
+			// O compromisso mensal vem pronto do servidor: o app só exibe (nunca soma sozinho).
+			const subscriptions = subscriptionCommitment(list, toLocalDate(now()));
+			return c.json({ recurrences: list.map(toRecurrenceDto), subscriptions });
+		})
 		.post("/v1/recurrences", validate("json", recurrenceCreateBody), async (c) => {
 			const recurrence = await recurrences.create(defined(c.req.valid("json")));
 			return c.json({ recurrence: toRecurrenceDto(recurrence) }, 201);

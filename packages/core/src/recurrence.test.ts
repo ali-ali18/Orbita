@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { type MonthlyRecurrence, nextOccurrence, occurrencesInMonth, pendingInMonth } from "./recurrence.ts";
+import {
+	type MonthlyRecurrence,
+	nextOccurrence,
+	occurrencesInMonth,
+	pendingInMonth,
+	subscriptionCommitment,
+} from "./recurrence.ts";
 
 describe("occurrencesInMonth", () => {
 	const rule = { dayOfMonth: 31, startDate: "2020-01-01" };
@@ -172,5 +178,30 @@ describe("pendingInMonth", () => {
 	});
 	it("valida o mês", () => {
 		expect(() => pendingInMonth([], "2026-13", [])).toThrow(RangeError);
+	});
+});
+
+describe("subscriptionCommitment", () => {
+	const today = "2026-11-09";
+	it("soma todas as ativas, inclusive a que só cai no mês seguinte (APC dia 6, já passou neste mês)", () => {
+		const list = [
+			{ kind: "expense" as const, amountCents: 9699, endDate: null },
+			{ kind: "expense" as const, amountCents: 2690 },
+			{ kind: "expense" as const, amountCents: 1552, endDate: "2026-12-31" },
+			{ kind: "expense" as const, amountCents: 29703, endDate: null },
+		];
+		expect(subscriptionCommitment(list, today)).toEqual({
+			count: 4,
+			monthlyCents: 9699 + 2690 + 1552 + 29703,
+		});
+	});
+	it("fica de fora receita e assinatura encerrada; o último dia ainda vale", () => {
+		const list = [
+			{ kind: "income" as const, amountCents: 500000, endDate: null },
+			{ kind: "expense" as const, amountCents: 1000, endDate: "2026-11-08" },
+			{ kind: "expense" as const, amountCents: 2000, endDate: "2026-11-09" },
+		];
+		expect(subscriptionCommitment(list, today)).toEqual({ count: 1, monthlyCents: 2000 });
+		expect(subscriptionCommitment([], today)).toEqual({ count: 0, monthlyCents: 0 });
 	});
 });

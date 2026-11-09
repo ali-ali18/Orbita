@@ -96,3 +96,27 @@ export function pendingInMonth(
 	}
 	return { expenseCents: sumCents(expenses), incomeCents: sumCents(incomes) };
 }
+
+export interface SubscriptionCommitment {
+	/** Quantas despesas recorrentes ainda valem (não terminaram). */
+	count: number;
+	/** Quanto elas pesam por mês, todas somadas, caiam ou não neste mês. */
+	monthlyCents: Cents;
+}
+
+/**
+ * Compromisso mensal fixo: a soma de TODAS as despesas recorrentes ainda ativas em `today` (sem data final, ou com
+ * data final de hoje em diante), em centavos inteiros. Não olha se a cobrança cai neste mês nem se já foi lançada:
+ * a data de início também não conta: uma assinatura cuja primeira cobrança cai só no mês seguinte também é compromisso (olhar só o mês deixava de fora a que
+ * "vence em 27 dias"). Quem chama passa só o que não está arquivado.
+ */
+export function subscriptionCommitment(
+	rules: ReadonlyArray<
+		Pick<MonthlyRecurrence, "kind" | "amountCents"> & { endDate?: LocalDate | null | undefined }
+	>,
+	today: LocalDate,
+): SubscriptionCommitment {
+	const active = rules.filter((r) => r.kind === "expense" && (r.endDate == null || r.endDate >= today));
+	for (const r of active) assertCents(r.amountCents, "amountCents");
+	return { count: active.length, monthlyCents: sumCents(active.map((r) => r.amountCents)) };
+}
