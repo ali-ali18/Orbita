@@ -135,19 +135,60 @@ function stateOf(status: InvoiceLine["status"], paymentStatus: InvoiceLine["paym
 }
 
 /**
- * Limite do cartão. Com o disponível do banco: usado = limite − disponível (a doc da Pluggy: limite = disponível +
- * saldo em aberto + dívida anterior, então já inclui parcelas futuras e fatura fechada). Sem ele (cartão manual ou
- * ainda não lido): o que o Órbita estima (`estimatedUsedCents`, o que se deve mais as parcelas futuras).
+ * Tolerâncias da conferência do limite: centavos de arredondamento entre limite, disponível e saldo; e quanto o "usado"
+ * do banco pode passar do que o Órbita sabe dever (R$ 100 ou 5 % do limite, o que for maior) antes de ser incoerente.
  */
-export function cardLimit(card: CardRecord, estimatedUsedCents: Cents): CardLimitDto {
-	const { limitCents, availableCents } = card;
+export const LIMIT_ROUNDING_CENTS = 100;
+export const LIMIT_COHERENCE_FLOOR_CENTS = 10_000;
+export const LIMIT_COHERENCE_PERCENT = 5;
+
+/**
+ * Limite do cartão (docs/pluggy.md, "Limite do cartão"). Com o disponível do banco (A), o limite (L) e o saldo do
+ * cartão (B, o que se deve):
+ * 1. L − A = B (±R$ 1): o limite é o do banco e usado = L − A (Inter, Mercado Pago e Santander, nos dados reais);
+ * 2. L − A ≠ B e A + B < L: o dono baixou o limite no app do banco (ex.: aprovado 10.000, disponível 2.000,
+ *    saldo 500). O limite efetivo é A + B (2.500) e o usado é B; o aprovado vai em `approvedLimitCents`;
+ * 3. sem saldo do banco, ou A + B ≥ L (não fecha de jeito nenhum): se L − A passa do que o Órbita sabe dever
+ *    (`plausibleUsedCents`) por mais que a tolerância, o usado é a estimativa por lançamentos (`estimated`), com o
+ *    disponível do banco; senão L − A.
+ * Sem o disponível (cartão manual ou ainda não lido): a estimativa (`estimatedUsedCents`, o que se deve mais as
+ * parcelas futuras).
+ */
+export function cardLimit(
+	card: CardRecord,
+	estimatedUsedCents: Cents,
+	plausibleUsedCents: Cents = Number.POSITIVE_INFINITY,
+): CardLimitDto {
+	const { limitCents, availableCents, balanceCents } = card;
+	const syncedAt = card.limitSyncedAt?.toISOString() ?? null;
 	if (limitCents !== null && availableCents !== null) {
+		const bankUsed = Math.max(0, limitCents - availableCents);
+		if (balanceCents !== null) {
+			if (Math.abs(bankUsed - balanceCents) <= LIMIT_ROUNDING_CENTS) {
+				return { limitCents, availableCents, usedCents: bankUsed, source: "bank", syncedAt };
+			}
+			if (availableCents + balanceCents < limitCents) {
+				return {
+					limitCents: availableCents + balanceCents,
+					approvedLimitCents: limitCents,
+					availableCents,
+					usedCents: Math.max(0, balanceCents),
+					source: "bank",
+					syncedAt,
+				};
+			}
+		}
+		const tolerance = Math.max(
+			LIMIT_COHERENCE_FLOOR_CENTS,
+			Math.round((limitCents * LIMIT_COHERENCE_PERCENT) / 100),
+		);
+		const coherent = bankUsed <= plausibleUsedCents + tolerance;
 		return {
 			limitCents,
 			availableCents,
-			usedCents: Math.max(0, limitCents - availableCents),
-			source: "bank",
-			syncedAt: card.limitSyncedAt?.toISOString() ?? null,
+			usedCents: coherent ? bankUsed : estimatedUsedCents,
+			source: coherent ? "bank" : "estimated",
+			syncedAt,
 		};
 	}
 	return {
@@ -221,13 +262,22 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 			(byMonth.get(thisMonth) as InvoiceLine);
 		const owedCents = all.reduce((total, l) => total + l.owedCents, 0);
 		let futureCents = 0;
+		let remainingCents = 0;
 		for (const g of installmentGroups) {
 			if (g.cardId !== card.id || g.remainingCount <= 0) continue;
-			for (const t of g.installments) {
-				if (t.invoiceMonth !== null && t.invoiceMonth > openMonth) futureCents += t.amountCents;
-			}
+			// Tudo que ainda falta do parcelamento: a vigente (que já está na fatura aberta ou na fechada devida) e as
+			// seguintes, lançadas ou não pelo banco (as que faltam são estimadas pelo valor da vigente).
+			remainingCents += g.remainingCents;
+			futureCents += Math.max(0, g.remainingCents - (g.currentNumber === null ? 0 : g.installmentCents));
 		}
-		const limit = cardLimit(card, owedCents + futureCents);
+		// Sem nenhum dado do Órbita sobre o cartão (nem fatura do banco, nem lançamento) não há com o que conferir o
+		// número do banco: vale como veio.
+		const knowsCard = (billsByCard.get(card.id)?.length ?? 0) > 0 || owedCents + remainingCents > 0;
+		const limit = cardLimit(
+			card,
+			owedCents + futureCents,
+			knowsCard ? owedCents + remainingCents : Number.POSITIVE_INFINITY,
+		);
 		lines.push({
 			card,
 			due,

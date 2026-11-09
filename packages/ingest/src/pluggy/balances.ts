@@ -61,7 +61,7 @@ export async function recordBankNumbers(
 		if (target.card && target.card.archivedAt === null && pa.type === "CREDIT") {
 			const available = signedCentsOrNull(pa.creditData?.availableCreditLimit);
 			if (available !== null) {
-				await stores.cards.recordAvailable(target.card.id, available, at);
+				await stores.cards.recordAvailable(target.card.id, available, at, signedCentsOrNull(pa.balance));
 				result.limits += 1;
 			}
 		}

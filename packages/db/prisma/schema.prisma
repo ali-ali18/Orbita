@@ -132,6 +132,8 @@ model Card {
   limitCents     Int?              @map("limit_cents")
   /// Limite disponível que o banco informou (`creditData.availableCreditLimit`), em centavos. Nulo: nunca informado.
   availableCents Int?              @map("available_cents")
+  /// Saldo do cartão que o banco informou (`balance` da conta CREDIT; em conector não Open Finance, a fatura aberta não paga), em centavos.
+  balanceCents   Int?              @map("balance_cents")
   limitSyncedAt  DateTime?         @map("limit_synced_at")
   /// Origem do cadastro; com `externalId`, liga o cartão ao que veio de fora (ex.: cartão do Meu Pluggy).
   source         TransactionSource @default(manual)
