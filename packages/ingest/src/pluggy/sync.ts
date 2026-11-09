@@ -1,4 +1,4 @@
-import { addDays, addMonths, decimalToCents, type MonthKey, toLocalDate } from "@orbita/core";
+import { addDays, addMonths, decimalToCents, type LocalDate, type MonthKey, toLocalDate } from "@orbita/core";
 import {
 	type AccountRecord,
 	type CardRecord,
@@ -19,7 +19,12 @@ import {
 	isLegacyRawName,
 	isWeakCardName,
 } from "./bank-name.ts";
-import { buildCategoryIndex, type CategoryIndex, operationSignal } from "./classify.ts";
+import {
+	buildCategoryIndex,
+	type CategoryIndex,
+	isCardChargeOperation,
+	operationSignal,
+} from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
 import { chooseConnectionLabel } from "./connection-label.ts";
 import {
@@ -528,18 +533,22 @@ async function syncConnection(
 		// pagar o valor das pendentes), e esse débito só se liga ao cartão por este total. Entra como fatura sem vencimento.
 		for (const { target, txs } of fetched) {
 			if (!target.card) continue;
-			let openCents = 0;
+			const pending: Array<{ date: LocalDate; amountCents: number }> = [];
 			for (const tx of txs) {
 				if (tx.status !== "PENDING" || tx.type !== "DEBIT") continue;
 				const facts = transactionFacts(tx);
-				if (facts) openCents += facts.amountCents;
+				if (facts) pending.push(facts);
 			}
+			const openCents = pending.reduce((total, p) => total + p.amountCents, 0);
 			if (openCents > 0) {
+				// O pagamento casa com a soma das pendentes até o dia do débito (`pending`), numa janela: compra nova
+				// depois do pagamento adiantado não o desfaz, e o total sem data não casa com qualquer dia.
 				shared.bills.push({
 					cardId: target.card.id,
 					totalCents: openCents,
 					remainingCents: openCents,
 					dueDate: null,
+					pending,
 				});
 			}
 		}
@@ -554,6 +563,8 @@ async function syncConnection(
 				// O banco já disse que este crédito do cartão é estorno ou cashback, não pagamento de fatura. (PAGAMENTO não
 				// exclui: nos dados reais é o rótulo da baixa da fatura no Inter e no Santander.)
 				if (target.card && operationSignal(tx.operationType, "in") === "refund") return [];
+				// Tarifa e operação de crédito do cartão (IOF, juros, parcelamento da fatura) também não são pagamento.
+				if (target.card && isCardChargeOperation(tx.operationType)) return [];
 				const facts = transactionFacts(tx);
 				if (!facts || tx.type !== (target.card ? "CREDIT" : "DEBIT")) return [];
 				return [{ id: tx.id, ...facts }];

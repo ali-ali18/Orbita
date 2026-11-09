@@ -29,7 +29,7 @@ async function run(stores: Stores, openFinance: boolean) {
 		...o,
 		item: flip(o.item),
 		otherItems: Object.fromEntries(Object.entries(others).map(([k, v]) => [k, { ...v, item: flip(v.item) }])),
-	} as typeof o;
+	} as unknown as typeof o;
 	const fake = fakePluggy(options);
 	await syncPluggy({
 		stores,
@@ -57,6 +57,7 @@ describe("compras PENDING gravadas por versão antiga", () => {
 		const rows = await cardRows(legacy);
 		expect(rows.length).toBeGreaterThan(0);
 		expect(rows.filter((t) => t.bankPending).length).toBeGreaterThan(0);
-		for (const t of rows) expect(t.invoiceMonth, `${t.description} ${t.date}`).toBe(expected.get(t.externalId));
+		for (const t of rows)
+			expect(t.invoiceMonth, `${t.description} ${t.date}`).toBe(expected.get(t.externalId));
 	});
 });

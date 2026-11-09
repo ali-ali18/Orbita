@@ -155,6 +155,12 @@ const CARD_KNOWN_NOT_PAYMENT = new Set([
 	"CASHBACK",
 ]);
 
+/** Tarifa ou operação de crédito do cartão: crédito com esse tipo nunca é baixa de fatura (fora do pool de casamento). */
+export const isCardChargeOperation = (operationType: string | null | undefined): boolean => {
+	const op = normalizeOperationType(operationType);
+	return op === "TARIFA" || op === "OPERACOES_CREDITO_CONTRATADAS_CARTAO";
+};
+
 /** O banco disse, pelo `operationType`, que esta operação do cartão não é pagamento de fatura. */
 export const operationExcludesCardPayment = (operationType: string | null | undefined): boolean => {
 	const op = normalizeOperationType(operationType);
