@@ -1,5 +1,5 @@
 import { daysBetween } from "./dates.ts";
-import { sameSubscriptionBrand, subscriptionBrand } from "./known-services.ts";
+import { isGooglePlayApp, sameSubscriptionBrand, subscriptionBrand } from "./known-services.ts";
 import { medianCents } from "./merchant.ts";
 import { assertCents } from "./money.ts";
 import type { Cents, LocalDate } from "./types.ts";
@@ -90,7 +90,11 @@ export function findMonthlyRuns<C extends HuntedCharge>(input: {
 
 	const found: Array<MonthlyRun<C>> = [];
 	for (const [brand, list] of byBrand) {
-		const need = input.knownBrands?.has(brand) ? minKnown : min;
+		// Marca conhecida ou app do Google Play (Pierre, F1 TV…): duas cobranças mensais bastam.
+		const need =
+			input.knownBrands?.has(brand) || list.some((c) => isGooglePlayApp(c.brandText ?? c.merchant))
+				? minKnown
+				: min;
 		// Uma marca pode ter planos diferentes (Google One e YouTube Music, ou dois planos): cada faixa de valor é
 		// uma sequência à parte, senão uma cobrança de outro valor no meio do mês quebra a sequência inteira.
 		for (const cluster of clusterByAmount(list)) {

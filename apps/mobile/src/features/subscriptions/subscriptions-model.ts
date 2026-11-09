@@ -65,11 +65,6 @@ export function sortSubscriptions(list: readonly RecurrenceLike[], today: LocalD
 		.sort((a, b) => key(a).localeCompare(key(b)) || a.name.localeCompare(b.name, "pt-BR"));
 }
 
-/** Compromisso mensal: soma do que cai no mês `month` (centavos inteiros). */
-export function monthlyTotalCents(list: readonly RecurrenceLike[], month: MonthKey): Cents {
-	return list.filter((r) => isSubscription(r) && chargesIn(r, month)).reduce((s, r) => s + r.amountCents, 0);
-}
-
 export type MonthStatus = "posted" | "pending" | "none";
 
 const norm = (s: string) => s.trim().toLocaleLowerCase("pt-BR");

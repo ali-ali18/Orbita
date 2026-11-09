@@ -1620,3 +1620,52 @@ describe("syncPluggy: estorno na conta não é renda", () => {
 		expect((await everything(t.stores)).find((r) => r.externalId === "ref")?.kind).toBe("income");
 	});
 });
+
+describe("syncPluggy: Google Play no cartão é despesa em Assinaturas", () => {
+	const purchases = [
+		tx("g-1", {
+			description: "Google One",
+			amount: 96.99,
+			date: "2026-10-13T00:00:00.000Z",
+			category: "Telecommunications",
+			creditCardMetadata: { payeeMCC: 4814 },
+		}),
+		tx("g-2", {
+			description: "Google F1 TV",
+			amount: 29.9,
+			date: "2026-09-29T00:00:00.000Z",
+			category: "Telecommunications",
+			creditCardMetadata: { payeeMCC: 4814 },
+		}),
+		tx("g-3", {
+			description: "DL*GOOGLE YouTub",
+			amount: 26.9,
+			date: "2026-09-07T00:00:00.000Z",
+			category: "Same person transfer",
+		}),
+	];
+
+	it("compra no cartão nunca vira transferência; a categoria errada de antes é corrigida, a do dono fica", async () => {
+		const t = setup({ transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: purchases } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.stores.categories.ensureDefaults();
+		const moradia = await t.stores.categories.getBySlug("moradia");
+		const assinaturas = await t.stores.categories.getBySlug("assinaturas");
+		await t.run();
+		const rows = async () => Object.fromEntries((await everything(t.stores)).map((r) => [r.externalId, r]));
+		for (const id of ["g-1", "g-2", "g-3"]) {
+			expect((await rows())[id]).toMatchObject({ kind: "expense", categoryId: assinaturas?.id });
+			expect((await rows())[id]?.cardId).not.toBeNull();
+		}
+		// Estado de um sync antigo: Moradia. O dono escolheu a categoria de g-2: essa fica.
+		await t.stores.transactions.update((await rows())["g-1"]?.id ?? "", { categoryId: moradia?.id ?? null });
+		await t.stores.transactions.update((await rows())["g-2"]?.id ?? "", {
+			categoryId: moradia?.id ?? null,
+			categoryEditedByOwner: true,
+		});
+		const again = await t.run();
+		expect((await rows())["g-1"]?.categoryId).toBe(assinaturas?.id);
+		expect((await rows())["g-2"]?.categoryId).toBe(moradia?.id);
+		expect(again.connections[0]?.reclassified).toBe(1);
+	});
+});

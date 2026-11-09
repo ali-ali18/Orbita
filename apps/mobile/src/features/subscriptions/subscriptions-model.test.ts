@@ -7,7 +7,6 @@ import {
 	formFromRecurrence,
 	initialForm,
 	isAffectedBySubscription,
-	monthlyTotalCents,
 	monthStatus,
 	nextSummary,
 	parseDay,
@@ -58,14 +57,6 @@ describe("lista e total", () => {
 
 	it("ordena pela próxima cobrança e ignora receita e arquivada", () => {
 		expect(sortSubscriptions(list, TODAY).map((r) => r.id)).toEqual(["a", "b", "fim"]);
-	});
-
-	it("soma só o que cai no mês, em centavos inteiros", () => {
-		expect(monthlyTotalCents(list, MONTH)).toBe(9699 + 6151);
-	});
-
-	it("mês sem nada soma zero", () => {
-		expect(monthlyTotalCents([], MONTH)).toBe(0);
 	});
 
 	it("resume a próxima cobrança", () => {
