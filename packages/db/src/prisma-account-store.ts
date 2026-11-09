@@ -4,7 +4,7 @@ import { DataError, notFound } from "./errors.ts";
 import type { Clock } from "./memory-state.ts";
 import { EXTERNAL_TAKEN_MESSAGE } from "./messages.ts";
 import { translate } from "./prisma-errors.ts";
-import { applyPatch, normalizeAccount, normalizeIdentity } from "./rules.ts";
+import { applyPatch, cleanBalance, normalizeAccount, normalizeIdentity } from "./rules.ts";
 
 export function createPrismaAccountStore(db: Db, now: Clock): AccountStore {
 	const need = async (id: string) => {
@@ -58,6 +58,18 @@ export function createPrismaAccountStore(db: Db, now: Clock): AccountStore {
 				if (t instanceof DataError && t.code === "duplicate") return null;
 				throw t;
 			}
+		},
+		async recordBalance(id, balanceCents, syncedAt) {
+			const current = await need(id);
+			// `updatedAt` explícito: o `@updatedAt` do Prisma o moveria, e isto não é edição do dono.
+			return db.account.update({
+				where: { id },
+				data: {
+					balanceCents: cleanBalance(balanceCents),
+					balanceSyncedAt: syncedAt,
+					updatedAt: current.updatedAt,
+				},
+			});
 		},
 	};
 }

@@ -17,6 +17,7 @@ export {
 	DEFAULT_AI_MONTHLY_LIMIT_USD_CENTS,
 } from "./ai-usage-store.ts";
 export type { AuthStore, DeviceRecord, PairingCodeRecord } from "./auth-store.ts";
+export type { BillInput, BillPaymentRecord, BillRecord, BillStore } from "./bill-store.ts";
 export { type BudgetRecord, type BudgetStore, TOTAL_BUDGET_SCOPE } from "./budget-store.ts";
 export {
 	type CardInput,

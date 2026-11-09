@@ -9,6 +9,9 @@ export interface AccountRecord {
 	/** "manual" ou a origem que criou a conta (ex.: "pluggy"); com `externalId`, identifica o cadastro de fora. */
 	source: TransactionSource;
 	externalId: string | null;
+	/** Saldo que o banco informou (centavos, pode ser negativo). `null`: nunca informado. Só a sincronização grava. */
+	balanceCents: number | null;
+	balanceSyncedAt: Date | null;
 	archivedAt: Date | null;
 	createdAt: Date;
 	updatedAt: Date;
@@ -43,4 +46,9 @@ export interface AccountStore {
 	 * `null`, sem mudar nada, se a conta não existe, é manual ou a identidade nova já está em uso.
 	 */
 	relinkExternal(id: string, externalId: string): Promise<AccountRecord | null>;
+	/**
+	 * Grava o saldo que o banco informou e o instante da leitura. Não mexe em `updatedAt` (não é edição do dono).
+	 * `not_found` se a conta não existe; `invalid` se `balanceCents` não é inteiro de centavos.
+	 */
+	recordBalance(id: string, balanceCents: number, syncedAt: Date): Promise<AccountRecord>;
 }

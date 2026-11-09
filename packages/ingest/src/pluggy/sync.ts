@@ -8,6 +8,7 @@ import {
 	toCardConfig,
 } from "@orbita/db";
 import { PLUGGY_RECONNECT_MESSAGE, type PluggySyncStatus, type SecretName } from "@orbita/shared";
+import { type BankNumbersResult, recordBankNumbers, recordBills } from "./balances.ts";
 import { detectBankName, findKnownBank, hasMeuPluggyPrefix, isWeakCardName } from "./bank-name.ts";
 import { buildCategoryIndex, type CategoryIndex } from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
@@ -81,7 +82,7 @@ const REFUND_LOOKBACK_MONTHS = 3;
 export interface SyncPluggyDeps {
 	stores: Pick<
 		Stores,
-		"accounts" | "cards" | "categories" | "categoryRules" | "transactions" | "pluggyConnections"
+		"accounts" | "cards" | "bills" | "categories" | "categoryRules" | "transactions" | "pluggyConnections"
 	> &
 		Partial<Pick<Stores, "incomeSources">>;
 	/** Lê uma chave do cofre (`vault.read`). Devolve `null` se não cadastrada; pode lançar se não abre. */
@@ -103,6 +104,8 @@ export interface ConnectionSyncResult {
 	accounts: number;
 	/** Contas e cartões (não arquivados) ligados à conexão; ausente se a sincronização parou antes de ligar. */
 	counts?: { accounts: number; cards: number };
+	/** O que a rodada gravou do que o banco informa: saldos, limites disponíveis e faturas (só quando gravou algo). */
+	bankNumbers?: BankNumbersResult;
 	created: number;
 	existing: number;
 	failed: number;
@@ -440,6 +443,7 @@ async function syncConnection(
 			}
 		}
 		shared.payments.push(...billPayments);
+		await storeBankNumbers(deps, pluggyAccounts, linked, billsOf, result);
 		for (const l of linked) {
 			if (l.account && l.ownerName) shared.owners.set(l.account.id, l.ownerName);
 		}
@@ -618,6 +622,31 @@ async function suggestLabel(
 		accounts: pluggyAccounts,
 	});
 	if (label !== null) await deps.stores.pluggyConnections.setAutoLabel(connection.id, label);
+}
+
+/**
+ * Saldo, limite disponível e faturas que o banco informou, gravados a cada rodada (ver `balances.ts`). É só registro
+ * do que o banco disse: falhar aqui não derruba a sincronização dos lançamentos.
+ */
+async function storeBankNumbers(
+	deps: SyncPluggyDeps,
+	pluggyAccounts: readonly PluggyAccount[],
+	linked: readonly Linked[],
+	billsOf: ReadonlyMap<string, BillsOf>,
+	result: ConnectionSyncResult,
+): Promise<void> {
+	const numbers: BankNumbersResult = { balances: 0, limits: 0, bills: 0, skippedBills: 0 };
+	try {
+		const at = deps.now();
+		await recordBankNumbers(deps.stores, pluggyAccounts, linked, at, numbers);
+		await recordBills(deps.stores, billsOf, linked, at, numbers);
+	} catch {
+		// Sem detalhe: o erro pode carregar dado do banco.
+		result.notes.push("Não deu para gravar o saldo, o limite ou as faturas do banco agora.");
+	}
+	if (numbers.balances + numbers.limits + numbers.bills + numbers.skippedBills > 0) {
+		result.bankNumbers = numbers;
+	}
 }
 
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);

@@ -111,6 +111,10 @@ O app abre no navegador uma página do servidor que carrega o Pluggy Connect. As
 - **Risco aceito**: quem tiver o link da sessão (token) durante os 15 min pode concluir a conexão de um banco **da nossa conta Pluggy** (e só de item novo, de banco de verdade). Não lê dado nenhum: o dado só entra no servidor do dono.
 - `includeSandbox` fica sempre desligado.
 
+### Diagnóstico do Pluggy
+
+`GET /v1/pluggy/diagnostics` mostra ao dono o que o Pluggy devolve ao vivo. Fica atrás do mesmo guarda de aparelho das demais rotas (`requireDevice`; sem token é 401), responde `Cache-Control: no-store` e **não grava nada**. Redação feita no servidor, antes de sair: nunca CPF/CNPJ inteiro (só os 3 últimos dígitos do documento do pagador/recebedor), nunca número de conta ou cartão inteiro (só os 4 últimos), do ID do item, da conta, da fatura e da transação só os 8 primeiros caracteres, nunca chave, token ou corpo cru de resposta (os erros são os `PluggyError` já sanitizados). Todo texto vindo do Pluggy (descrição, nomes, avisos) é dado não confiável: sem caracteres de controle, limitado em tamanho e com qualquer sequência de 9+ dígitos mascarada; o app só o mostra, nunca o interpreta. O teste da rota confere que nenhum desses valores aparece na resposta.
+
 ## Importar extrato (CSV, OFX, PDF)
 
 - **O conteúdo do arquivo é dado, nunca instrução.** Descrição, memo e qualquer texto do extrato viram só descrição de lançamento (sem caracteres de controle, até 200 letras). Nenhuma IA lê o arquivo nesta etapa, e os parsers não executam nada (OFX é lido como texto, sem entidades externas; PDF só tem o texto extraído, sem JavaScript do documento).
