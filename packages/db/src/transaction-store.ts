@@ -183,6 +183,8 @@ export interface TransactionStore {
 	 * Como `upsertByExternal`, para uma parcela importada de um grupo que cresce com o tempo (o banco manda uma
 	 * parcela por fatura). O grupo nasce com a primeira parcela vista e as seguintes entram nele; não exige as N
 	 * parcelas. `duplicate` se o grupo já tem outra parcela com esse número (compras iguais confundidas).
+	 * Grupo apagado pelo dono (tem parcelas, nenhuma viva) não ressuscita: a parcela nova devolve
+	 * `{ created: false, transaction: null }`, como o lançamento apagado, e nada é gravado.
 	 */
 	upsertInstallmentByExternal(
 		source: TransactionSource,
