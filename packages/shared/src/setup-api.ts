@@ -32,6 +32,10 @@ export const setupRecurringSchema = z.object({
 	merchant: z.string(),
 	/** Mediana dos valores, em centavos. */
 	amountCents: z.number().int().positive(),
+	/** Valor da cobrança mais recente. */
+	lastAmountCents: z.number().int().positive(),
+	/** Média dos valores (inteira, arredondada). */
+	averageAmountCents: z.number().int().positive(),
 	/** Dia do mês em que costuma cair. */
 	dayOfMonth: dayOfMonthSchema,
 	occurrences: z.number().int(),

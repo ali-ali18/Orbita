@@ -245,3 +245,95 @@ describe("analyzeHistory: janela", () => {
 		expect(result.transactionCount).toBe(0);
 	});
 });
+
+describe("analyzeHistory: assinaturas do Open Finance (Google, YouTube, câmbio)", () => {
+	// Hoje 12/11/2026; 4 meses de histórico (jul a out), como a janela de 122 dias do Pluggy.
+	it("separa Google One de YouTube Music mesmo com o nome 'Google' igual e a descrição diferente", () => {
+		const txs = [
+			...monthly("GOOGLE *Google One", [9690, 9690, 9690, 9690], "2026-07", 5, { merchantName: "Google" }),
+			...monthly("GOOGLE*YOUTUBEMUSIC", [2190, 2190, 2190, 2190], "2026-07", 7, { merchantName: "Google" }),
+		];
+		const { recurring } = analyzeHistory(base(txs));
+		expect(recurring.map((r) => [r.key, r.amountCents, r.occurrences, r.knownService])).toEqual([
+			["rec:googleone", 9690, 4, "Google One (Gemini)"],
+			["rec:youtube", 2190, 4, "YouTube (Premium ou Music)"],
+		]);
+	});
+
+	it("descrições variadas do mesmo serviço (PAYPAL, DL*, sem prefixo), valor com IOF e dia variando viram uma só", () => {
+		const txs = [
+			tx({ date: "2026-08-03", amountCents: 9690, description: "GOOGLE *Google One" }),
+			tx({ date: "2026-09-05", amountCents: 9980, description: "Google One" }),
+			tx({ date: "2026-10-02", amountCents: 9820, description: "PAYPAL *GOOGLE ONE" }),
+		];
+		const [one] = analyzeHistory(base(txs)).recurring;
+		expect(one).toMatchObject({
+			key: "rec:googleone",
+			occurrences: 3,
+			amountCents: 9820,
+			lastAmountCents: 9820,
+			averageAmountCents: 9830,
+		});
+		const dl = [
+			tx({ date: "2026-09-08", amountCents: 2190, description: "DL*GOOGLE YouTube" }),
+			tx({ date: "2026-10-09", amountCents: 2190, description: "DL*GOOGLE YouTube" }),
+		];
+		expect(analyzeHistory(base(dl)).recurring.map((r) => [r.key, r.occurrences])).toEqual([
+			["rec:youtube", 2],
+		]);
+	});
+
+	it("serviço conhecido vale com 2 ocorrências; desconhecido com 2 não", () => {
+		const known = monthly("GOOGLE *Google One", [9690, 9690], "2026-09", 5);
+		expect(analyzeHistory(base(known)).recurring).toHaveLength(1);
+		const unknown = monthly("ACADEMIA FORMA FISICA", [12000, 12000], "2026-09", 5);
+		expect(analyzeHistory(base(unknown)).recurring).toEqual([]);
+		const three = monthly("ACADEMIA FORMA FISICA", [12000, 12000, 12000], "2026-08", 5);
+		expect(analyzeHistory(base(three)).recurring).toHaveLength(1);
+	});
+
+	it("não confunde com assinatura: mercado e Uber com valores diferentes, parcelas e compra solta", () => {
+		const txs = [
+			...monthly("SUPERMERCADO BH", [23450, 41210, 9870, 30500], "2026-07", 6),
+			...monthly("UBER *TRIP", [1890, 3420, 2750, 5100], "2026-07", 9),
+			...monthly("MAGAZINE LUIZA", [15990, 15990, 15990, 15990], "2026-07", 10, { installment: true }),
+			tx({ date: "2026-10-04", amountCents: 9690, description: "LOJA DO ZE" }),
+		];
+		expect(analyzeHistory(base(txs)).recurring).toEqual([]);
+	});
+
+	it("não vira assinatura: compras de mesmo valor a cada semana (Uber)", () => {
+		const txs = [
+			tx({ date: "2026-09-02", amountCents: 1890, description: "UBER *TRIP" }),
+			tx({ date: "2026-09-09", amountCents: 1890, description: "UBER *TRIP" }),
+			tx({ date: "2026-09-16", amountCents: 1890, description: "UBER *TRIP" }),
+			tx({ date: "2026-10-14", amountCents: 1890, description: "UBER *TRIP" }),
+		];
+		expect(analyzeHistory(base(txs)).recurring).toEqual([]);
+	});
+
+	it("assinatura em cartões diferentes continua uma só, e a cadastrada sai marcada", () => {
+		const txs = [
+			tx({ date: "2026-08-05", amountCents: 3190, description: "SPOTIFY", cardId: "card-1" }),
+			tx({ date: "2026-09-05", amountCents: 3190, description: "SPOTIFY", cardId: "card-2" }),
+			tx({ date: "2026-10-05", amountCents: 3190, description: "SPOTIFY", cardId: "card-2" }),
+			...monthly("AMAZON PRIME BR", [1000, 1000, 1000], "2026-08", 12),
+		];
+		const { recurring } = analyzeHistory(base(txs, { registeredNames: ["Spotify", "Amazon"] }));
+		expect(recurring.map((r) => [r.key, r.registered, r.cardId])).toEqual([
+			["rec:spotify", true, "card-2"],
+			["rec:amazonprime", true, "card-1"],
+		]);
+	});
+
+	it("dois planos da mesma marca (valores distintos) ganham chaves distintas", () => {
+		const txs = [
+			...monthly("GOOGLE *Google One", [9690, 9690, 9690], "2026-08", 5),
+			...monthly("GOOGLE *Google One", [1990, 1990, 1990], "2026-08", 20),
+		];
+		expect(analyzeHistory(base(txs)).recurring.map((r) => r.key)).toEqual([
+			"rec:googleone:9690",
+			"rec:googleone:1990",
+		]);
+	});
+});

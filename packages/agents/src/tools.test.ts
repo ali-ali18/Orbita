@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ToolError } from "./backend.ts";
 import { READ_TOOLS } from "./read-tools.ts";
-import { fakeReader, MONTH, summary, TODAY, toolContext, tx } from "./test-support.ts";
+import { fakeReader, MONTH, setupAnalysis, summary, TODAY, toolContext, tx } from "./test-support.ts";
 import { ALL_TOOLS, findTool, toolSchemas } from "./tools.ts";
 import { WRITE_TOOLS } from "./write-tools.ts";
 
@@ -367,6 +367,41 @@ describe("ferramentas de leitura", () => {
 		});
 		const out = await run("list_subscriptions", {}, reader);
 		expect(out.data).toMatchObject({ count: 2, monthlyExpenses: { cents: 7780, text: "R$ 77,80" } });
+	});
+
+	it("assinaturas: devolve também as detectadas no histórico, com totais somados em inteiros", async () => {
+		const [unip, netflix, spotify] = setupAnalysis().recurring;
+		const { reader } = fakeReader({
+			setup: setupAnalysis({
+				recurring: [
+					{
+						...(unip as NonNullable<typeof unip>),
+						key: "rec:googleone",
+						merchant: "GOOGLE *Google One",
+						amountCents: 9690,
+						lastAmountCents: 9820,
+						averageAmountCents: 9750,
+						occurrences: 4,
+					},
+					{ ...(netflix as NonNullable<typeof netflix>), registered: true },
+					{ ...(spotify as NonNullable<typeof spotify>), registered: true },
+				],
+			}),
+		});
+		const out = await run("list_subscriptions", {}, reader);
+		expect(out.data).toMatchObject({
+			detectedSuggestions: [
+				{
+					key: "rec:googleone",
+					typicalAmount: { cents: 9690 },
+					lastAmount: { cents: 9820 },
+					averageAmount: { cents: 9750 },
+					frequency: "mensal",
+					occurrences: 4,
+				},
+			],
+			totals: { suggestedPerMonth: { cents: 9690 }, registeredPlusSuggestedPerMonth: { cents: 9690 } },
+		});
 	});
 });
 

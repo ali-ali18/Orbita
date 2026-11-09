@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KNOWN_SUBSCRIPTION_BRANDS, knownServiceOf } from "./known-services.ts";
+import { KNOWN_SUBSCRIPTION_BRANDS, knownServiceOf, subscriptionBrand } from "./known-services.ts";
 import {
 	detectPriceIncreases,
 	detectRecurringCharges,
@@ -157,5 +157,55 @@ describe("serviços conhecidos", () => {
 	it("só assinatura entra na lista de duas cobranças", () => {
 		expect(KNOWN_SUBSCRIPTION_BRANDS.has("netflix")).toBe(true);
 		expect(KNOWN_SUBSCRIPTION_BRANDS.has("ifood")).toBe(false);
+	});
+});
+
+describe("subscriptionBrand", () => {
+	it.each([
+		["GOOGLE *Google One", "googleone"],
+		["Google One", "googleone"],
+		["GOOGLE*YOUTUBEMUSIC", "youtube"],
+		["DL*GOOGLE YouTube", "youtube"],
+		["PAYPAL *GOOGLE", "google"],
+		["PG *Spotify", "spotify"],
+		["AMAZON PRIME BR", "amazonprime"],
+		["Amazon Marketplace", "amazon"],
+		["Associação APC", "associacao"],
+	])("%s -> %s", (text, brand) => {
+		expect(subscriptionBrand(text)).toBe(brand);
+	});
+});
+
+describe("findMonthlyRuns: marca com mais de um plano", () => {
+	const today = "2026-11-12";
+	it("duas faixas de valor na mesma marca são duas sequências", () => {
+		const charges = [
+			...monthly("GOOGLE *Google One", [9690, 9690, 9690], "2026-08-05"),
+			...monthly("GOOGLE *Google One", [2190, 2190, 2190], "2026-08-07"),
+		];
+		const runs = findMonthlyRuns({ charges, today });
+		expect(runs.map((r) => [r.brand, r.amountCents, r.charges.length])).toEqual([
+			["googleone", 2190, 3],
+			["googleone", 9690, 3],
+		]);
+	});
+
+	it("cobrança duplicada (mesmo valor em 1 dia) conta uma vez e não quebra a sequência", () => {
+		const charges = [
+			charge("2026-08-05", 9690, "Google One"),
+			charge("2026-09-05", 9690, "Google One"),
+			charge("2026-09-06", 9690, "Google One"),
+			charge("2026-10-05", 9690, "Google One"),
+		];
+		expect(findMonthlyRuns({ charges, today })[0]?.charges).toHaveLength(3);
+	});
+
+	it("intervalos muito irregulares (3 compras que só parecem mensais) não formam padrão", () => {
+		const charges = [
+			charge("2026-07-01", 5000, "Loja X"),
+			charge("2026-07-26", 5000, "Loja X"),
+			charge("2026-08-31", 5000, "Loja X"),
+		];
+		expect(findMonthlyRuns({ charges, today })).toEqual([]);
 	});
 });
