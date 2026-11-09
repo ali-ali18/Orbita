@@ -1,4 +1,3 @@
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	DICTATION_LOCALE,
@@ -8,11 +7,14 @@ import {
 	mergeDictation,
 	transcriptOf,
 } from "./dictation-model.ts";
+import { speech } from "./speech-module.ts";
+
+const { module: ExpoSpeechRecognitionModule, useEvent: useSpeechRecognitionEvent } = speech;
 
 /** O aparelho (ou o navegador) sabe reconhecer fala? Sem isso o botão do microfone nem aparece. */
 function recognitionAvailable(): boolean {
 	try {
-		return ExpoSpeechRecognitionModule.isRecognitionAvailable();
+		return ExpoSpeechRecognitionModule?.isRecognitionAvailable() ?? false;
 	} catch {
 		return false;
 	}
@@ -43,6 +45,7 @@ export function useDictation({ draft, onDraft }: { draft: string; onDraft: (text
 	});
 
 	const toggle = useCallback(async () => {
+		if (!ExpoSpeechRecognitionModule) return;
 		if (listening) {
 			ExpoSpeechRecognitionModule.stop();
 			return;
@@ -70,7 +73,7 @@ export function useDictation({ draft, onDraft }: { draft: string; onDraft: (text
 
 	/** Para o ditado sem esperar (ao enviar a mensagem). */
 	const cancel = useCallback(() => {
-		if (listening) ExpoSpeechRecognitionModule.abort();
+		if (listening) ExpoSpeechRecognitionModule?.abort();
 	}, [listening]);
 
 	return { supported, listening, error, toggle, cancel };
