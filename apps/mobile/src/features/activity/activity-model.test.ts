@@ -151,14 +151,14 @@ describe("matchesQuery", () => {
 describe("activityCaption", () => {
 	const sources = {
 		accounts: new Map([["a1", { name: "Inter" }]]),
-		cards: new Map([["c1", { name: "Nubank", last4: "0695" }]]),
+		cards: new Map([["c1", { name: "Nubank", last4: "4821" }]]),
 	};
 	const base = { cardId: null, accountId: null, installmentNumber: null, installmentCount: null };
 
 	it("categoria · cartão com final · parcela", () => {
 		expect(
 			activityCaption({ ...base, cardId: "c1", installmentNumber: 2, installmentCount: 3 }, "Lazer", sources),
-		).toBe("Lazer · Nubank ••••0695 · 2/3");
+		).toBe("Lazer · Nubank ••••4821 · 2/3");
 	});
 
 	it("conta sem categoria", () => {

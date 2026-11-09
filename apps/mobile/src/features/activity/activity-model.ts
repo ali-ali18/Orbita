@@ -150,7 +150,7 @@ export function flattenPages<T extends { id: string }>(
 	return out;
 }
 
-/** "Delivery · Nubank ••••0695 · 2/3". Pendente não entra aqui: tem selo próprio. */
+/** "Delivery · Nubank ••••4821 · 2/3". Pendente não entra aqui: tem selo próprio. */
 export function activityCaption(
 	t: Pick<TransactionLike, "cardId" | "accountId" | "installmentNumber" | "installmentCount">,
 	categoryName: string | undefined,

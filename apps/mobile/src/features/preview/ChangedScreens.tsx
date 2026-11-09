@@ -18,7 +18,7 @@ const inter: CardLike = {
 	id: "inter",
 	name: "Inter",
 	bankCode: "00416968",
-	last4: "9697",
+	last4: "7390",
 	closingDay: 5,
 	dueDay: 12,
 	closingRule: "closing-day-next",
