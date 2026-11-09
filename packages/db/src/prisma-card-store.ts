@@ -6,7 +6,7 @@ import type { ClosingRule as DbClosingRule } from "./generated/prisma/enums.ts";
 import type { Clock } from "./memory-state.ts";
 import { EXTERNAL_TAKEN_MESSAGE } from "./messages.ts";
 import { translate } from "./prisma-errors.ts";
-import { applyPatch, normalizeCard, normalizeIdentity } from "./rules.ts";
+import { applyPatch, cleanAvailable, normalizeCard, normalizeIdentity } from "./rules.ts";
 
 const toDbRule = (rule: ClosingRule): DbClosingRule =>
 	rule === "closing-day-included" ? "closing_day_included" : "closing_day_next";
@@ -83,6 +83,16 @@ export function createPrismaCardStore(db: Db, now: Clock): CardStore {
 		async getConfig(id) {
 			const row = await db.card.findUnique({ where: { id } });
 			return row ? toCardConfig(toRecord(row)) : null;
+		},
+		async recordAvailable(id, availableCents, syncedAt) {
+			const current = await need(id);
+			// `updatedAt` explícito: o `@updatedAt` do Prisma o moveria, e isto não é edição do dono.
+			const data = {
+				availableCents: cleanAvailable(availableCents),
+				limitSyncedAt: syncedAt,
+				updatedAt: current.updatedAt,
+			};
+			return toRecord(await db.card.update({ where: { id }, data }));
 		},
 	};
 }

@@ -94,17 +94,20 @@ enum RecurrenceKind {
 
 /// Conta (corrente, poupança, carteira, investimento).
 model Account {
-  id         String            @id @default(cuid())
-  name       String
-  kind       AccountKind
+  id              String            @id @default(cuid())
+  name            String
+  kind            AccountKind
   /// ISPB do banco, para achar o logo.
-  bankCode   String?           @map("bank_code")
+  bankCode        String?           @map("bank_code")
   /// Origem do cadastro; com `externalId`, liga a conta ao que veio de fora (ex.: conta do Meu Pluggy).
-  source     TransactionSource @default(manual)
-  externalId String?           @map("external_id")
-  archivedAt DateTime?         @map("archived_at")
-  createdAt  DateTime          @default(now()) @map("created_at")
-  updatedAt  DateTime          @updatedAt @map("updated_at")
+  source          TransactionSource @default(manual)
+  externalId      String?           @map("external_id")
+  /// Saldo que o banco informou (conta BANK, `account.balance` da Pluggy), em centavos; pode ser negativo. Nulo: nunca informado.
+  balanceCents    Int?              @map("balance_cents")
+  balanceSyncedAt DateTime?         @map("balance_synced_at")
+  archivedAt      DateTime?         @map("archived_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
 
   transactions        Transaction[]    @relation("TransactionAccount")
   counterpartOf       Transaction[]    @relation("TransactionCounterpart")
@@ -119,23 +122,27 @@ model Account {
 }
 
 model Card {
-  id          String            @id @default(cuid())
-  name        String
-  bankCode    String?           @map("bank_code")
-  last4       String?
-  closingDay  Int               @map("closing_day")
-  dueDay      Int               @map("due_day")
-  closingRule ClosingRule       @default(closing_day_next) @map("closing_rule")
-  limitCents  Int?              @map("limit_cents")
+  id             String            @id @default(cuid())
+  name           String
+  bankCode       String?           @map("bank_code")
+  last4          String?
+  closingDay     Int               @map("closing_day")
+  dueDay         Int               @map("due_day")
+  closingRule    ClosingRule       @default(closing_day_next) @map("closing_rule")
+  limitCents     Int?              @map("limit_cents")
+  /// Limite disponível que o banco informou (`creditData.availableCreditLimit`), em centavos. Nulo: nunca informado.
+  availableCents Int?              @map("available_cents")
+  limitSyncedAt  DateTime?         @map("limit_synced_at")
   /// Origem do cadastro; com `externalId`, liga o cartão ao que veio de fora (ex.: cartão do Meu Pluggy).
-  source      TransactionSource @default(manual)
-  externalId  String?           @map("external_id")
-  archivedAt  DateTime?         @map("archived_at")
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
+  source         TransactionSource @default(manual)
+  externalId     String?           @map("external_id")
+  archivedAt     DateTime?         @map("archived_at")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
 
   transactions Transaction[]
   recurrences  Recurrence[]
+  bills        CardBill[]
 
   @@unique([source, externalId])
   @@map("cards")
@@ -408,15 +415,15 @@ model PluggyConnection {
 
 /// Sessão para conectar um banco pelo Pluggy Connect (página web do servidor). Token aleatório de uso único e vida curta; só o hash fica aqui.
 model PluggyConnectSession {
-  id        String    @id @default(cuid())
-  tokenHash String    @unique @map("token_hash")
+  id           String    @id @default(cuid())
+  tokenHash    String    @unique @map("token_hash")
   /// O aparelho que pediu a sessão: se for revogado, a sessão deixa de valer.
-  deviceId  String    @map("device_id")
+  deviceId     String    @map("device_id")
   /// Reconexão: o item que o Pluggy Connect deve ATUALIZAR (mesmo item, mesmos ids). Nulo = conexão nova.
-  updateItemId String? @map("update_item_id")
-  expiresAt DateTime  @map("expires_at")
-  usedAt    DateTime? @map("used_at")
-  createdAt DateTime  @default(now()) @map("created_at")
+  updateItemId String?   @map("update_item_id")
+  expiresAt    DateTime  @map("expires_at")
+  usedAt       DateTime? @map("used_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
@@ -472,9 +479,9 @@ model ChatConversation {
   updatedAt DateTime @default(now()) @map("updated_at")
 
   /// Conversa aberta com um agente (persona e ferramentas dele); nulo = conversa com a Órbita.
-  agentId   String?  @map("agent_id")
+  agentId String? @map("agent_id")
 
-  agent     Agent?        @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  agent     Agent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
   messages  ChatMessage[]
   proposals ChatProposal[]
   usage     AiUsage[]
@@ -617,4 +624,40 @@ model Alert {
   @@unique([agentId, dedupeKey])
   @@index([status, createdAt])
   @@map("alerts")
+}
+
+/// Fatura do cartão como o banco a informou (`GET /bills` da Pluggy). Gravada a cada sincronização, idempotente por (source, externalId).
+model CardBill {
+  id                  String            @id @default(cuid())
+  cardId              String            @map("card_id")
+  source              TransactionSource
+  externalId          String            @map("external_id")
+  closeDate           DateTime?         @map("close_date") @db.Date
+  dueDate             DateTime          @map("due_date") @db.Date
+  totalAmountCents    Int               @map("total_amount_cents")
+  minimumPaymentCents Int?              @map("minimum_payment_cents")
+  currency            String            @default("BRL")
+  syncedAt            DateTime          @map("synced_at")
+
+  card     Card              @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  payments CardBillPayment[]
+
+  @@unique([source, externalId])
+  @@index([cardId, dueDate])
+  @@map("card_bills")
+}
+
+/// Pagamento feito numa fatura (`payments[]` da Pluggy). Substituídos a cada gravação da fatura.
+model CardBillPayment {
+  id          String   @id @default(cuid())
+  billId      String   @map("bill_id")
+  /// Id do pagamento na Pluggy, quando ela informa.
+  externalId  String?  @map("external_id")
+  amountCents Int      @map("amount_cents")
+  date        DateTime @db.Date
+
+  bill CardBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+  @@map("card_bill_payments")
 }

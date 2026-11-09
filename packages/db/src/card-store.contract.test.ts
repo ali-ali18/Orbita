@@ -146,4 +146,22 @@ describe.each(contractSuites())("CardStore: cadastro de fora (%s)", (_name, make
 			stores.cards.create({ name: "M", closingDay: 1, dueDay: 8, externalId: "x" }),
 		).rejects.toMatchObject({ code: "invalid" });
 	});
+
+	it("grava o limite disponível do banco sem mexer em updatedAt e sem perder ao editar", async () => {
+		const c = await stores.cards.create({ name: "N", closingDay: 10, dueDay: 17, limitCents: 577_000 });
+		expect(c).toMatchObject({ availableCents: null, limitSyncedAt: null });
+		const at = new Date("2026-11-09T12:00:00Z");
+		const saved = await stores.cards.recordAvailable(c.id, 523_267, at);
+		expect(saved).toMatchObject({
+			availableCents: 523_267,
+			limitSyncedAt: at,
+			limitCents: 577_000,
+			updatedAt: c.updatedAt,
+		});
+		const edited = await stores.cards.update(c.id, { dueDay: 20 });
+		expect(edited).toMatchObject({ availableCents: 523_267, limitSyncedAt: at });
+		expect(await stores.cards.get(c.id)).toEqual(edited);
+		await expect(stores.cards.recordAvailable("nada", 1, at)).rejects.toMatchObject({ code: "not_found" });
+		await expect(stores.cards.recordAvailable(c.id, 1.5, at)).rejects.toMatchObject({ code: "invalid" });
+	});
 });

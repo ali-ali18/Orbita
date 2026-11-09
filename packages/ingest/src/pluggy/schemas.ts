@@ -34,6 +34,8 @@ const creditData = z.object({
 	balanceCloseDate: z.string().max(40).nullish(),
 	balanceDueDate: z.string().max(40).nullish(),
 	creditLimit: money.nullish(),
+	/** Limite ainda disponível (SDK 0.94.2: `availableCreditLimit`). Valor estranho vira `null`: não derruba a conta. */
+	availableCreditLimit: money.nullish().catch(null),
 });
 
 export const accountSchema = z.object({
@@ -49,6 +51,11 @@ export const accountSchema = z.object({
 	/** Nome do titular da conta. Serve (com o CPF) para reconhecer Pix entre contas do próprio dono. */
 	owner: z.string().max(200).nullish(),
 	currencyCode: z.string().max(10).nullish(),
+	/**
+	 * Saldo em reais (número JSON). Na conta BANK é o saldo da conta; no cartão, o que se deve. Nunca multiplique por
+	 * 100: use `decimalToCents`. Valor estranho vira `null`.
+	 */
+	balance: money.nullish().catch(null),
 	creditData: creditData.nullish(),
 });
 export type PluggyAccount = z.infer<typeof accountSchema>;
@@ -115,7 +122,7 @@ export type PluggyTransaction = z.infer<typeof transactionSchema>;
 export const cursorPage = <T extends z.ZodType>(item: T) =>
 	z.object({ results: z.array(item).max(1000), next: z.string().max(2000).nullable() });
 
-/** Fatura do cartão (`GET /bills`): só o que importa, os pagamentos feitos nela. */
+/** Fatura do cartão (`GET /bills`): datas, total, mínimo e os pagamentos feitos nela. */
 export const billSchema = z.object({
 	id,
 	/** Vencimento: o mês dele é o mês da fatura no Órbita (`Invoice.month`). */
@@ -123,9 +130,15 @@ export const billSchema = z.object({
 	/** Fechamento da fatura (SDK 0.94.2: `billClosingDate`, `Date | null`). Com o vencimento, dá o dia de fechamento do cartão. */
 	billClosingDate: z.string().max(40).nullish(),
 	totalAmount: money.nullish(),
+	/** Moeda do total (SDK: `totalAmountCurrencyCode`). Fatura que não é BRL não é gravada. */
+	totalAmountCurrencyCode: z.string().max(10).nullish().catch(null),
+	/** Pagamento mínimo (SDK: `minimumPaymentAmount`). Valor estranho vira `null`. */
+	minimumPaymentAmount: money.nullish().catch(null),
 	payments: z
 		.array(
 			z.object({
+				/** Id do pagamento no banco, quando informa. */
+				id: z.string().max(100).nullish().catch(null),
 				paymentDate: z.string().max(40),
 				amount: money,
 				currencyCode: z.string().max(10).nullish(),

@@ -82,6 +82,26 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 
 `GET /v1/cards/:id/invoices/:month` devolve em `invoice` o `paidCents` e o `paymentStatus` (`paid`, `partial`, `unpaid`, `open`), calculados em `packages/core/src/invoice-payment.ts`. `paidCents` é a soma dos lançamentos `card_payment` do cartão atribuídos àquela fatura: um pagamento vale para a **última fatura já fechada na data dele** (a anterior à que está aberta naquele dia). A fatura recebe os pagamentos do dia seguinte ao fim das compras dela até o fim das compras da seguinte; isso cobre pagar antes do vencimento, no vencimento e atrasado, sem janela de tolerância em dias (não há buraco entre ciclos). Fatura que ainda recebe compras é `open`; fechada com total ≤ 0 conta como `paid`. "Atrasada" não vem do servidor: o app combina `unpaid`/`partial` com `status: "overdue"`. Limite: pagamento adiantado de uma fatura ainda aberta abate a fechada mais antiga (como o banco faz), então a aberta aparece sem pagamento.
 
+## Números que o banco entrega (saldo, limite disponível, faturas)
+
+Além de recalcular por lançamentos, o sync **grava o que o banco informa**, como veio, em centavos inteiros (código em `packages/ingest/src/pluggy/balances.ts`, chamado de `sync.ts` logo depois de ligar contas e cartões e ler as faturas). Nesta fase só persiste; as telas e o engine ainda não leem estes campos.
+
+| Pluggy                                              | Órbita                                                                        | Observação                                                                |
+| --------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| conta `BANK`: `balance`                             | `Account.balanceCents` + `balanceSyncedAt`                                    | pode ser negativo (cheque especial)                                       |
+| conta `CREDIT`: `creditData.creditLimit`            | `Card.limitCents` (já existia; o sync o mantém em dia)                        |                                                                           |
+| conta `CREDIT`: `creditData.availableCreditLimit`   | `Card.availableCents` + `limitSyncedAt`                                       | o `balance` do cartão (o que se deve) é lido pelo schema, mas não gravado |
+| `GET /bills`: id, `dueDate`, `billClosingDate`      | `CardBill` (`card_bills`): `externalId`, `dueDate`, `closeDate`               | sem vencimento válido, a fatura fica de fora                              |
+| `GET /bills`: `totalAmount`, `minimumPaymentAmount` | `totalAmountCents`, `minimumPaymentCents` (nulo se ausente)                   | sem total, a fatura fica de fora; moeda ≠ BRL também                      |
+| `GET /bills`: `payments[]` (`id`, data, valor)      | `CardBillPayment` (`card_bill_payments`): `externalId`, `date`, `amountCents` | a lista do banco substitui a gravada a cada rodada                        |
+
+- **A cada sync, com `deps.now()`:** `balanceSyncedAt`, `limitSyncedAt` e `CardBill.syncedAt` dizem quando o Órbita **leu** o número, não quando o banco o atualizou (item `UPDATING`/`OUTDATED` ainda grava o que o Pluggy tem). Quem mostrar o número deve mostrar essa idade.
+- **Ausente mantém o último:** `null`, campo faltando, texto ilegível ou valor fora do inteiro de 32 bits não gravam nada; o saldo, o disponível e as faturas anteriores continuam e o `...SyncedAt` não avança. Falha ou 404 em `/bills` também não apaga fatura nenhuma (o sync só grava, nunca remove).
+- **Idempotente:** a fatura é única por (`source`, `externalId`) (`BillStore.upsert`); repetir a rodada atualiza a mesma linha. Conta e cartão arquivados não recebem número.
+- **Dinheiro:** só `decimalToCents` (`signedCentsOrNull`); nunca `* 100`. Valores novos no schema usam `.catch(null)`: lixo vira "ausente" e não derruba a conta nem a fatura.
+- **Dado de fora:** tudo isso é dado não confiável. Nada vira texto de prompt, nome ou instrução; só números e datas validados. Falha ao gravar vira nota ("Não deu para gravar o saldo, o limite ou as faturas do banco agora.") sem detalhe, e não derruba a sincronização dos lançamentos.
+- **Resultado:** `ConnectionSyncResult.bankNumbers` (`balances`, `limits`, `bills`, `skippedBills`) só existe quando a rodada gravou ou pulou algo.
+
 ## Limitações conhecidas (para a Fase 6 ou depois)
 
 - **Parcelas** viram parcelamento de verdade (ver "Parcelamentos"), desde que o Pluggy mande a data da compra; sem ela entram como lançamentos simples ("Parcela 3/10" na observação).

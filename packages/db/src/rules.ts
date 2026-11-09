@@ -89,6 +89,17 @@ export function normalizeIdentity(input: {
 	return { source, externalId };
 }
 
+/** Valor que o banco informou: centavos inteiros, positivo ou negativo (cheque especial, limite estourado). */
+function cleanSignedCents(value: unknown, label: string): number {
+	if (typeof value !== "number" || !Number.isInteger(value) || Math.abs(value) > MAX_CENTS) {
+		throw invalid(`${label} deve ser um inteiro de centavos.`);
+	}
+	return value;
+}
+
+export const cleanBalance = (value: unknown): number => cleanSignedCents(value, "O saldo");
+export const cleanAvailable = (value: unknown): number => cleanSignedCents(value, "O limite disponível");
+
 export function normalizeAccount(input: AccountInput) {
 	if (!ACCOUNT_KINDS.includes(input.kind as AccountKind)) throw invalid("Tipo de conta inválido.");
 	return {

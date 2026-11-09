@@ -3,7 +3,7 @@ import { type CardStore, toCardConfig } from "./card-store.ts";
 import { DataError, notFound } from "./errors.ts";
 import { byCreated, type MemoryState } from "./memory-state.ts";
 import { EXTERNAL_TAKEN_MESSAGE } from "./messages.ts";
-import { applyPatch, normalizeCard, normalizeIdentity } from "./rules.ts";
+import { applyPatch, cleanAvailable, normalizeCard, normalizeIdentity } from "./rules.ts";
 
 export function createMemoryCardStore(state: MemoryState): CardStore {
 	const need = (id: string) => {
@@ -27,6 +27,8 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 				id: randomUUID(),
 				...normalizeCard(input),
 				...identity,
+				availableCents: null,
+				limitSyncedAt: null,
 				archivedAt: null,
 				createdAt: now,
 				updatedAt: now,
@@ -76,6 +78,11 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 		async getConfig(id) {
 			const found = state.cards.get(id);
 			return found ? toCardConfig(found) : null;
+		},
+		async recordAvailable(id, availableCents, syncedAt) {
+			const next = { ...need(id), availableCents: cleanAvailable(availableCents), limitSyncedAt: syncedAt };
+			state.cards.set(id, next);
+			return { ...next };
 		},
 	};
 }
