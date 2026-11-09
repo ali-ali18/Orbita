@@ -9,6 +9,7 @@ import {
 	pluggyDateToLocal,
 	pluggyInstallmentGroupId,
 	resolveCardDates,
+	shouldRecategorizeDigital,
 	type TransactionContext,
 } from "./mapping.ts";
 import { accountSchema, billSchema, transactionSchema } from "./schemas.ts";
@@ -975,5 +976,88 @@ describe("pluggyInstallmentGroupId", () => {
 		expect(
 			pluggyInstallmentGroupId({ ...base, purchaseDate: "2026-06-03", description: "KABUM 03/10" }),
 		).not.toBe(id("KABUM 03/10"));
+	});
+});
+
+describe("mapPluggyTransaction: compra no cartão nunca é transferência", () => {
+	const ids = new Map([
+		["assinaturas", "cat-assinaturas"],
+		["moradia", "cat-moradia"],
+		["transferencias", "cat-transferencias"],
+		["outros", "cat-outros"],
+	]);
+	const tree = buildCategoryIndex([
+		{ id: "05000000", description: "Transfers" },
+		{ id: "05090000", description: "Same person transfer", parentId: "05000000" },
+	]);
+	const cardTx = (extra: Record<string, unknown>) =>
+		mapPluggyTransaction(parse({ type: "DEBIT", date: "2026-10-19T00:00:00.000Z", ...extra }), {
+			...cardCtx,
+			categoryIds: ids,
+			categoryIndex: tree,
+			ownerName: "Fulano de Tal",
+			ownerTaxNumber: "12345678909",
+		});
+
+	it("categoria de transferência, nome do titular ou CPF do pagador no cartão continuam despesa com cartão", () => {
+		for (const extra of [
+			{ category: "Transfers", categoryId: "05090000" },
+			{ description: "Pix enviado - Fulano de Tal" },
+			{ paymentData: { payer: { documentNumber: { type: "CPF", value: "12345678909" } } } },
+		]) {
+			const mapped = cardTx({ amount: 7.99, description: "Google YouTube Member", ...extra });
+			expect(mapped).toMatchObject({ action: "upsert", input: { kind: "expense", cardId: "card-1" } });
+		}
+	});
+
+	it("Google Play vai para Assinaturas mesmo quando o MCC ou o banco dizem Moradia", () => {
+		for (const description of [
+			"Google One",
+			"Google F1 TV",
+			"Google Pierre Control",
+			"DL*GOOGLE Google",
+			"DL *GOOGLE Pierre Cont",
+			"DL*GOOGLE ChatGP",
+		]) {
+			const mapped = cardTx({
+				amount: 96.99,
+				description,
+				category: "Telecommunications",
+				creditCardMetadata: { payeeMCC: 4814 },
+			});
+			expect(mapped).toMatchObject({
+				action: "upsert",
+				input: { kind: "expense", categoryId: "cat-assinaturas" },
+				categorySource: "digital",
+			});
+		}
+	});
+
+	it("hardware e publicidade do Google não são assinatura", () => {
+		for (const description of ["Google Store Pixel 9", "GOOGLE ADS 123", "Googlefoods Padaria"]) {
+			const mapped = cardTx({ amount: 50, description, creditCardMetadata: { payeeMCC: 4814 } });
+			expect(mapped).toMatchObject({ input: { categoryId: "cat-moradia" } });
+		}
+	});
+
+	it("regra do dono vence a do Google Play", () => {
+		const mapped = mapPluggyTransaction(parse({ type: "DEBIT", amount: 10, description: "Google One" }), {
+			...cardCtx,
+			categoryIds: ids,
+			categoryRules: [{ pattern: "google one", categoryId: "cat-outros" }],
+		});
+		expect(mapped).toMatchObject({ categorySource: "rule", input: { categoryId: "cat-outros" } });
+	});
+});
+
+describe("shouldRecategorizeDigital", () => {
+	const next = { categorySource: "digital" as const, categoryId: "cat-assinaturas" };
+	it("troca a categoria que o sync gravou, nunca a que o dono escolheu", () => {
+		const row = { kind: "expense", categoryId: "cat-moradia", categoryEditedByOwner: false };
+		expect(shouldRecategorizeDigital(row, next)).toBe(true);
+		expect(shouldRecategorizeDigital({ ...row, categoryEditedByOwner: true }, next)).toBe(false);
+		expect(shouldRecategorizeDigital({ ...row, categoryId: "cat-assinaturas" }, next)).toBe(false);
+		expect(shouldRecategorizeDigital({ ...row, kind: "transfer" }, next)).toBe(false);
+		expect(shouldRecategorizeDigital(row, { ...next, categorySource: "mcc" })).toBe(false);
 	});
 });
