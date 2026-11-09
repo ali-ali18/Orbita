@@ -156,6 +156,30 @@ describe("recorrências", () => {
 		expect((await api.get("/v1/recurrences")).body.recurrences).toHaveLength(0);
 	});
 
+	it("o compromisso mensal soma todas as despesas ativas, caiam ou não no mês", async () => {
+		const { api, basics } = await setupFinance();
+		const { account } = await basics();
+		const base = { kind: "expense", accountId: account.id, startDate: "2026-01-01" };
+		await api.post("/v1/recurrences", { ...base, name: "Google One", amountCents: 9699, dayOfMonth: 13 });
+		// Primeira cobrança só no mês seguinte: não cai neste mês, mas é compromisso.
+		await api.post("/v1/recurrences", {
+			...base,
+			name: "Associação",
+			amountCents: 29703,
+			dayOfMonth: 6,
+			startDate: "2026-12-06",
+		});
+		await api.post("/v1/recurrences", {
+			...base,
+			name: "Salário",
+			kind: "income",
+			amountCents: 500000,
+			dayOfMonth: 5,
+		});
+		const { subscriptions } = (await api.get("/v1/recurrences")).body;
+		expect(subscriptions).toEqual({ count: 2, monthlyCents: 9699 + 29703 });
+	});
+
 	it("guarda o lembrete de 1 dia antes (desligado por padrão) e valida o tipo", async () => {
 		const { api, basics } = await setupFinance();
 		const { account } = await basics();

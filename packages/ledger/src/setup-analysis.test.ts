@@ -337,3 +337,36 @@ describe("analyzeHistory: assinaturas do Open Finance (Google, YouTube, câmbio)
 		]);
 	});
 });
+
+describe("analyzeHistory: Google Play no cartão (textos reais, nome do banco 'Google')", () => {
+	const row = (date: string, cents: number, description: string) =>
+		tx({ date, amountCents: cents, description, merchantName: "Google", categoryId: "c-ass" });
+	const txs = [
+		row("2026-10-13", 9699, "Google One"),
+		row("2026-09-13", 9699, "DL*GOOGLE Google"),
+		row("2026-08-13", 9699, "DL*GOOGLE Google"),
+		row("2026-10-07", 2690, "Google YouTube"),
+		row("2026-09-07", 2690, "DL*GOOGLE YouTub"),
+		row("2026-08-07", 2690, "DL*GOOGLE YouTub"),
+		row("2026-10-19", 799, "Google YouTube Member"),
+		row("2026-09-19", 799, "Google YouTube Member"),
+		row("2026-10-14", 9599, "DL*GOOGLE ChatGP"),
+		row("2026-09-14", 9599, "DL*GOOGLE ChatGP"),
+		row("2026-09-30", 3899, "Google Pierre Control"),
+		row("2026-09-01", 3899, "DL *GOOGLE Pierre Cont"),
+		row("2026-09-29", 2990, "Google F1 TV"),
+		row("2026-08-30", 2990, "DL*GOOGLE F1 TV"),
+	];
+
+	it("detecta cada app como uma assinatura, com o nome do serviço", () => {
+		const { recurring } = analyzeHistory(base(txs));
+		const found = recurring.map((r) => [r.key, r.amountCents, r.occurrences, r.knownService]);
+		expect(found).toContainEqual(["rec:googleone", 9699, 3, "Google One (Gemini)"]);
+		expect(found).toContainEqual(["rec:youtube:2690", 2690, 3, "YouTube (Premium ou Music)"]);
+		expect(found).toContainEqual(["rec:youtube:799", 799, 2, "YouTube (Premium ou Music)"]);
+		expect(found).toContainEqual(["rec:chatgpt", 9599, 2, "ChatGPT"]);
+		expect(found).toContainEqual(["rec:f1", 2990, 2, "F1 TV"]);
+		expect(found).toContainEqual(["rec:pierre", 3899, 2, null]);
+		expect(recurring).toHaveLength(6);
+	});
+});

@@ -27,6 +27,7 @@ import {
 	type CategoryIndex,
 	categoryChain,
 	classifyFamily,
+	isGoogleDigitalCharge,
 	plain,
 	readableCategory,
 	suggestSpendingSlug,
@@ -219,7 +220,7 @@ export type SkipReason =
 	| "refund_without_original"; // estorno na conta sem a despesa original gravada (o sync tenta de novo)
 
 /** O que decidiu a categoria de uma despesa, na ordem de prioridade. */
-export type CategorySource = "rule" | "mcc" | "cnae" | "pluggy" | "none";
+export type CategorySource = "rule" | "digital" | "mcc" | "cnae" | "pluggy" | "none";
 
 export type MappedTransaction =
 	| { action: "skip"; reason: SkipReason }
@@ -575,7 +576,7 @@ interface CategoryChoice {
 }
 
 /**
- * Categoria de consumo, em ordem: regra do dono → MCC do estabelecimento → CNAE → categoria do Pluggy → Outros.
+ * Categoria de consumo, em ordem: regra do dono → Google Play (Assinaturas) → MCC do estabelecimento → CNAE → categoria do Pluggy → Outros.
  * Sem as categorias do Órbita carregadas (`categoryIds`), só uma regra do dono ainda decide.
  */
 function chooseCategory(
@@ -590,6 +591,9 @@ function chooseCategory(
 	const ids = ctx.categoryIds;
 	if (!ids) return { categoryId: null, source: "none" };
 	const bySlug = (slug: string | null) => (slug === null ? null : (ids.get(slug) ?? null));
+	// Google Play (Google One, YouTube, F1 TV…): o MCC e a categoria do banco variam por app e erravam (Moradia).
+	const digital = isGoogleDigitalCharge(description, merchantName) ? bySlug("assinaturas") : null;
+	if (digital) return { categoryId: digital, source: "digital" };
 	const mcc = bySlug(categoryForMcc(tx.creditCardMetadata?.payeeMCC));
 	if (mcc) return { categoryId: mcc, source: "mcc" };
 	const cnae = bySlug(categoryForCnae(tx.merchant?.cnae));
@@ -626,6 +630,20 @@ export function shouldUpgradeCategory(
 	if (current.kind !== "expense" && current.kind !== "refund") return false;
 	if (nextCategoryId === null || nextCategoryId === outrosId) return false;
 	return current.categoryId === null || current.categoryId === outrosId;
+}
+
+/**
+ * Lançamento já gravado que a regra do Google Play manda para Assinaturas: o dono não escolheu a categoria
+ * (`categoryEditedByOwner`) e ela hoje é outra (Moradia, Outros…). Só despesa e estorno têm categoria de consumo.
+ */
+export function shouldRecategorizeDigital(
+	current: { kind: string; categoryId: string | null; categoryEditedByOwner: boolean },
+	next: { categorySource?: CategorySource | undefined; categoryId?: string | null | undefined },
+): boolean {
+	if (next.categorySource !== "digital" || !next.categoryId) return false;
+	if (current.categoryEditedByOwner) return false;
+	if (current.kind !== "expense" && current.kind !== "refund") return false;
+	return current.categoryId !== next.categoryId;
 }
 
 /** Id do grupo de um parcelamento do Pluggy: o mesmo para todas as parcelas da mesma compra, em qualquer sincronização. */

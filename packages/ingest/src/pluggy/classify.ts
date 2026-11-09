@@ -197,6 +197,19 @@ const SPENDING_RULES: ReadonlyArray<readonly [SpendingSlug, RegExp]> = [
 	],
 ];
 
+/**
+ * Cobrança do Google Play / Google One / YouTube no cartão ("Google One", "DL*GOOGLE YouTub", "DL *GOOGLE Pierre Cont"):
+ * o banco manda o intermediário e o app vendido, e o MCC ou a categoria do Pluggy variam de um app para outro
+ * (Google One, F1 TV e Pierre caíram em Moradia por telecom/internet). É serviço digital, sempre Assinaturas. Compra de
+ * hardware ou de publicidade do Google (Store, Pixel, Nest, Ads) não é.
+ */
+export function isGoogleDigitalCharge(...texts: Array<string | null | undefined>): boolean {
+	return texts.some((t) => {
+		const text = plain(t);
+		return /^(dl ?\*? ?)?google\b/.test(text) && !/\b(store|pixel|nest|ads|adwords|fiber|fi\b)/.test(text);
+	});
+}
+
 /** Categoria de consumo pelos nomes da cadeia do Pluggy, ou `null` se nenhum nome bate com a tabela. */
 export function matchSpendingSlug(chain: readonly string[]): SpendingSlug | null {
 	for (const name of chain) {

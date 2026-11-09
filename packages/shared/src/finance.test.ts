@@ -139,6 +139,22 @@ describe("limites de ano e receita no cartão", () => {
 		);
 		expect(transactionInvariantError({ ...income, accountId: "a1" })).toBeNull();
 	});
+
+	it("transferência nunca tem cartão: compra no cartão é despesa (só pagamento de fatura liga conta e cartão)", () => {
+		const base = {
+			kind: "transfer" as const,
+			amountCents: 799,
+			date: "2026-10-19",
+			description: "Google YouTube",
+		};
+		expect(transactionInvariantError({ ...base, cardId: "c1", invoiceMonth: "2026-10" })).toBe(
+			"A transferência precisa de uma conta.",
+		);
+		expect(transactionInvariantError({ ...base, accountId: "a1", cardId: "c1" })).toBe(
+			"Transferência não usa cartão.",
+		);
+		expect(transactionInvariantError({ ...base, accountId: "a1" })).toBeNull();
+	});
 });
 
 describe("divisão de lançamento", () => {

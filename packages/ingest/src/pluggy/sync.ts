@@ -37,6 +37,7 @@ import {
 	PLUGGY_SOURCE,
 	pluggyDateToLocal,
 	type SkipReason,
+	shouldRecategorizeDigital,
 	shouldUpgradeCategory,
 	type TransactionContext,
 	touchedByOwner,
@@ -973,6 +974,16 @@ async function storeTransactions(
 						shouldUpgradeCategory(res.transaction, nextCategoryId, ctx.categoryIds?.get("outros") ?? null)
 					) {
 						await transactions.update(res.transaction.id, { categoryId: nextCategoryId });
+					} else if (
+						res.transaction &&
+						shouldRecategorizeDigital(res.transaction, {
+							categorySource: mapped.categorySource,
+							categoryId: nextCategoryId,
+						})
+					) {
+						// Google Play que um sync antigo gravou em Moradia (ou outra): vai para Assinaturas, se o dono não escolheu.
+						await transactions.update(res.transaction.id, { categoryId: nextCategoryId });
+						result.reclassified = (result.reclassified ?? 0) + 1;
 					}
 					result.existing += 1;
 				}

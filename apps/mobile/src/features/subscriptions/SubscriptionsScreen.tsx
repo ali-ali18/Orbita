@@ -22,7 +22,6 @@ import {
 	batchMessage,
 	chargeCaption,
 	countLabel,
-	monthlyTotalCents,
 	monthStatus,
 	nextSummary,
 	pendingLabel,
@@ -118,9 +117,10 @@ export function SubscriptionsScreen() {
 			);
 		}
 		if (state.phase === "error") return <ErrorState message={state.message} onRetry={state.retry} />;
-		const [{ recurrences }, { transactions }] = state.data;
+		const [{ recurrences, subscriptions }, { transactions }] = state.data;
 		const list = sortSubscriptions(recurrences, today);
-		const total = monthlyTotalCents(recurrences, month);
+		// Compromisso mensal e contagem vêm do servidor (todas as assinaturas ativas, caiam ou não neste mês).
+		const total = subscriptions.monthlyCents;
 		const next = nextSummary(recurrences, today);
 		const pending = pendingSummary(recurrences, month, transactions);
 		return (
@@ -188,7 +188,7 @@ export function SubscriptionsScreen() {
 					<>
 						<View style={{ flexDirection: "row", paddingTop: spacing.sm }}>
 							<Text variant="cardTitle" tone="secondary" style={{ flex: 1 }}>
-								{countLabel(list.length)}
+								{countLabel(subscriptions.count)}
 							</Text>
 							<Text variant="cardTitle" tone="secondary">
 								{`${money(total, hidden, { sign: "never" })} por mês`}
