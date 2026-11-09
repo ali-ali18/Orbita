@@ -62,9 +62,14 @@ async function open() {
 	show("loading");
 	lastProblem = null;
 	try {
-		const { connectToken } = await post<{ connectToken: string }>("/pluggy/connect-token", { session });
+		const { connectToken, updateItem } = await post<{ connectToken: string; updateItem?: string }>(
+			"/pluggy/connect-token",
+			{ session },
+		);
 		const widget = new PluggyConnect({
 			connectToken,
+			// Reconexão: abre o item que já existe (modo de atualização), sem criar outro.
+			...(typeof updateItem === "string" ? { updateItem } : {}),
 			// Bancos de teste ficam desligados: aqui só entra banco de verdade.
 			includeSandbox: false,
 			language: "pt",

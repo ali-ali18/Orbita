@@ -19,10 +19,18 @@ export async function createConnectSession(
 	store: PluggyConnectSessionStore,
 	deviceId: string,
 	now: Date,
+	/** Reconexão: o item já cadastrado que o widget vai atualizar. Sem isto, é conexão nova. */
+	updateItemId?: string,
 ): Promise<CreatedConnectSession> {
 	const token = randomBytes(32).toString("base64url");
 	const expiresAt = new Date(now.getTime() + CONNECT_SESSION_TTL_MS);
-	await store.create({ tokenHash: hashConnectToken(token), deviceId, expiresAt, now });
+	await store.create({
+		tokenHash: hashConnectToken(token),
+		deviceId,
+		expiresAt,
+		now,
+		...(updateItemId ? { updateItemId } : {}),
+	});
 	await store.deleteStale(new Date(now.getTime() - STALE_AFTER_MS));
 	return { token, expiresAt };
 }

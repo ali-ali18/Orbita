@@ -281,8 +281,9 @@ export function parseConnectionInput(itemId: string, label: string): ValidatedCo
 }
 
 /**
- * Conexões em que o banco pediu login de novo (Figma 55:1204). Reconectar cria uma conexão nova no Pluggy: se já
- * existe outra com o mesmo nome e sincronizando bem, a velha não precisa mais do aviso.
+ * Conexões em que o banco pediu login de novo (Figma 55:1204). "Reconectar" atualiza o MESMO item no Pluggy
+ * (modo de atualização do Connect). Se mesmo assim chegou uma conexão nova do mesmo banco (a antiga é arquivada
+ * pelo servidor) e ela sincroniza bem, a velha não precisa mais do aviso.
  */
 export function disconnectedConnections(connections: readonly PluggyConnectionDto[]): PluggyConnectionDto[] {
 	const sameName = (a: PluggyConnectionDto, b: PluggyConnectionDto) =>

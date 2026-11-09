@@ -3,7 +3,7 @@ import type { PluggyConnectSessionStore } from "./pluggy-connect-session-store.t
 
 export function createPrismaPluggyConnectSessionStore(db: Db): PluggyConnectSessionStore {
 	return {
-		async create({ tokenHash, deviceId, expiresAt, now }) {
+		async create({ tokenHash, deviceId, expiresAt, now, updateItemId }) {
 			await db.$transaction(async (tx) => {
 				// Serializa os criadores: sem isto, dois pedidos simultâneos expirariam só as sessões que já existiam
 				// e as duas novas ficariam ativas. O lock vale até o fim da transação.
@@ -12,14 +12,16 @@ export function createPrismaPluggyConnectSessionStore(db: Db): PluggyConnectSess
 					where: { usedAt: null, expiresAt: { gt: now } },
 					data: { expiresAt: now },
 				});
-				await tx.pluggyConnectSession.create({ data: { tokenHash, deviceId, expiresAt, createdAt: now } });
+				await tx.pluggyConnectSession.create({
+					data: { tokenHash, deviceId, expiresAt, createdAt: now, updateItemId: updateItemId ?? null },
+				});
 			});
 		},
 
 		async find(tokenHash, now) {
 			const row = await db.pluggyConnectSession.findFirst({
 				where: { tokenHash, usedAt: null, expiresAt: { gt: now } },
-				select: { deviceId: true, createdAt: true },
+				select: { deviceId: true, createdAt: true, updateItemId: true },
 			});
 			return row ?? null;
 		},

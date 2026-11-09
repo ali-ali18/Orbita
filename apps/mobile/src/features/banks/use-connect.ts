@@ -27,14 +27,15 @@ export function useConnectLauncher(ids: readonly string[]) {
 	const locked = useRef(false);
 	const [message, setMessage] = useState<string | null>(null);
 	/** Explicação "Conectar o <banco>" aberta antes do Pluggy Connect; `bank` é null quando o banco ainda não é conhecido. */
-	const [explaining, setExplaining] = useState<{ bank: string | null } | null>(null);
+	const [explaining, setExplaining] = useState<{ bank: string | null; connectionId?: string } | null>(null);
 
-	const start = async () => {
+	/** `connectionId` = reconexão: atualiza essa conexão em vez de criar outra no Pluggy. */
+	const start = async (connectionId?: string) => {
 		if (locked.current || baseUrl === null) return;
 		locked.current = true;
 		setMessage(null);
 		try {
-			const { path } = await connect.mutateAsync();
+			const { path } = await connect.mutateAsync(connectionId);
 			const url = connectUrl(baseUrl, path);
 			if (!url) throw new Error(CONNECT_OPEN_FAILED);
 			opened.current = { at: Date.now(), ids };
@@ -53,11 +54,13 @@ export function useConnectLauncher(ids: readonly string[]) {
 	};
 
 	/** Abre a explicação; o Pluggy Connect só abre quando a pessoa toca em "Abrir o Meu Pluggy" (`confirm`). */
-	const ask = (bank?: string | null) => setExplaining({ bank: bank ?? null });
+	const ask = (bank?: string | null, connectionId?: string) =>
+		setExplaining({ bank: bank ?? null, ...(connectionId ? { connectionId } : {}) });
 	const dismiss = () => setExplaining(null);
 	const confirm = () => {
+		const connectionId = explaining?.connectionId;
 		setExplaining(null);
-		void start();
+		void start(connectionId);
 	};
 
 	return {

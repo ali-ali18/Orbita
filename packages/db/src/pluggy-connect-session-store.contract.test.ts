@@ -29,10 +29,18 @@ describe.each(contractSuites())("PluggyConnectSessionStore (%s)", (_name, make) 
 
 	it("vale até expirar e devolve o aparelho e a hora de criação", async () => {
 		await create("h1", 15, T0);
-		expect(await sessions.find("h1", minutes(14))).toEqual({ deviceId, createdAt: T0 });
+		expect(await sessions.find("h1", minutes(14))).toEqual({ deviceId, createdAt: T0, updateItemId: null });
 		expect(await sessions.find("h1", minutes(15))).toBeNull();
 		expect(await sessions.consume("h1", minutes(16))).toBe(false);
 		expect(await sessions.find("outro", T0)).toBeNull();
+	});
+
+	it("guarda o item a atualizar (reconexão) até a sessão acabar", async () => {
+		const item = "11111111-2222-4333-8444-555555555555";
+		await sessions.create({ tokenHash: "r1", deviceId, expiresAt: minutes(15), now: T0, updateItemId: item });
+		expect(await sessions.find("r1", minutes(1))).toEqual({ deviceId, createdAt: T0, updateItemId: item });
+		await sessions.release("r1");
+		expect((await sessions.find("r1", minutes(1)))?.updateItemId).toBe(item);
 	});
 
 	it("find não gasta; consume gasta uma vez só", async () => {

@@ -111,6 +111,13 @@ export const pluggyConnectSessionResponse = z.object({
 });
 export type PluggyConnectSessionResponse = z.infer<typeof pluggyConnectSessionResponse>;
 
+/**
+ * Corpo de `POST /v1/pluggy/connect-sessions`. Sem `connectionId` é uma conexão nova; com ele é a reconexão de uma
+ * conexão já cadastrada (o Pluggy Connect abre em modo de atualização do mesmo item, sem criar item novo).
+ */
+export const pluggyConnectSessionBody = z.object({ connectionId: pluggyItemIdSchema.optional() }).strict();
+export type PluggyConnectSessionBody = z.infer<typeof pluggyConnectSessionBody>;
+
 /** Token da sessão de conexão: 32 bytes aleatórios em base64url. */
 export const PLUGGY_CONNECT_TOKEN_LENGTH = 43;
 export const pluggyConnectTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);

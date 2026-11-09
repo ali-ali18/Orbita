@@ -238,7 +238,7 @@ export function BanksScreen() {
 								connection={c}
 								now={now}
 								loading={connectPending}
-								onReconnect={() => askConnect(connectionName(c))}
+								onReconnect={() => askConnect(connectionName(c), c.id)}
 							/>
 						))}
 						{!data.keysConfigured ? (
