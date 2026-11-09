@@ -66,6 +66,20 @@ export function createPrismaCardStore(db: Db, now: Clock): CardStore {
 			const row = await db.card.findUnique({ where: { source_externalId: { source, externalId } } });
 			return row ? toRecord(row) : null;
 		},
+		async relinkExternal(id, externalId) {
+			const current = await db.card.findUnique({ where: { id } });
+			const next = externalId.trim();
+			if (!current || current.source === "manual" || next === "") return null;
+			try {
+				return toRecord(
+					await db.card.update({ where: { id }, data: { externalId: next, updatedAt: now() } }),
+				);
+			} catch (e) {
+				const t = translate(e, () => new DataError("duplicate", EXTERNAL_TAKEN_MESSAGE));
+				if (t instanceof DataError && t.code === "duplicate") return null;
+				throw t;
+			}
+		},
 		async getConfig(id) {
 			const row = await db.card.findUnique({ where: { id } });
 			return row ? toCardConfig(toRecord(row)) : null;

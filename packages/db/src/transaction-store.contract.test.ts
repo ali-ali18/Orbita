@@ -750,6 +750,41 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 		});
 	});
 
+	describe("rekeyExternal", () => {
+		it("troca só o identificador externo de um lançamento da origem; o próximo upsert acha o mesmo", async () => {
+			const old = (await tx.upsertByExternal("pluggy", "item1-t1", expense({ note: "minha nota" })))
+				.transaction;
+			const moved = await tx.rekeyExternal(old?.id as string, "pluggy", "item2-t1");
+			expect(moved).toMatchObject({
+				id: old?.id,
+				source: "pluggy",
+				externalId: "item2-t1",
+				note: "minha nota",
+			});
+			expect(await tx.existsByExternal("pluggy", "item1-t1")).toBe(false);
+			const again = await tx.upsertByExternal("pluggy", "item2-t1", expense());
+			expect(again.created).toBe(false);
+			expect(again.transaction?.id).toBe(old?.id);
+			expect(await tx.countMatching()).toBe(1);
+		});
+
+		it("devolve null e não muda nada: manual, de outra origem, apagado, inexistente ou id em uso", async () => {
+			const mine = await tx.create(expense());
+			expect(await tx.rekeyExternal(mine.id, "pluggy", "k-1")).toBeNull();
+			const a = (await tx.upsertByExternal("pluggy", "k-a", expense())).transaction;
+			const other = (await tx.upsertByExternal("pluggy", "k-b", expense())).transaction;
+			expect(await tx.rekeyExternal(a?.id as string, "import", "k-9")).toBeNull();
+			expect(await tx.rekeyExternal(a?.id as string, "pluggy", "k-b")).toBeNull();
+			await tx.softDelete(other?.id as string);
+			// O id do apagado continua reservado.
+			expect(await tx.rekeyExternal(a?.id as string, "pluggy", "k-b")).toBeNull();
+			expect(await tx.rekeyExternal("00000000-0000-4000-8000-000000000000", "pluggy", "k-8")).toBeNull();
+			await tx.softDelete(a?.id as string);
+			expect(await tx.rekeyExternal(a?.id as string, "pluggy", "k-7")).toBeNull();
+			expect(await tx.get(mine.id)).toMatchObject({ source: "manual", externalId: null });
+		});
+	});
+
 	describe("exclusão lógica", () => {
 		it("some de get e de todas as listas, e softDelete é idempotente", async () => {
 			const t = await tx.create(cardPurchase({ status: "pending" }));

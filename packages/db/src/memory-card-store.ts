@@ -62,6 +62,17 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 			const found = [...state.cards.values()].find((c) => c.source === source && c.externalId === externalId);
 			return found ? { ...found } : null;
 		},
+		async relinkExternal(id, externalId) {
+			const current = state.cards.get(id);
+			const next = externalId.trim();
+			if (!current || current.source === "manual" || next === "") return null;
+			if ([...state.cards.values()].some((x) => x.source === current.source && x.externalId === next)) {
+				return null;
+			}
+			const updated = { ...current, externalId: next, updatedAt: state.now() };
+			state.cards.set(id, updated);
+			return { ...updated };
+		},
 		async getConfig(id) {
 			const found = state.cards.get(id);
 			return found ? toCardConfig(found) : null;

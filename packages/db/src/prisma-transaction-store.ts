@@ -236,6 +236,30 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			}
 		},
 
+		async rekeyExternal(id, source, externalId) {
+			try {
+				return await db.$transaction(async (tx) => {
+					const locked = await tx.$queryRaw<Array<{ id: string }>>`
+						SELECT id FROM transactions WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`;
+					if (locked.length === 0) return null;
+					const row = await tx.transaction.findFirst({ where: { id, deletedAt: null } });
+					if (!row || row.source !== source || row.externalId === null) return null;
+					const taken = await tx.transaction.findUnique({
+						where: { source_externalId: { source, externalId } },
+						select: { id: true },
+					});
+					if (taken) return null;
+					return toRecord(
+						await tx.transaction.update({ where: { id }, data: { externalId, updatedAt: now() } }),
+					);
+				});
+			} catch (e) {
+				const t = translate(e, duplicateExternal);
+				if (t instanceof DataError && t.code === "duplicate") return null;
+				throw t;
+			}
+		},
+
 		async existsByExternal(source, externalId) {
 			const row = await db.transaction.findUnique({
 				where: { source_externalId: { source, externalId } },

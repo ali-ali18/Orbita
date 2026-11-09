@@ -65,5 +65,16 @@ export function createMemoryAccountStore(state: MemoryState): AccountStore {
 			);
 			return found ? { ...found } : null;
 		},
+		async relinkExternal(id, externalId) {
+			const current = state.accounts.get(id);
+			const next = externalId.trim();
+			if (!current || current.source === "manual" || next === "") return null;
+			if ([...state.accounts.values()].some((x) => x.source === current.source && x.externalId === next)) {
+				return null;
+			}
+			const updated = { ...current, externalId: next, updatedAt: state.now() };
+			state.accounts.set(id, updated);
+			return { ...updated };
+		},
 	};
 }

@@ -47,5 +47,17 @@ export function createPrismaAccountStore(db: Db, now: Clock): AccountStore {
 		findByExternal(source, externalId) {
 			return db.account.findUnique({ where: { source_externalId: { source, externalId } } });
 		},
+		async relinkExternal(id, externalId) {
+			const current = await db.account.findUnique({ where: { id } });
+			const next = externalId.trim();
+			if (!current || current.source === "manual" || next === "") return null;
+			try {
+				return await db.account.update({ where: { id }, data: { externalId: next, updatedAt: now() } });
+			} catch (e) {
+				const t = translate(e, () => new DataError("duplicate", EXTERNAL_TAKEN_MESSAGE));
+				if (t instanceof DataError && t.code === "duplicate") return null;
+				throw t;
+			}
+		},
 	};
 }
