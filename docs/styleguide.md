@@ -24,10 +24,11 @@ Como o Órbita se parece e como manter isso consistente sem engessar. Os valores
 | `textSecondary` | `#8F8F8F` | Rótulos, legendas, datas                                                             | Valor de dinheiro                    |
 | `textTertiary`  | `#5A5A5A` | Placeholder, chevron, desativado                                                     | Texto que precisa ser lido           |
 | `positive`      | `#34D17A` | **Valor de dinheiro que entra**: receita, estorno e pagamento de fatura; selo "Paga" | Texto corrido, ícone, fundo, gráfico |
+| `danger`        | `#FF6B6B` | Ação destrutiva no menu do widget ("Remover"), sempre com rótulo e ícone             | Valor de dinheiro, fundo             |
 | `accent`        | `#FFFFFF` | Botão principal, chip ativo, switch ligado, ponto de "não lido"                      | Fundo grande                         |
 | `onAccent`      | `#000000` | Texto e ícone sobre `accent`                                                         | —                                    |
 
-**Verde só para dinheiro que entra.** `positive` colore o valor (e o selo "Paga") de receita, estorno e pagamento de fatura, junto do rótulo e do sinal (`+` em receita e estorno), então a cor reforça o texto e nunca é a única informação. Saída continua branca (`text`) e transferência entre contas próprias é neutra (`textSecondary`), porque o dinheiro só mudou de lugar. A regra mora numa função só no app, `amountTone(kind)`, usada por Início, Atividades, Detalhe e Fatura. Passa AA (4,5:1) sobre `background`, `surface` e `surface2` (teste em `@orbita/tokens`). Não existe vermelho de "negativo": a saída é o sinal `−`. Se um dia precisar de estado de erro ou aviso, crie `danger`/`warning` aqui antes de usar.
+**Verde só para dinheiro que entra.** `positive` colore o valor (e o selo "Paga") de receita, estorno e pagamento de fatura, junto do rótulo e do sinal (`+` em receita e estorno), então a cor reforça o texto e nunca é a única informação. Saída continua branca (`text`) e transferência entre contas próprias é neutra (`textSecondary`), porque o dinheiro só mudou de lugar. A regra mora numa função só no app, `amountTone(kind)`, usada por Início, Atividades, Detalhe e Fatura. Passa AA (4,5:1) sobre `background`, `surface` e `surface2` (teste em `@orbita/tokens`). Não existe vermelho de "negativo": a saída é o sinal `−`. `danger` (vermelho, AA sobre as três superfícies) existe só para ações destrutivas com rótulo, como "Remover" no menu do widget; estado de aviso ainda não tem token (crie `warning` aqui antes de usar).
 
 ### Gráficos
 
@@ -61,6 +62,10 @@ Regras:
 ### Menos texto
 
 Cada card do Início mostra **um número principal e no máximo uma linha de apoio**. O mesmo número não aparece em dois cards (o Gasto do mês é o "Gasto R$ X" do card principal, que abre a linha dia a dia). "Atualizado há…" e "estimado" ficam só nas telas de detalhe, e "estimado" vira **um aviso por tela**, nunca um sufixo em cada valor.
+
+### Widgets do Início
+
+Cada card do Início é um widget com tamanho `2x2` (quadrado de meia largura, 221 de altura mínima), `2x4` (largura cheia, baixo: um número, uma linha de apoio e no máximo um gráfico pequeno) ou `4x4` (largura cheia, alto: lista de até 5 linhas). Todo tamanho segue "Menos texto" e só exibe o que a API devolve. O menu de segurar usa `Sheet`, `SheetGroup` e `Segmented`; "Remover" usa o token `danger` com ícone e rótulo. Catálogo, grade e edição em [arquitetura](arquitetura.md#widgets-do-início).
 
 ### Agentes
 

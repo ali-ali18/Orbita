@@ -12,6 +12,7 @@ export { IconButton } from "./IconButton.tsx";
 export { Icon, type IconName } from "./icons.tsx";
 export { LineChart, type LineSeries } from "./LineChart.tsx";
 export { ListRow } from "./ListRow.tsx";
+export { LongPressContext, useWidgetLongPress } from "./long-press.ts";
 export { type BarPart, ProgressBar } from "./ProgressBar.tsx";
 export { Ring } from "./Ring.tsx";
 export { Screen, TOP_FADE } from "./Screen.tsx";

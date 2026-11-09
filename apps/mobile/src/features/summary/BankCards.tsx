@@ -15,7 +15,7 @@ import { bankBadge } from "./summary-model.ts";
  * que abre o detalhe, com um número principal e no máximo uma linha de apoio. Só exibem o que a API devolveu.
  */
 
-function Tile<T>({
+export function Tile<T>({
 	title,
 	label,
 	state,
@@ -48,7 +48,7 @@ function Tile<T>({
 }
 
 /** Valor grande do quadrado, com uma linha de apoio. */
-function Figure({ value, caption }: { value: string; caption: string }) {
+export function Figure({ value, caption }: { value: string; caption: string }) {
 	return (
 		<View style={{ gap: 2 }}>
 			<Text variant="numberMedium" adjustsFontSizeToFit numberOfLines={1}>
@@ -143,6 +143,48 @@ export function LimitTile({
 	);
 }
 
+/** Uma linha do fluxo de caixa: rótulo, valor e uma barra proporcional ao maior dos dois. */
+export function FlowRow({
+	label,
+	cents,
+	peak,
+	color,
+	tone,
+	hidden,
+}: {
+	label: string;
+	cents: number;
+	peak: number;
+	color: string;
+	tone: "positive" | "primary";
+	hidden: boolean;
+}) {
+	return (
+		<View style={{ gap: 4 }}>
+			<View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
+				<Text variant="caption" tone="secondary">
+					{label}
+				</Text>
+				<Text variant="bodyStrong" tone={tone} numberOfLines={1} style={{ flexShrink: 1 }}>
+					{money(cents, hidden, { sign: "never" })}
+				</Text>
+			</View>
+			<View
+				style={{ height: 6, borderRadius: radius.sm, backgroundColor: colors.surface3, overflow: "hidden" }}
+			>
+				<View
+					style={{
+						width: `${Math.max(cents > 0 ? 4 : 0, Math.round((cents * 100) / peak))}%`,
+						height: 6,
+						borderRadius: radius.sm,
+						backgroundColor: color,
+					}}
+				/>
+			</View>
+		</View>
+	);
+}
+
 export function CashFlowTile({
 	state,
 	hidden,
@@ -156,39 +198,24 @@ export function CashFlowTile({
 		<Tile title="Fluxo de caixa" label="Fluxo de caixa do mês, abrir" state={state} onPress={onPress}>
 			{(data) => {
 				const peak = Math.max(data.inCents, data.outCents, 1);
-				const row = (label: string, cents: number, color: string, tone: "positive" | "primary") => (
-					<View style={{ gap: 4 }}>
-						<View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
-							<Text variant="caption" tone="secondary">
-								{label}
-							</Text>
-							<Text variant="bodyStrong" tone={tone} numberOfLines={1} style={{ flexShrink: 1 }}>
-								{money(cents, hidden, { sign: "never" })}
-							</Text>
-						</View>
-						<View
-							style={{
-								height: 6,
-								borderRadius: radius.sm,
-								backgroundColor: colors.surface3,
-								overflow: "hidden",
-							}}
-						>
-							<View
-								style={{
-									width: `${Math.max(cents > 0 ? 4 : 0, Math.round((cents * 100) / peak))}%`,
-									height: 6,
-									borderRadius: radius.sm,
-									backgroundColor: color,
-								}}
-							/>
-						</View>
-					</View>
-				);
 				return (
 					<View style={{ gap: spacing.md }}>
-						{row("Entrou", data.inCents, colors.positive, "positive")}
-						{row("Saiu", data.outCents, chart.other, "primary")}
+						<FlowRow
+							label="Entrou"
+							cents={data.inCents}
+							peak={peak}
+							color={colors.positive}
+							tone="positive"
+							hidden={hidden}
+						/>
+						<FlowRow
+							label="Saiu"
+							cents={data.outCents}
+							peak={peak}
+							color={chart.other}
+							tone="primary"
+							hidden={hidden}
+						/>
 					</View>
 				);
 			}}

@@ -56,6 +56,7 @@ export type {
 	GoalRecord,
 	GoalStore,
 } from "./goal-store.ts";
+export type { HomeLayoutStore } from "./home-layout-store.ts";
 export type { IdempotencyBegin, IdempotencyRecord, IdempotencyStore } from "./idempotency-store.ts";
 export type {
 	ImportBatchRecord,

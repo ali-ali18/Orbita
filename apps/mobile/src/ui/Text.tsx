@@ -3,7 +3,7 @@ import { Text as RNText, type TextProps as RNTextProps, type TextStyle } from "r
 import { familyByWeight } from "./fonts.ts";
 
 export type TextVariant = keyof typeof typography;
-export type TextTone = "primary" | "secondary" | "tertiary" | "onAccent" | "positive";
+export type TextTone = "primary" | "secondary" | "tertiary" | "onAccent" | "positive" | "danger";
 
 const toneColor: Record<TextTone, string> = {
 	primary: colors.text,
@@ -11,6 +11,7 @@ const toneColor: Record<TextTone, string> = {
 	tertiary: colors.textTertiary,
 	onAccent: colors.onAccent,
 	positive: colors.positive,
+	danger: colors.danger,
 };
 
 /** Variantes que ficam em coluna (valor, lista) usam algarismos tabulares. */

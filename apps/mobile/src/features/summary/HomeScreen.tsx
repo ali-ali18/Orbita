@@ -1,3 +1,10 @@
+import {
+	defaultHomeLayout,
+	type HomeLayout,
+	type HomeWidgetId,
+	setWidgetSize,
+	setWidgetVisible,
+} from "@orbita/shared";
 import { colors, spacing } from "@orbita/tokens";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -7,7 +14,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import { BottomBar, Screen, Text, TOP_FADE, useBottomBarHeight } from "../../ui/index.ts";
+import { BottomBar, Button, Screen, Skeleton, Text, TOP_FADE, useBottomBarHeight } from "../../ui/index.ts";
 import { disconnectedConnections } from "../banks/banks-model.ts";
 import { usePluggyHomeWatch, usePluggyStatusSnapshot } from "../banks/queries.ts";
 import { ReconnectBanner } from "../banks/ReconnectBanner.tsx";
@@ -19,17 +26,14 @@ import { EmptyHero } from "../checklist/EmptyHero.tsx";
 import { useChecklistDismissed, useChecklistFacts } from "../checklist/use-checklist.ts";
 import { paydayLine } from "../income/income-model.ts";
 import { useIncome } from "../income/queries.ts";
-import { ReportLink } from "../report/ReportLink.tsx";
 import { usePendingTransactions } from "../review/queries.ts";
 import { ReviewBanner } from "../review/ReviewScreen.tsx";
 import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
 import { isUnreachableQuery } from "../server/server-model.ts";
 import { useProfile } from "../settings/preferences-queries.ts";
 import { avatarInitial, greetWithName } from "../settings/profile-model.ts";
-import { BalanceTile, CashFlowTile, LimitTile } from "./BankCards.tsx";
-import { CategoriesCard } from "./CategoriesCard.tsx";
-import { HeroCard } from "./HeroCard.tsx";
 import { HomeHeader } from "./HomeHeader.tsx";
+import { useHomeLayout, useSaveHomeLayout } from "./layout-queries.ts";
 import {
 	useAccountBalances,
 	useAccounts,
@@ -41,9 +45,9 @@ import {
 	useRecentTransactions,
 	useSummary,
 } from "./queries.ts";
-import { RecentCard } from "./RecentCard.tsx";
-import { InstallmentsSquare } from "./SquareCards.tsx";
-import { WalletBlock } from "./WalletBlock.tsx";
+import { HomeWidgets } from "./widgets/HomeWidgets.tsx";
+import { WidgetEditor } from "./widgets/WidgetEditor.tsx";
+import { WidgetMenu } from "./widgets/WidgetMenu.tsx";
 
 export function HomeScreen() {
 	const { hidden, toggle } = usePrivacy();
@@ -51,6 +55,12 @@ export function HomeScreen() {
 	const router = useRouter();
 	const [refreshing, setRefreshing] = useState(false);
 	const bottomBarHeight = useBottomBarHeight();
+	// Widgets: o layout vem do servidor; segurar um widget abre o menu e "Editar widgets" abre a edição num rascunho.
+	const layoutQ = useHomeLayout();
+	const saveLayout = useSaveHomeLayout();
+	const layout: HomeLayout | null = layoutQ.data ?? (layoutQ.isError ? defaultHomeLayout() : null);
+	const [menuId, setMenuId] = useState<HomeWidgetId | null>(null);
+	const [draft, setDraft] = useState<HomeLayout | null>(null);
 	// Sincronização do Meu Pluggy que terminou fora desta tela (a diária, por exemplo): recarrega o que mudou.
 	usePluggyHomeWatch();
 
@@ -179,13 +189,6 @@ export function HomeScreen() {
 				) : null}
 				{emptyHome ? null : (
 					<>
-						<HeroCard state={summaryWithCategories} hidden={hidden} />
-						<WalletBlock
-							overview={toLoadable(overviewQ)}
-							today={today}
-							hidden={hidden}
-							onOpen={() => router.push("/cartao?aba=faturas")}
-						/>
 						{pendingQ.data && pendingQ.data.transactions.length > 0 ? (
 							<ReviewBanner
 								count={pendingQ.data.transactions.length}
@@ -193,50 +196,67 @@ export function HomeScreen() {
 								onPress={() => router.push("/revisao")}
 							/>
 						) : null}
-						<View style={{ flexDirection: "row", gap: spacing.md }}>
-							<BalanceTile
-								state={toLoadable(balancesQ)}
-								hidden={hidden}
-								onPress={() => router.push("/saldo")}
+						{draft ? (
+							<>
+								<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+									<Text variant="cardTitle" tone="secondary" accessibilityRole="header" style={{ flex: 1 }}>
+										Editar widgets
+									</Text>
+									<Button label="Cancelar" variant="secondary" compact onPress={() => setDraft(null)} />
+									<Button
+										label="Concluir"
+										compact
+										onPress={() => {
+											saveLayout.mutate(draft);
+											setDraft(null);
+										}}
+									/>
+								</View>
+								<WidgetEditor layout={draft} onChange={setDraft} />
+							</>
+						) : layout ? (
+							<HomeWidgets
+								layout={layout}
+								onLongPress={setMenuId}
+								data={{
+									month,
+									today,
+									hidden,
+									summary: summaryWithCategories,
+									overview: toLoadable(overviewQ),
+									balances: toLoadable(balancesQ),
+									cashFlow: toLoadable(cashFlowQ),
+									installments: toLoadable(installmentsQ),
+									recent: toLoadable(recentQ),
+									accounts: accountsQ.data?.accounts ?? [],
+									cards: cardsQ.data?.cards ?? [],
+									categories: categoriesQ.data?.categories ?? [],
+									open: (href) => router.push(href as never),
+									openTransaction: (id) => router.push({ pathname: "/lancamento/[id]", params: { id } }),
+								}}
 							/>
-							<LimitTile
-								state={toLoadable(overviewQ)}
-								hidden={hidden}
-								onPress={() => router.push("/cartao?aba=limites")}
-							/>
-						</View>
-						<View style={{ flexDirection: "row", gap: spacing.md }}>
-							<CashFlowTile
-								state={toLoadable(cashFlowQ)}
-								hidden={hidden}
-								onPress={() => router.push("/fluxo")}
-							/>
-							<InstallmentsSquare
-								installments={toLoadable(installmentsQ)}
-								month={month}
-								hidden={hidden}
-								onPress={() => router.push("/cartao?aba=parcelas")}
-							/>
-						</View>
-						<CategoriesCard
-							state={summaryWithCategories}
-							hidden={hidden}
-							onPress={() => router.push("/configuracoes/orcamento")}
-						/>
-						<ReportLink month={month} onPress={() => router.push("/relatorio")} />
-						<RecentCard
-							state={toLoadable(recentQ)}
-							accounts={accountsQ.data?.accounts ?? []}
-							categories={categoriesQ.data?.categories ?? []}
-							cards={cardsQ.data?.cards ?? []}
-							today={today}
-							hidden={hidden}
-							onSeeAll={() => router.push("/atividades")}
-							onOpen={(id) => router.push({ pathname: "/lancamento/[id]", params: { id } })}
-						/>
+						) : (
+							<View accessibilityLabel="Carregando" style={{ gap: spacing.md }}>
+								<Skeleton height={160} />
+								<Skeleton height={120} />
+							</View>
+						)}
 					</>
 				)}
 			</ScrollView>
+			<WidgetMenu
+				item={layout?.find((i) => i.id === menuId) ?? null}
+				valuesHidden={hidden}
+				onToggleValues={toggle}
+				onEdit={() => layout && setDraft(layout)}
+				onRemove={() => {
+					if (layout && menuId) saveLayout.mutate(setWidgetVisible(layout, menuId, false));
+				}}
+				onSize={(size) => {
+					if (layout && menuId) saveLayout.mutate(setWidgetSize(layout, menuId, size));
+				}}
+				onClose={() => setMenuId(null)}
+			/>
 		</Screen>
 	);
 }

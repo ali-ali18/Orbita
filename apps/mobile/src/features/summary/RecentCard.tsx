@@ -22,6 +22,7 @@ export function RecentCard({
 	categories,
 	today,
 	hidden,
+	max,
 	onSeeAll,
 	onOpen,
 }: {
@@ -32,6 +33,8 @@ export function RecentCard({
 	categories: CategoriesView["categories"];
 	today: string;
 	hidden: boolean;
+	/** 2x4: só as primeiras linhas. */
+	max?: number;
 	/** "Ver tudo" abre a tela Atividades. */
 	onSeeAll: () => void;
 	/** Tocar numa linha abre o detalhe do lançamento. */
@@ -56,7 +59,7 @@ export function RecentCard({
 					</Text>
 				) : (
 					<View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
-						{transactions.map((t) => {
+						{(max === undefined ? transactions : transactions.slice(0, max)).map((t) => {
 							const source = t.cardId
 								? cardById.get(t.cardId)
 								: t.accountId

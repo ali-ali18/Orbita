@@ -4,7 +4,7 @@ import { Pressable, View } from "react-native";
 import type { InstallmentsView } from "../../lib/api.ts";
 import { money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
-import { Card, ErrorState, Icon, type IconName, Skeleton, Text } from "../../ui/index.ts";
+import { Card, ErrorState, Icon, type IconName, Skeleton, Text, useWidgetLongPress } from "../../ui/index.ts";
 import { installmentsOverview } from "./summary-model.ts";
 
 /** Altura dos cards quadrados no Figma (173 de largura por 221 de altura). */
@@ -21,12 +21,14 @@ export function Frame({
 	onPress?: (() => void) | undefined;
 	label: string;
 }) {
+	const longPress = useWidgetLongPress();
 	return (
 		<Pressable
 			accessibilityRole="button"
 			accessibilityLabel={label}
-			disabled={!onPress}
+			disabled={!onPress && !longPress}
 			onPress={onPress}
+			onLongPress={longPress}
 			style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.8 : 1 })}
 		>
 			<Card style={{ flex: 1, minHeight: SQUARE_MIN_HEIGHT, justifyContent: "space-between" }}>

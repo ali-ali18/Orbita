@@ -20,6 +20,7 @@ import * as chat from "./modules/chat/routes.ts";
 import * as devices from "./modules/devices/routes.ts";
 import * as exportData from "./modules/export/routes.ts";
 import * as goals from "./modules/goals/routes.ts";
+import * as home from "./modules/home/routes.ts";
 import * as imports from "./modules/imports/routes.ts";
 import * as income from "./modules/income/routes.ts";
 import * as pairing from "./modules/pairing/routes.ts";
@@ -99,6 +100,7 @@ export function createApp(deps: AppDeps) {
 		.route("/", imports.routes(finance))
 		.route("/", exportData.routes(finance))
 		.route("/", preferences.routes(finance))
+		.route("/", home.routes(finance))
 		.route("/", summary.routes(finance))
 		.route("/", reports.routes(finance))
 		.route("/", agents.routes(finance))

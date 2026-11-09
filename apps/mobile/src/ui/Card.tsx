@@ -2,6 +2,7 @@ import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, type StyleProp, View, type ViewStyle } from "react-native";
 import { Icon } from "./icons.tsx";
+import { useWidgetLongPress } from "./long-press.ts";
 import { Text } from "./Text.tsx";
 
 export function Card({
@@ -16,19 +17,22 @@ export function Card({
 	onPress?: () => void;
 	label?: string;
 }) {
+	const onLongPress = useWidgetLongPress();
 	const box = {
 		backgroundColor: colors.surface,
 		borderRadius: radius.card,
 		padding: spacing.xl,
 	};
-	if (!onPress) {
+	if (!onPress && !onLongPress) {
 		return <View style={[box, style]}>{children}</View>;
 	}
 	return (
 		<Pressable
-			accessibilityRole="button"
+			accessibilityRole={onPress ? "button" : undefined}
 			accessibilityLabel={label}
+			accessibilityHint={onLongPress ? "Segure para editar o widget" : undefined}
 			onPress={onPress}
+			onLongPress={onLongPress}
 			style={({ pressed }) => [box, style, { opacity: pressed ? 0.8 : 1 }]}
 		>
 			{children}
