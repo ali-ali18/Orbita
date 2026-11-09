@@ -943,12 +943,11 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 			? meta.billForecastDate
 			: null;
 	// Compra PENDING sem `billId` = "not yet included in a closed bill" (docs): cai na fatura em que o banco vai lançá-la.
-	// `billPostDate` é o dia em que ela entra na fatura (a compra no dia do fechamento já é a da fatura que fecha); sem
-	// ele, vale o dia do lançamento. Parcela pendente não pode usar a data da compra (meses atrás).
+	// `billPostDate` é o dia em que ela entra na fatura; sem ele, vale o dia do lançamento. Parcela pendente não pode
+	// usar a data da compra (meses atrás). O dia do fechamento segue a regra do cartão (`closingRule`), que o sync deduz
+	// das faturas do próprio cartão (`inferClosingRule`); sem evidência não há deslocamento de um dia.
 	const postDate = meta?.billPostDate ? pluggyDateToLocal(meta.billPostDate) : null;
-	const included = ctx.card.config.closingRule === "closing-day-included";
-	const invoiceRef =
-		pending && postDate !== null && !billMonth ? (included ? postDate : addDays(postDate, -1)) : date;
+	const invoiceRef = pending && postDate !== null && !billMonth ? postDate : date;
 	const invoiceMonth = billMonth ?? forecast ?? invoiceFor(invoiceRef, ctx.card.config).month;
 	const invoiceFromBank = billMonth !== undefined || forecast !== null;
 	const installment =

@@ -26,6 +26,7 @@ import {
 	operationSignal,
 } from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
+import { inferClosingRule } from "./closing-rule.ts";
 import { chooseConnectionLabel } from "./connection-label.ts";
 import {
 	isPaymentNote,
@@ -523,6 +524,16 @@ async function syncConnection(
 				if (e instanceof PluggyError && (e.code === "auth" || e.code === "rate_limit")) throw e;
 				failedAccounts += 1;
 				result.notes.push(`Uma conta não sincronizou: ${safeErrorMessage(e)}`);
+			}
+		}
+		// Regra de fechamento de cada cartão, lida das faturas dele: o cartão que o banco fecha "incluindo" o dia do
+		// fechamento (e ainda está na regra padrão) passa a ela; sem evidência não muda nada. Só sobe de "next" para
+		// "included": o que o dono escolheu ou o padrão não é revertido por um dado ambíguo.
+		for (const { target, txs } of fetched) {
+			if (!target.card || target.card.closingRule !== "closing-day-next") continue;
+			const rule = inferClosingRule(txs, billsOf.get(target.pluggyId)?.bills ?? []);
+			if (rule === "closing-day-included") {
+				target.card = await deps.stores.cards.update(target.card.id, { closingRule: rule });
 			}
 		}
 		if (dropped > 0)

@@ -482,6 +482,8 @@ const mpCard: Json[] = [
 	}),
 	card("mc-04", "2026-10-05", "MERCADOLIVRE*MERCADOLIVRE", 173.74, "Shopping", null, "POSTED", {
 		billId: "bill-mp-a",
+		// Postada no dia do fechamento da bill-mp-a e dentro dela: a evidência de `closing-day-included` neste cartão.
+		post: "2026-10-05",
 		paymentType: "INSTALLMENT",
 		n: 10,
 		of: 21,
