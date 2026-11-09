@@ -6,6 +6,7 @@ import {
 	invoiceSourceLabel,
 	invoiceStateLabel,
 	invoiceStateTone,
+	invoiceStateWord,
 } from "./invoices-model.ts";
 
 describe("faturas: visão geral", () => {
@@ -24,6 +25,8 @@ describe("faturas: visão geral", () => {
 	});
 
 	it("diz de onde vem o total", () => {
+		expect(invoiceStateWord("closed")).toBe("Fechada");
+		expect(invoiceStateWord("overdue")).toBe("Vencida");
 		expect(invoiceSourceLabel("bank")).toBe("Total do banco");
 		expect(invoiceSourceLabel("ledger")).toBe("Total estimado pelo Órbita");
 	});

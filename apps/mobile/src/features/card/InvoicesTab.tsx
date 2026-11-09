@@ -1,7 +1,8 @@
+import { daysBetween } from "@orbita/core";
 import { spacing } from "@orbita/tokens";
 import { useMemo, useState } from "react";
 import { View } from "react-native";
-import { money } from "../../lib/format.ts";
+import { money, monthName } from "../../lib/format.ts";
 import { toLoadable } from "../../lib/loadable.ts";
 import { ErrorState, Segmented, Skeleton, Text } from "../../ui/index.ts";
 import { useCategories, useInvoice, useInvoicesOverview } from "../summary/queries.ts";
@@ -28,6 +29,13 @@ import { MonthChips } from "./MonthChips.tsx";
 import { PayInvoice } from "./PayInvoice.tsx";
 import { BigNumber, BleedRow, CardChip, Notice } from "./parts.tsx";
 import { useInvoiceTotals } from "./queries.ts";
+
+/** "em 4 dias", "amanhã", "hoje" (ou "venceu" se já passou). */
+function untilText(days: number): string {
+	if (days < 0) return "venceu";
+	if (days === 0) return "hoje";
+	return days === 1 ? "amanhã" : `em ${days} dias`;
+}
 
 /** Aba Faturas: cartão, total, mês, composição e lançamentos. */
 export function InvoicesTab({
@@ -92,11 +100,11 @@ export function InvoicesTab({
 			<View style={{ gap: spacing.lg }}>
 				{overview.phase === "ready" ? (
 					<BigNumber
-						label="Total em faturas"
+						label={`Total em faturas em ${monthName(today.slice(0, 7)).toLocaleLowerCase("pt-BR")}`}
 						value={money(overview.data.owedCents, hidden, { sign: "never" })}
 						caption={
 							overview.data.nextDueDate
-								? `Próximo vencimento em ${dueShort(overview.data.nextDueDate)}`
+								? `Próximo vencimento ${dueShort(overview.data.nextDueDate)} (${untilText(daysBetween(today, overview.data.nextDueDate))})`
 								: "Nenhuma fatura a pagar"
 						}
 					/>
@@ -106,8 +114,8 @@ export function InvoicesTab({
 						<Skeleton width="50%" height={14} />
 					</View>
 				) : null}
-				{chips}
 				{history}
+				{chips}
 				{overview.phase === "ready"
 					? overview.data.cards.map((line) => (
 							<InvoiceOverviewCard
@@ -118,6 +126,10 @@ export function InvoicesTab({
 							/>
 						))
 					: null}
+				{overview.phase === "ready" &&
+				overview.data.cards.some((l) => l.due.source === "ledger" || l.limit.source === "estimated") ? (
+					<Notice text="Alguns valores são estimados pelo Órbita." />
+				) : null}
 			</View>
 		);
 	}

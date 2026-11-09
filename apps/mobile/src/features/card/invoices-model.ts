@@ -26,6 +26,11 @@ export function invoiceStateLabel(line: { state: InvoiceStateLike; dueDate: Loca
 	}
 }
 
+/** Só a situação, para a pílula (a data de vencimento vai em outra linha). */
+export function invoiceStateWord(state: InvoiceStateLike): string {
+	return { paid: "Paga", closed: "Fechada", overdue: "Vencida", open: "Aberta" }[state];
+}
+
 /** `positive` só para fatura paga (o dinheiro já saiu); o resto é neutro e o texto diz tudo. */
 export function invoiceStateTone(state: InvoiceStateLike): "positive" | "primary" | "secondary" {
 	return state === "paid" ? "positive" : state === "open" ? "secondary" : "primary";

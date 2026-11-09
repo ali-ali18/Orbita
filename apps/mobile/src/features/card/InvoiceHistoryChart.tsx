@@ -25,7 +25,6 @@ export function InvoiceHistoryChart({ bars, hidden }: { bars: readonly HistoryBa
 				<View style={{ gap: 2 }}>
 					<Text variant="caption" tone="secondary">
 						Fatura de {monthName(selected.month).toLocaleLowerCase("pt-BR")}
-						{selected.open ? " · aberta, pode crescer" : ""}
 					</Text>
 					<Text variant="numberLarge" adjustsFontSizeToFit numberOfLines={1}>
 						{money(selected.cents, hidden, { sign: "never" })}
