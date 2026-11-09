@@ -78,7 +78,7 @@ export async function runDueAgents(deps: RunAgentsDeps): Promise<RunAgentsResult
 	const result: RunAgentsResult = { ran: 0, created: 0, worded: 0, failed: 0, actions: 0 };
 	if (due.length === 0) return result;
 
-	const port = await createFindingsPort(stores, deps.now);
+	let port = await createFindingsPort(stores, deps.now);
 	const models = resolveChatModels(deps.models, await stores.aiUsage.getModelChoice());
 	let clientPromise: Promise<ModelClient | null> | undefined;
 	// A chave só é aberta se alguém precisar de IA nesta passada; sem chave ou ilegível, é `null`.
@@ -113,6 +113,8 @@ export async function runDueAgents(deps: RunAgentsDeps): Promise<RunAgentsResult
 				// Primeiro age, no que o dono deixou (nível "Só avisar" não faz nada), e só depois avisa.
 				const acted = await runEconomyActions(stores, deps.now, agent, { reading: await port.savings() });
 				result.actions += acted.applied.length;
+				// O que o agente acabou de fazer muda o que se oferece (limite criado, assinatura cadastrada): lê de novo antes de avisar.
+				if (acted.applied.length > 0) port = await createFindingsPort(stores, deps.now);
 				if (acted.failed > 0) deps.log(`[agentes] ${agent.name}: ${acted.failed} ação(ões) falharam`);
 			}
 			if (agent.builtinKey !== null) {

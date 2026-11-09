@@ -148,6 +148,20 @@ describe("agente Economia no worker", () => {
 		});
 	});
 
+	it("depois de agir, o aviso não oferece mais o que o agente acabou de resolver (leitura refeita)", async () => {
+		const { cat } = await seed();
+		const agent = await economia({ autonomy: "reversible", maxActionsPerRun: 10 });
+		await runDueAgents(deps());
+		expect((await stores.budgets.list()).some((b) => b.scope === cat("lazer"))).toBe(true);
+		const alerts = await stores.agents.listAlerts({ agentId: agent.id });
+		const lazer = alerts.find(
+			(a) => a.kind === "savings_opportunity" && a.data.type === "category_above_average",
+		);
+		expect(lazer).toBeDefined();
+		// O limite já foi criado pelo agente: "Criar limite" não pode aparecer como pendência.
+		expect(lazer?.data.actions).toEqual(["ignore"]);
+	});
+
 	it("o teto de ações por execução vale", async () => {
 		await seed();
 		await economia({ autonomy: "reversible", maxActionsPerRun: 1 });
@@ -172,12 +186,19 @@ describe("agente Economia no worker", () => {
 		expect(result.ran).toBe(1);
 		expect(result.created).toBeGreaterThan(0);
 		expect(logs.join("\n")).toContain("falharam");
-		// A reserva foi solta: a próxima passada pode tentar de novo.
-		expect(
-			(await stores.agentActivity.keys((await stores.agents.list())[6]?.id as string)).has(
-				`categorize:${padaria.id}`,
-			),
-		).toBe(false);
+		// O registro NÃO some: fica em andamento, com o Desfazer, até a próxima passada resolver.
+		const economiaId = (await stores.agents.list()).find((x) => x.builtinKey === "economia")?.id as string;
+		const mine = (await stores.agentActivity.list({ agentId: economiaId })).find(
+			(x) => x.dedupeKey === `categorize:${padaria.id}`,
+		);
+		expect(mine?.status).toBe("applying");
+		// Próxima passada (banco são): nada tinha sido gravado, então refaz e conclui.
+		await stores.agents.markRun(economiaId, new Date("2026-10-01T00:00:00Z"));
+		await runDueAgents(deps());
+		const again = (await stores.agentActivity.list({ agentId: economiaId })).find(
+			(x) => x.dedupeKey === `categorize:${padaria.id}`,
+		);
+		expect(again?.status).toBe("done");
 	});
 
 	it("a IA só reescreve o texto: se trouxer número inventado, vale o texto-modelo", async () => {
