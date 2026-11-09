@@ -9,6 +9,7 @@ import { translate } from "./prisma-errors.ts";
 import { checkReferences } from "./prisma-references.ts";
 import { cleanMonth } from "./rules.ts";
 import {
+	adoptExternalData,
 	changedColumns,
 	checkRecentOptions,
 	checkTarget,
@@ -200,6 +201,38 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 				const raced = await find();
 				if (raced.found) return { created: false, transaction: raced.transaction };
 				throw translate(e, () => new DataError("duplicate", DUPLICATE_INSTALLMENT_MESSAGE));
+			}
+		},
+
+		async adoptExternal(id, source, externalId, patch) {
+			try {
+				return await db.$transaction(async (tx) => {
+					const locked = await tx.$queryRaw<Array<{ id: string }>>`
+						SELECT id FROM transactions WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`;
+					if (locked.length === 0) return null;
+					const row = await tx.transaction.findFirst({ where: { id, deletedAt: null } });
+					if (!row || row.source === source) return null;
+					const before = dataOf(toRecord(row));
+					const data = adoptExternalData(before, source, externalId, patch);
+					const taken = await tx.transaction.findUnique({
+						where: { source_externalId: { source, externalId: data.externalId as string } },
+						select: { id: true },
+					});
+					if (taken) return null;
+					await checkReferences(tx, refsOf(data), refsOf(before));
+					const changed = changedColumns(before, data);
+					return toRecord(
+						await tx.transaction.update({
+							where: { id },
+							data: { ...toColumns(changed), updatedAt: now() },
+						}),
+					);
+				});
+			} catch (e) {
+				// Corrida: outra rodada tomou o identificador entre a checagem e a gravação.
+				const t = translate(e, duplicateExternal);
+				if (t instanceof DataError && t.code === "duplicate") return null;
+				throw t;
 			}
 		},
 
