@@ -8,7 +8,7 @@ import { Icon, type IconName } from "./icons.tsx";
 
 /**
  * Disco de uma loja ou serviço: o logo do banco, o glifo da marca sobre a cor dela ou, sem marca reconhecida (ou sem
- * glifo livre), o ícone. Sem marca o disco é `surface2` e o ícone é o da categoria; marca sem glifo (Amazon, Claro…)
+ * glifo livre), o ícone. Sem marca o disco é `surface2` e o ícone é o da categoria; marca sem glifo (Claro, TIM…)
  * mantém a cor da marca com um ícone genérico. Nunca mostra letra.
  */
 export function StoreDisc({
