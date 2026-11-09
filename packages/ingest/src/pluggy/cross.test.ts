@@ -59,7 +59,7 @@ const santCard = {
 	itemId: ITEM_SANT,
 	name: "FREE VISA",
 	marketingName: "FREE VISA",
-	number: "4000 **** **** 3143",
+	number: "4000 **** **** 5512",
 	owner: OWNER,
 	creditData: {
 		...cardAccount.creditData,

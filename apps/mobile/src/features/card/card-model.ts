@@ -52,12 +52,12 @@ export function activeCards<T extends Pick<CardLike, "archivedAt">>(cards: reado
 	return cards.filter((c) => c.archivedAt === null);
 }
 
-/** "•••• 3143", ou o nome quando o banco não mandou os 4 últimos dígitos. */
+/** "•••• 5512", ou o nome quando o banco não mandou os 4 últimos dígitos. */
 export function cardLabel(card: Pick<CardLike, "name" | "last4">): string {
 	return card.last4 ? `•••• ${card.last4}` : card.name;
 }
 
-/** "Santander Free Visa · final 3143" para leitor de tela. */
+/** "Santander Free Visa · final 5512" para leitor de tela. */
 export function cardSpokenName(card: Pick<CardLike, "name" | "last4">): string {
 	return card.last4 ? `${card.name}, final ${card.last4}` : card.name;
 }

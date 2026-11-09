@@ -304,7 +304,7 @@ O Pluggy manda uma parcela por fatura, cada uma com id próprio, e **as parcelas
 
 ## Nome do cartão
 
-O cartão do Pluggy muitas vezes chega só com "G" ou com bandeira/nível ("Mastercard Gold"). `detectBankName` acha o banco: conector (se não for "MeuPluggy"), senão o banco citado em alguma conta da conexão ("Conta Corrente Inter" → Inter; o banco citado no próprio cartão vale mais), senão o primeiro nome do rótulo da conexão (se não parecer nome de conta). `cardDisplayName`: nome **fraco** (≤ 2 letras ou só bandeira/nível) vira o nome do banco ("Nubank", o app mostra "Nubank •••• 9697"); nome bom que não cita o banco ganha o prefixo ("Nubank Ultravioleta"); sem banco detectado, fica como veio. O sync também troca o nome de um cartão **já existente** se o nome atual é fraco e o novo não é (nome bom que o dono escolheu nunca é mexido).
+O cartão do Pluggy muitas vezes chega só com "G" ou com bandeira/nível ("Mastercard Gold"). `detectBankName` acha o banco: conector (se não for "MeuPluggy"), senão o banco citado em alguma conta da conexão ("Conta Corrente Inter" → Inter; o banco citado no próprio cartão vale mais), senão o primeiro nome do rótulo da conexão (se não parecer nome de conta). `cardDisplayName`: nome **fraco** (≤ 2 letras ou só bandeira/nível) vira o nome do banco ("Nubank", o app mostra "Nubank •••• 7390"); nome bom que não cita o banco ganha o prefixo ("Nubank Ultravioleta"); sem banco detectado, fica como veio. O sync também troca o nome de um cartão **já existente** se o nome atual é fraco e o novo não é (nome bom que o dono escolheu nunca é mexido).
 
 ## Reimportar do zero
 

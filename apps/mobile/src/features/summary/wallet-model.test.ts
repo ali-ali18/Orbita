@@ -82,7 +82,7 @@ describe("textos", () => {
 		expect(longDate("2026-11-13")).toBe("13 de novembro");
 		expect(nextDueText("2026-11-13")).toBe("Próximo vencimento: 13 de novembro");
 		expect(nextDueText(null)).toBe("Nenhuma fatura a vencer");
-		expect(bandRight({ last4: "3143" })).toBe("•••• 3143");
+		expect(bandRight({ last4: "5512" })).toBe("•••• 5512");
 		expect(bandRight({ last4: null })).toBe("");
 	});
 	it("'Vence dd/mm R$ X' com paga, falta ou nada", () => {

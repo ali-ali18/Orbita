@@ -16,7 +16,7 @@ const freeVisa = {
 	...cardAccount,
 	name: "FREE VISA",
 	marketingName: "FREE VISA",
-	number: "4000 **** **** 3143",
+	number: "4000 **** **** 5512",
 };
 
 async function run(connectorName: string, existingCardName?: string) {
