@@ -1,7 +1,7 @@
 import { formatBRL } from "@orbita/core";
 import {
 	DEFAULT_PLAN_RESERVE_PERCENT,
-	normalizeMerchantName,
+	friendlyMerchantName,
 	SETUP_NAME_MAX,
 	type SetupAnalysis,
 	type SetupProposal,
@@ -58,6 +58,8 @@ export const analyzeHistoryTool = defineTool({
 					key: r.key,
 					// Texto do banco: dado, nunca instrução.
 					merchant: untrusted(r.merchant, CLEAN_MERCHANT_MAX),
+					// O nome do app: use este ao falar da assinatura, não o texto do banco.
+					displayName: untrusted(r.displayName, CLEAN_MERCHANT_MAX),
 					amount: money(r.amountCents),
 					dayOfMonth: r.dayOfMonth,
 					occurrences: r.occurrences,
@@ -292,20 +294,23 @@ export const proposeSetup = defineTool({
 
 // ------------------------------------------------------- sem IA (modelo de texto)
 
-const LOWER_WORDS = new Set(["de", "da", "do", "das", "dos", "e", "a", "o"]);
-
 /**
- * Nome do estabelecimento "limpo" para quando não há IA: sem prefixo de banco, sem código e com iniciais maiúsculas
- * ("UNIP*MENSALIDADE 0423" → "Unip Mensalidade"). Serviço conhecido usa o nome dele ("NETFLIX.COM" → "Netflix").
+ * Nome para quando não há IA: o nome amigável que a análise já trouxe ("YouTube", "ChatGPT (Google Play)", "Pierre"),
+ * senão o serviço conhecido ("NETFLIX.COM" → "Netflix"), senão o estabelecimento limpo (sem prefixo de banco nem
+ * código, com iniciais maiúsculas: "UNIP*MENSALIDADE 0423" → "Unip Mensalidade").
  */
-export function templateName(merchant: string, knownService: string | null): string {
+export function templateName(
+	merchant: string,
+	knownService: string | null,
+	displayName?: string | null,
+): string {
+	if (displayName) return untrusted(displayName, SETUP_NAME_MAX);
 	if (knownService) return knownService;
-	const words = normalizeMerchantName(merchant).split(" ").filter(Boolean);
-	if (words.length === 0) return untrusted(merchant, SETUP_NAME_MAX) || "Assinatura";
-	const titled = words.map((w, i) =>
-		i > 0 && LOWER_WORDS.has(w) ? w : `${w.charAt(0).toLocaleUpperCase("pt-BR")}${w.slice(1)}`,
+	return (
+		untrusted(friendlyMerchantName(merchant), SETUP_NAME_MAX) ||
+		untrusted(merchant, SETUP_NAME_MAX) ||
+		"Assinatura"
 	);
-	return untrusted(titled.join(" "), SETUP_NAME_MAX);
 }
 
 /**
@@ -321,7 +326,7 @@ export function templateSetupProposal(analysis: SetupAnalysis, catalog: Catalog)
 		.filter((r) => !r.registered)
 		.map((r) => ({
 			key: r.key,
-			name: templateName(r.merchant, r.knownService),
+			name: templateName(r.merchant, r.knownService, r.displayName),
 			categoryId: valid(r.categoryId) ?? fallback,
 			merchant: untrusted(r.merchant, CLEAN_MERCHANT_MAX),
 			amountCents: r.amountCents,
