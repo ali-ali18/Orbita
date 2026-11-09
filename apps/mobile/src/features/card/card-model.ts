@@ -484,34 +484,6 @@ export interface LimitRow {
 	usedCents: Cents;
 }
 
-/**
- * O que o cartão "usa" do limite, estimado só com o que o app sabe: a(s) fatura(s) que ainda não venceram
- * (a fechada para pagar e a aberta) mais as parcelas que caem depois da fatura aberta. O banco não manda o
- * limite disponível, e o engine não acompanha pagamento, por isso a tela chama de estimativa.
- */
-export function usedLimitCents(
-	invoiceTotals: readonly Cents[],
-	groups: readonly InstallmentGroupLike[],
-	cardId: string,
-	openMonth: MonthKey,
-): Cents {
-	let used = invoiceTotals.reduce((s, c) => s + c, 0);
-	for (const g of activeGroups(groups)) {
-		if (g.cardId !== cardId) continue;
-		for (const t of g.installments) {
-			if (t.invoiceMonth !== null && t.invoiceMonth > openMonth) used += t.amountCents;
-		}
-	}
-	return Math.max(0, used);
-}
-
-/** Meses de fatura que entram no "usado": a fechada para pagar (se houver) e a aberta, sem repetir. */
-export function usageMonths(card: CardLike, today: LocalDate): MonthKey[] {
-	const open = openInvoiceMonth(card, today);
-	const first = defaultInvoiceMonth(card, today);
-	return first === open ? [open] : [first, open];
-}
-
 export interface LimitsOverview {
 	/** Soma só dos cartões que têm limite. */
 	totalLimitCents: Cents;
