@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { call } from "../../lib/api.ts";
 import { useSession } from "../../lib/session.tsx";
+import { useAgents } from "../agents/queries.ts";
 import { modelLabel } from "../settings/ai-model.ts";
 import { useAiSettings } from "../settings/ai-queries.ts";
 import { useProfile } from "../settings/preferences-queries.ts";
@@ -12,9 +13,10 @@ import { pickAttachment } from "./attach-native.ts";
 import { type AttachKind, type PendingAttachment, userBubbleText } from "./attachment-model.ts";
 import { ChatHistorySheet } from "./ChatHistorySheet.tsx";
 import { ChatView, type ProposalAction } from "./ChatView.tsx";
+import { chatAgentView } from "./chat-agent-model.ts";
 import { streamChat } from "./chat-client.ts";
 import { chatFetch } from "./chat-fetch.ts";
-import { chatReducer, initialChatState } from "./chat-model.ts";
+import { chatReducer, chatStateFor } from "./chat-model.ts";
 import { isAffectedBySetup } from "./setup-card-model.ts";
 
 /**
@@ -41,7 +43,12 @@ export function ChatScreen() {
 	const { api, baseUrl, state: session, handleQueryError } = useSession();
 	const queryClient = useQueryClient();
 	const aiQ = useAiSettings();
-	const [state, dispatch] = useReducer(chatReducer, initialChatState);
+	// O agente do pedido (rota) só vale para a conversa nova; ao abrir uma conversa antiga vale o dela (`loaded`).
+	const [state, dispatch] = useReducer(chatReducer, agentId, (id) =>
+		chatStateFor(typeof id === "string" && id ? id : null),
+	);
+	const agentsQ = useAgents();
+	const agent = chatAgentView(state.agentId, agentsQ.data?.agents);
 	const [historyOpen, setHistoryOpen] = useState(false);
 	const [busyProposalId, setBusyProposalId] = useState<string | null>(null);
 	const counter = useRef(0);
@@ -103,8 +110,12 @@ export function ChatScreen() {
 		await stream(userBubbleText(text, files.length), {
 			...(text ? { message: text } : {}),
 			...(files.length > 0 ? { attachments: files } : {}),
-			...(typeof agentId === "string" && agentId ? { agentId } : {}),
-			...(stateRef.current.conversationId ? { conversationId: stateRef.current.conversationId } : {}),
+			// Conversa que já existe fica com o agente dela (o servidor também confere); a nova nasce com o escolhido.
+			...(stateRef.current.conversationId
+				? { conversationId: stateRef.current.conversationId }
+				: stateRef.current.agentId
+					? { agentId: stateRef.current.agentId }
+					: {}),
 		});
 	};
 
@@ -166,7 +177,12 @@ export function ChatScreen() {
 		try {
 			const loaded = await call(() => api.v1.chat.conversations[":id"].$get({ param: { id } }));
 			controller.current?.abort();
-			dispatch({ type: "loaded", conversationId: loaded.conversation.id, messages: loaded.messages });
+			dispatch({
+				type: "loaded",
+				conversationId: loaded.conversation.id,
+				agentId: loaded.conversation.agentId,
+				messages: loaded.messages,
+			});
 		} catch (error) {
 			handleQueryError(error);
 			dispatch({
@@ -212,9 +228,11 @@ export function ChatScreen() {
 				onOpenServer={() => router.push("/configuracoes/servidor")}
 				displayName={profileQ.data?.displayName ?? null}
 				modelName={state.model ? modelLabel(aiQ.data?.modelOptions ?? [], state.model) : null}
+				agent={agent}
 			/>
 			<ChatHistorySheet
 				visible={historyOpen}
+				agents={agentsQ.data?.agents ?? []}
 				onClose={() => setHistoryOpen(false)}
 				onNew={() => {
 					controller.current?.abort();

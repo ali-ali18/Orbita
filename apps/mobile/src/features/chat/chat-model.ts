@@ -30,16 +30,33 @@ export interface ChatState {
 	busy: boolean;
 	/** Modelo que respondeu (ou está respondendo) o último turno; `null` antes da primeira resposta. */
 	model: string | null;
+	/** Agente da conversa (o do pedido numa conversa nova, o da conversa aberta numa antiga); `null` = a Órbita. */
+	agentId: string | null;
 }
 
-export const initialChatState: ChatState = { conversationId: null, bubbles: [], busy: false, model: null };
+export const initialChatState: ChatState = {
+	conversationId: null,
+	bubbles: [],
+	busy: false,
+	model: null,
+	agentId: null,
+};
+
+/** Estado de uma conversa nova com este agente (`null` = a Órbita). */
+export const chatStateFor = (agentId: string | null): ChatState => ({ ...initialChatState, agentId });
 
 export type ChatAction =
 	| { type: "sent"; text: string; userId: string; assistantId: string }
 	| { type: "event"; event: ChatEvent }
 	| { type: "failed"; id: string; code: string; message: string }
 	| { type: "reset" }
-	| { type: "loaded"; conversationId: string; messages: readonly ChatMessageDto[] }
+	| {
+			type: "loaded";
+			conversationId: string;
+			/** Agente com quem a conversa foi aberta; retomar mantém o agente. */
+			agentId: string | null;
+			messages: readonly ChatMessageDto[];
+	  }
 	| { type: "proposal"; proposal: ProposalDto }
 	| { type: "local"; id: string; userText: string; replyText: string }
 	| { type: "notice"; id: string; text: string };
@@ -137,11 +154,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 					noticeFor(action.id, action.code, action.message),
 				],
 			};
+		// Nova conversa: do mesmo agente (quem abriu o chat pelo Vigia segue falando com o Vigia).
 		case "reset":
-			return initialChatState;
+			return chatStateFor(state.agentId);
 		case "loaded":
 			return {
 				conversationId: action.conversationId,
+				agentId: action.agentId,
 				busy: false,
 				model: null,
 				bubbles: action.messages.map(
