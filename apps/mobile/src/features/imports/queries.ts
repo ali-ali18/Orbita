@@ -6,6 +6,7 @@ import { call } from "../../lib/api.ts";
 import { useSession } from "../../lib/session.tsx";
 import { isAffectedByNewTransaction } from "../transactions/new-transaction-model.ts";
 import { type ImportTarget, targetFields } from "./import-model.ts";
+import { sendRetryingOnce } from "./send-retry.ts";
 
 export interface ImportRequest {
 	file: DocumentPickerAsset;
@@ -44,12 +45,15 @@ function useSender() {
 	if (state.status !== "in") throw new Error("Importação sem sessão");
 	return <T>(path: string, request: ImportRequest): Promise<T> =>
 		call(() =>
-			fetch(`${state.baseUrl}${path}`, {
-				method: "POST",
-				// Sem Content-Type: o fetch coloca o `multipart/form-data` com o limite certo.
-				headers: { Authorization: `Bearer ${state.token}` },
-				body: buildForm(request),
-			}),
+			// Cada tentativa monta o formulário de novo: o corpo com arquivo só pode ser enviado uma vez.
+			sendRetryingOnce(() =>
+				fetch(`${state.baseUrl}${path}`, {
+					method: "POST",
+					// Sem Content-Type: o fetch coloca o `multipart/form-data` com o limite certo.
+					headers: { Authorization: `Bearer ${state.token}` },
+					body: buildForm(request),
+				}),
+			),
 		) as Promise<T>;
 }
 
