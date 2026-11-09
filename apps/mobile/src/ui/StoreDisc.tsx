@@ -1,4 +1,4 @@
-import { banks, brandDiscs, colors, radius } from "@orbita/tokens";
+import { banks, brandDiscs, colors, contrastRatio, radius } from "@orbita/tokens";
 import { View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import type { Brand } from "../lib/brands.ts";
@@ -7,7 +7,7 @@ import { brandGlyphs } from "./brand-glyphs.ts";
 import { Icon, type IconName } from "./icons.tsx";
 
 /**
- * Disco de uma loja ou serviço: o logo do banco, o glifo da marca sobre a cor dela ou, sem marca reconhecida (ou sem
+ * Disco de uma loja ou serviço: o logo do banco, o glifo da marca sobre o fundo do ícone de app dela ou, sem marca reconhecida (ou sem
  * glifo livre), o ícone. Sem marca o disco é `surface2` e o ícone é o da categoria; marca sem glifo (Claro, TIM…)
  * mantém a cor da marca com um ícone genérico. Nunca mostra letra.
  */
@@ -27,6 +27,8 @@ export function StoreDisc({
 	const brandColors = brand ? brandDiscs[brand.id] : undefined;
 	const glyph = brand ? brandGlyphs[brand.id] : undefined;
 	const glyphColor = brandColors?.glyph ?? colors.text;
+	// Disco escuro (ícone preto da marca) some no fundo do app: borda sutil.
+	const dark = brandColors ? contrastRatio(brandColors.disc, colors.background) < 1.5 : false;
 	return (
 		<View
 			accessibilityElementsHidden
@@ -38,6 +40,7 @@ export function StoreDisc({
 				backgroundColor: brandColors?.disc ?? colors.surface2,
 				alignItems: "center",
 				justifyContent: "center",
+				...(dark ? { borderWidth: 1, borderColor: colors.border } : null),
 			}}
 		>
 			{glyph ? (
