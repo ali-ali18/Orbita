@@ -437,6 +437,37 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect((await tx.get(a.transaction?.id ?? ""))?.categoryEditedByOwner).toBe(true);
 		});
 
+		it("editedByOwner nasce desligada, liga só pelo update e vale também para as partes de uma divisão", async () => {
+			const a = await tx.upsertByExternal("pluggy", "own-1", incoming({ status: "confirmed" }));
+			expect(a.transaction?.editedByOwner).toBe(false);
+			// Não nasce ligada nem por um create comum.
+			expect((await tx.create(expense())).editedByOwner).toBe(false);
+			const id = a.transaction?.id ?? "";
+			// O upsert repetido do sync nunca a apaga.
+			await tx.update(id, { editedByOwner: true, kind: "income" });
+			expect((await tx.get(id))?.editedByOwner).toBe(true);
+			const again = await tx.upsertByExternal("pluggy", "own-1", incoming({ status: "confirmed" }));
+			expect(again.created).toBe(false);
+			expect(again.transaction?.editedByOwner).toBe(true);
+			// Não confunde com a marca da categoria.
+			expect((await tx.get(id))?.categoryEditedByOwner).toBe(false);
+			// Desligar (desfazer a confirmação) também é pelo update.
+			await tx.update(id, { editedByOwner: false });
+			expect((await tx.get(id))?.editedByOwner).toBe(false);
+
+			const whole = await tx.create(expense({ amountCents: 1000 }));
+			const parts = await tx.splitTransaction(whole.id, [{ amountCents: 400 }, { amountCents: 600 }]);
+			expect(parts.every((p) => p.editedByOwner)).toBe(true);
+		});
+
+		it("resgate (redemption) vale só em conta, como a aplicação", async () => {
+			const ok = await tx.create({ ...expense(), kind: "redemption" });
+			expect(ok.kind).toBe("redemption");
+			await expect(tx.create({ ...cardPurchase(), kind: "redemption" })).rejects.toMatchObject({
+				code: "invalid",
+			});
+		});
+
 		describe("upsertInstallmentByExternal", () => {
 			const parcel = (number: number) =>
 				tx.upsertInstallmentByExternal(

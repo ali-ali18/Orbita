@@ -64,6 +64,7 @@ const KIND_LABEL = {
 	card_payment: "Pagamento de fatura",
 	refund: "Estorno",
 	investment: "Aplicação",
+	redemption: "Resgate",
 } as const;
 
 const STATUS_LABEL = { pending: "Para revisar", confirmed: "Confirmado" } as const;

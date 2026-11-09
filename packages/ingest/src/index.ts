@@ -7,6 +7,7 @@ export {
 	type PluggyFetch,
 } from "./pluggy/client.ts";
 export { PluggyError, type PluggyErrorCode } from "./pluggy/errors.ts";
+export { PAYMENT_REVIEW_NOTE } from "./pluggy/mapping.ts";
 export type { PluggyAccount, PluggyItem, PluggyTransaction } from "./pluggy/schemas.ts";
 export {
 	PLUGGY_DAILY_JOB,

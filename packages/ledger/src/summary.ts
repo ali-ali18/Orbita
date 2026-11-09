@@ -30,7 +30,7 @@ import {
 	toCardConfig,
 	toMonthlyRecurrence,
 } from "@orbita/db";
-import { suggestSpendingSlug } from "@orbita/ingest";
+import { PAYMENT_REVIEW_NOTE, suggestSpendingSlug } from "@orbita/ingest";
 import type { MonthSummaryResponse, SpendingBranch, SpendingBreakdownResponse } from "@orbita/shared";
 
 /** Item que não existe: o mesmo erro de dados que as stores lançam (a API o traduz em 404). */
@@ -105,6 +105,19 @@ export async function refundOriginalsOutside(stores: Stores, txs: readonly Trans
 }
 
 /**
+ * Pagamento de fatura que o banco mandou e o Órbita não soube ligar a um cartão (pendente, com a nota de revisão): pode
+ * ser a fatura de um cartão que já está no gasto, então ficaria contado duas vezes. Fora do gasto até o dono
+ * confirmar (aí vira despesa) ou ligar ao cartão (aí vira pagamento de fatura). Qualquer outro pendente
+ * (notificação do banco, possível duplicata) continua contando.
+ */
+export const isPaymentUnderReview = (t: Pick<TransactionRecord, "status" | "note" | "kind">) =>
+	t.kind === "expense" && t.status === "pending" && t.note === PAYMENT_REVIEW_NOTE;
+
+/** O lançamento entra no "Gasto do mês"? (Tudo que `loadSpendingMonth` devolve passa por aqui.) */
+export const countsAsSpending = (t: Pick<TransactionRecord, "status" | "note" | "kind">) =>
+	!isPaymentUnderReview(t);
+
+/**
  * O conjunto do "Gasto do mês", o mesmo para o Início, o relatório, a sugestão de orçamento, as ferramentas da IA e os
  * avisos: tudo pela DATA da compra (`budgetMonth`, competência). Compra no cartão pesa no mês em que foi feita e cada
  * parcela no seu (mês da compra + n − 1); a fatura é outra visão (`invoicesOverview`). Nada estimado entra aqui.
@@ -114,7 +127,7 @@ export function loadSpendingMonth(
 	month: MonthKey,
 	_today?: LocalDate,
 ): Promise<TransactionRecord[]> {
-	return stores.transactions.listByBudgetMonth(month);
+	return stores.transactions.listByBudgetMonth(month).then((rows) => rows.filter(countsAsSpending));
 }
 
 /**
@@ -145,7 +158,8 @@ export async function plannedInstallments(
 
 /**
  * Início: tudo calculado pelo engine. Lançamento pendente (ainda sem revisão) conta no gasto:
- * a notificação do banco já avisou que o dinheiro saiu.
+ * a notificação do banco já avisou que o dinheiro saiu. A exceção é o pagamento de fatura em revisão
+ * (`isPaymentUnderReview`), que pode ser a fatura de um cartão já contado e fica de fora até o dono revisar.
  */
 export async function monthSummary(
 	stores: Stores,
@@ -347,6 +361,7 @@ function projectedRows(
 		sourceCategory: null,
 		merchantName: null,
 		categoryEditedByOwner: false,
+		editedByOwner: false,
 		splitGroupId: null,
 		createdAt: EPOCH,
 		updatedAt: EPOCH,

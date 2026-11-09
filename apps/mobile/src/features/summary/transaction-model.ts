@@ -3,7 +3,7 @@ import { relativeDate } from "../../lib/format.ts";
 import type { IconName } from "../../ui/index.ts";
 
 export interface TransactionLike {
-	kind: "expense" | "income" | "transfer" | "card_payment" | "refund" | "investment";
+	kind: "expense" | "income" | "transfer" | "card_payment" | "refund" | "investment" | "redemption";
 	amountCents: Cents;
 	date: LocalDate;
 	accountId: string | null;
@@ -31,6 +31,7 @@ export function amountTone(kind: TransactionLike["kind"]): "positive" | "primary
 			return "positive";
 		case "transfer":
 		case "investment":
+		case "redemption":
 			return "secondary";
 		case "expense":
 			return "primary";
@@ -75,6 +76,7 @@ export function transactionIcon(kind: TransactionLike["kind"], categorySlug: str
 	switch (kind) {
 		case "income":
 		case "investment":
+		case "redemption":
 			return "grafico";
 		case "transfer":
 			return "pix";

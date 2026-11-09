@@ -67,7 +67,8 @@ export function transactionInvariantError(t: TransactionShape): string | null {
 			if (hasCard) return "Transferência não usa cartão.";
 			break;
 		case "investment":
-			// Aplicação: o dinheiro sai de uma CONTA para investimento. Não é gasto e não passa pelo cartão.
+		case "redemption":
+			// Aplicação (ou resgate): o dinheiro sai de uma CONTA para investimento. Não é gasto e não passa pelo cartão.
 			if (hasCard) return INVESTMENT_ON_CARD_MESSAGE;
 			if (!hasAccount) return "A aplicação precisa de uma conta.";
 			if (hasCounterpart) return "A conta de destino só vale para transferência.";

@@ -45,6 +45,7 @@ export {
 	activeInstallments,
 	cardInvoice,
 	categoryForSummary,
+	countsAsSpending,
 	monthSummary,
 	refundOriginalsOutside,
 	spendingBreakdown,

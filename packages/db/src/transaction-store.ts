@@ -31,6 +31,11 @@ export interface TransactionData {
 	merchantName: string | null;
 	/** O dono trocou a categoria à mão (PATCH): regras novas não reclassificam. */
 	categoryEditedByOwner: boolean;
+	/**
+	 * O dono mexeu no que o lançamento É (tipo, data, valor, conta ou cartão) ou revisou um pendente: a sincronização e o
+	 * pareamento nunca reclassificam nem reescrevem este lançamento. Só liga pelo `update` (a API liga no PATCH).
+	 */
+	editedByOwner: boolean;
 	/** Id das partes de uma compra dividida (todas as partes, e as partes de uma parte, compartilham o mesmo). */
 	splitGroupId: string | null;
 }
