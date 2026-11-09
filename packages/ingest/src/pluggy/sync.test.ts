@@ -162,6 +162,7 @@ describe("syncPluggy", () => {
 			created: 7,
 			skipped: { pending: 1, card_payment: 1, refund_without_original: 1 },
 		});
+		expect(connection).toMatchObject({ historyFrom: "2026-05-13" });
 	});
 
 	it("rodar de novo não duplica nada", async () => {
@@ -176,13 +177,13 @@ describe("syncPluggy", () => {
 		expect(second.connections[0]).toMatchObject({ created: 0, existing: 7, status: "ok" });
 	});
 
-	it("busca os 4 meses anteriores, também na sincronização seguinte", async () => {
+	it("busca 6 meses na primeira vez e 4 meses nas sincronizações seguintes", async () => {
 		await t.run();
 		const from = () =>
 			t.fake.requests
 				.filter((r) => r.url.pathname === "/v2/transactions")
 				.map((r) => r.url.searchParams.get("dateFrom"));
-		expect(from()).toEqual(["2026-07-13", "2026-07-13"]);
+		expect(from()).toEqual(["2026-05-13", "2026-05-13"]);
 		expect(
 			t.fake.requests.find((r) => r.url.pathname === "/v2/transactions")?.url.searchParams.get("dateTo"),
 		).toBe("2026-11-12");
@@ -191,6 +192,74 @@ describe("syncPluggy", () => {
 		t.setNow(new Date("2026-11-13T09:00:00Z"));
 		await t.run();
 		expect(from()).toEqual(["2026-07-14", "2026-07-14"]);
+	});
+
+	describe("histórico de 6 meses", () => {
+		const dateFroms = () =>
+			t.fake.requests
+				.filter((r) => r.url.pathname === "/v2/transactions")
+				.map((r) => r.url.searchParams.get("dateFrom"));
+
+		it("conexão antiga que nunca buscou os 6 meses busca uma vez e registra; depois volta à janela normal", async () => {
+			// Conexão criada na época dos 4 meses: já sincronizou, sem registro de histórico.
+			await t.stores.pluggyConnections.recordSync(ITEM_ID, {
+				status: "ok",
+				syncedAt: new Date("2026-11-11T09:00:00Z"),
+			});
+			expect(await t.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({ historyFrom: null });
+
+			await t.run();
+			expect(dateFroms()).toEqual(["2026-05-13", "2026-05-13"]);
+			expect(await t.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({ historyFrom: "2026-05-13" });
+			const before = await everything(t.stores);
+
+			t.fake.requests.length = 0;
+			const again = await t.run();
+			expect(dateFroms()).toEqual(["2026-07-13", "2026-07-13"]);
+			// Idempotente: o backfill não duplicou nada.
+			expect(await everything(t.stores)).toEqual(before);
+			expect(again.connections[0]).toMatchObject({ created: 0 });
+		});
+
+		it("backfill que não terminou ok se repete na rodada seguinte", async () => {
+			let status = "UPDATING";
+			const t2 = setup({ item: () => ({ status }) });
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			await t2.stores.pluggyConnections.recordSync(ITEM_ID, {
+				status: "ok",
+				syncedAt: new Date("2026-11-11T09:00:00Z"),
+			});
+			await t2.run();
+			expect(await t2.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({
+				lastStatus: "partial",
+				historyFrom: null,
+			});
+			status = "UPDATED";
+			t2.fake.requests.length = 0;
+			await t2.run();
+			const froms = t2.fake.requests
+				.filter((r) => r.url.pathname === "/v2/transactions")
+				.map((r) => r.url.searchParams.get("dateFrom"));
+			expect(froms).toEqual(["2026-05-13", "2026-05-13"]);
+			expect(await t2.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({ historyFrom: "2026-05-13" });
+		});
+
+		it("os lançamentos antigos que só o histórico novo traz entram sem duplicar os que já havia", async () => {
+			const old = tx("b-old", { description: "Aluguel", amount: -900, date: "2026-06-05T00:00:00.000Z" });
+			bankTxs.push(old);
+			try {
+				await t.stores.pluggyConnections.recordSync(ITEM_ID, {
+					status: "ok",
+					syncedAt: new Date("2026-11-11T09:00:00Z"),
+				});
+				await t.run();
+				const rows = await everything(t.stores);
+				expect(rows.filter((r) => r.externalId === "b-old")).toHaveLength(1);
+				expect(rows.filter((r) => r.externalId === "b-1")).toHaveLength(1);
+			} finally {
+				bankTxs.pop();
+			}
+		});
 	});
 
 	it("o lançamento que o dono apagou não volta", async () => {

@@ -3,7 +3,12 @@ import type { Db } from "./client.ts";
 import { DataError } from "./errors.ts";
 import type { Clock } from "./memory-state.ts";
 import { PLUGGY_CONNECTION_TAKEN_MESSAGE } from "./messages.ts";
-import { normalizeConnection, normalizeLabel, normalizeSyncResult } from "./pluggy-connection-rules.ts";
+import {
+	normalizeConnection,
+	normalizeLabel,
+	normalizeSyncResult,
+	olderDay,
+} from "./pluggy-connection-rules.ts";
 import type { PluggyConnectionRecord, PluggyConnectionStore } from "./pluggy-connection-store.ts";
 import { isRecordMissing, translate } from "./prisma-errors.ts";
 
@@ -39,6 +44,8 @@ export function createPrismaPluggyConnectionStore(db: Db, now: Clock): PluggyCon
 		async recordSync(id, result) {
 			const { status, error, syncedAt, counts } = normalizeSyncResult(result);
 			try {
+				const current = syncedAt ? await db.pluggyConnection.findUnique({ where: { id } }) : null;
+				const historyFrom = syncedAt ? olderDay(current?.historyFrom, result.historyFrom) : null;
 				return toRecord(
 					await db.pluggyConnection.update({
 						where: { id },
@@ -46,6 +53,7 @@ export function createPrismaPluggyConnectionStore(db: Db, now: Clock): PluggyCon
 							lastStatus: status,
 							lastError: error,
 							...(syncedAt ? { lastSyncAt: syncedAt } : {}),
+							...(historyFrom !== null ? { historyFrom } : {}),
 							...(counts ?? {}),
 						},
 					}),

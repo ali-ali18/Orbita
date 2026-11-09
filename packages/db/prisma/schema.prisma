@@ -391,6 +391,8 @@ model PluggyConnection {
   createdAt          DateTime  @default(now()) @map("created_at")
   /// Início da última sincronização que terminou sem erro (a próxima janela parte daqui).
   lastSyncAt         DateTime? @map("last_sync_at")
+  /// Dia mais antigo (AAAA-MM-DD) que alguma sincronização boa já buscou. Nulo = nunca buscou os 6 meses: a próxima busca o histórico inteiro uma vez.
+  historyFrom        String?   @map("history_from")
   /// "ok" | "partial" | "error" | "no_keys".
   lastStatus         String?   @map("last_status")
   /// Mensagem já sanitizada (sem segredo).

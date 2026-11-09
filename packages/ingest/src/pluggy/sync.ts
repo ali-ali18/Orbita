@@ -62,10 +62,12 @@ export const PLUGGY_MANUAL_JOB = "pluggy-agora";
 export const PLUGGY_MANUAL_JOB_ID = "pluggy-agora";
 
 /**
- * Quantos dias para trás a sincronização sempre olha: 4 meses. Parcelas e o relatório delas precisam das
- * faturas anteriores, não só do que entrou desde a última rodada.
+ * Quantos dias para trás a primeira sincronização de uma conexão olha: 6 meses (e o backfill único das conexões
+ * que nunca buscaram tanto: ver `syncWindowStart`).
  */
-export const FIRST_SYNC_DAYS = 122;
+export const FIRST_SYNC_DAYS = 183;
+/** Nas rodadas seguintes, a janela nunca é menor que 4 meses (parcelas e faturas anteriores). */
+export const ROUTINE_SYNC_DAYS = 122;
 /**
  * Depois: recomeça tantos dias antes da última sincronização boa. Lançamento de cartão pode levar semanas para
  * efetivar (aparece na fatura com a data da compra); a gravação é idempotente, então a folga só custa uma consulta maior.
@@ -131,7 +133,7 @@ const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().t
  *
  * - Idempotente: o lançamento é gravado por `upsertByExternal("pluggy", id do Pluggy)`; rodar de novo não duplica
  *   nem altera o que já está gravado. Conta e cartão são ligados por `findByExternal`.
- * - Janela: sempre pelo menos 4 meses (`FIRST_SYNC_DAYS`); se a última sincronização boa é mais antiga, desde ela
+ * - Janela: primeira vez (ou backfill único, `historyFrom`) 6 meses (`FIRST_SYNC_DAYS`); depois pelo menos 4 meses (`ROUTINE_SYNC_DAYS`); se a última sincronização boa é mais antiga, desde ela
  *   menos 40 dias. `lastSyncAt` só avança quando a
  *   conexão termina `ok` (um `partial` repete a janela na próxima). Item que não está `UPDATED`, falha em /bills e
  *   conta que não sincronizou deixam a conexão `partial`.
@@ -175,7 +177,9 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 	for (const connection of connections) {
 		const guard = createRelinkGuard(client, connection, connections);
 		const result = await syncConnection(deps, client, connection, startedAt, lookups, shared, guard);
-		results.push(await finish(deps, connection, result, startedAt));
+		results.push(
+			await finish(deps, connection, result, startedAt, syncWindowStart(toLocalDate(startedAt), connection)),
+		);
 		log(
 			`pluggy: ${result.status} contas=${result.accounts} novos=${result.created} existentes=${result.existing}`,
 		);
@@ -288,8 +292,12 @@ async function finish(
 ): Promise<ConnectionSyncResult> {
 	await deps.stores.pluggyConnections.recordSync(connection.id, {
 		status: result.status,
+	/** Dia de onde a janela desta rodada buscou; vai para `historyFrom` quando a conexão termina `ok`. */
+	from?: string,
 		error: result.error,
-		...(result.status === "ok" && startedAt ? { syncedAt: startedAt } : {}),
+		...(result.status === "ok" && startedAt
+			? { syncedAt: startedAt, ...(from ? { historyFrom: from } : {}) }
+			: {}),
 		...(result.counts ? { counts: result.counts } : {}),
 	});
 	return result;
@@ -309,7 +317,7 @@ async function syncConnection(
 	const partial: string[] = [];
 	try {
 		const today = toLocalDate(startedAt);
-		const from = syncWindowStart(today, connection.lastSyncAt);
+		const from = syncWindowStart(today, connection);
 
 		const item = await client.item(connection.id);
 		if (NEEDS_USER.has(item.status)) {
@@ -824,12 +832,21 @@ async function linkAccounts(
 	return { linked: out, deferredCards, deferredRelink, relinked };
 }
 
-/** O começo da janela: no mínimo 4 meses, ou mais se a última sincronização boa for anterior a isso. */
-export function syncWindowStart(today: string, lastSyncAt: Date | null): string {
-	const history = addDays(today, -FIRST_SYNC_DAYS);
-	if (lastSyncAt === null) return history;
+/**
+ * O começo da janela. Conexão nova (sem sincronização boa) ou que nunca buscou os 6 meses (`historyFrom` ausente ou
+ * mais recente que hoje − 183 dias, como as criadas quando o histórico era de 4 meses): desde hoje − 183 dias, uma vez
+ * (a rodada boa registra `historyFrom`). Depois: no mínimo 4 meses, ou mais se a última sincronização boa for anterior.
+ */
+export function syncWindowStart(
+	today: string,
+	connection: Pick<PluggyConnectionRecord, "lastSyncAt" | "historyFrom">,
+): string {
+	const full = addDays(today, -FIRST_SYNC_DAYS);
+	const { lastSyncAt, historyFrom } = connection;
+	if (lastSyncAt === null || historyFrom === null || historyFrom > full) return full;
+	const routine = addDays(today, -ROUTINE_SYNC_DAYS);
 	const overlap = addDays(toLocalDate(lastSyncAt), -OVERLAP_DAYS);
-	return [history, overlap].sort()[0] ?? history;
+	return [routine, overlap].sort()[0] ?? routine;
 }
 
 const bump = (counts: ConnectionSyncResult["skipped"], key: SkipReason | "archived_account") => {

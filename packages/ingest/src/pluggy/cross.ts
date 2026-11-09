@@ -25,7 +25,7 @@ import {
  */
 
 /** Quantos dias para trás o passo olha (a mesma janela mínima da sincronização). */
-export const CROSS_WINDOW_DAYS = 122;
+export const CROSS_WINDOW_DAYS = 183;
 
 export const RECOMPUTED_TRANSFER_NOTE = "Recalculado: transferência entre contas suas.";
 
