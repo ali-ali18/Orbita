@@ -162,3 +162,18 @@ export function usePluggyActions() {
 	});
 	return { sync, reimport, add, rename, remove, connect };
 }
+
+/**
+ * Diagnóstico: consulta o Pluggy ao vivo (lenta). Sem cache entre visitas (mostra o de agora), sem tentar de novo
+ * sozinha e só quando o dono abre a tela ou toca em "Consultar de novo".
+ */
+export function usePluggyDiagnostics() {
+	const { api, baseUrl } = useScoped();
+	return useQuery({
+		queryKey: [baseUrl, "pluggy", "diagnostics"],
+		staleTime: 0,
+		gcTime: 0,
+		retry: false,
+		queryFn: () => call(() => api.v1.pluggy.diagnostics.$get()),
+	});
+}

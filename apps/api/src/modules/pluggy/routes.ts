@@ -1,7 +1,15 @@
 import type { SecretVault } from "@orbita/db";
-import { createPluggyClient, PluggyError, type PluggyFetch } from "@orbita/ingest";
 import {
+	createPluggyClient,
+	diagnoseConnection,
+	PluggyError,
+	type PluggyFetch,
+	safeText,
+} from "@orbita/ingest";
+import {
+	type DiagLink,
 	type PluggyConnectSessionResponse,
+	type PluggyDiagnosticsResponse,
 	type PluggyReimportResponse,
 	type PluggyStatusResponse,
 	pluggyConnectionCreateBody,
@@ -177,6 +185,43 @@ export function routes({
 			const deleted = await stores.transactions.hardDeleteBySource("pluggy");
 			const body: PluggyReimportResponse = { deleted, sync: await syncQueue.enqueue() };
 			return c.json(body, 202);
+		})
+		.get("/v1/pluggy/diagnostics", async (c) => {
+			// Somente leitura e só do dono (o `requireDevice` do prefixo): chama o Pluggy ao vivo e devolve um resumo
+			// REDIGIDO (sem CPF/CNPJ nem número de conta/cartão inteiros). Nada é gravado.
+			const keys = await readKeys(vault);
+			if (!keys) {
+				return c.json(
+					apiError("sem_chaves", "Cadastre o Client ID e o Client Secret do Pluggy em Servidor e chaves."),
+					409,
+				);
+			}
+			const client = createPluggyClient({ fetch: doFetch, ...keys, now, timeoutMs: 15_000 });
+			const linkOf = async (a: { id: string; type: string }): Promise<DiagLink | null> => {
+				const card = await stores.cards.findByExternal("pluggy", a.id);
+				if (card)
+					return {
+						kind: "card",
+						id: card.id,
+						name: safeText(card.name) ?? "?",
+						archived: card.archivedAt !== null,
+					};
+				const account = await stores.accounts.findByExternal("pluggy", a.id);
+				if (account) {
+					return {
+						kind: "account",
+						id: account.id,
+						name: safeText(account.name) ?? "?",
+						archived: account.archivedAt !== null,
+					};
+				}
+				return null;
+			};
+			const connections = await Promise.all(
+				(await pluggyConnections.list()).map((x) => diagnoseConnection({ client, now, linkOf }, x)),
+			);
+			const body: PluggyDiagnosticsResponse = { generatedAt: now().toISOString(), connections };
+			return c.json(body, 200, { "Cache-Control": "no-store" });
 		})
 		.get("/v1/pluggy/status", async (c) => {
 			const connections = await pluggyConnections.list();
