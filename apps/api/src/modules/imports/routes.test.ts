@@ -165,6 +165,24 @@ describe("validação do envio", () => {
 		expect((await send("/v1/imports", { file: html, accountId: account.id })).status).toBe(415);
 	});
 
+	it("PDF com senha de usuário responde 422 com a mensagem para o dono (não é erro de conexão)", async () => {
+		const { send, account } = await prepare();
+		// PDF sintético, cifrado com senha de usuário (AES-256). Não tem dado pessoal.
+		const encrypted = Buffer.from(
+			"JVBERi0xLjMKJeLjz9MKMSAwIG9iago8PAovUHJvZHVjZXIgPDBlMDgyZjk5NWU0NTdlNWEyNzllZWRmYTVkNTk1ZjlhMTFkMjBmNDFkY2Q4ZGM2NWQyMmU4YjI3ZmFlNWJmNzU+Cj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9UeXBlIC9QYWdlcwovQ291bnQgMQovS2lkcyBbIDQgMCBSIF0KPj4KZW5kb2JqCjMgMCBvYmoKPDwKL1R5cGUgL0NhdGFsb2cKL1BhZ2VzIDIgMCBSCj4+CmVuZG9iago0IDAgb2JqCjw8Ci9UeXBlIC9QYWdlCi9SZXNvdXJjZXMgPDwKL0ZvbnQgPDwKL0YxIDUgMCBSCj4+Cj4+Ci9NZWRpYUJveCBbIDAuMCAwLjAgNTk1IDg0MiBdCi9QYXJlbnQgMiAwIFIKL0NvbnRlbnRzIDYgMCBSCj4+CmVuZG9iago1IDAgb2JqCjw8Ci9UeXBlIC9Gb250Ci9TdWJ0eXBlIC9UeXBlMQovQmFzZUZvbnQgL0hlbHZldGljYQo+PgplbmRvYmoKNiAwIG9iago8PAovTGVuZ3RoIDk2Cj4+CnN0cmVhbQpjRLCp/xm8Q/2ow6gl3K1w/Gn7f+kGK1I6wvL7mGBadicrCNavisPLdt5GKmolMBbJ+NW3+Yk9JzVH6ZvDYUQ0v1ByO3hwiSR7c4PgdVSb58RcU9PkLGHShtqtLwnyugkKZW5kc3RyZWFtCmVuZG9iago3IDAgb2JqCjw8Ci9WIDUKL1IgNgovTGVuZ3RoIDI1NgovUCA0Mjk0OTY3MjkyCi9GaWx0ZXIgL1N0YW5kYXJkCi9PIDw2OTg1OWI2YjQ4NDNmMzZjN2ZiODkxYjU3ZmNkMzA5NDRjZTRmODMzN2I4NDY2ZWFmNGE1Y2JjZTA0MmZjYjg0NmNhMWM1YzUwNTI5YjEzNzM1MTAxYzkwYmVjZWJlYTU+Ci9VIDxmZTBmNmU4YzgwNWM3NjhlYjczODNiZmMxY2Y0MzVjNmJiNzU0ZTgzNTNmYTYyY2EyMTU0NGExZDVkMGY5ZjU1ODg2MDk4Yjg1YzkzYzEyNWExZTA0MjJkNmI3NTQwZWY+Ci9DRiA8PAovU3RkQ0YgPDwKL0F1dGhFdmVudCAvRG9jT3BlbgovQ0ZNIC9BRVNWMwovTGVuZ3RoIDMyCj4+Cj4+Ci9TdG1GIC9TdGRDRgovU3RyRiAvU3RkQ0YKL09FIDw5OTFiNTE3OWQ0YjI4ZmU4Njc4YmJlMmQzNGYxMGM5ZDdjODJlNTQ2MmI0MWUxZmQwZGRhOWU5ZmMyNzQ5ZDA3PgovVUUgPDljMzUxOTY3ZGU3ODYwODMxYjAyZDY5ZGRiMTYwODU5NWI3NWFmNGQ3MTg1MmY4ODU4ZTM5ZGIyZWFkNmRlYjU+Ci9QZXJtcyA8NzYzODc4OGJiNmYyNGFiZWI4YjA4MGExNWQ5OTE0ZTA+Cj4+CmVuZG9iagp4cmVmCjAgOAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDExMyAwMDAwMCBuIAowMDAwMDAwMTcyIDAwMDAwIG4gCjAwMDAwMDAyMjEgMDAwMDAgbiAKMDAwMDAwMDM1MyAwMDAwMCBuIAowMDAwMDAwNDIzIDAwMDAwIG4gCjAwMDAwMDA1NjkgMDAwMDAgbiAKdHJhaWxlcgo8PAovU2l6ZSA4Ci9Sb290IDMgMCBSCi9JbmZvIDEgMCBSCi9JRCBbIDwzMjM0NjE2NDY1NjEzODY1NjYzODM0MzczODYzNjQ2NTMwMzgzOTMzMzEzNjM5MzA2NDM2NjMzNDM0MzUzNzY2PiA8MzIzNDYxNjQ2NTYxMzg2NTY2MzgzNDM3Mzg2MzY0NjUzMDM4MzkzMzMxMzYzOTMwNjQzNjYzMzQzNDM1Mzc2Nj4gXQovRW5jcnlwdCA3IDAgUgo+PgpzdGFydHhyZWYKMTEyNAolJUVPRgo=",
+			"base64",
+		);
+		const r = await send("/v1/imports/preview", {
+			file: { name: "extrato.pdf", type: "application/pdf", content: new Uint8Array(encrypted) },
+			accountId: account.id,
+		});
+		expect(r.status).toBe(422);
+		expect(r.body.error).toMatchObject({
+			code: "arquivo_invalido",
+			message: "Este PDF tem senha. Baixe o extrato sem senha e tente de novo.",
+		});
+	});
+
 	it("arquivo que mente sobre o formato", async () => {
 		const { send, account } = await prepare();
 		const fake = { name: "a.pdf", type: "application/pdf", content: "isto não é um pdf" };

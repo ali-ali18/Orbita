@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { Server } from "node:http";
 import { serve } from "@hono/node-server";
 import { createDb, createPrismaStores, createSecretVault } from "@orbita/db";
 import { deriveKey } from "@orbita/security";
@@ -8,6 +9,12 @@ import { startAutoPairing } from "./modules/pairing/auto.ts";
 import { createPairingGuard } from "./modules/pairing/guard.ts";
 import { createBullSyncQueue } from "./modules/pluggy/queue.ts";
 import { createFsOtaStore } from "./modules/updates/store.ts";
+
+/**
+ * Tem de ficar acima do tempo que o proxy mantém a conexão ociosa com a API: 90 s no Traefik (padrão do Go),
+ * 2 min no Caddy. Com 65 s, o Node fecharia antes e a reutilização cairia com 502.
+ */
+const KEEP_ALIVE_TIMEOUT_MS = 130_000;
 
 const env = loadEnv();
 const db = createDb(env.DATABASE_URL);
@@ -40,6 +47,12 @@ const app = createApp({
 const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
 	console.log(`API ouvindo na porta ${info.port}`);
 });
+// Atrás de Traefik/Caddy, o padrão do Node (5 s) fecha a conexão antes do proxy; um POST que reutiliza essa
+// conexão cai com 502. O timeout de cabeçalhos fica um pouco acima do keep-alive (exigência do Node).
+// `serve` tipa o retorno como união com HTTP/2; aqui é sempre HTTP/1.
+const http1 = server as Server;
+http1.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
+http1.headersTimeout = KEEP_ALIVE_TIMEOUT_MS + 1_000;
 
 const stopAutoPairing = env.PAIRING_AUTO
 	? startAutoPairing({ deps, guard, log: { info: console.log, error: console.error } })
