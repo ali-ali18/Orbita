@@ -58,6 +58,9 @@ export function createPrismaNotificationInboxStore(db: Db, now: () => Date): Not
 		async count() {
 			return db.notificationInbox.count();
 		},
+		async purgeOlderThan(before) {
+			return (await db.notificationInbox.deleteMany({ where: { createdAt: { lt: before } } })).count;
+		},
 		async remove(id) {
 			return (await db.notificationInbox.deleteMany({ where: { id } })).count === 1;
 		},

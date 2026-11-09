@@ -29,6 +29,16 @@ export function createMemoryNotificationInboxStore(now: Clock): NotificationInbo
 		async count() {
 			return rows.size;
 		},
+		async purgeOlderThan(before) {
+			let n = 0;
+			for (const r of [...rows.values()]) {
+				if (r.createdAt < before) {
+					rows.delete(r.id);
+					n++;
+				}
+			}
+			return n;
+		},
 		async remove(id) {
 			return rows.delete(id);
 		},

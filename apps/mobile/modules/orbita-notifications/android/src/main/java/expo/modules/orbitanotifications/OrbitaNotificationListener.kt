@@ -22,11 +22,15 @@ class OrbitaNotificationListener : NotificationListenerService() {
 
   override fun onNotificationPosted(sbn: StatusBarNotification?) {
     val posted = sbn ?: return
-    val store = NotificationStore.get(applicationContext)
-    val config = store.config() ?: return
-    if (!config.enabled) return
+    // 1. A lista fixa de bancos vem ANTES de qualquer outra coisa (inclusive de abrir a configuração cifrada): de outro
+    //    app nada é lido nem decifrado.
     val pkg = posted.packageName ?: return
-    if (pkg !in config.packages || pkg !in NotificationPolicy.BANK_PACKAGES) return
+    if (pkg !in NotificationPolicy.BANK_PACKAGES) return
+    val store = NotificationStore.get(applicationContext)
+    // O servidor recusou o token: não adianta enfileirar até o app configurar de novo.
+    if (store.authFailed) return
+    val config = store.config() ?: return
+    if (!config.enabled || pkg !in config.packages) return
 
     val notification = posted.notification ?: return
     if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
@@ -42,7 +46,9 @@ class OrbitaNotificationListener : NotificationListenerService() {
       pkg,
       NotificationPolicy.clean(title, NotificationPolicy.TITLE_MAX),
       NotificationPolicy.clean(text, NotificationPolicy.TEXT_MAX),
-      posted.postTime,
+      // `when` é a hora do evento e costuma ficar igual quando o app do banco atualiza a notificação; `postTime` muda.
+      if (notification.`when` > 0) notification.`when` else posted.postTime,
+      posted.key ?: "",
     )
     Sender.flushAsync(applicationContext)
   }

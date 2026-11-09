@@ -3,7 +3,7 @@ import { setupFinance } from "../../test-support.ts";
 
 const POSTED = Date.parse("2026-11-15T14:00:00Z");
 const NU = "com.nu.production";
-const COMPRA = "Compra de R$ 47,98 APROVADA em FARMACIAS X para o cartão com final 0695";
+const COMPRA = "Compra de R$ 23,45 APROVADA em LOJA EXEMPLO para o cartão com final 4821";
 
 async function prepare() {
 	const ctx = await setupFinance();
@@ -14,7 +14,7 @@ async function prepare() {
 		await api.post("/v1/cards", {
 			name: "Nubank Mastercard",
 			bankCode: "18236120",
-			last4: "0695",
+			last4: "4821",
 			closingDay: 10,
 			dueDay: 17,
 		})
@@ -40,8 +40,8 @@ describe("POST /v1/notifications", () => {
 		expect(list).toHaveLength(1);
 		expect(list[0]).toMatchObject({
 			kind: "expense",
-			amountCents: 4798,
-			description: "FARMACIAS X",
+			amountCents: 2345,
+			description: "LOJA EXEMPLO",
 			cardId: card.id,
 			source: "notification",
 			status: "confirmed",
@@ -65,7 +65,7 @@ describe("POST /v1/notifications", () => {
 			{ package: NU, text: "Seu código de verificação é 482913", postedAt: POSTED + 1000 },
 			{
 				package: "br.com.intermedium",
-				text: "Compra aprovada: R$ 51,50 em KABUM no cartão final 9697",
+				text: "Compra aprovada: R$ 18,70 em LOJA TESTE no cartão final 7390",
 				postedAt: POSTED,
 			},
 		]);
@@ -86,7 +86,7 @@ describe("POST /v1/notifications", () => {
 		await send([{ package: NU, text: COMPRA, postedAt: POSTED }]);
 		const pending = (await api.get("/v1/transactions/pending")).body.transactions;
 		expect(pending).toHaveLength(1);
-		expect(pending[0]).toMatchObject({ amountCents: 4798, status: "pending", source: "notification" });
+		expect(pending[0]).toMatchObject({ amountCents: 2345, status: "pending", source: "notification" });
 	});
 
 	it("corta texto grande em vez de recusar, e recusa lote vazio, grande e tipo errado", async () => {
@@ -112,6 +112,36 @@ describe("POST /v1/notifications", () => {
 		const body = [{ package: "com.whatsapp", text: "oi", postedAt: POSTED }];
 		for (let i = 0; i < 60; i++) expect((await send(body)).status).toBe(200);
 		expect((await send(body)).status).toBe(429);
+	});
+});
+
+describe("lote com item ruim", () => {
+	it("um item que falha volta como error e não derruba os outros", async () => {
+		const { send, stores } = await prepare();
+		const real = stores.transactions.upsertByExternal.bind(stores.transactions);
+		let calls = 0;
+		stores.transactions.upsertByExternal = async (...args) => {
+			if (++calls === 1) throw new Error("falha de teste");
+			return real(...args);
+		};
+		const res = await send([
+			{ package: NU, text: COMPRA, postedAt: POSTED },
+			{ package: NU, text: "Pix enviado: R$ 17,25 para ANA", postedAt: POSTED + 120_000 },
+		]);
+		expect(res.status).toBe(200);
+		expect(res.body.results).toEqual(["error", "created"]);
+	});
+
+	it("horário fora do razoável é recusado pelo esquema (e o aparelho descarta o lote com 400)", async () => {
+		const { send } = await prepare();
+		expect((await send([{ package: NU, text: COMPRA, postedAt: 5 }])).status).toBe(400);
+		expect((await send([{ package: NU, text: COMPRA, postedAt: 9e15 }])).status).toBe(400);
+	});
+
+	it("tentar de novo tem limite por aparelho", async () => {
+		const { api } = await prepare();
+		for (let i = 0; i < 10; i++) expect((await api.post("/v1/notifications/inbox/retry")).status).toBe(200);
+		expect((await api.post("/v1/notifications/inbox/retry")).status).toBe(429);
 	});
 });
 

@@ -38,6 +38,11 @@ export function notificationAppOfPackage(pkg: string): NotificationApp | null {
 /** Limites do que sai do aparelho: o aparelho corta, o servidor também. */
 export const NOTIFICATION_TITLE_MAX = 120;
 export const NOTIFICATION_TEXT_MAX = 400;
+/** Limites do horário: de 2020 a 2100 (milissegundos). Fora disso o item é recusado; o servidor ainda trava o futuro. */
+export const NOTIFICATION_POSTED_MIN = 1_577_836_800_000;
+export const NOTIFICATION_POSTED_MAX = 4_102_444_800_000;
+/** A mesma notificação do Android repostada em até tantos minutos é a mesma (aparelho e servidor usam o mesmo valor). */
+export const NOTIFICATION_REPOST_WINDOW_MINUTES = 2;
 /** Notificações por pedido. */
 export const NOTIFICATION_BATCH_MAX = 10;
 
@@ -81,7 +86,21 @@ export const notificationItemSchema = z.object({
 	title: cut(NOTIFICATION_TITLE_MAX).default(""),
 	text: cut(NOTIFICATION_TEXT_MAX),
 	/** Instante em que o Android registrou a notificação (milissegundos desde 1970). */
-	postedAt: z.number().int().positive(),
+	postedAt: z
+		.number()
+		.int()
+		.min(NOTIFICATION_POSTED_MIN, "Horário da notificação inválido.")
+		.max(NOTIFICATION_POSTED_MAX, "Horário da notificação inválido."),
+	/**
+	 * Identificador da notificação no Android (`StatusBarNotification.key`: pacote, id, tag e usuário). A mesma
+	 * notificação repostada (o app do banco a atualiza) tem a mesma chave; duas compras iguais são notificações
+	 * diferentes e têm chaves diferentes.
+	 */
+	sbnKey: z
+		.string()
+		.max(200)
+		.transform((v) => cleanNotificationText(v, 200))
+		.optional(),
 });
 export type NotificationItem = z.infer<typeof notificationItemSchema>;
 
@@ -94,9 +113,17 @@ export type NotificationBatchBody = z.infer<typeof notificationBatchBody>;
 /**
  * O que aconteceu com cada notificação. `created`: virou lançamento; `duplicate`: já tinha entrado; `inbox`: foi para a
  * lista "Não entendi"; `ignored`: leitura desligada, banco desligado, pacote fora da lista, texto sem valor ou compra
- * recusada; `discarded`: parecia código de verificação e foi jogada fora.
+ * recusada; `discarded`: parecia código de verificação e foi jogada fora; `error`: falhou só esta (o aparelho tenta de
+ * novo algumas vezes e desiste, sem travar as outras).
  */
-export const NOTIFICATION_RESULTS = ["created", "duplicate", "inbox", "ignored", "discarded"] as const;
+export const NOTIFICATION_RESULTS = [
+	"created",
+	"duplicate",
+	"inbox",
+	"ignored",
+	"discarded",
+	"error",
+] as const;
 export type NotificationResult = (typeof NOTIFICATION_RESULTS)[number];
 export const notificationBatchResponse = z.object({
 	results: z.array(z.enum(NOTIFICATION_RESULTS)),
@@ -104,7 +131,7 @@ export const notificationBatchResponse = z.object({
 export type NotificationBatchResponse = z.infer<typeof notificationBatchResponse>;
 
 /** Por que uma notificação está na lista "Não entendi": formato desconhecido, ou não achei o cartão/conta dela. */
-export const NOTIFICATION_INBOX_REASONS = ["format", "target"] as const;
+export const NOTIFICATION_INBOX_REASONS = ["format", "target", "installment"] as const;
 export type NotificationInboxReason = (typeof NOTIFICATION_INBOX_REASONS)[number];
 
 /** `GET /v1/notifications/inbox`. */

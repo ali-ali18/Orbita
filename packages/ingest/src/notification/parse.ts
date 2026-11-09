@@ -30,6 +30,11 @@ export interface ParsedNotification {
 	merchant: string | null;
 	/** Últimos 4 dígitos do cartão, se a notificação disse. */
 	last4: string | null;
+	/**
+	 * O texto não diz onde o dinheiro saiu (o Mercado Pago escreve igual para saldo e para cartão): o lançamento nunca
+	 * entra confirmado, o dono confere em Para revisar.
+	 */
+	uncertainTarget?: true;
 }
 
 export type ParseResult =
@@ -37,7 +42,13 @@ export type ParseResult =
 	/** Reconhecida e sem efeito: compra recusada. */
 	| { outcome: "skip"; reason: "declined" | "info" }
 	/** Não entendi. `hasAmount`: cita um valor em R$ (então vale mostrar ao dono); sem valor é propaganda, some. */
-	| { outcome: "unrecognized"; hasAmount: boolean };
+	| { outcome: "unrecognized"; hasAmount: boolean; reason: UnrecognizedReason };
+
+/**
+ * Por que não entendi: `format` (nenhum formato conhecido, ou o texto traz mais de um valor/tipo e não dá para saber
+ * qual vale) ou `installment` (compra parcelada: o valor do texto nem sempre é o da parcela, o dono lança).
+ */
+export type UnrecognizedReason = "format" | "installment";
 
 const MONEY = String.raw`r\$\s*(?<amount>\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d+(?:,\d{2})?)(?!\d|[.,]\d)`;
 /** Onde um nome (estabelecimento, pessoa) termina. */
@@ -47,6 +58,7 @@ const WHO = "(?<who>.+?)";
 interface Pattern {
 	kind: NotificationKind;
 	re: RegExp;
+	uncertainTarget?: true;
 }
 
 const re = (source: string) => new RegExp(source, "di");
@@ -87,25 +99,29 @@ const PATTERNS: readonly Pattern[] = [
 	{ kind: "invoice_payment", re: re(String.raw`pagamento d[ea] fatura(?:(?!r\$).)*?${MONEY}`) },
 	{ kind: "invoice_payment", re: re(String.raw`voce pagou a fatura(?:(?!r\$).)*?${MONEY}`) },
 	{ kind: "invoice_payment", re: re(String.raw`fatura(?:(?!r\$).)*?${MONEY}\s+(?:foi\s+)?paga`) },
-	// Compra. Nubank: "Compra de R$ 47,98 APROVADA em FARMACIAS X para o cartão com final 0695".
+	// Compra. Nubank: "Compra de R$ 23,45 APROVADA em LOJA EXEMPLO para o cartão com final 4821".
 	{
 		kind: "credit_purchase",
 		re: re(`compra (?:no (?:debito|credito) )?de ${MONEY}(?: aprovada)? em ${WHO}${END}`),
 	},
-	// Inter: "Compra aprovada: R$ 51,50 em KABUM no cartão final 9697".
+	// Inter: "Compra aprovada: R$ 18,70 em LOJA TESTE no cartão final 7390".
 	{
 		kind: "credit_purchase",
 		re: re(String.raw`compra (?:no (?:debito|credito) )?aprovada:?\s*${MONEY}\s+(?:em|no|na)\s+${WHO}${END}`),
 	},
-	// Santander: "Compra aprovada no cartão final 3143, R$ 31,90, SPOTIFY".
+	// Santander: "Compra aprovada no cartão final 5512, R$ 12,34, SERVICO EXEMPLO".
 	{
 		kind: "credit_purchase",
 		re: re(
 			String.raw`compra (?:no (?:debito|credito) )?aprovada(?:(?!r\$).)*?${MONEY}\s*[,;:-]\s*${WHO}${END}`,
 		),
 	},
-	// Mercado Pago: "Você pagou R$ 61,51 a VIVO" (sai do saldo ou do cartão do app: tratado como pagamento da conta).
-	{ kind: "debit_purchase", re: re(String.raw`voce pagou ${MONEY}\s+(?:a|para|ao|na|no)\s+${WHO}${END}`) },
+	// Mercado Pago: "Você pagou R$ 42,10 a EMPRESA EXEMPLO" (sai do saldo ou do cartão do app: tratado como pagamento da conta).
+	{
+		kind: "debit_purchase",
+		re: re(String.raw`voce pagou ${MONEY}\s+(?:a|para|ao|na|no)\s+${WHO}${END}`),
+		uncertainTarget: true,
+	},
 	// Genéricas de compra: "compra … R$ X em LOJA", "compra … LOJA … R$ X".
 	{
 		kind: "credit_purchase",
@@ -128,22 +144,46 @@ const DEBIT_WORD = /\bdebito\b/;
 const CREDIT_WORD = /\bcredito\b/;
 const LAST4 = /(?:final|finalizado em|terminad[oa] em|terminando em|\*{2,4}|\.{3})\s*(\d{4})\b/;
 
-/** Nome do estabelecimento ou da pessoa: limpo e curto, sem pontuação sobrando nas pontas. */
+/** Parcelamento: "10x", "em 3 vezes", "parcelado". `1x`/à vista não conta. */
+const INSTALLMENT =
+	/\b((?:[2-9]|\d{2})\s?x|parcelad[oa]s?|parcelamento|em \d{1,2} vezes|\d{1,2} parcelas?|parcela \d)\b/;
+const ANY_MONEY = /r\$\s*(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d+(?:,\d{2})?)(?!\d|[.,]\d)/g;
+
+/** Os valores distintos em R$ de um texto (o mesmo valor repetido conta uma vez). */
+function distinctAmounts(folded: string): Set<string> {
+	const out = new Set<string>();
+	for (const m of folded.matchAll(ANY_MONEY)) out.add(String(parseAmount(m[1] ?? "") ?? m[1]));
+	return out;
+}
+
+/** Nome do estabelecimento ou da pessoa: limpo e curto, sem data/hora na frente nem "em 10x" atrás. */
 function cleanName(raw: string | undefined): string | null {
 	if (raw === undefined) return null;
 	const text = cleanNotificationText(raw, 100)
+		.replace(/^\d{1,2}\/\d{1,2}(?:\/\d{2,4})?(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\s+/, "")
+		.replace(/\s+em\s+\d{1,2}\s?x$/i, "")
 		.replace(/^[\s.,;:!\-–—]+|[\s.,;:!\-–—]+$/g, "")
 		.trim();
 	return text === "" ? null : text;
 }
+
+const unrecognized = (hasAmount: boolean, reason: UnrecognizedReason = "format"): ParseResult => ({
+	outcome: "unrecognized",
+	hasAmount,
+	reason,
+});
 
 function tryParse(original: string): ParseResult {
 	const folded = foldPt(original);
 	const sameLength = folded.length === original.length;
 	const hasAmount = /r\$\s*\d/.test(folded);
 	if (DECLINED.test(folded)) return { outcome: "skip", reason: "declined" };
-	if (REVERSAL.test(folded)) return { outcome: "unrecognized", hasAmount };
-	for (const { kind, re: pattern } of PATTERNS) {
+	if (REVERSAL.test(folded)) return unrecognized(hasAmount);
+	if (hasAmount && INSTALLMENT.test(folded)) return unrecognized(true, "installment");
+	// Dois valores diferentes no mesmo texto (ou texto de terceiro com um valor falso dentro): não dá para saber qual vale.
+	if (distinctAmounts(folded).size > 1) return unrecognized(true);
+	const hits: { data: ParsedNotification }[] = [];
+	for (const { kind, re: pattern, uncertainTarget } of PATTERNS) {
 		const m = pattern.exec(folded);
 		if (!m?.groups) continue;
 		const amountCents = parseAmount(m.groups.amount ?? "");
@@ -156,35 +196,59 @@ function tryParse(original: string): ParseResult {
 		if (kind === "credit_purchase" && DEBIT_WORD.test(folded) && !CREDIT_WORD.test(folded)) {
 			resolved = "debit_purchase";
 		}
-		return {
-			outcome: "parsed",
+		hits.push({
 			data: {
 				kind: resolved,
 				amountCents,
 				merchant: cleanName(who),
 				last4: resolved === "pix_sent" ? null : last4,
+				...(uncertainTarget ? { uncertainTarget } : {}),
 			},
-		};
+		});
+	}
+	const first = hits[0];
+	if (first) {
+		// Dois tipos de operação no mesmo texto ("Pix recebido ... Compra aprovada ..."): ambíguo.
+		if (hits.some((h) => h.data.kind !== first.data.kind)) return unrecognized(true);
+		return { outcome: "parsed", data: first.data };
 	}
 	if (INFO.test(folded)) return { outcome: "skip", reason: "info" };
-	return { outcome: "unrecognized", hasAmount };
+	return unrecognized(hasAmount);
 }
 
 /**
  * Lê uma notificação de banco. Tenta o texto sozinho e depois "título: texto" (alguns bancos põem o tipo da operação
- * no título e só o resto no texto). `app` hoje não muda o resultado: as regras de cada banco cabem no mesmo conjunto
- * de formatos, e o parâmetro existe para quando um banco precisar de regra própria.
+ * no título e só o resto no texto). Título e texto que discordam (outro valor, outro tipo) não se resolvem aqui: vão
+ * para o dono, porque o texto de um app de banco pode trazer conteúdo de terceiros. `app` hoje não muda o resultado.
  */
 export function parseNotification(input: { app: NotificationApp; title: string; text: string }): ParseResult {
-	const candidates = [input.text, input.title ? `${input.title}: ${input.text}` : ""].filter((c) => c !== "");
-	let last: ParseResult = { outcome: "unrecognized", hasAmount: false };
+	const { title, text } = input;
+	const hasTitleAmount = /r\$\s*\d/.test(foldPt(title));
+	if (title && distinctAmounts(foldPt(`${title} ${text}`)).size > 1) return unrecognized(true);
+	if (hasTitleAmount) {
+		const t = tryParse(title);
+		const b = tryParse(text);
+		if (
+			t.outcome === "parsed" &&
+			b.outcome === "parsed" &&
+			(t.data.kind !== b.data.kind || t.data.amountCents !== b.data.amountCents)
+		) {
+			return unrecognized(true);
+		}
+	}
+	const candidates = [text, title ? `${title}: ${text}` : ""].filter((c) => c !== "");
+	let last: ParseResult = unrecognized(false);
 	for (const candidate of candidates) {
 		const result = tryParse(candidate);
 		if (result.outcome === "parsed" || result.outcome === "skip") return result;
-		last = {
-			outcome: "unrecognized",
-			hasAmount: last.outcome === "unrecognized" && last.hasAmount ? true : result.hasAmount,
-		};
+		const hasAmount = last.outcome === "unrecognized" && last.hasAmount ? true : result.hasAmount;
+		// Parcelamento vence formato desconhecido: é o motivo mais específico.
+		last = unrecognized(
+			hasAmount,
+			result.reason === "installment" || (last.outcome === "unrecognized" && last.reason === "installment")
+				? "installment"
+				: "format",
+		);
 	}
 	return last;
 }

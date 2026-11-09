@@ -34,4 +34,6 @@ export interface NotificationInboxStore {
 	count(): Promise<number>;
 	/** `false` se não existe. */
 	remove(id: string): Promise<boolean>;
+	/** Apaga as guardadas antes de `before` (prazo da lista). Devolve quantas saíram. */
+	purgeOlderThan(before: Date): Promise<number>;
 }

@@ -125,6 +125,7 @@ export function ago(ms: number): string {
 export const INBOX_REASON_LABEL: Record<NotificationInboxReason, string> = {
 	format: "Não entendi o formato",
 	target: "Não achei o cartão ou a conta",
+	installment: "Compra parcelada: lance você mesmo",
 };
 
 /** Legenda de uma notificação da lista: banco, motivo e horário. */
