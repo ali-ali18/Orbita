@@ -95,14 +95,14 @@ Fontes:
 - Os avisos são decididos pelo **worker** (determinístico); o agente só escreve o texto em cima dos números prontos.
 - **Autonomia com níveis** (agente Economia): "Só avisar" (padrão) ou "Agir no que é reversível" (categorizar, cadastrar assinatura detectada, criar limite, marcar duplicata, criar meta de economia). Toda ação autônoma fica no **registro de atividades** com motivo, evidência e Desfazer, com limite por execução. Nunca sozinho: apagar lançamento, mover dinheiro, pagar, mexer em dado do banco ou no que o dono editou. Ver [arquitetura](arquitetura.md#economia-onde-cortar-e-autonomia).
 
-| Agente          | Papel                                                                      |
-| --------------- | -------------------------------------------------------------------------- |
-| Órbita          | Principal. Coordena os outros, lança pelo chat, lê comprovantes, responde. |
-| Vigia           | Avisa quando um gasto foge do orçamento ou do padrão.                      |
-| Fechamento      | Resumo do mês e da semana, comparação com o período anterior.              |
-| Metas           | Acompanha metas, avisa atraso, guarda a sobra do mês.                      |
-| Caça-assinatura | Acha cobranças que se repetem, renovações e aumentos de preço.             |
-| Cofrinho        | Sugere quanto guardar e onde o dinheiro parado renderia mais (só sugere).  |
+| Agente          | Papel                                                                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Órbita          | Principal. Coordena os outros, lança pelo chat, lê comprovantes, responde.                                                                                   |
+| Vigia           | Avisa quando um gasto foge do orçamento ou do padrão.                                                                                                        |
+| Fechamento      | Resumo do mês e da semana, comparação com o período anterior.                                                                                                |
+| Metas           | Acompanha metas, avisa atraso, guarda a sobra do mês.                                                                                                        |
+| Caça-assinatura | Acha cobranças que se repetem, renovações e aumentos de preço.                                                                                               |
+| Cofrinho        | Sugere quanto guardar e onde o dinheiro parado renderia mais (só sugere).                                                                                    |
 | Economia        | Acha onde cortar custos (assinaturas repetidas, taxas, categoria acima da média…) e, se o dono deixar, age sozinho **só no que tem Desfazer**, com registro. |
 
 ## Segurança e privacidade
