@@ -5,30 +5,15 @@ import { Pressable, ScrollView, type ScrollViewInstance, TextInput, View } from 
 import { KeyboardEvents } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { percentOf } from "../../lib/format.ts";
-import {
-	Button,
-	Icon,
-	IconButton,
-	OrbitaAvatar,
-	Screen,
-	Sheet,
-	SheetGroup,
-	SheetRow,
-	Text,
-} from "../../ui/index.ts";
+import { Button, Icon, IconButton, Screen, Sheet, SheetGroup, SheetRow, Text } from "../../ui/index.ts";
 import { keyboardPadding } from "../../ui/keyboard-model.ts";
+import { AgentAvatar } from "../agents/AgentAvatar.tsx";
 import { hello } from "../settings/profile-model.ts";
 import { type AttachKind, canSend, type PendingAttachment, shortName } from "./attachment-model.ts";
+import { ATTACH_SUGGESTION, type ChatAgentView, ORBITA_VIEW } from "./chat-agent-model.ts";
 import { type ChatBubble, NO_KEY_ACTION_LABEL, PROPOSAL_STATUS_LABEL, proposalAmount } from "./chat-model.ts";
 import { SetupCard } from "./SetupCard.tsx";
 import { useDictation } from "./use-dictation.ts";
-
-const SUGGESTIONS = [
-	"Quanto gastei com delivery?",
-	"Lançar um gasto",
-	"Como fecha o mês?",
-	"Ler um comprovante",
-];
 
 export type ProposalAction = "confirm" | "cancel" | "undo";
 
@@ -321,6 +306,7 @@ export function ChatView({
 	onOpenServer,
 	displayName = null,
 	modelName = null,
+	agent = ORBITA_VIEW,
 }: {
 	messages: readonly ChatBubble[];
 	/** Uma resposta está chegando: o envio espera. */
@@ -343,6 +329,8 @@ export function ChatView({
 	displayName?: string | null;
 	/** Nome do modelo que respondeu o último turno (ex.: "Sonnet 5.5"). */
 	modelName?: string | null;
+	/** Com quem a conversa é: nome e rosto no cabeçalho, frase e sugestões do estado vazio. Padrão: a Órbita. */
+	agent?: ChatAgentView;
 }) {
 	const [draft, setDraft] = useState("");
 	const [attachOpen, setAttachOpen] = useState(false);
@@ -397,9 +385,11 @@ export function ChatView({
 								gap: spacing.sm,
 							}}
 						>
-							<OrbitaAvatar size={24} />
+							<AgentAvatar visual={agent.visual} size={24} name={agent.name} />
 							<View>
-								<Text variant="bodyStrong">Órbita</Text>
+								<Text variant="bodyStrong" accessibilityRole="header">
+									{agent.name}
+								</Text>
 								{modelName ? (
 									<Text
 										variant="caption"
@@ -415,11 +405,11 @@ export function ChatView({
 					</View>
 					{empty ? (
 						<View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 6 }}>
-							<OrbitaAvatar size={88} />
+							<AgentAvatar visual={agent.visual} size={88} name={agent.name} />
 							<View style={{ height: spacing.md }} />
 							<Text variant="numberMedium">{hello(displayName)}</Text>
 							<Text variant="body" tone="secondary">
-								Como posso te ajudar com o seu dinheiro?
+								{agent.intro}
 							</Text>
 						</View>
 					) : (
@@ -442,7 +432,9 @@ export function ChatView({
 							))}
 						</ScrollView>
 					)}
-					{empty ? <Suggestions onSend={onSend} onAttach={() => setAttachOpen(true)} /> : null}
+					{empty ? (
+						<Suggestions items={agent.suggestions} onSend={onSend} onAttach={() => setAttachOpen(true)} />
+					) : null}
 					<Composer
 						draft={draft}
 						busy={busy}
@@ -514,8 +506,17 @@ function Suggestion({ label, onSend }: { label: string; onSend: (text: string) =
 }
 
 /** Duas linhas menores. O que não cabe na pílula termina em reticências. */
-function Suggestions({ onSend, onAttach }: { onSend: (text: string) => void; onAttach: () => void }) {
-	const rows = [SUGGESTIONS.slice(0, 2), SUGGESTIONS.slice(2)];
+function Suggestions({
+	items,
+	onSend,
+	onAttach,
+}: {
+	items: readonly string[];
+	onSend: (text: string) => void;
+	onAttach: () => void;
+}) {
+	const half = Math.ceil(items.length / 2);
+	const rows = [items.slice(0, half), items.slice(half)].filter((row) => row.length > 0);
 	return (
 		<View style={{ alignSelf: "stretch", gap: spacing.sm }}>
 			{rows.map((row) => (
@@ -524,7 +525,7 @@ function Suggestions({ onSend, onAttach }: { onSend: (text: string) => void; onA
 						<Suggestion
 							key={label}
 							label={label}
-							onSend={label === "Ler um comprovante" ? () => onAttach() : onSend}
+							onSend={label === ATTACH_SUGGESTION ? () => onAttach() : onSend}
 						/>
 					))}
 				</View>
