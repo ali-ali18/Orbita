@@ -14,6 +14,7 @@ import {
 	filterInvoiceLines,
 	type InstallmentGroupLike,
 	installmentCard,
+	installmentTotals,
 	invoiceDatesCaption,
 	invoiceLineCaption,
 	invoiceStatusTag,
@@ -150,6 +151,12 @@ const group = (over: Partial<InstallmentGroupLike> & { months: string[] }): Inst
 		remainingCents: months.length * 1000,
 		paidCount: 0,
 		remainingCount: months.length,
+		currentNumber: 1,
+		installmentCents: 1000,
+		paidEstimated: false,
+		remainingEstimated: false,
+		committedMonthCents: 0,
+		lastInvoiceMonth: months.at(-1) ?? null,
 		installments: months.map((m, i) => ({ invoiceMonth: m, amountCents: 1000, installmentNumber: i + 1 })),
 		...rest,
 	};
@@ -163,6 +170,8 @@ describe("parcelas", () => {
 		paidCents: 1000,
 		remainingCount: 3,
 		remainingCents: 3000,
+		currentNumber: 2,
+		committedMonthCents: 1000,
 	});
 	const done = group({
 		groupId: "d",
@@ -201,6 +210,7 @@ describe("parcelas", () => {
 			count: 10,
 			remainingCount: 7,
 			remainingCents: 7000,
+			lastInvoiceMonth: "2027-05",
 			installments: [{ invoiceMonth: "2026-11", amountCents: 1000, installmentNumber: 4 }],
 		});
 		const cols = monthColumns([partial], "2026-11", ["c1"]);
@@ -218,7 +228,32 @@ describe("parcelas", () => {
 		]);
 		expect(cols.every((c) => c.totalCents === 1000)).toBe(true);
 		expect(commitment([partial], "2026-11")).toEqual({ committedCents: 1000, futureCents: 6000 });
-		expect(installmentCard(partial, "2026-11").endLabel).toBe("Termina em maio de 2027 · faltam 7");
+		expect(installmentCard(partial).endLabel).toBe("Última parcela em maio de 2027 · faltam 7");
+	});
+	it("totais do topo somam o que o servidor calculou, só dos ativos, e avisam estimativa", () => {
+		const est = group({
+			groupId: "e",
+			months: ["2026-11", "2026-12"],
+			committedMonthCents: 500,
+			remainingEstimated: true,
+		});
+		expect(installmentTotals([kabum, done, other])).toEqual({
+			committedCents: 1000,
+			remainingCents: 5000,
+			estimated: false,
+			count: 2,
+		});
+		expect(installmentTotals([kabum, est])).toMatchObject({ committedCents: 1500, estimated: true });
+		expect(installmentTotals([])).toEqual({
+			committedCents: 0,
+			remainingCents: 0,
+			estimated: false,
+			count: 0,
+		});
+	});
+	it("parcelamento estimado vai marcado no cartão", () => {
+		const est = group({ months: ["2026-11"], paidEstimated: true, remainingEstimated: true });
+		expect(installmentCard(est)).toMatchObject({ paidEstimated: true, remainingEstimated: true });
 	});
 	it("sem parcelas, devolve só o primeiro mês vazio", () => {
 		expect(monthColumns([], "2026-11", ["c1"])).toEqual([{ month: "2026-11", totalCents: 0, byCard: [] }]);
@@ -237,15 +272,15 @@ describe("parcelas", () => {
 		expect(monthAbbrev("2027-03")).toBe("MAR");
 	});
 	it("cartão do parcelamento: parcela atual, progresso e fim", () => {
-		const m = installmentCard(kabum, "2026-11");
+		const m = installmentCard(kabum);
 		expect(m.progressLabel).toBe("Parcela 2 de 4");
-		expect(m.endLabel).toBe("Termina em janeiro de 2027 · faltam 3");
+		expect(m.endLabel).toBe("Última parcela em janeiro de 2027 · faltam 3");
 		expect(m.percent).toBe(25);
 		expect(m.currentCents).toBe(1000);
 	});
 	it("última parcela fala no singular", () => {
 		const last = group({ months: ["2026-11"], remainingCount: 1 });
-		expect(installmentCard(last, "2026-11").endLabel).toBe("Termina em novembro de 2026 · falta 1");
+		expect(installmentCard(last).endLabel).toBe("Última parcela em novembro de 2026 · falta 1");
 	});
 	it("lista por maior saldo e filtra por cartão", () => {
 		const big = group({
@@ -253,12 +288,12 @@ describe("parcelas", () => {
 			description: "Mercado Livre",
 			months: ["2026-11", "2026-12", "2027-01", "2027-02", "2027-03"],
 		});
-		expect(visibleInstallments([kabum, big, other, done], null, "2026-11").map((m) => m.groupId)).toEqual([
+		expect(visibleInstallments([kabum, big, other, done], null).map((m) => m.groupId)).toEqual([
 			"b",
 			"k",
 			"o",
 		]);
-		expect(visibleInstallments([kabum, big, other], "c2", "2026-11").map((m) => m.groupId)).toEqual(["o"]);
+		expect(visibleInstallments([kabum, big, other], "c2").map((m) => m.groupId)).toEqual(["o"]);
 	});
 });
 

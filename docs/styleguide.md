@@ -133,7 +133,7 @@ O app (Expo) segue três camadas. Cada uma só importa da de baixo.
 
 ```
 apps/mobile/src/
-  ui/          # primitivos: Text, Button, Chip, Card, ListRow, Switch, Sheet, Avatar, BankLogo, ProgressBar
+  ui/          # primitivos: Text, Button, Chip, Card, ListRow, Switch, Sheet, Avatar, BankLogo, ProgressBar, Ring, LineChart
   features/    # blocos por assunto: transactions/, cards/, agents/, review/, pairing/ …
   app/         # telas e rotas (Expo Router); só montam blocos de features
 ```

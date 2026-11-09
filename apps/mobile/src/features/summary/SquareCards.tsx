@@ -10,7 +10,7 @@ import { installmentsOverview } from "./summary-model.ts";
 /** Altura dos cards quadrados no Figma (173 de largura por 221 de altura). */
 const SQUARE_MIN_HEIGHT = 221;
 
-function Frame({
+export function Frame({
 	top,
 	children,
 	onPress,
@@ -56,7 +56,7 @@ function Facts({ label, value, caption }: { label: string; value: string; captio
 	);
 }
 
-function Placeholder({ label }: { label: string }) {
+export function Placeholder({ label }: { label: string }) {
 	return (
 		<View accessibilityLabel={`${label}: carregando`} style={{ gap: spacing.sm }}>
 			<Skeleton width="50%" height={14} />

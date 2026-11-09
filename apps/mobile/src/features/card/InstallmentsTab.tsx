@@ -6,7 +6,7 @@ import { money, monthName } from "../../lib/format.ts";
 import { toLoadable } from "../../lib/loadable.ts";
 import { ErrorState, Skeleton, Text } from "../../ui/index.ts";
 import { useInstallments } from "../summary/queries.ts";
-import { type CardLike, commitment, monthColumns, visibleInstallments } from "./card-model.ts";
+import { type CardLike, installmentTotals, monthColumns, visibleInstallments } from "./card-model.ts";
 import { InstallmentCard } from "./InstallmentCard.tsx";
 import { InstallmentsChart } from "./InstallmentsChart.tsx";
 import { BigNumber, BleedRow, CardChip } from "./parts.tsx";
@@ -21,13 +21,13 @@ export function InstallmentsTab({ cards, hidden }: { cards: readonly CardLike[];
 		if (installments.phase !== "ready") return null;
 		const groups = installments.data.groups;
 		return {
-			sums: commitment(groups, month),
+			totals: installmentTotals(groups),
 			columns: monthColumns(
 				groups,
 				month,
 				cards.map((c) => c.id),
 			),
-			list: visibleInstallments(groups, filter, month),
+			list: visibleInstallments(groups, filter),
 		};
 	}, [installments, cards, month, filter]);
 
@@ -42,18 +42,20 @@ export function InstallmentsTab({ cards, hidden }: { cards: readonly CardLike[];
 			</View>
 		);
 	}
-	const { sums, columns, list } = view;
+	const { totals, columns, list } = view;
 	const cardById = new Map(cards.map((c) => [c.id, c]));
 
 	return (
 		<View style={{ gap: spacing.lg }}>
 			<BigNumber
 				label={`Comprometido em ${monthName(month).toLocaleLowerCase("pt-BR")}`}
-				value={money(sums.committedCents, hidden, { sign: "never" })}
+				value={money(totals.committedCents, hidden, { sign: "never" })}
 				caption={
-					sums.futureCents > 0
-						? `Faltam ${money(sums.futureCents, hidden, { sign: "never" })} em parcelas futuras`
-						: "Nada nos meses seguintes"
+					totals.count === 0
+						? "Nada parcelado agora"
+						: `Restam ${money(totals.remainingCents, hidden, { sign: "never" })}${totals.estimated ? " (estimado)" : ""} em ${
+								totals.count === 1 ? "1 parcelamento" : `${totals.count} parcelamentos`
+							}`
 				}
 			/>
 			{columns.some((c) => c.totalCents > 0) ? (

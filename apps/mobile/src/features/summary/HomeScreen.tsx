@@ -26,16 +26,20 @@ import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
 import { isUnreachableQuery } from "../server/server-model.ts";
 import { useProfile } from "../settings/preferences-queries.ts";
 import { avatarInitial, greetWithName } from "../settings/profile-model.ts";
+import { BalanceTile, CashFlowTile, LimitTile, SpendingTile } from "./BankCards.tsx";
 import { CategoriesCard } from "./CategoriesCard.tsx";
 import { HeroCard } from "./HeroCard.tsx";
 import { HomeHeader } from "./HomeHeader.tsx";
 import {
+	useAccountBalances,
 	useAccounts,
 	useCards,
+	useCashFlow,
 	useCategories,
 	useInstallments,
 	useInvoicesOverview,
 	useRecentTransactions,
+	useSpendingDaily,
 	useSummary,
 } from "./queries.ts";
 import { RecentCard } from "./RecentCard.tsx";
@@ -59,6 +63,9 @@ export function HomeScreen() {
 	const cardsQ = useCards();
 	const accountsQ = useAccounts();
 	const installmentsQ = useInstallments();
+	const balancesQ = useAccountBalances();
+	const cashFlowQ = useCashFlow(month);
+	const dailyQ = useSpendingDaily(month);
 	const overviewQ = useInvoicesOverview();
 	const recentQ = useRecentTransactions(4);
 	const pendingQ = usePendingTransactions();
@@ -182,12 +189,47 @@ export function HomeScreen() {
 								onPress={() => router.push("/revisao")}
 							/>
 						) : null}
+						<View style={{ flexDirection: "row", gap: spacing.md }}>
+							<BalanceTile
+								state={toLoadable(balancesQ)}
+								now={now}
+								hidden={hidden}
+								onPress={() => router.push("/saldo")}
+							/>
+							<LimitTile
+								state={toLoadable(overviewQ)}
+								now={now}
+								hidden={hidden}
+								onPress={() => router.push("/cartao?aba=limites")}
+							/>
+						</View>
+						<View style={{ flexDirection: "row", gap: spacing.md }}>
+							<CashFlowTile
+								state={toLoadable(cashFlowQ)}
+								month={month}
+								hidden={hidden}
+								onPress={() => router.push("/fluxo")}
+							/>
+							<SpendingTile
+								state={toLoadable(dailyQ)}
+								hidden={hidden}
+								onPress={() => router.push("/gasto-do-mes")}
+							/>
+						</View>
 						<WalletBlock
 							overview={toLoadable(overviewQ)}
 							today={today}
 							hidden={hidden}
 							onOpen={() => router.push("/cartao?aba=faturas")}
 						/>
+						<View style={{ flexDirection: "row", gap: spacing.md }}>
+							<InstallmentsSquare
+								installments={toLoadable(installmentsQ)}
+								month={month}
+								hidden={hidden}
+								onPress={() => router.push("/cartao?aba=parcelas")}
+							/>
+						</View>
 						<View style={{ flexDirection: "row", gap: spacing.md }}>
 							<InstallmentsSquare
 								installments={toLoadable(installmentsQ)}
