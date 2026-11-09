@@ -1,11 +1,14 @@
 import { addDays, daysBetween, type LocalDate } from "@orbita/core";
 import type { Stores, TransactionFilter, TransactionRecord } from "@orbita/db";
+import { plain } from "./classify.ts";
 import {
 	type BillInfo,
+	looksLikeOwnerName,
 	matchPaymentCard,
 	PAYMENT_REVIEW_NOTE,
 	PAYMENT_UNCONNECTED_NOTE,
 	PLUGGY_SOURCE,
+	touchedByOwner,
 } from "./mapping.ts";
 
 /*
@@ -13,8 +16,11 @@ import {
  * sincronização de uma conexão só enxerga as próprias contas e cartões. Aqui o dado já está no banco, de todas elas:
  * - pagamento de fatura de um cartão de OUTRA conexão (a conta do Mercado Pago paga o cartão do Mercado Pago, que pode
  *   ser outra conexão) é ligado ao cartão certo; só vira "Fatura de cartão" o que nenhum cartão conectado explica;
- * - saída de uma conta e entrada de mesmo valor em OUTRA conta sua, no mesmo dia ou no seguinte, viram transferência
- *   própria (nem gasto nem receita) quando o par é único, mesmo sem o nome do titular na descrição.
+ * - saída de uma conta e entrada de mesmo valor em OUTRA conta, no mesmo dia ou no seguinte, viram transferência
+ *   própria (nem gasto nem receita) quando o par é único E pelo menos uma das pontas mostra que é do próprio dono
+ *   (já é transferência por CPF/CNPJ, nome do titular ou categoria "mesma titularidade", ou a descrição diz "entre
+ *   contas"). Valor igual em duas contas NÃO basta: um Pix real a um terceiro, que por acaso bate com uma entrada
+ *   noutra conta, continua sendo gasto. Sem sinal, não pareia.
  * Tudo idempotente: depois de corrigido, a linha já não casa de novo. Linha que o dono editou nunca é tocada.
  */
 
@@ -38,15 +44,32 @@ export interface OwnTransferLeg {
 	direction: "in" | "out" | "unknown";
 	amountCents: number;
 	date: LocalDate;
+	/** Esta ponta mostra, por si só, que o outro lado é o próprio dono (CPF, nome, categoria ou texto de "entre contas"). */
+	ownerSignal: boolean;
 }
 
-/** Id de uma ponta → id da outra, só para pares ÚNICOS dos dois lados (na dúvida não pareia). */
+/**
+ * Os sentidos podem ser as duas pontas de uma transferência? Entrada com saída, sim. Sentido desconhecido (uma
+ * transferência já gravada, cujo sentido o banco de dados não guarda) só serve com entrada ou com outro desconhecido:
+ * nunca com saída, senão uma despesa comum (Pix a terceiro) seria engolida como se fosse a outra ponta.
+ */
+function directionsFit(a: OwnTransferLeg["direction"], b: OwnTransferLeg["direction"]): boolean {
+	if (a === "unknown") return b !== "out";
+	if (b === "unknown") return a !== "out";
+	return a !== b;
+}
+
+/**
+ * Id de uma ponta → id da outra, só para pares ÚNICOS dos dois lados (na dúvida não pareia) e com pelo menos uma ponta
+ * com sinal de titularidade (`ownerSignal`): valor e dia iguais, sozinhos, não provam que o dinheiro é do próprio dono.
+ */
 export function pairLegs(legs: readonly OwnTransferLeg[]): Map<string, string> {
 	const candidates = (leg: OwnTransferLeg) =>
 		legs.filter(
 			(other) =>
 				other.id !== leg.id &&
-				(other.direction === "unknown" || leg.direction === "unknown" || other.direction !== leg.direction) &&
+				(leg.ownerSignal || other.ownerSignal) &&
+				directionsFit(leg.direction, other.direction) &&
 				other.accountId !== leg.accountId &&
 				other.amountCents === leg.amountCents &&
 				Math.abs(daysBetween(leg.date, other.date)) <= 1,
@@ -94,6 +117,8 @@ export interface CrossInput {
 	cards: readonly { id: string; name: string; last4: string | null }[];
 	/** Faturas de todos os cartões conectados. */
 	bills: readonly BillInfo[];
+	/** Nome do titular de cada conta (id da conta do Órbita → `owner` do Pluggy), para o sinal de titularidade. */
+	owners?: ReadonlyMap<string, string | null>;
 }
 
 export interface CrossResult {
@@ -105,7 +130,7 @@ export interface CrossResult {
 export async function reconcileAcrossConnections(input: CrossInput): Promise<CrossResult> {
 	const from = addDays(input.today, -CROSS_WINDOW_DAYS);
 	const billPayments = await relinkBillPayments(input, from);
-	const ownTransfers = await pairAcrossAccounts(input.transactions, from);
+	const ownTransfers = await pairAcrossAccounts(input.transactions, from, input.owners ?? new Map());
 	return { billPayments, ownTransfers };
 }
 
@@ -119,7 +144,7 @@ async function relinkBillPayments(input: CrossInput, from: LocalDate): Promise<n
 	const rows = await listAll(transactions, { kinds: ["expense"], sources: [PLUGGY_SOURCE], from });
 	let changed = 0;
 	for (const row of rows) {
-		if (row.categoryEditedByOwner || row.accountId === null || !isPaymentNote(row.note)) continue;
+		if (touchedByOwner(row) || row.accountId === null || !isPaymentNote(row.note)) continue;
 		const found = matchPaymentCard(row.amountCents, row.description, input, row.date);
 		if (found.kind === "one") {
 			await transactions.update(row.id, {
@@ -143,8 +168,43 @@ async function relinkBillPayments(input: CrossInput, from: LocalDate): Promise<n
 	return changed;
 }
 
-/** Pareia saídas e entradas de contas diferentes (de qualquer conexão) e marca as duas pontas como `transfer`. */
-async function pairAcrossAccounts(transactions: TransactionStore, from: LocalDate): Promise<number> {
+/** Texto que, na categoria do banco ou na descrição, diz que o dinheiro ficou na mesma titularidade. */
+const OWN_TRANSFER_TEXT =
+	/\b(same ownership|same person|mesma titularidade|mesmo titular|entre (as |suas |minhas )?contas|conta propria|contas proprias)\b/;
+
+/**
+ * Sentido de uma transferência já gravada, lido da descrição ("Pix enviado", "TED recebida"). O banco de dados não
+ * guarda o sentido; sem palavra que diga, `unknown` (e `pairLegs` nunca casa `unknown` com saída).
+ */
+export function directionFromDescription(description: string): "in" | "out" | "unknown" {
+	const text = plain(description);
+	const out = /\b(enviad[oa]s?|envio|saida|pagamento pix|pix para|ted para|transferido para)\b/.test(text);
+	const incoming = /\b(recebid[oa]s?|recebimento|entrada|pix de|ted de|transferido de)\b/.test(text);
+	return out === incoming ? "unknown" : out ? "out" : "in";
+}
+
+/**
+ * A linha mostra que o outro lado é o próprio dono? Já ser `transfer` conta (o mapeamento só grava assim por CPF/CNPJ,
+ * nome do titular ou categoria "mesma titularidade"); fora isso, vale o texto da categoria/descrição ou o nome do titular
+ * da conta na descrição.
+ */
+function hasOwnerSignal(row: TransactionRecord, ownerName: string | null | undefined): boolean {
+	if (row.kind === "transfer") return true;
+	if (OWN_TRANSFER_TEXT.test(plain(row.sourceCategory)) || OWN_TRANSFER_TEXT.test(plain(row.description))) {
+		return true;
+	}
+	return looksLikeOwnerName(row.description, ownerName) || looksLikeOwnerName(row.merchantName, ownerName);
+}
+
+/**
+ * Pareia saídas e entradas de contas diferentes (de qualquer conexão) e marca as duas pontas como `transfer`, desde
+ * que uma delas tenha sinal de titularidade. Linha que o dono mexeu não entra (nem como candidata).
+ */
+async function pairAcrossAccounts(
+	transactions: TransactionStore,
+	from: LocalDate,
+	owners: ReadonlyMap<string, string | null>,
+): Promise<number> {
 	const rows = await listAll(transactions, {
 		kinds: ["expense", "income", "transfer"],
 		sources: [PLUGGY_SOURCE],
@@ -155,13 +215,23 @@ async function pairAcrossAccounts(transactions: TransactionStore, from: LocalDat
 	for (const row of rows) {
 		// Pagamento de fatura em revisão ou na categoria "Fatura de cartão" não é ponta de transferência.
 		if (row.accountId === null || row.cardId !== null || isPaymentNote(row.note)) continue;
+		// Em revisão (pendente) ou editada pelo dono: não é candidata nem ponta.
+		if (touchedByOwner(row) || row.status === "pending") continue;
+		// Transferência que já tem destino está resolvida: fora das candidatas (senão engordaria o empate de outra).
+		if (row.kind === "transfer" && row.counterpartAccountId !== null) continue;
 		byId.set(row.id, row);
 		legs.push({
 			id: row.id,
 			accountId: row.accountId,
-			direction: row.kind === "income" ? "in" : row.kind === "expense" ? "out" : "unknown",
+			direction:
+				row.kind === "income"
+					? "in"
+					: row.kind === "expense"
+						? "out"
+						: directionFromDescription(row.description),
 			amountCents: row.amountCents,
 			date: row.date,
+			ownerSignal: hasOwnerSignal(row, owners.get(row.accountId)),
 		});
 	}
 	const pairs = pairLegs(legs);
@@ -171,7 +241,7 @@ async function pairAcrossAccounts(transactions: TransactionStore, from: LocalDat
 		const partner = byId.get(partnerId);
 		if (!row || !partner || partner.accountId === null) continue;
 		// O dono mexeu em uma das pontas: o par fica como está.
-		if (row.categoryEditedByOwner || partner.categoryEditedByOwner) continue;
+		if (touchedByOwner(row) || touchedByOwner(partner)) continue;
 		if (row.kind === "transfer") {
 			if (row.counterpartAccountId === null) {
 				await transactions.update(id, { counterpartAccountId: partner.accountId });
