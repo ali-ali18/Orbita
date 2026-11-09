@@ -1,4 +1,5 @@
 export {
+	INBOX_MAX_AGE_DAYS,
 	ingestNotification,
 	NOTIFICATION_SOURCE,
 	type NotificationDeps,

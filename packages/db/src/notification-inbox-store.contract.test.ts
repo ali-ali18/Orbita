@@ -60,6 +60,17 @@ describe.each(contractSuites())("NotificationInboxStore (%s)", (_name, make) => 
 		expect(await inbox.add(item("a"))).toEqual({ created: true });
 	});
 
+	it("purgeOlderThan apaga só as antigas", async () => {
+		await inbox.add(item("a"));
+		await inbox.add(item("b"));
+		await inbox.add(item("c"));
+		const rows = await inbox.list();
+		const middle = rows[1]?.createdAt as Date;
+		expect(await inbox.purgeOlderThan(middle)).toBe(1);
+		expect((await inbox.list()).map((r) => r.key)).toEqual(["c", "b"]);
+		expect(await inbox.purgeOlderThan(new Date(0))).toBe(0);
+	});
+
 	it("guarda no máximo NOTIFICATION_INBOX_LIMIT: as mais antigas saem", async () => {
 		for (let i = 0; i < NOTIFICATION_INBOX_LIMIT + 3; i++) await inbox.add(item(`k${i}`));
 		expect(await inbox.count()).toBe(NOTIFICATION_INBOX_LIMIT);

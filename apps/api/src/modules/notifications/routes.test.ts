@@ -115,6 +115,36 @@ describe("POST /v1/notifications", () => {
 	});
 });
 
+describe("lote com item ruim", () => {
+	it("um item que falha volta como error e não derruba os outros", async () => {
+		const { send, stores } = await prepare();
+		const real = stores.transactions.upsertByExternal.bind(stores.transactions);
+		let calls = 0;
+		stores.transactions.upsertByExternal = async (...args) => {
+			if (++calls === 1) throw new Error("falha de teste");
+			return real(...args);
+		};
+		const res = await send([
+			{ package: NU, text: COMPRA, postedAt: POSTED },
+			{ package: NU, text: "Pix enviado: R$ 17,25 para ANA", postedAt: POSTED + 120_000 },
+		]);
+		expect(res.status).toBe(200);
+		expect(res.body.results).toEqual(["error", "created"]);
+	});
+
+	it("horário fora do razoável é recusado pelo esquema (e o aparelho descarta o lote com 400)", async () => {
+		const { send } = await prepare();
+		expect((await send([{ package: NU, text: COMPRA, postedAt: 5 }])).status).toBe(400);
+		expect((await send([{ package: NU, text: COMPRA, postedAt: 9e15 }])).status).toBe(400);
+	});
+
+	it("tentar de novo tem limite por aparelho", async () => {
+		const { api } = await prepare();
+		for (let i = 0; i < 10; i++) expect((await api.post("/v1/notifications/inbox/retry")).status).toBe(200);
+		expect((await api.post("/v1/notifications/inbox/retry")).status).toBe(429);
+	});
+});
+
 describe("lista 'Não entendi'", () => {
 	it("guarda o desconhecido com valor, lista, tenta de novo depois do cartão e apaga", async () => {
 		const { send, api, call } = await prepare();

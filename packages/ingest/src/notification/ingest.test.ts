@@ -251,6 +251,86 @@ describe("ingestNotification", () => {
 	});
 });
 
+describe("ingestNotification: repostagem, duplicata manual e prazo da lista", () => {
+	let stores: Stores;
+	let clock = NOW;
+	const deps = () => ({ stores, now: () => clock });
+	const all = () => stores.transactions.listRecent({ limit: 100 });
+	beforeEach(async () => {
+		clock = NOW;
+		stores = createMemoryStores({ now: () => clock });
+		await stores.categories.ensureDefaults();
+		await stores.cards.create({
+			name: "Nubank Mastercard",
+			bankCode: "18236120",
+			last4: "4821",
+			closingDay: 10,
+			dueDay: 17,
+		});
+		await stores.accounts.create({ name: "Nubank", kind: "checking", bankCode: "18236120" });
+		await stores.preferences.update({ notificationCapture: true, notificationApps: ["nubank"] });
+	});
+	const text = "Compra de R$ 23,45 APROVADA em LOJA EXEMPLO para o cartão com final 4821";
+
+	it("a mesma notificação repostada em outro minuto (mesma chave do Android) não duplica", async () => {
+		expect(await ingestNotification(deps(), item(text, { sbnKey: "0|com.nu.production|7|null|10100" }))).toBe(
+			"created",
+		);
+		expect(
+			await ingestNotification(
+				deps(),
+				item(text, { sbnKey: "0|com.nu.production|7|null|10100", postedAt: POSTED + 70_000 }),
+			),
+		).toBe("duplicate");
+		expect(await all()).toHaveLength(1);
+	});
+
+	it("duas compras iguais (chaves do Android diferentes) continuam sendo duas, mesmo no mesmo minuto", async () => {
+		await ingestNotification(deps(), item(text, { sbnKey: "0|com.nu.production|7|null|10100" }));
+		await ingestNotification(
+			deps(),
+			item(text, { sbnKey: "0|com.nu.production|8|null|10100", postedAt: POSTED + 30_000 }),
+		);
+		expect(await all()).toHaveLength(2);
+	});
+
+	it("sem a chave do Android, o texto igual em minuto vizinho conta como repostagem; 5 minutos depois é outra compra", async () => {
+		await ingestNotification(deps(), item(text));
+		expect(await ingestNotification(deps(), item(text, { postedAt: POSTED + 90_000 }))).toBe("duplicate");
+		expect(await ingestNotification(deps(), item(text, { postedAt: POSTED + 5 * 60_000 }))).toBe("created");
+	});
+
+	it("o dono já lançou à mão a mesma compra no mesmo dia: não cria outra igual", async () => {
+		const card = (await stores.cards.list())[0];
+		await stores.transactions.create({
+			kind: "expense",
+			amountCents: 2345,
+			date: "2026-11-09",
+			description: "Loja Exemplo",
+			cardId: card?.id as string,
+			invoiceMonth: "2026-11",
+		});
+		expect(await ingestNotification(deps(), item(text))).toBe("duplicate");
+		expect(await all()).toHaveLength(1);
+		// Outra loja, mesmo valor: é outra compra.
+		const other = "Compra de R$ 23,45 APROVADA em OUTRA LOJA para o cartão com final 4821";
+		expect(await ingestNotification(deps(), item(other))).toBe("created");
+	});
+
+	it("a lista 'Não entendi' esquece o que passou de 30 dias", async () => {
+		await ingestNotification(deps(), item("Aconteceu algo com R$ 20,00 na sua conta"));
+		expect(await stores.notificationInbox.count()).toBe(1);
+		clock = new Date(NOW.getTime() + 31 * 86_400_000);
+		await ingestNotification(
+			deps(),
+			item("Outra coisa com R$ 21,00 na conta", { postedAt: clock.getTime() }),
+		);
+		expect((await stores.notificationInbox.list()).map((r) => r.text)).toEqual([
+			"Outra coisa com R$ 21,00 na conta",
+		]);
+	});
+});
+
 describe("ingestNotification: o que nunca entra confirmado sozinho", () => {
 	let stores: Stores;
 	const deps = () => ({ stores, now: () => NOW });

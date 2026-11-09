@@ -16,6 +16,7 @@ import {
 	type NotificationInboxReason,
 	type NotificationItem,
 	type NotificationResult,
+	normalizeMerchantName,
 	notificationAppOfPackage,
 	pickCategoryRule,
 } from "@orbita/shared";
@@ -48,16 +49,43 @@ export interface NotificationDeps {
 	now: () => Date;
 }
 
-/** Identificador da notificação: pacote + título + texto + minuto em que o Android a registrou. */
-export function notificationKey(
-	item: Pick<NotificationItem, "package" | "title" | "text" | "postedAt">,
-): string {
-	const minute = Math.floor(item.postedAt / 60_000);
-	const hash = createHash("sha256")
-		.update(`${item.package}\n${item.title}\n${item.text}\n${minute}`)
+/** Quantos minutos para cada lado a mesma notificação repostada (o app do banco a atualiza) ainda conta como a mesma. */
+export const REPOST_WINDOW_MINUTES = 2;
+/** Prazo da lista "Não entendi": passado isto, a notificação sai (o Open Finance já trouxe a compra há muito). */
+export const INBOX_MAX_AGE_DAYS = 30;
+
+const stableOf = (
+	item: Pick<NotificationItem, "package" | "title" | "text"> & { sbnKey?: string | undefined },
+) =>
+	createHash("sha256")
+		.update(`${item.package}\n${item.title}\n${item.text}\n${item.sbnKey ?? ""}`)
 		.digest("hex")
-		.slice(0, 32);
-	return `n:${hash}`;
+		.slice(0, 24);
+
+/**
+ * Identificador da notificação: `n:<parte estável>:<minuto>`. A parte estável é o hash de pacote + título + texto +
+ * chave da notificação no Android; o minuto é o em que o Android a registrou. Repetir o envio dá a mesma chave; duas
+ * compras iguais (chaves do Android diferentes) dão chaves diferentes.
+ */
+export function notificationKey(
+	item: Pick<NotificationItem, "package" | "title" | "text" | "postedAt"> & { sbnKey?: string | undefined },
+): string {
+	return `n:${stableOf(item)}:${Math.floor(item.postedAt / 60_000)}`;
+}
+
+/** A mesma notificação repostada pouco depois (minuto vizinho) já virou lançamento? */
+async function repostedRecently(
+	transactions: NotificationDeps["stores"]["transactions"],
+	key: string,
+): Promise<boolean> {
+	const m = /^n:([0-9a-f]+):(\d+)$/.exec(key);
+	if (!m) return false;
+	const minute = Number(m[2]);
+	for (let d = -REPOST_WINDOW_MINUTES; d <= REPOST_WINDOW_MINUTES; d++) {
+		if (d === 0) continue;
+		if (await transactions.findByExternal(NOTIFICATION_SOURCE, `n:${m[1]}:${minute + d}`)) return true;
+	}
+	return false;
 }
 
 interface Resolved {
@@ -212,12 +240,18 @@ async function alreadyInBank(
 		from: addDays(input.date, -EARLY_WINDOW_DAYS),
 		to: addDays(input.date, EARLY_WINDOW_DAYS),
 	});
+	const name = normalizeMerchantName(input.description);
 	return rows.some(
 		(t) =>
-			t.source === "pluggy" &&
 			t.kind === input.kind &&
 			t.amountCents === input.amountCents &&
-			t.installmentNumber === null,
+			t.installmentNumber === null &&
+			(t.source === "pluggy" ||
+				// O dono já lançou à mão (ou importou) a mesma compra no mesmo dia: não cria outra igual.
+				(t.source !== NOTIFICATION_SOURCE &&
+					t.date === input.date &&
+					name !== "" &&
+					normalizeMerchantName(t.description) === name)),
 	);
 }
 
@@ -230,6 +264,7 @@ async function process(
 	const { transactions, notificationInbox } = deps.stores;
 	const result = parseNotification({ app: n.app, title: n.title, text: n.text });
 	const toInbox = async (reason: NotificationInboxReason) => {
+		await notificationInbox.purgeOlderThan(new Date(deps.now().getTime() - INBOX_MAX_AGE_DAYS * 86_400_000));
 		await notificationInbox.add({
 			key: n.key,
 			app: n.app,
@@ -249,11 +284,9 @@ async function process(
 	const posted = n.postedAt.getTime() > deps.now().getTime() ? deps.now() : n.postedAt;
 	const built = await build(deps, prefs, n, result.data, toLocalDate(posted));
 	if ("missing" in built) return toInbox("target");
-	if (
-		!(await transactions.findByExternal(NOTIFICATION_SOURCE, n.key)) &&
-		(await alreadyInBank(transactions, built.input))
-	) {
-		return "duplicate";
+	if (!(await transactions.findByExternal(NOTIFICATION_SOURCE, n.key))) {
+		if (await repostedRecently(transactions, n.key)) return "duplicate";
+		if (await alreadyInBank(transactions, built.input)) return "duplicate";
 	}
 	const saved = await transactions.upsertByExternal(NOTIFICATION_SOURCE, n.key, built.input);
 	// Apagado pelo dono antes: não recria. Já existia: é repetição.
