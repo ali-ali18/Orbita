@@ -173,7 +173,7 @@ export const transactionSchema = z.object({
 			 * Fatura (AAAA-MM) em que a compra deve ser cobrada. "Unlike billId, it is provided for pending and future
 			 * transactions too. Only returned for Open Finance connectors" (docs.pluggy.ai/reference/transactions-list).
 			 */
-			billForecastDate: z.string().max(20).nullish().catch(null),
+			billForecastDate: z.string().max(40).nullish().catch(null),
 			/** Tipo da tarifa, quando a operação é TARIFA (ANNUAL_FEE, SMS, OTHER…; mesma página). */
 			feeType: z.string().max(60).nullish().catch(null),
 			/** Crédito contratado no cartão, quando a operação é OPERACOES_CREDITO_CONTRATADAS_CARTAO (REVOLVING_CREDIT, BILL_INSTALLMENT, LOAN, OTHER). */
