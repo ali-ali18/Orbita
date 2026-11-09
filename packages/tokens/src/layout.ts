@@ -6,4 +6,8 @@ export const layout = {
 	homeIndicator: 28,
 	/** Alvo de toque mínimo (acessibilidade). */
 	touchTarget: 44,
+	/** Diâmetro da rosca de categorias (`DonutChart`). */
+	donut: 176,
+	/** Espessura do anel da rosca. */
+	donutStroke: 20,
 } as const;

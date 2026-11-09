@@ -42,3 +42,51 @@ export function linePath(points: readonly ChartPoint[], box: ChartBox, domain: C
 		})
 		.join(" ");
 }
+
+export interface DonutArc {
+	/** Posição na lista de pesos recebida. */
+	index: number;
+	/** Comprimento do traço desenhado (já sem folga e sem as pontas redondas). */
+	length: number;
+	/** Onde o traço começa, contado do topo no sentido horário. */
+	start: number;
+}
+
+/**
+ * Arcos de uma rosca com pontas redondas: cada segmento ocupa `peso / soma` da circunferência e perde `gap` (espaço
+ * visível entre vizinhos) mais a espessura (as duas meias-pontas que o traço redondo acrescenta). Um segmento só
+ * fecha o anel inteiro, sem folga. Peso zero ou negativo some.
+ */
+export function donutArcs(
+	weights: readonly number[],
+	radius: number,
+	stroke: number,
+	gap: number,
+): DonutArc[] {
+	const circumference = 2 * Math.PI * radius;
+	const positive = weights.map((w) => Math.max(w, 0));
+	const total = positive.reduce((a, b) => a + b, 0);
+	if (total <= 0) return [];
+	const visible = positive.filter((w) => w > 0).length;
+	const cut = gap + stroke;
+	// Fatia menor que a folga viraria um ponto por cima da vizinha: ganha o mínimo (um ponto com folga) e as demais
+	// dividem o que sobra, na mesma proporção.
+	const minArc = cut + 1;
+	const raw = positive.map((w) => (w / total) * circumference);
+	const tiny = raw.filter((a) => a > 0 && a < minArc).length;
+	const bigSum = raw.filter((a) => a >= minArc).reduce((x, y) => x + y, 0);
+	const scale = bigSum > 0 ? Math.max(0, circumference - tiny * minArc) / bigSum : 1;
+	const arcs: DonutArc[] = [];
+	let cursor = 0;
+	raw.forEach((share, index) => {
+		if (share <= 0) return;
+		if (visible === 1) {
+			arcs.push({ index, length: round(circumference), start: 0 });
+			return;
+		}
+		const arc = share < minArc ? minArc : share * scale;
+		arcs.push({ index, length: round(Math.max(0.01, arc - cut)), start: round(cursor + cut / 2) });
+		cursor += arc;
+	});
+	return arcs;
+}

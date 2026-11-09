@@ -56,6 +56,11 @@ Regras:
 - Texto (valor, legenda) usa `text`/`textSecondary`, nunca a cor da série. A cor fica na marca (barra, bolinha, linha).
 - Comparação com período anterior: mesma cor com opacidade 35% ou linha tracejada em `chart.other`.
 - Entre segmentos de barra empilhada: espaço de 2.
+- **Rosca (`DonutChart`)** para parte de um todo (gasto por categoria): segmentos nas cores das categorias, pontas redondas, espaço `spacing.xs` entre eles, começa no topo no sentido horário. O total vai no centro (`numberMedium` + "gastos esse mês" em `caption`) e a lista embaixo traz cor, nome, % e valor (`CategoryDonut`, usado no card "Gastos por categoria" do Início e em "Como chegamos nesse número"). Fatia menor que a folga vira um ponto, sem sobrepor a vizinha. Não use rosca para comparar períodos (aí é barra ou linha) nem com um só segmento.
+
+### Menos texto
+
+Cada card do Início mostra **um número principal e no máximo uma linha de apoio**. O mesmo número não aparece em dois cards (o Gasto do mês é o "Gasto R$ X" do card principal, que abre a linha dia a dia). "Atualizado há…" e "estimado" ficam só nas telas de detalhe, e "estimado" vira **um aviso por tela**, nunca um sufixo em cada valor.
 
 ### Agentes
 
@@ -122,6 +127,8 @@ Regra de aninhamento: elemento dentro de card usa raio **menor** que o card (`in
 | `statusBar`     | 56    | Reserva mínima no topo de toda tela (barra de status)    |
 | `homeIndicator` | 28    | Folga mínima embaixo (barra de gestos do sistema)        |
 | `touchTarget`   | 44    | Alvo de toque mínimo; botão menor completa com `hitSlop` |
+| `donut`         | 176   | Diâmetro da rosca de categorias (`DonutChart`)           |
+| `donutStroke`   | 20    | Espessura do anel da rosca                               |
 
 ## Movimento
 
@@ -133,7 +140,7 @@ O app (Expo) segue três camadas. Cada uma só importa da de baixo.
 
 ```
 apps/mobile/src/
-  ui/          # primitivos: Text, Button, Chip, Card, ListRow, Switch, Sheet, Avatar, BankLogo, ProgressBar, Ring, LineChart
+  ui/          # primitivos: Text, Button, Chip, Card, ListRow, Switch, Sheet, Avatar, BankLogo, ProgressBar, Ring, DonutChart, LineChart
   features/    # blocos por assunto: transactions/, cards/, agents/, review/, pairing/ …
   app/         # telas e rotas (Expo Router); só montam blocos de features
 ```

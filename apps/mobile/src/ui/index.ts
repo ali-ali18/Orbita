@@ -5,6 +5,7 @@ export { Button } from "./Button.tsx";
 export { Card, CardHeader } from "./Card.tsx";
 export { Chip } from "./Chip.tsx";
 export { ConfirmDialog } from "./ConfirmDialog.tsx";
+export { DonutChart, type DonutSegment } from "./DonutChart.tsx";
 export { ErrorState } from "./ErrorState.tsx";
 export { familyByWeight, geistFonts } from "./fonts.ts";
 export { IconButton } from "./IconButton.tsx";
