@@ -110,6 +110,7 @@ describe("fatura paga com pagamento adiantado", () => {
 	async function manualCard() {
 		const { stores } = await seed();
 		const account = (await stores.accounts.list())[0];
+		if (!account) throw new Error("sem conta");
 		const card = await stores.cards.create({ name: "Manual", closingDay: 25, dueDay: 5 });
 		const pay = (date: string, amountCents: number) =>
 			stores.transactions.create({
@@ -117,7 +118,7 @@ describe("fatura paga com pagamento adiantado", () => {
 				amountCents,
 				date,
 				description: "Fatura",
-				accountId: account?.id,
+				accountId: account.id,
 				cardId: card.id,
 			});
 		const bill = (externalId: string, dueDate: string, closeDate: string, totalAmountCents: number) =>

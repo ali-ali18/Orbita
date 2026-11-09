@@ -56,6 +56,15 @@ describe("brandOf", () => {
 		expect(idOf("DISNEY+")).toBe("disneyplus");
 		expect(idOf("Disney Plus")).toBe("disneyplus");
 		expect(idOf("Google Gemini")).toBe("googleone");
+		expect(idOf("AmazonMktplace*Loja")).toBe("amazon");
+		expect(idOf("AMAZON PRIME VIDEO")).toBe("primevideo");
+		expect(idOf("PRIMEVIDEO BR")).toBe("primevideo");
+		expect(idOf("X.AI")).toBe("grok");
+		expect(idOf("XAI CORP")).toBe("grok");
+		expect(idOf("Disney Brasil")).toBe("disneyplus");
+		// "xai" só como token isolado: palavra comum que começa com xai não casa.
+		expect(idOf("Xaiane Cabeleireira")).toBeNull();
+		expect(idOf("Pix enviado - Xai Silva")).toBeNull();
 	});
 
 	it("banco vira o logo do banco", () => {

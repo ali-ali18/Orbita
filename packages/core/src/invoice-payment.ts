@@ -88,7 +88,10 @@ export function paidWithAdvance(input: {
 				: Math.max(0, input.olderTotalCents - paidForInvoice(payments, olderMonth, card));
 		overflowIn = Math.min(
 			Math.max(0, input.totalCents),
-			Math.max(0, paidForInvoice(payments, previous, card) - olderDeficit - Math.max(0, input.previousTotalCents)),
+			Math.max(
+				0,
+				paidForInvoice(payments, previous, card) - olderDeficit - Math.max(0, input.previousTotalCents),
+			),
 		);
 	}
 	const next = invoiceByMonth(addMonths(month, 1), card);

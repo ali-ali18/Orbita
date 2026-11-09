@@ -338,7 +338,10 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 				// Fora dos meses que o overview considera, fechada sem pagamento conhecido é histórico (anterior ao
 				// Órbita), não dívida: estado neutro, nunca "overdue".
 				const considered = consideredMonths(card, today);
-				return { card, l: l.state === "overdue" && !considered.has(month) ? { ...l, state: "closed" as const } : l };
+				return {
+					card,
+					l: l.state === "overdue" && !considered.has(month) ? { ...l, state: "closed" as const } : l,
+				};
 			}),
 		);
 		return {
