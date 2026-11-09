@@ -103,6 +103,9 @@ export function claimPairing(
 export type MonthSummary = InferResponseType<Api["v1"]["summary"][":month"]["$get"], 200>;
 export type InvoiceView = InferResponseType<Api["v1"]["cards"][":id"]["invoices"][":month"]["$get"], 200>;
 export type InvoicesOverviewView = InferResponseType<Api["v1"]["invoices"]["overview"]["$get"], 200>;
+export type AccountBalancesView = InferResponseType<Api["v1"]["accounts"]["balances"]["$get"], 200>;
+export type CashFlowView = InferResponseType<Api["v1"]["cash-flow"][":month"]["$get"], 200>;
+export type SpendingDailyView = InferResponseType<Api["v1"]["summary"][":month"]["daily"]["$get"], 200>;
 export type InstallmentsView = InferResponseType<Api["v1"]["installments"]["$get"], 200>;
 export type RecentTransactions = InferResponseType<Api["v1"]["transactions"]["$get"], 200>;
 export type CategoriesView = InferResponseType<Api["v1"]["categories"]["$get"], 200>;
