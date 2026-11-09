@@ -40,6 +40,26 @@ describe.each(contractSuites())("CardStore (%s)", (_name, make) => {
 		expect((await stores.cards.getConfig(card.id))?.closingRule).toBe("closing-day-included");
 	});
 
+	it("guarda a origem da regra de fechamento: padrão, escolha do dono ou deduzida pelo sync", async () => {
+		const base = { name: "N", closingDay: 10, dueDay: 17 };
+		expect((await stores.cards.create(base)).closingRuleSource).toBe("default");
+		const owned = await stores.cards.create({ ...base, closingRule: "closing-day-included" });
+		expect(owned.closingRuleSource).toBe("owner");
+		const card = await stores.cards.create(base);
+		// Trocar a regra sem dizer a origem é do dono; outra edição não mexe na origem.
+		expect((await stores.cards.update(card.id, { limitCents: 100_00 })).closingRuleSource).toBe("default");
+		expect((await stores.cards.update(card.id, { closingRule: "closing-day-next" })).closingRuleSource).toBe(
+			"owner",
+		);
+		const inferred = await stores.cards.update(card.id, {
+			closingRule: "closing-day-included",
+			closingRuleSource: "inferred",
+		});
+		expect(inferred).toMatchObject({ closingRule: "closing-day-included", closingRuleSource: "inferred" });
+		expect((await stores.cards.get(card.id))?.closingRuleSource).toBe("inferred");
+		await expect(stores.cards.update(card.id, { closingRuleSource: "x" as never })).rejects.toThrow();
+	});
+
 	it("relinkExternal troca só o id externo; manual, inexistente ou id em uso dão null", async () => {
 		const base = { closingDay: 10, dueDay: 17, source: "pluggy" as const };
 		const c = await stores.cards.create({ name: "N", last4: "1234", externalId: "old", ...base });

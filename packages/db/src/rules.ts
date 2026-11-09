@@ -16,7 +16,7 @@ import {
 	type TransactionSource,
 } from "@orbita/shared";
 import type { AccountInput } from "./account-store.ts";
-import type { CardInput } from "./card-store.ts";
+import { type CardInput, CLOSING_RULE_SOURCES, type ClosingRuleSource } from "./card-store.ts";
 import type { CategoryInput } from "./category-store.ts";
 import { invalid } from "./errors.ts";
 import type { RecurrenceData } from "./recurrence-store.ts";
@@ -112,6 +112,10 @@ export function normalizeAccount(input: AccountInput) {
 export function normalizeCard(input: CardInput) {
 	const closingRule: ClosingRule = input.closingRule ?? "closing-day-next";
 	if (!CLOSING_RULES.includes(closingRule)) throw invalid("Regra de fechamento inválida.");
+	const closingRuleSource =
+		input.closingRuleSource ?? (input.closingRule === undefined ? "default" : "owner");
+	if (!CLOSING_RULE_SOURCES.includes(closingRuleSource))
+		throw invalid("Origem da regra de fechamento inválida.");
 	const last4 = hasValue(input.last4) ? String(input.last4) : null;
 	if (last4 !== null && !/^\d{4}$/.test(last4)) throw invalid("Informe os 4 últimos dígitos do cartão.");
 	return {
@@ -121,6 +125,7 @@ export function normalizeCard(input: CardInput) {
 		closingDay: cleanDay(input.closingDay, "O dia de fechamento"),
 		dueDay: cleanDay(input.dueDay, "O dia de vencimento"),
 		closingRule,
+		closingRuleSource,
 		limitCents: hasValue(input.limitCents) ? cleanCents(input.limitCents, "O limite do cartão", 0) : null,
 	};
 }
@@ -223,5 +228,16 @@ export function applyPatch<T extends object>(current: T, patch: Partial<T>): T {
 	for (const [key, value] of Object.entries(patch)) {
 		if (value !== undefined) (next as Record<string, unknown>)[key] = value;
 	}
+	return next;
+}
+
+/** Aplica o patch do cartão: trocar a regra sem dizer a origem é escolha do dono, que o sync nunca desfaz. */
+export function applyCardPatch<T extends { closingRuleSource: ClosingRuleSource }>(
+	current: T,
+	patch: Partial<T> & { closingRule?: ClosingRule },
+): T {
+	const next = applyPatch(current, patch);
+	if (patch.closingRule !== undefined && patch.closingRuleSource === undefined)
+		next.closingRuleSource = "owner";
 	return next;
 }

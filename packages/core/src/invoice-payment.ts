@@ -72,10 +72,12 @@ export function paidWithAdvance(input: {
 	const own = paidForInvoice(payments, month, card);
 	if (invoiceStatus(invoiceByMonth(month, card), today) === "open") return own;
 	const previous = addMonths(month, -1);
-	const overflowIn = Math.max(0, paidForInvoice(payments, previous, card) - Math.max(0, input.previousTotalCents));
+	const overflowIn = Math.max(
+		0,
+		paidForInvoice(payments, previous, card) - Math.max(0, input.previousTotalCents),
+	);
 	const next = invoiceByMonth(addMonths(month, 1), card);
-	const keptOwn =
-		invoiceStatus(next, today) === "open" ? own : Math.min(own, Math.max(0, input.totalCents));
+	const keptOwn = invoiceStatus(next, today) === "open" ? own : Math.min(own, Math.max(0, input.totalCents));
 	return keptOwn + overflowIn;
 }
 

@@ -436,9 +436,7 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 		card: config,
 		today,
 		totalCents: bill?.totalAmountCents ?? composition.totalCents,
-		previousTotalCents:
-			previousBill?.totalAmountCents ??
-			invoiceComposition(previousPosted).totalCents,
+		previousTotalCents: previousBill?.totalAmountCents ?? invoiceComposition(previousPosted).totalCents,
 	});
 	return {
 		card,
@@ -455,7 +453,12 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 			status: invoiceStatus(invoice, today),
 			paidCents,
 			// O total do banco, quando há, é o que se paga: fatura que ele mostra com total 0 está quitada (pagou antes de fechar).
-			paymentStatus: paymentStatus(invoice, bill?.totalAmountCents ?? composition.totalCents, paidCents, today),
+			paymentStatus: paymentStatus(
+				invoice,
+				bill?.totalAmountCents ?? composition.totalCents,
+				paidCents,
+				today,
+			),
 		},
 		composition,
 		transactions: txs,

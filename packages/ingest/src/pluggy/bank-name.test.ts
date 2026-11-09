@@ -158,7 +158,9 @@ describe("isLegacyRawName", () => {
 
 	it("renomeia o nome gravado truncado (com ou sem reticências), prefixo da razão social", () => {
 		const raw = "Nu Pagamentos S.A. - Instituição de Pagamento (Conta Pré-pagamento)";
-		expect(isLegacyRawName("Nu Pagamentos S.A. - Ins…", "Nu Pagamentos S.A. - Instituição de Pagamento")).toBe(true);
+		expect(
+			isLegacyRawName("Nu Pagamentos S.A. - Ins…", "Nu Pagamentos S.A. - Instituição de Pagamento"),
+		).toBe(true);
 		expect(isLegacyRawName("Nu Pagamentos S.A. - Ins...", raw)).toBe(true);
 		expect(isLegacyRawName("Nu Pagamentos S.A. - Instituição de Pagamento (Conta Pré-pag", raw)).toBe(true);
 		expect(isLegacyRawName("Nu Pagamentos S.A.", raw)).toBe(true);
