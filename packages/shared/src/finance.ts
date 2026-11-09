@@ -205,6 +205,11 @@ export const transactionDto = z.object({
 	editedByOwner: z.boolean().optional(),
 	/** Partes de uma compra dividida pelo dono dividem o mesmo grupo; `null` se não é parte de uma divisão. */
 	splitGroupId: z.string().nullable().optional(),
+	/**
+	 * O banco ainda não efetivou (compra da fatura aberta do cartão, Pluggy `PENDING`). NÃO é "Para revisar" (`status`):
+	 * conta no gasto normalmente; o app só mostra o rótulo "Pendente no banco".
+	 */
+	bankPending: z.boolean().optional(),
 	createdAt: timestampSchema,
 	updatedAt: timestampSchema,
 });
