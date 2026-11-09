@@ -1,15 +1,8 @@
 import type { ChatCard, ChatRowsCard, ProposalDto, SetupSelection } from "@orbita/shared";
 import { chart, colors, radius, spacing } from "@orbita/tokens";
 import { useEffect, useRef, useState } from "react";
-import {
-	Keyboard,
-	KeyboardAvoidingView,
-	Pressable,
-	ScrollView,
-	type ScrollViewInstance,
-	TextInput,
-	View,
-} from "react-native";
+import { Pressable, ScrollView, type ScrollViewInstance, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, KeyboardEvents } from "react-native-keyboard-controller";
 import { percentOf } from "../../lib/format.ts";
 import {
 	Button,
@@ -357,7 +350,7 @@ export function ChatView({
 	const toEnd = () => scroll.current?.scrollToEnd({ animated: true });
 	// Teclado aberto: a lista volta para a última mensagem, que fica logo acima do campo.
 	useEffect(() => {
-		const sub = Keyboard.addListener("keyboardDidShow", () =>
+		const sub = KeyboardEvents.addListener("keyboardDidShow", () =>
 			setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 50),
 		);
 		return () => sub.remove();
@@ -371,7 +364,11 @@ export function ChatView({
 	};
 	return (
 		<Screen>
-			{/* No Android com a tela de ponta a ponta o sistema não encolhe a janela: o campo sobe junto com o teclado. */}
+			{/*
+			 * Android de ponta a ponta (obrigatório no Android 15+): o sistema não encolhe a janela e o KeyboardAvoidingView
+			 * do React Native erra a conta, deixando o teclado sobre o campo. O do keyboard-controller lê a altura real do
+			 * teclado (insets do IME) e já desconta a área segura de baixo que o Screen reserva abaixo desta vista.
+			 */}
 			<KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
 				<View style={{ flex: 1, paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.lg }}>
 					<View style={{ flexDirection: "row", alignItems: "center" }}>
