@@ -160,6 +160,16 @@ export function settingRows(key: BuiltinAgentKey): SettingRow[] {
 				},
 				{ key: "minCents", label: "Só sugerir a partir de", kind: "cents", min: 100 },
 			];
+		case "economia":
+			// A autonomia e o que ele achou têm blocos próprios (`EconomySection`); aqui só o gatilho extra.
+			return [
+				{
+					key: "onInvoiceClose",
+					label: "Olhar ao fechar a fatura",
+					caption: "Além da agenda, no dia seguinte ao fechamento",
+					kind: "toggle",
+				},
+			];
 		case "orbita":
 			return [];
 	}
@@ -265,7 +275,10 @@ export function toolsSummary(tools: readonly string[]): string {
 
 /** Chaves de consulta que mudam quando um agente ou um aviso muda. */
 export function isAffectedByAgents(queryKey: readonly unknown[], baseUrl: string): boolean {
-	return queryKey[0] === baseUrl && (queryKey[1] === "agents" || queryKey[1] === "alerts");
+	return (
+		queryKey[0] === baseUrl &&
+		(queryKey[1] === "agents" || queryKey[1] === "alerts" || queryKey[1] === "economy")
+	);
 }
 
 /** Explica o botão "Configurar com a Órbita" da tela da Órbita. */

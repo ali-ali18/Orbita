@@ -43,6 +43,7 @@ import {
 	visualKey,
 	whenLabel,
 } from "./agents-model.ts";
+import { EconomySection } from "./EconomySection.tsx";
 import { useAgent, useAnswerAlert, useDeleteAgent, useUpdateAgent } from "./queries.ts";
 
 type Sheet = "schedule" | "model" | "cents" | "days" | null;
@@ -165,6 +166,10 @@ export function AgentScreen() {
 							{SETUP_ENTRY_NOTE}
 						</Text>
 					</View>
+				) : null}
+
+				{agent.builtinKey === "economia" ? (
+					<EconomySection agent={agent} saving={update.isPending} onSave={save} />
 				) : null}
 
 				{agent.builtinKey === null ? (
