@@ -16,7 +16,13 @@ export const LIMIT_SOURCES = ["bank", "estimated", "none"] as const;
 export type LimitSource = (typeof LIMIT_SOURCES)[number];
 
 export const cardLimitDto = z.object({
+	/**
+	 * Limite EFETIVO. Normalmente o do banco; quando o dono baixou o limite no app do banco, o `creditLimit` da Pluggy
+	 * segue sendo o aprovado e o efetivo é disponível + saldo (ver `approvedLimitCents`).
+	 */
 	limitCents: cents.nullable(),
+	/** Limite aprovado pelo banco, só quando é diferente do efetivo (o dono ajustou o limite no app do banco). */
+	approvedLimitCents: cents.nullable().optional(),
 	/** Quanto ainda dá para gastar: o do banco; sem ele, limite − usado estimado; sem limite, `null`. */
 	availableCents: cents.nullable(),
 	/** Quanto do limite está em uso: limite − disponível (banco); sem o disponível, o que o Órbita estima. */
