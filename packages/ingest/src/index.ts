@@ -6,6 +6,7 @@ export {
 	type PluggyClientOptions,
 	type PluggyFetch,
 } from "./pluggy/client.ts";
+export { type DiagnoseDeps, diagnoseConnection, lastDigits, safeText } from "./pluggy/diagnostics.ts";
 export { PluggyError, type PluggyErrorCode } from "./pluggy/errors.ts";
 export { PAYMENT_REVIEW_NOTE } from "./pluggy/mapping.ts";
 export type { PluggyAccount, PluggyItem, PluggyTransaction } from "./pluggy/schemas.ts";

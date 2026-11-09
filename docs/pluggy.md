@@ -102,6 +102,19 @@ Além de recalcular por lançamentos, o sync **grava o que o banco informa**, co
 - **Dado de fora:** tudo isso é dado não confiável. Nada vira texto de prompt, nome ou instrução; só números e datas validados. Falha ao gravar vira nota ("Não deu para gravar o saldo, o limite ou as faturas do banco agora.") sem detalhe, e não derruba a sincronização dos lançamentos.
 - **Resultado:** `ConnectionSyncResult.bankNumbers` (`balances`, `limits`, `bills`, `skippedBills`) só existe quando a rodada gravou ou pulou algo.
 
+## Diagnóstico da conexão
+
+Existe porque a integração vinha sendo corrigida por inferência: o dono vê (e tira print) do que o Pluggy devolve **agora**.
+
+- **API:** `GET /v1/pluggy/diagnostics` (só do dono, como as demais rotas do Pluggy; sem chaves cadastradas responde 409). Somente leitura: chama o Pluggy ao vivo com o cliente de `packages/ingest/src/pluggy` e **não grava nada**. Código: `packages/ingest/src/pluggy/diagnostics.ts` (`diagnoseConnection`), rota em `apps/api/src/modules/pluggy/routes.ts`, tipos e texto em `packages/shared/src/pluggy-diagnostics.ts`.
+- **Por conexão:** nome e tipo do conector, `isOpenFinance`, `status`/`executionStatus`, `lastUpdatedAt`, `nextAutoSyncAt`, `consentExpiresAt`, `statusDetail` por produto (`isUpdated`, `lastUpdatedAt`, avisos `code: message`) e o erro do item.
+- **Por conta:** `type`, `subtype`, nomes, final do número, saldo, moeda; no cartão, `creditData` (limite, disponível, fechamento, vencimento, pagamento mínimo, bandeira, nível); a qual cartão/conta do Órbita está ligada (ou "não ligada").
+- **Faturas (`/bills`, só cartão):** lista (vencimento, fechamento, total, mínimo, pagamentos) ou o erro (código e HTTP) só daquela conta.
+- **Lançamentos:** janela de 45 dias, contagem POSTED/PENDING por conta, total em R$ dos PENDING do cartão (compras menos créditos: a fatura aberta) e os 15 mais recentes com data, descrição, valor, tipo, status, categoria, `operationType`, começo do `providerId`, comerciante, `creditCardMetadata` (`billId`, `billPostDate`, `billForecastDate`, `paymentType`, parcela, data da compra) e Pix (`paymentData`: só nome e fim do documento).
+- **Falhas isoladas:** erro ao ler o item ou as contas vira `error` da conexão; erro de `/bills` ou de lançamentos, ou estouro de 45 s, vira erro só daquela conta. A resposta é sempre 200 com o que deu.
+- **Valores:** vêm como o Pluggy mandou (reais, número ou texto), só para mostrar; nada daqui entra em conta (exceto a soma dos PENDING, feita com `decimalToCents`).
+- **No app:** Configurações > Bancos e cartões > "Diagnóstico da conexão" (`configuracoes/diagnostico-pluggy`). Texto selecionável por bloco e botão "Copiar como texto", que abre o menu de compartilhar do sistema (que tem "Copiar"). Não usa `expo-clipboard`: nenhum módulo nativo novo, então **não precisa de APK novo** (chega por OTA).
+
 ## Limitações conhecidas (para a Fase 6 ou depois)
 
 - **Parcelas** viram parcelamento de verdade (ver "Parcelamentos"), desde que o Pluggy mande a data da compra; sem ela entram como lançamentos simples ("Parcela 3/10" na observação).

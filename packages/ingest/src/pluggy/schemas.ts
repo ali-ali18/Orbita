@@ -25,7 +25,53 @@ export const itemResponse = z.object({
 	/** Quando o item foi criado (SDK 0.94.2: `Item.createdAt`). Serve para recusar item antigo no "Conectar banco". */
 	createdAt: z.string().max(40).nullish(),
 	/** `isSandbox`: conector de teste (SDK 0.94.2, types/connector.d.ts). */
-	connector: z.object({ id: z.number().nullish(), name: text, isSandbox: z.boolean().nullish() }).nullish(),
+	connector: z
+		.object({
+			id: z.number().nullish(),
+			name: text,
+			isSandbox: z.boolean().nullish(),
+			/** Só o diagnóstico lê: conector Open Finance regulado ou direto, e o tipo (PERSONAL_BANK…). */
+			isOpenFinance: z.boolean().nullish().catch(null),
+			type: z.string().max(60).nullish().catch(null),
+		})
+		.nullish(),
+	/** Por produto (`accounts`, `creditCards`, `transactions`…): se atualizou e os avisos. Só o diagnóstico lê. */
+	statusDetail: z
+		.record(
+			z.string().max(60),
+			z
+				.object({
+					isUpdated: z.boolean().nullish().catch(null),
+					lastUpdatedAt: z.string().max(40).nullish().catch(null),
+					warnings: z
+						.array(
+							z.object({
+								code: z
+									.union([z.string().max(60), z.number()])
+									.nullish()
+									.catch(null),
+								message: z.string().max(1000).nullish().catch(null),
+							}),
+						)
+						.max(20)
+						.nullish()
+						.catch(null),
+				})
+				.nullish()
+				.catch(null),
+		)
+		.nullish()
+		.catch(null),
+	nextAutoSyncAt: z.string().max(40).nullish().catch(null),
+	consentExpiresAt: z.string().max(40).nullish().catch(null),
+	/** Erro do item (SDK: `error { code, message }`). Só o diagnóstico lê; texto de terceiro, nunca instrução. */
+	error: z
+		.object({
+			code: z.string().max(100).nullish().catch(null),
+			message: z.string().max(1000).nullish().catch(null),
+		})
+		.nullish()
+		.catch(null),
 });
 export type PluggyItem = z.infer<typeof itemResponse>;
 
@@ -36,6 +82,10 @@ const creditData = z.object({
 	creditLimit: money.nullish(),
 	/** Limite ainda disponível (SDK 0.94.2: `availableCreditLimit`). Valor estranho vira `null`: não derruba a conta. */
 	availableCreditLimit: money.nullish().catch(null),
+	/** Só o diagnóstico lê estes três (o sync não usa). */
+	minimumPayment: money.nullish().catch(null),
+	brand: z.string().max(60).nullish().catch(null),
+	level: z.string().max(60).nullish().catch(null),
 });
 
 export const accountSchema = z.object({
@@ -82,6 +132,8 @@ export const transactionSchema = z.object({
 	categoryId: z.string().max(40).nullish(),
 	/** Texto livre do banco ("PIX", "TED"…); não usado para decidir nada. */
 	operationType: z.string().max(100).nullish(),
+	/** Id da transação no banco (só conector Open Finance). Só o diagnóstico lê. */
+	providerId: z.string().max(200).nullish().catch(null),
 	/** Quem pagou e quem recebeu (Pix/TED). Os documentos (CPF/CNPJ) revelam transferência entre contas próprias. */
 	paymentData: z
 		.object({
@@ -103,6 +155,10 @@ export const transactionSchema = z.object({
 				.catch(null),
 			/** Data original da compra (a mesma para todas as parcelas). */
 			purchaseDate: z.string().max(40).nullish().catch(null),
+			/** Só o diagnóstico lê (docs: parcelas futuras vêm com a data de lançamento na fatura). */
+			billPostDate: z.string().max(40).nullish().catch(null),
+			billForecastDate: z.string().max(40).nullish().catch(null),
+			paymentType: z.string().max(60).nullish().catch(null),
 		})
 		.nullish(),
 	/** Dados do estabelecimento (SDK 0.94.2: `TransactionMerchantData`). Só o que ajuda a categorizar. */
