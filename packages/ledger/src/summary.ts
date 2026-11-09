@@ -10,7 +10,7 @@ import {
 	type LocalDate,
 	type MonthKey,
 	monthOf,
-	paidForInvoice,
+	paidWithAdvance,
 	passedThreshold,
 	paymentStatus,
 	paymentWindow,
@@ -398,11 +398,17 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 	const card = orNotFound(await stores.cards.get(cardId), "Cartão", "o");
 	const invoice = invoiceByMonth(month, toCardConfig(card));
 	const config = toCardConfig(card);
-	const [posted, payments, groups] = await Promise.all([
+	const previousMonth = addMonths(month, -1);
+	const [posted, payments, groups, previousPosted] = await Promise.all([
 		stores.transactions.listByInvoice(cardId, month),
-		stores.transactions.listCardPayments(cardId, paymentWindow(month, config)),
+		// Da janela da fatura anterior à desta: o pagamento adiantado que sobra da anterior vale para esta.
+		stores.transactions.listCardPayments(cardId, {
+			from: paymentWindow(previousMonth, config).from,
+			to: paymentWindow(month, config).to,
+		}),
 		// A parcela de dezembro pode ainda não ter lançamento: o grupo visto nos meses anteriores a projeta.
 		stores.transactions.listInstallmentGroups(addMonths(month, -71)),
+		stores.transactions.listByInvoice(cardId, previousMonth),
 	]);
 	const open = invoiceStatus(invoice, today) === "open";
 	const txs = [...posted, ...(open ? projectedRows(groups, cardId, month, invoice.closingDate, posted) : [])];
@@ -414,14 +420,24 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 	const composition = invoiceComposition(txs, {
 		recurringTransactionIds: new Set(postings.map((p) => p.transactionId)),
 	});
-	// Pago = pagamentos de fatura (`card_payment`) atribuídos a esta fatura (regra em `invoice-payment.ts` do core).
-	const paidCents = paidForInvoice(payments, month, config);
 	// A fatura fechada que o banco informou (o total dele pode diferir da soma dos lançamentos: é o que se paga).
-	const bill = open
-		? undefined
-		: (await stores.bills.listByCard(cardId))
-				.filter((b) => monthOf(b.dueDate) === month)
-				.sort((a, b) => b.syncedAt.getTime() - a.syncedAt.getTime())[0];
+	const bills = open ? [] : await stores.bills.listByCard(cardId);
+	const bankTotalOf = (m: MonthKey) =>
+		bills
+			.filter((b) => monthOf(b.dueDate) === m)
+			.sort((a, b) => b.syncedAt.getTime() - a.syncedAt.getTime())[0];
+	const bill = open ? undefined : bankTotalOf(month);
+	// Pago = pagamentos de fatura (`card_payment`) atribuídos a esta fatura (regra em `invoice-payment.ts` do core),
+	// inclusive o adiantado de antes do fechamento que a fatura anterior, já quitada, não absorveu.
+	const previousBill = open ? undefined : bankTotalOf(previousMonth);
+	const paidCents = paidWithAdvance({
+		payments,
+		month,
+		card: config,
+		today,
+		totalCents: bill?.totalAmountCents ?? composition.totalCents,
+		previousTotalCents: previousBill?.totalAmountCents ?? invoiceComposition(previousPosted).totalCents,
+	});
 	return {
 		card,
 		bank: bill
@@ -436,7 +452,13 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 			...invoice,
 			status: invoiceStatus(invoice, today),
 			paidCents,
-			paymentStatus: paymentStatus(invoice, composition.totalCents, paidCents, today),
+			// O total do banco, quando há, é o que se paga: fatura que ele mostra com total 0 está quitada (pagou antes de fechar).
+			paymentStatus: paymentStatus(
+				invoice,
+				bill?.totalAmountCents ?? composition.totalCents,
+				paidCents,
+				today,
+			),
 		},
 		composition,
 		transactions: txs,

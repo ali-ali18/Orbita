@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { type CardConfig, invoiceByMonth } from "./invoice.ts";
-import { invoiceMonthOfPayment, paidForInvoice, paymentStatus, paymentWindow } from "./invoice-payment.ts";
+import {
+	invoiceMonthOfPayment,
+	paidForInvoice,
+	paidWithAdvance,
+	paymentStatus,
+	paymentWindow,
+} from "./invoice-payment.ts";
 
 // Fecha dia 25, vence dia 5 do mês seguinte: a fatura "2026-11" fecha 25/10 e vence 05/11.
 const card: CardConfig = { closingDay: 25, dueDay: 5 };
@@ -81,5 +87,42 @@ describe("paymentStatus", () => {
 	it("fatura fechada sem nada a pagar conta como paga", () => {
 		expect(paymentStatus(nov, 0, 0, "2026-11-01")).toBe("paid");
 		expect(paymentStatus(nov, -500, 0, "2026-11-01")).toBe("paid");
+	});
+});
+
+describe("paidWithAdvance", () => {
+	// Fatura 2026-11 fecha 25/10 e vence 05/11; a 2026-12 fecha 25/11. Hoje: 28/11 (as duas já fecharam).
+	const base = { card, today: "2026-11-28" as const };
+
+	it("pagamento antes do fechamento que a fatura anterior (já quitada) não absorve vale para a que fecha logo depois", () => {
+		const payments = [
+			{ date: "2026-10-10", amountCents: 50000 }, // quita a 2026-10 (total 50.000)
+			{ date: "2026-11-20", amountCents: 69194 }, // antes de fechar a 2026-12: sobra para ela
+		];
+		expect(
+			paidWithAdvance({ ...base, payments, month: "2026-12", totalCents: 69194, previousTotalCents: 0 }),
+		).toBe(69194);
+		// A 2026-11 (anterior à adiantada) fica só com o que cobre o total dela.
+		expect(
+			paidWithAdvance({ ...base, payments, month: "2026-11", totalCents: 50000, previousTotalCents: 50000 }),
+		).toBe(50000);
+	});
+
+	it("pagamento que cabe no total da anterior continua dela; fatura seguinte aberta não recebe nem repassa", () => {
+		const payments = [{ date: "2026-11-20", amountCents: 30000 }];
+		expect(
+			paidWithAdvance({ ...base, payments, month: "2026-12", totalCents: 10000, previousTotalCents: 50000 }),
+		).toBe(0);
+		// 2026-12 ainda aberta (hoje 20/11): o excedente fica na 2026-11, como antes.
+		expect(
+			paidWithAdvance({
+				card,
+				today: "2026-11-21",
+				payments: [{ date: "2026-11-20", amountCents: 90000 }],
+				month: "2026-11",
+				totalCents: 50000,
+				previousTotalCents: 0,
+			}),
+		).toBe(90000);
 	});
 });

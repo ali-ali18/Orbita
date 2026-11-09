@@ -3,7 +3,7 @@ import { type CardStore, toCardConfig } from "./card-store.ts";
 import { DataError, notFound } from "./errors.ts";
 import { byCreated, type MemoryState } from "./memory-state.ts";
 import { EXTERNAL_TAKEN_MESSAGE } from "./messages.ts";
-import { applyPatch, cleanAvailable, normalizeCard, normalizeIdentity } from "./rules.ts";
+import { applyCardPatch, cleanAvailable, normalizeCard, normalizeIdentity } from "./rules.ts";
 
 export function createMemoryCardStore(state: MemoryState): CardStore {
 	const need = (id: string) => {
@@ -39,7 +39,7 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 		},
 		async update(id, patch) {
 			const current = need(id);
-			const next = { ...current, ...normalizeCard(applyPatch(current, patch)), updatedAt: state.now() };
+			const next = { ...current, ...normalizeCard(applyCardPatch(current, patch)), updatedAt: state.now() };
 			state.cards.set(id, next);
 			return { ...next };
 		},

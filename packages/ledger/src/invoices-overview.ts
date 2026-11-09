@@ -1,4 +1,12 @@
-import { addMonths, type Cents, invoiceFor, type LocalDate, type MonthKey, monthOf } from "@orbita/core";
+import {
+	addMonths,
+	type Cents,
+	invoiceFor,
+	type LocalDate,
+	type MonthKey,
+	monthOf,
+	projectMissingInstallments,
+} from "@orbita/core";
 import { type BillRecord, type CardRecord, type Stores, toCardConfig } from "@orbita/db";
 import type {
 	CardLimitDto,
@@ -279,12 +287,21 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 		const owedCents = all.reduce((total, l) => total + l.owedCents, 0);
 		let futureCents = 0;
 		let remainingCents = 0;
+		// Parcelas que a fatura aberta já projeta (a que o banco ainda não lançou): estão no devido e não contam de novo.
+		const realOpen = await stores.transactions.listByInvoice(card.id, openMonth);
 		for (const g of installmentGroups) {
 			if (g.cardId !== card.id || g.remainingCount <= 0) continue;
+			const projectedCents = projectMissingInstallments([g], card.id, openMonth, realOpen).reduce(
+				(total, p) => total + p.amountCents,
+				0,
+			);
 			// Tudo que ainda falta do parcelamento: a vigente (que já está na fatura aberta ou na fechada devida) e as
 			// seguintes, lançadas ou não pelo banco (as que faltam são estimadas pelo valor da vigente).
 			remainingCents += g.remainingCents;
-			futureCents += Math.max(0, g.remainingCents - (g.currentNumber === null ? 0 : g.installmentCents));
+			futureCents += Math.max(
+				0,
+				g.remainingCents - (g.currentNumber === null ? 0 : g.installmentCents) - projectedCents,
+			);
 		}
 		// Sem nenhum dado do Órbita sobre o cartão (nem fatura do banco, nem lançamento) não há com o que conferir o
 		// número do banco: vale como veio.

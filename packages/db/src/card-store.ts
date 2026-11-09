@@ -1,6 +1,13 @@
 import type { CardConfig, ClosingRule } from "@orbita/core";
 import type { TransactionSource } from "@orbita/shared";
 
+/**
+ * De onde vem a regra de fechamento: "default" (ninguém escolheu), "inferred" (o sync a deduziu das faturas do banco) ou
+ * "owner" (o dono escolheu: o sync nunca a muda).
+ */
+export type ClosingRuleSource = "default" | "inferred" | "owner";
+export const CLOSING_RULE_SOURCES: readonly ClosingRuleSource[] = ["default", "inferred", "owner"];
+
 export interface CardRecord {
 	id: string;
 	name: string;
@@ -9,6 +16,7 @@ export interface CardRecord {
 	closingDay: number;
 	dueDay: number;
 	closingRule: ClosingRule;
+	closingRuleSource: ClosingRuleSource;
 	limitCents: number | null;
 	/** Limite disponível que o banco informou (centavos). `null`: nunca informado. Só a sincronização grava. */
 	availableCents: number | null;
@@ -34,6 +42,8 @@ export interface CardInput {
 	dueDay: number;
 	/** Padrão: "closing-day-next". */
 	closingRule?: ClosingRule;
+	/** Padrão: "owner" quando `closingRule` vem, senão "default". */
+	closingRuleSource?: ClosingRuleSource;
 	limitCents?: number | null;
 	/** Padrão: "manual". Origem diferente de "manual" exige `externalId`. */
 	source?: TransactionSource;
@@ -47,6 +57,8 @@ export type CardPatch = Partial<{
 	closingDay: number;
 	dueDay: number;
 	closingRule: ClosingRule;
+	/** Padrão: mudar `closingRule` sem dizer a origem é escolha do dono ("owner"); o sync diz "inferred" ou "default". */
+	closingRuleSource: ClosingRuleSource;
 	limitCents: number | null;
 }>;
 

@@ -433,7 +433,11 @@ Fonte: o diagnóstico (`GET /v1/pluggy/diagnostics`) de 4 conexões MeuPluggy (I
 2. `L − A ≠ B` e `A + B < L`: o dono baixou o limite no app do banco. **Limite efetivo = A + B**, usado = B, e o aprovado (`creditLimit`) vai em `approvedLimitCents` ("Limite R$ X (aprovado R$ Y)"). O saldo coincide com a fatura em aberto mais as parcelas futuras que o Órbita conhece. Só vale se `B ≥` o que o Órbita sabe dever menos R$ 1 (fatura fechada não paga e compras novas já estão em `owedCents`); com `B` menor o saldo é velho e o caso cai na estimativa (3).
 3. Sem saldo, ou A + B ≥ L: se `L − A` passa do que o Órbita conhece como devido (aberta + fechadas sem pagar + parcelas que faltam depois da vigente, que já está no devido) por mais que R$ 100 ou 5 % do limite, o usado vira a estimativa por lançamentos (`source: "estimated"`, com o disponível do banco) e o limite efetivo passa a ser disponível + estimativa (o aprovado vai em `approvedLimitCents`), para o % e o total do topo não misturarem aprovado com efetivo; senão `L − A`.
 
-**Nome legado.** Cartão ou conta cujo nome gravado é a razão social crua do Pluggy ("Nu Pagamentos S.A. - Instituição de Pagamento…", cortada em 60) é renomeado uma vez pelo sync para o nome curto (`isLegacyRawName`); nome editado pelo dono fica.
+**Nome legado.** Cartão ou conta cujo nome gravado é a razão social crua do Pluggy ("Nu Pagamentos S.A. - Instituição de Pagamento…", cortada em 60) é renomeado uma vez pelo sync para o nome curto (`isLegacyRawName`); nome editado pelo dono fica. Vale também o nome gravado já truncado, com ou sem "…"/"..." (prefixo da razão social crua, com 15 caracteres ou mais e "S.A."/"Instituição"/"Ltda" ou "Nu Pagamentos"); nome curto como "Roxinho gold" nunca.
+
+**Regra de fechamento (origem).** O cartão guarda `closingRuleSource`: `default`, `inferred` (deduzida pelo sync das faturas, `inferClosingRule`) ou `owner` (o `PATCH` do dono muda a regra: o sync nunca a toca). A padrão sobe para `closing-day-included` com evidência; a `inferred` volta ao padrão se a evidência passar a dizer `closing-day-next`; sem evidência (ou empate) nada muda. Quando a regra muda, a compra efetivada sem fatura do banco e não editada é refeita na fatura certa na mesma rodada.
+
+**Pagamento antes do fechamento.** No detalhe da fatura, o total do banco (quando há) decide a situação (total 0 = paga) e o excedente do pagamento adiantado que a fatura anterior, já quitada, não absorveu (`paidWithAdvance`, core) vale para a que fecha logo depois.
 
 ### Gasto do mês (pela data da compra)
 

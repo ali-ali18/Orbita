@@ -1,20 +1,27 @@
 import type { ClosingRule } from "@orbita/core";
-import { type CardRecord, type CardStore, toCardConfig } from "./card-store.ts";
+import { type CardRecord, type CardStore, type ClosingRuleSource, toCardConfig } from "./card-store.ts";
 import type { Db } from "./client.ts";
 import { DataError, notFound } from "./errors.ts";
 import type { ClosingRule as DbClosingRule } from "./generated/prisma/enums.ts";
 import type { Clock } from "./memory-state.ts";
 import { EXTERNAL_TAKEN_MESSAGE } from "./messages.ts";
 import { translate } from "./prisma-errors.ts";
-import { applyPatch, cleanAvailable, normalizeCard, normalizeIdentity } from "./rules.ts";
+import { applyCardPatch, cleanAvailable, normalizeCard, normalizeIdentity } from "./rules.ts";
 
 const toDbRule = (rule: ClosingRule): DbClosingRule =>
 	rule === "closing-day-included" ? "closing_day_included" : "closing_day_next";
 const fromDbRule = (rule: DbClosingRule): ClosingRule =>
 	rule === "closing_day_included" ? "closing-day-included" : "closing-day-next";
 
-type Row = Omit<CardRecord, "closingRule"> & { closingRule: DbClosingRule };
-const toRecord = (row: Row): CardRecord => ({ ...row, closingRule: fromDbRule(row.closingRule) });
+type Row = Omit<CardRecord, "closingRule" | "closingRuleSource"> & {
+	closingRule: DbClosingRule;
+	closingRuleSource: string;
+};
+const toRecord = (row: Row): CardRecord => ({
+	...row,
+	closingRule: fromDbRule(row.closingRule),
+	closingRuleSource: row.closingRuleSource as ClosingRuleSource,
+});
 const toData = (data: ReturnType<typeof normalizeCard>) => ({
 	...data,
 	closingRule: toDbRule(data.closingRule),
@@ -42,7 +49,7 @@ export function createPrismaCardStore(db: Db, now: Clock): CardStore {
 			}
 		},
 		async update(id, patch) {
-			const data = normalizeCard(applyPatch(await need(id), patch));
+			const data = normalizeCard(applyCardPatch(await need(id), patch));
 			return toRecord(await db.card.update({ where: { id }, data: { ...toData(data), updatedAt: now() } }));
 		},
 		async archive(id) {

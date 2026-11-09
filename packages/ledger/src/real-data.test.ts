@@ -12,7 +12,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { accountBalances } from "./balances.ts";
 import { cashFlow } from "./cash-flow.ts";
 import { type CardInvoicesLine, cardLimit, invoicesOverview } from "./invoices-overview.ts";
-import { activeInstallments, loadSpendingMonth, monthSummary } from "./summary.ts";
+import { activeInstallments, cardInvoice, loadSpendingMonth, monthSummary } from "./summary.ts";
 
 /*
  * Leituras do ledger sobre o sync dos dados REAIS do dono (diagnóstico de 09/11/4052, 4 conexões MeuPluggy, hoje =
@@ -139,6 +139,16 @@ describe("Faturas e limites (dados fictícios)", () => {
 			state: "open",
 		});
 		expect(line.due).toMatchObject({ month: "2026-11", state: "paid" });
+	});
+
+	it("Inter: pagamento de 03/11 (antes do fechamento de 05/11) é da fatura que vence 12/11 (detalhe da fatura: paga)", async () => {
+		const id = cardLine("8316").card.id;
+		const { invoice } = await cardInvoice(stores, id, "2026-11", TODAY);
+		// O banco mostra essa fatura com total 0 e o pagamento de 03/11 (1.383,88) na anterior: o app diz "Paga".
+		expect(invoice).toMatchObject({ status: "closed", paymentStatus: "paid" });
+		expect(invoice.paidCents).toBeGreaterThan(0); // o excedente do pagamento adiantado, que a anterior não absorveu
+		const before = await cardInvoice(stores, id, "2026-10", TODAY);
+		expect(before.invoice).toMatchObject({ paidCents: 105114, paymentStatus: "paid" }); // só até o total dela
 	});
 
 	it("Nubank: a próxima fatura (dezembro) tem Farmácia 95,96 + Centauro 153,32; a de 10/11 (1.438,84) está paga", () => {
