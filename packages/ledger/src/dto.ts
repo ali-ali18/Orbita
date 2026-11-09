@@ -27,6 +27,7 @@ export function toTransactionDto(t: TransactionRecord): TransactionDto {
 		categoryEditedByOwner: t.categoryEditedByOwner,
 		editedByOwner: t.editedByOwner,
 		splitGroupId: t.splitGroupId,
+		bankPending: t.bankPending,
 		createdAt: t.createdAt.toISOString(),
 		updatedAt: t.updatedAt.toISOString(),
 	};

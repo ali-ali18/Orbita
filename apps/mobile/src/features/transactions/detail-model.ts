@@ -38,6 +38,8 @@ export interface DetailTransaction {
 	sourceCategory?: string | null | undefined;
 	/** Partes de um lançamento dividido compartilham o id. */
 	splitGroupId?: string | null | undefined;
+	/** O banco ainda não efetivou (compra da fatura aberta). */
+	bankPending?: boolean | undefined;
 }
 
 export interface Editable {
@@ -128,10 +130,14 @@ export function sourceCaption(source: DetailSource): string {
 	}
 }
 
-export function statusText(status: DetailTransaction["status"]): { title: string; caption: string } {
-	return status === "confirmed"
-		? { title: "Confirmado", caption: "Você já conferiu este lançamento" }
-		: { title: "Para revisar", caption: "Ainda não foi confirmado" };
+export function statusText(
+	status: DetailTransaction["status"],
+	bankPending?: boolean,
+): { title: string; caption: string } {
+	if (status === "pending") return { title: "Para revisar", caption: "Ainda não foi confirmado" };
+	return bankPending
+		? { title: "Pendente no banco", caption: "O banco ainda não efetivou; já conta nos seus números" }
+		: { title: "Confirmado", caption: "Você já conferiu este lançamento" };
 }
 
 export function kindTitle(kind: DetailKind): string {

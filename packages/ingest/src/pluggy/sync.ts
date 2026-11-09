@@ -5,12 +5,15 @@ import {
 	DataError,
 	type PluggyConnectionRecord,
 	type Stores,
+	type TransactionPatch,
+	type TransactionRecord,
 	toCardConfig,
+	type UpsertByExternalInput,
 } from "@orbita/db";
 import { PLUGGY_RECONNECT_MESSAGE, type PluggySyncStatus, type SecretName } from "@orbita/shared";
 import { type BankNumbersResult, recordBankNumbers, recordBills } from "./balances.ts";
 import { detectBankName, findKnownBank, hasMeuPluggyPrefix, isWeakCardName } from "./bank-name.ts";
-import { buildCategoryIndex, type CategoryIndex } from "./classify.ts";
+import { buildCategoryIndex, type CategoryIndex, operationExcludesCardPayment } from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
 import { chooseConnectionLabel } from "./connection-label.ts";
 import {
@@ -44,6 +47,7 @@ import {
 	touchedByOwner,
 	transactionFacts,
 } from "./mapping.ts";
+import { type BatchPeer, reconcileRecreated, reviewVanished } from "./recreated.ts";
 import {
 	createRelinkGuard,
 	pickRelinkAccount,
@@ -119,6 +123,20 @@ export interface ConnectionSyncResult {
 	relinkedAccounts?: number;
 	/** Lançamentos já gravados pelo item antigo que passaram a ter o id do item novo (nada duplicou). */
 	rekeyed?: number;
+	/** `connector.isOpenFinance` do item (só nele vêm providerId, billId e o operationType do Open Finance). */
+	isOpenFinance?: boolean;
+	/** Compras PENDING da fatura aberta do cartão gravadas agora como despesa "pendente no banco". */
+	pendingStored?: number;
+	/** Pendentes que o banco efetivou (POSTED) e foram atualizadas no lugar, sem duplicar. */
+	settled?: number;
+	/** Lançamentos que o banco apagou e recriou com id novo e que foram religados ao que já existia (nada duplicou). */
+	recreated?: number;
+	/** Lançamentos "removidos pelo banco" que o banco trouxe de volta com o mesmo id. */
+	restored?: number;
+	/** Lançamentos que o banco parou de informar e foram apagados ("removido pelo banco"). */
+	removedByBank?: number;
+	/** O mesmo, mas editados pelo dono: não foram apagados, só marcados para revisão. */
+	flaggedMissing?: number;
 	skipped: Partial<Record<SkipReason | "archived_account", number>>;
 	/** Avisos que não são erro (conta ignorada, por exemplo). Sem segredo. */
 	notes: string[];
@@ -144,7 +162,11 @@ const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().t
  *   conexão termina `ok` (um `partial` repete a janela na próxima). Item que não está `UPDATED`, falha em /bills e
  *   conta que não sincronizou deixam a conexão `partial`.
  * - Sem chaves: grava "no_keys" em cada conexão e sai, sem erro e sem chamar o Pluggy.
- * - O que o Pluggy trouxe é `confirmed`. Lançamentos `PENDING` do Pluggy ficam de fora (o id pode mudar ao efetivar).
+ * - O que o Pluggy trouxe é `confirmed`. Compra `PENDING` do CARTÃO (fatura aberta) entra como despesa com `bankPending`
+ *   e é atualizada no lugar quando vira `POSTED` (mesmo id; id novo é religado por `providerId`/`providerCode`/atributos:
+ *   `recreated.ts`). `PENDING` na CONTA (agendado, em processamento) fica de fora até efetivar. O que o banco deixa de
+ *   informar por dias é removido ("removido pelo banco"), menos o que o dono editou (vai para revisão). Fontes na doc
+ *   da Pluggy em docs/pluggy.md ("Pendentes, apagados e recriados").
  * - Nunca lança por causa de uma conexão: o erro vira o `lastError` (já sanitizado) daquela conexão.
  */
 export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult> {
@@ -332,6 +354,7 @@ async function finish(
 			? { syncedAt: startedAt, ...(from ? { historyFrom: from } : {}) }
 			: {}),
 		...(result.counts ? { counts: result.counts } : {}),
+		...(typeof result.isOpenFinance === "boolean" ? { isOpenFinance: result.isOpenFinance } : {}),
 	});
 	return result;
 }
@@ -353,6 +376,10 @@ async function syncConnection(
 		const from = syncWindowStart(today, connection);
 
 		const item = await client.item(connection.id);
+		// `connector.isOpenFinance` (docs.pluggy.ai/reference/items-retrieve): onde `providerId`, `billId`,
+		// `billForecastDate` e o `operationType` do Open Finance podem vir. Guardado na conexão.
+		if (typeof item.connector?.isOpenFinance === "boolean")
+			result.isOpenFinance = item.connector.isOpenFinance;
 		if (NEEDS_USER.has(item.status)) {
 			result.status = "error";
 			result.error = PLUGGY_RECONNECT_MESSAGE;
@@ -497,6 +524,8 @@ async function syncConnection(
 		for (const { target, txs } of fetched) {
 			const pool = txs.flatMap((tx) => {
 				if (tx.status === "PENDING") return [];
+				// O banco já disse que esta operação do cartão não é pagamento de fatura (estorno, cashback…).
+				if (target.card && operationExcludesCardPayment(tx.operationType)) return [];
 				const facts = transactionFacts(tx);
 				if (!facts || tx.type !== (target.card ? "CREDIT" : "DEBIT")) return [];
 				return [{ id: tx.id, ...facts }];
@@ -554,9 +583,17 @@ async function syncConnection(
 			}
 		}
 		const counterparts = pairOwnTransfers(legs);
+		// O banco só vale como "completo" com o item atualizado e nenhuma linha descartada: sem isso, o que não veio pode
+		// ter ficado de fora da resposta, não ter sido apagado.
+		const complete = item.status === "UPDATED" && dropped === 0;
 		for (const { target, txs } of fetched) {
 			const ctx = contextOf(target, counterparts);
-			await storeTransactions(deps, txs, ctx, result, others, new Set(txs.map((t) => t.id)));
+			const seenIds = new Set(txs.map((t) => t.id));
+			await storeTransactions(deps, txs, ctx, result, others, seenIds, {
+				windowFrom: from,
+				seenAt: startedAt,
+			});
+			await trackPresence(deps, target, seenIds, { complete, from, today, startedAt }, result);
 		}
 		if ((result.relinkedAccounts ?? 0) > 0) {
 			result.notes.push(
@@ -581,6 +618,26 @@ async function syncConnection(
 		if ((result.possibleDuplicates ?? 0) > 0) {
 			result.notes.push(
 				`${result.possibleDuplicates} lançamento(s) do banco parecem repetir mais de um lançamento seu e foram para revisão.`,
+			);
+		}
+		if ((result.pendingStored ?? 0) > 0) {
+			result.notes.push(
+				`${result.pendingStored} compra(s) da fatura aberta, ainda pendentes no banco, entraram no gasto.`,
+			);
+		}
+		if ((result.recreated ?? 0) > 0) {
+			result.notes.push(
+				`${result.recreated} lançamento(s) que o banco apagou e recriou com outro id foram religados, sem duplicar.`,
+			);
+		}
+		if ((result.removedByBank ?? 0) > 0) {
+			result.notes.push(
+				`${result.removedByBank} lançamento(s) que o banco deixou de informar foram removidos.`,
+			);
+		}
+		if ((result.flaggedMissing ?? 0) > 0) {
+			result.notes.push(
+				`${result.flaggedMissing} lançamento(s) que você editou e o banco deixou de informar foram para revisão.`,
 			);
 		}
 		const othersNote = describeOthers(others);
@@ -922,6 +979,7 @@ async function storeTransactions(
 	others: Map<string, number>,
 	/** Os ids do Pluggy desta resposta: o que está gravado com OUTRO id do Pluggy veio de um item antigo. */
 	currentIds: ReadonlySet<string>,
+	bank: { windowFrom: string; seenAt: Date },
 ): Promise<void> {
 	const { transactions } = deps.stores;
 	// Estornos por último: assim a compra original, se veio na mesma resposta, já está gravada.
@@ -935,19 +993,53 @@ async function storeTransactions(
 			twins.set(keyOf(mapped), (twins.get(keyOf(mapped)) ?? 0) + 1);
 		}
 	}
+	// Lançamentos do banco ainda sem resolução: servem a contar "gêmeos" quando o banco recria um lançamento com id novo.
+	const batch: BatchPeer[] = mappedAll.flatMap(({ mapped }) =>
+		mapped?.action === "upsert" || mapped?.action === "refund"
+			? [
+					{
+						externalId: mapped.externalId,
+						input: mapped.input,
+						installment: "installment" in mapped ? mapped.installment : undefined,
+					},
+				]
+			: [],
+	);
+	const resolved = new Set<string>();
+	const newPeers = async () => {
+		const out: BatchPeer[] = [];
+		for (const peer of batch) {
+			if (resolved.has(peer.externalId)) continue;
+			if (await transactions.existsByExternal(PLUGGY_SOURCE, peer.externalId)) continue;
+			out.push(peer);
+		}
+		return out;
+	};
 	const rekey = async (m: Extract<MappedTransaction, { action: "upsert" | "refund" }>) => {
+		// O banco apagou e recriou com id novo: só troca o id, nada duplica. Primeiro pelas âncoras do próprio banco
+		// (providerId, providerCode), depois o item antigo do mesmo banco (`relink.ts`) e por último pelos atributos.
+		const recreatedContext = { currentIds, windowFrom: bank.windowFrom, peers: newPeers };
+		const byAnchor = await reconcileRecreated(transactions, m, recreatedContext, "anchors");
+		if (byAnchor.outcome === "rekeyed") result.recreated = (result.recreated ?? 0) + 1;
+		if (byAnchor.outcome !== "none") return byAnchor;
 		const key = keyOf(m);
 		const left = twins.get(key) ?? 1;
 		twins.set(key, left - 1);
 		const out = await rekeyRelinked(transactions, m, currentIds, left);
 		if (out.outcome === "rekeyed") result.rekeyed = (result.rekeyed ?? 0) + 1;
-		return out;
+		if (out.outcome !== "none") return out;
+		const byAttributes = await reconcileRecreated(transactions, m, recreatedContext, "attributes");
+		if (byAttributes.outcome === "rekeyed") result.recreated = (result.recreated ?? 0) + 1;
+		return byAttributes;
 	};
 	const ordered = [
 		...mappedAll.filter((m) => m.mapped?.action !== "refund"),
 		...mappedAll.filter((m) => m.mapped?.action === "refund"),
 	];
+	let previous: string | null = null;
 	for (const { mapped } of ordered) {
+		if (previous !== null) resolved.add(previous);
+		previous = mapped && mapped.action !== "skip" ? mapped.externalId : null;
 		try {
 			if (mapped === null) {
 				result.failed += 1;
@@ -956,6 +1048,13 @@ async function storeTransactions(
 			if (mapped.action === "skip") {
 				bump(result.skipped, mapped.reason);
 				continue;
+			}
+			// (o próprio lançamento só sai do lote depois de tratado: `resolved` recebe o anterior a cada volta)
+			// O banco havia "removido" este lançamento (sumiu por dias) e o trouxe de volta com o mesmo id: volta a existir.
+			if (!(await transactions.findByExternal(PLUGGY_SOURCE, mapped.externalId))) {
+				if (await transactions.reviveRemovedByBank(PLUGGY_SOURCE, mapped.externalId, bank.seenAt)) {
+					result.restored = (result.restored ?? 0) + 1;
+				}
 			}
 			if (mapped.action === "upsert") {
 				// Primeiro o que um item ANTIGO do mesmo banco já gravou (só troca o id); depois o lançamento do dono.
@@ -984,11 +1083,17 @@ async function storeTransactions(
 					result.possibleDuplicates = (result.possibleDuplicates ?? 0) + 1;
 				if (res.created) {
 					result.created += 1;
+					if (mapped.input.bankPending) result.pendingStored = (result.pendingStored ?? 0) + 1;
 					if (mapped.categorySource === "none" && mapped.input.kind === "expense") {
 						const label = mapped.input.sourceCategory ?? NO_SOURCE_CATEGORY;
 						others.set(label, (others.get(label) ?? 0) + 1);
 					}
 				} else {
+					if (res.transaction && (await refreshFromBank(transactions, res.transaction, mapped.input))) {
+						// A pendente que o banco efetivou foi atualizada no lugar (mesmo id, ou religada por providerId).
+						if (res.transaction.bankPending && !mapped.input.bankPending)
+							result.settled = (result.settled ?? 0) + 1;
+					}
 					if (res.transaction && (await fixKind(transactions, res.transaction, mapped.input))) {
 						result.reclassified = (result.reclassified ?? 0) + 1;
 					}
@@ -1113,6 +1218,72 @@ async function storeTransactions(
 			if (e instanceof DataError || e instanceof RangeError) result.failed += 1;
 			else throw e;
 		}
+	}
+}
+
+/**
+ * O que o banco informa e muda sozinho num lançamento que já existe: se ainda está pendente, os identificadores dele
+ * (`providerId`, `providerCode`) e, enquanto estava pendente, o valor (a Pluggy atualiza no lugar quando a fatura vence:
+ * docs.pluggy.ai/docs/transactions, "Most changes — including the PENDING → POSTED transition — arrive as an in-place
+ * update"). A pendência é um fato do banco, não uma escolha do dono: vale para todo lançamento; o valor só para o que o
+ * dono não editou. Data e fatura seguem os blocos de `invoiceFromBill` e de data da compra, logo abaixo no chamador.
+ */
+async function refreshFromBank(
+	transactions: SyncPluggyDeps["stores"]["transactions"],
+	current: TransactionRecord,
+	next: UpsertByExternalInput,
+): Promise<boolean> {
+	const patch: TransactionPatch = {};
+	const pending = next.bankPending === true;
+	if (current.bankPending !== pending) patch.bankPending = pending;
+	if (current.providerId === null && next.providerId) patch.providerId = next.providerId;
+	if (current.providerCode === null && next.providerCode) patch.providerCode = next.providerCode;
+	if (
+		current.bankPending &&
+		!touchedByOwner(current) &&
+		current.kind === "expense" &&
+		next.kind === "expense" &&
+		next.amountCents !== current.amountCents
+	) {
+		patch.amountCents = next.amountCents;
+	}
+	if (Object.keys(patch).length === 0) return false;
+	await transactions.update(current.id, patch);
+	return true;
+}
+
+/**
+ * Depois de gravar a resposta de UMA conta/cartão: marca como vistos os lançamentos que vieram e trata os que o banco
+ * parou de informar (`reviewVanished`). Só com a resposta completa (item atualizado, nada descartado).
+ */
+async function trackPresence(
+	deps: SyncPluggyDeps,
+	target: Linked,
+	seenIds: ReadonlySet<string>,
+	when: { complete: boolean; from: string; today: string; startedAt: Date },
+	result: ConnectionSyncResult,
+): Promise<void> {
+	const { transactions } = deps.stores;
+	await transactions.markSeen(PLUGGY_SOURCE, [...seenIds].slice(0, 500), when.startedAt);
+	for (let i = 500; i < seenIds.size; i += 500) {
+		await transactions.markSeen(PLUGGY_SOURCE, [...seenIds].slice(i, i + 500), when.startedAt);
+	}
+	if (!when.complete) return;
+	const owner = target.account ?? target.card;
+	if (!owner) return;
+	const done = await reviewVanished(transactions, {
+		target: target.account ? { accountId: owner.id } : { cardId: owner.id },
+		seenIds,
+		from: when.from,
+		today: when.today,
+		now: when.startedAt,
+	});
+	if (done.removed > 0) result.removedByBank = (result.removedByBank ?? 0) + done.removed;
+	if (done.flagged > 0) result.flaggedMissing = (result.flaggedMissing ?? 0) + done.flagged;
+	if (done.skippedMass) {
+		result.notes.push(
+			"O banco deixou de informar muitos lançamentos de uma conta de uma vez; não apaguei nada (pode ser instabilidade).",
+		);
 	}
 }
 

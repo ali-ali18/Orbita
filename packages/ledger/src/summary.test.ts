@@ -52,6 +52,24 @@ describe("gasto do mês e pagamento de fatura em revisão", () => {
 		expect((await monthSummary(stores, "2026-11", TODAY)).summary.spentCents).toBe(12_500 + 83_010);
 	});
 
+	it("compra pendente no banco (fatura aberta do cartão) conta no gasto do mês e na fatura", async () => {
+		const { stores } = await seed();
+		const card = await stores.cards.create({ name: "Nubank", closingDay: 10, dueDay: 17 });
+		await stores.transactions.upsertByExternal("pluggy", "p-1", {
+			kind: "expense",
+			amountCents: 8_990,
+			date: "2026-11-09",
+			description: "Livraria",
+			cardId: card.id,
+			invoiceMonth: "2026-11",
+			bankPending: true,
+		});
+		const row = (await loadSpendingMonth(stores, "2026-11", TODAY))[0];
+		expect(row).toMatchObject({ bankPending: true, status: "confirmed" });
+		expect((await monthSummary(stores, "2026-11", TODAY)).summary.spentCents).toBe(8_990);
+		expect(countsAsSpending({ kind: "expense", status: "confirmed", note: null })).toBe(true);
+	});
+
 	it("countsAsSpending só exclui despesa pendente com a nota de revisão", () => {
 		const row = { kind: "expense" as const, status: "pending" as const, note: PAYMENT_REVIEW_NOTE };
 		expect(countsAsSpending(row)).toBe(false);

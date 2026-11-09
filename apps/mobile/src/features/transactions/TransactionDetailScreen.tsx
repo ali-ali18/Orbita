@@ -185,7 +185,7 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 	const account = t.accountId ? accountsQ.data?.accounts.find((a) => a.id === t.accountId) : undefined;
 	const origin = card ?? account;
 	const invoice = invoiceText(t.invoiceMonth, today);
-	const status = statusText(t.status);
+	const status = statusText(t.status, t.bankPending === true);
 	const categories = (categoriesQ.data?.categories ?? []).filter((c) => c.archivedAt === null);
 	const categoryReady = categoriesQ.data !== undefined;
 	const installment = isInstallment(t);

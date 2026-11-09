@@ -363,6 +363,11 @@ function projectedRows(
 		categoryEditedByOwner: false,
 		editedByOwner: false,
 		splitGroupId: null,
+		bankPending: false,
+		providerId: null,
+		providerCode: null,
+		lastSeenAt: null,
+		removedByBankAt: null,
 		createdAt: EPOCH,
 		updatedAt: EPOCH,
 	}));

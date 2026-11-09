@@ -106,6 +106,61 @@ const INVESTMENT_DESCRIPTION =
 	/\b(aplicacao|aplic|resgate|resg|caixinha|cdb|rdb|lci|lca|poupanca|tesouro direto|dinheiro guardado)\b/;
 const YIELD_DESCRIPTION = /\b(rendimentos?|rend pago|rend\.? aplic)/;
 
+// ------------------------------------------------ tipo da operação (Open Finance)
+
+/**
+ * `operationType` do Pluggy, só em conectores Open Finance (docs.pluggy.ai/docs/transactions, propriedade
+ * `operationType`; docs.pluggy.ai/reference/transactions-list). Valores documentados:
+ * - conta: TED DOC PIX TRANSFERENCIA_MESMA_INSTITUICAO BOLETO CONVENIO_ARRECADACAO PACOTE_TARIFA_SERVICOS
+ *   TARIFA_SERVICOS_AVULSOS FOLHA_PAGAMENTO DEPOSITO SAQUE CARTAO ENCARGOS_JUROS_CHEQUE_ESPECIAL
+ *   RENDIMENTO_APLIC_FINANCEIRA PORTABILIDADE_SALARIO RESGATE_APLIC_FINANCEIRA OPERACAO_CREDITO OUTROS;
+ * - cartão: PAGAMENTO PAGAMENTO_FATURA TARIFA OPERACOES_CREDITO_CONTRATADAS_CARTAO ESTORNO CASHBACK OUTROS.
+ * "Pagamento recebido" (a baixa da fatura que o próprio Pluggy monta a partir de `/bills`) também traz PAGAMENTO_FATURA.
+ * Não há valor de "aplicação" na lista da conta: aplicar continua por categoria/descrição (`classifyFamily`).
+ */
+export const normalizeOperationType = (value: string | null | undefined): string | null => {
+	const op = (value ?? "").trim().toUpperCase().replace(/\s+/g, "_");
+	return op === "" ? null : op;
+};
+
+/**
+ * O que o `operationType` já decide sozinho, sem olhar categoria nem descrição; `null` = não decide (PIX, TED, BOLETO,
+ * OUTROS ou ausente), e aí vale o plano B por categoria/nome. Só a direção coerente decide: um RENDIMENTO que SAIU da
+ * conta não é receita (cai no plano B).
+ * - `card_payment`: PAGAMENTO_FATURA (pagamento parcial ou total da fatura; no cartão é a baixa, no banco é o débito);
+ * - `refund`: ESTORNO e CASHBACK que entram no cartão (crédito que abate a fatura);
+ * - `yield`: RENDIMENTO_APLIC_FINANCEIRA que entrou (a receita de verdade);
+ * - `redemption`: RESGATE_APLIC_FINANCEIRA que entrou (o principal que volta, nem renda nem gasto).
+ */
+export type OperationSignal = "card_payment" | "refund" | "yield" | "redemption";
+
+export function operationSignal(
+	operationType: string | null | undefined,
+	direction: "in" | "out",
+): OperationSignal | null {
+	const op = normalizeOperationType(operationType);
+	if (op === "PAGAMENTO_FATURA") return "card_payment";
+	if (direction === "in" && (op === "ESTORNO" || op === "CASHBACK")) return "refund";
+	if (direction === "in" && op === "RENDIMENTO_APLIC_FINANCEIRA") return "yield";
+	if (direction === "in" && op === "RESGATE_APLIC_FINANCEIRA") return "redemption";
+	return null;
+}
+
+/** Operações do cartão que o banco já classificou como algo que NÃO é pagamento de fatura (a descrição não manda mais). */
+const CARD_KNOWN_NOT_PAYMENT = new Set([
+	"PAGAMENTO",
+	"TARIFA",
+	"OPERACOES_CREDITO_CONTRATADAS_CARTAO",
+	"ESTORNO",
+	"CASHBACK",
+]);
+
+/** O banco disse, pelo `operationType`, que esta operação do cartão não é pagamento de fatura. */
+export const operationExcludesCardPayment = (operationType: string | null | undefined): boolean => {
+	const op = normalizeOperationType(operationType);
+	return op !== null && CARD_KNOWN_NOT_PAYMENT.has(op);
+};
+
 export type PluggyFamily =
 	| "card_payment" // pagamento de fatura
 	| "own_transfer" // transferência para a mesma titularidade
@@ -123,9 +178,18 @@ export function classifyFamily(input: {
 	direction: "in" | "out";
 	/** Plano B por descrição só vale em conta corrente. */
 	allowDescriptionFallback: boolean;
+	/** `operationType` do Pluggy: quando decide (`operationSignal`), vale mais que categoria e descrição. */
+	operationType?: string | null | undefined;
 }): PluggyFamily {
 	const { chain, direction } = input;
-	if (anyMatch(chain, CARD_PAYMENT)) return "card_payment";
+	const signal = operationSignal(input.operationType, direction);
+	if (signal === "card_payment") return "card_payment";
+	if (signal === "yield") return "yield";
+	if (signal === "redemption") return "investment";
+	// O banco disse que a operação do cartão é compra, tarifa, crédito contratado, estorno ou cashback: não é pagamento
+	// de fatura, mesmo que a categoria do Pluggy ou o nome digam "pagamento".
+	if (!operationExcludesCardPayment(input.operationType) && anyMatch(chain, CARD_PAYMENT))
+		return "card_payment";
 	if (
 		input.allowDescriptionFallback &&
 		direction === "out" &&

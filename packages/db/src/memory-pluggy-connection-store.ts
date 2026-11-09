@@ -24,6 +24,7 @@ export function createMemoryPluggyConnectionStore(state: MemoryState): PluggyCon
 				lastError: null,
 				accountCount: 0,
 				cardCount: 0,
+				isOpenFinance: null,
 			};
 			state.pluggyConnections.set(data.id, record);
 			return { ...record };
@@ -49,6 +50,7 @@ export function createMemoryPluggyConnectionStore(state: MemoryState): PluggyCon
 				lastSyncAt: syncedAt ?? current.lastSyncAt,
 				historyFrom: olderDay(current.historyFrom, syncedAt ? result.historyFrom : undefined),
 				...(counts ?? {}),
+				...(typeof result.isOpenFinance === "boolean" ? { isOpenFinance: result.isOpenFinance } : {}),
 			};
 			state.pluggyConnections.set(id, next);
 			return { ...next };

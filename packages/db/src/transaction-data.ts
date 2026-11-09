@@ -53,7 +53,20 @@ export type TransactionDraft = TransactionInput & {
 	categoryEditedByOwner?: boolean;
 	editedByOwner?: boolean;
 	splitGroupId?: string | null;
+	lastSeenAt?: Date | null;
+	removedByBankAt?: Date | null;
 };
+
+const ANCHOR_MAX = 200;
+
+/** `providerId`/`providerCode`: texto sem controle, 1 a 200 letras; vazio vira `null`. */
+function cleanAnchor(value: string | null | undefined): string | null {
+	if (value === undefined || value === null) return null;
+	const text = value.trim();
+	if (text.length === 0) return null;
+	if (text.length > ANCHOR_MAX) throw invalid(`O código do banco passa de ${ANCHOR_MAX} letras.`);
+	return text;
+}
 
 /** Lançamento avulso: campos de parcela que vierem (JS sem tipos) são descartados. */
 export function normalizeTransaction(input: TransactionInput): TransactionData {
@@ -97,6 +110,11 @@ function normalizeDraft(input: TransactionDraft): TransactionData {
 		categoryEditedByOwner: input.categoryEditedByOwner === true,
 		editedByOwner: input.editedByOwner === true,
 		splitGroupId: input.splitGroupId ?? null,
+		bankPending: input.bankPending === true,
+		providerId: cleanAnchor(input.providerId),
+		providerCode: cleanAnchor(input.providerCode),
+		lastSeenAt: input.lastSeenAt ?? null,
+		removedByBankAt: input.removedByBankAt ?? null,
 	};
 }
 
@@ -134,6 +152,12 @@ export function normalizeSplit(
 			categoryEditedByOwner: true,
 			editedByOwner: true,
 			splitGroupId,
+			// As partes são do dono: nada do banco se aplica a elas (o original, apagado, é quem segue o banco).
+			bankPending: false,
+			providerId: null,
+			providerCode: null,
+			lastSeenAt: null,
+			removedByBankAt: null,
 		}),
 	);
 }
@@ -171,6 +195,10 @@ const PATCHABLE = new Set([
 	"note",
 	"categoryEditedByOwner",
 	"editedByOwner",
+	// O que o banco informa e a sincronização atualiza (a API do app não expõe estes campos).
+	"bankPending",
+	"providerId",
+	"providerCode",
 ]);
 
 /**

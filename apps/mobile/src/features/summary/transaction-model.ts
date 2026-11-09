@@ -11,6 +11,17 @@ export interface TransactionLike {
 	installmentNumber: number | null;
 	installmentCount: number | null;
 	status: "pending" | "confirmed";
+	/** O banco ainda não efetivou (compra da fatura aberta). Não é "Para revisar": conta no gasto. */
+	bankPending?: boolean | undefined;
+}
+
+/**
+ * Selo da linha: "Pendente" é o "Para revisar" do Órbita (`status`); "Pendente no banco" é a compra que o banco ainda
+ * não efetivou (`bankPending`). Os dois não se confundem: o primeiro pede sua conferência, o segundo só informa.
+ */
+export function transactionBadge(t: Pick<TransactionLike, "status" | "bankPending">): string | undefined {
+	if (t.status === "pending") return "Pendente";
+	return t.bankPending ? "Pendente no banco" : undefined;
 }
 
 /** Sinal do valor: saída −, entrada +, movimento entre contas sem sinal. A cor vem de `amountTone`. */
@@ -60,6 +71,7 @@ export function transactionCaption(
 		parts.push(`${t.installmentNumber}/${t.installmentCount}`);
 	}
 	if (t.status === "pending") parts.push("Para revisar");
+	else if (t.bankPending) parts.push("Pendente no banco");
 	return parts.join(" · ");
 }
 

@@ -24,7 +24,11 @@ export const itemResponse = z.object({
 	lastUpdatedAt: z.string().max(40).nullish(),
 	/** Quando o item foi criado (SDK 0.94.2: `Item.createdAt`). Serve para recusar item antigo no "Conectar banco". */
 	createdAt: z.string().max(40).nullish(),
-	/** `isSandbox`: conector de teste (SDK 0.94.2, types/connector.d.ts). */
+	/**
+	 * `isSandbox`: conector de teste (SDK 0.94.2, types/connector.d.ts). `isOpenFinance`: o conector usa as APIs
+	 * regulamentadas do Open Finance (docs.pluggy.ai/reference/items-retrieve, `connector.isOpenFinance`): só nele vêm
+	 * `providerId`, `billId`, `billForecastDate` e o `operationType` do Open Finance. Valor estranho vira `null`.
+	 */
 	connector: z
 		.object({
 			id: z.number().nullish(),
@@ -130,10 +134,17 @@ export const transactionSchema = z.object({
 	status: z.string().max(20).nullish(),
 	category: z.string().max(200).nullish(),
 	categoryId: z.string().max(40).nullish(),
-	/** Texto livre do banco ("PIX", "TED"…); não usado para decidir nada. */
-	operationType: z.string().max(100).nullish(),
-	/** Id da transação no banco (só conector Open Finance). Só o diagnóstico lê. */
+	/**
+	 * Tipo da operação segundo a instituição, só em conectores Open Finance (docs.pluggy.ai/docs/transactions e
+	 * /reference/transactions-list). Na conta: TED, DOC, PIX, RENDIMENTO_APLIC_FINANCEIRA, RESGATE_APLIC_FINANCEIRA…;
+	 * no cartão: PAGAMENTO, PAGAMENTO_FATURA, TARIFA, OPERACOES_CREDITO_CONTRATADAS_CARTAO, ESTORNO, CASHBACK, OUTROS.
+	 * Sinal PRIMÁRIO do tipo do lançamento (ver `operationSignal`); texto estranho vira `null`.
+	 */
+	operationType: z.string().max(100).nullish().catch(null),
+	/** Id do lançamento no banco (docs: "Only returned for Open Finance connectors"): âncora contra recriação com id novo. */
 	providerId: z.string().max(200).nullish().catch(null),
+	/** Código da instituição (NSU, número no extrato; "format varies per institution"): âncora mais fraca. */
+	providerCode: z.string().max(200).nullish().catch(null),
 	/** Quem pagou e quem recebeu (Pix/TED). Os documentos (CPF/CNPJ) revelam transferência entre contas próprias. */
 	paymentData: z
 		.object({
@@ -157,8 +168,16 @@ export const transactionSchema = z.object({
 			purchaseDate: z.string().max(40).nullish().catch(null),
 			/** Só o diagnóstico lê (docs: parcelas futuras vêm com a data de lançamento na fatura). */
 			billPostDate: z.string().max(40).nullish().catch(null),
-			billForecastDate: z.string().max(40).nullish().catch(null),
 			paymentType: z.string().max(60).nullish().catch(null),
+			/**
+			 * Fatura (AAAA-MM) em que a compra deve ser cobrada. "Unlike billId, it is provided for pending and future
+			 * transactions too. Only returned for Open Finance connectors" (docs.pluggy.ai/reference/transactions-list).
+			 */
+			billForecastDate: z.string().max(20).nullish().catch(null),
+			/** Tipo da tarifa, quando a operação é TARIFA (ANNUAL_FEE, SMS, OTHER…; mesma página). */
+			feeType: z.string().max(60).nullish().catch(null),
+			/** Crédito contratado no cartão, quando a operação é OPERACOES_CREDITO_CONTRATADAS_CARTAO (REVOLVING_CREDIT, BILL_INSTALLMENT, LOAN, OTHER). */
+			otherCreditsType: z.string().max(60).nullish().catch(null),
 		})
 		.nullish(),
 	/** Dados do estabelecimento (SDK 0.94.2: `TransactionMerchantData`). Só o que ajuda a categorizar. */

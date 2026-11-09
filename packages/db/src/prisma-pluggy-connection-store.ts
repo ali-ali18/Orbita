@@ -55,6 +55,7 @@ export function createPrismaPluggyConnectionStore(db: Db, now: Clock): PluggyCon
 							...(syncedAt ? { lastSyncAt: syncedAt } : {}),
 							...(historyFrom !== null ? { historyFrom } : {}),
 							...(counts ?? {}),
+							...(typeof result.isOpenFinance === "boolean" ? { isOpenFinance: result.isOpenFinance } : {}),
 						},
 					}),
 				);
