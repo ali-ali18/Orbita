@@ -109,6 +109,23 @@ describe("operationType decide o tipo", () => {
 		});
 	});
 
+	it("RESGATE_APLIC_FINANCEIRA com categoria de rendimento: só é receita se a descrição diz rendimento; resgate de principal não", () => {
+		const resgate = (description: string) =>
+			mapPluggyTransaction(
+				parse({
+					type: "CREDIT",
+					amount: 5000,
+					description,
+					category: "Proceeds interests and dividends",
+					operationType: "RESGATE_APLIC_FINANCEIRA",
+				}),
+				bank,
+			);
+		expect(resgate("Resgate de investimento")).toMatchObject({ input: { kind: "redemption" } });
+		expect(resgate("Rendimentos")).toMatchObject({ input: { kind: "income" } });
+		expect(resgate("Remuneração do dia")).toMatchObject({ input: { kind: "income" } });
+	});
+
 	it("RENDIMENTO_APLIC_FINANCEIRA que entrou é rendimento (receita), mesmo com categoria genérica", () => {
 		const mapped = mapPluggyTransaction(
 			parse({

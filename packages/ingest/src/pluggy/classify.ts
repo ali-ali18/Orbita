@@ -104,6 +104,7 @@ export function chainLeavesSpendingOpen(chain: readonly string[]): boolean {
 /** Plano B, só com categoria ausente ou genérica: palavras que, inteiras, indicam mexer no próprio investimento. */
 const INVESTMENT_DESCRIPTION =
 	/\b(aplicacao|aplic|resgate|resg|caixinha|cdb|rdb|lci|lca|poupanca|tesouro direto|dinheiro guardado)\b/;
+const REMUNERATION = /\bremunerac/;
 const YIELD_DESCRIPTION = /\b(rendimentos?|rend pago|rend\.? aplic)/;
 
 // ------------------------------------------------ tipo da operação (Open Finance)
@@ -217,9 +218,12 @@ export function classifyFamily(input: {
 	if (signal === "card_payment") return "card_payment";
 	if (signal === "yield") return "yield";
 	if (signal === "redemption") {
-		// Mercado Pago manda os "Rendimentos" diários com RESGATE_APLIC_FINANCEIRA (dados reais): quando a categoria ou a
-		// descrição diz rendimento, o que entrou é o que rendeu, não o principal que voltou.
-		return direction === "in" && (anyMatch(chain, YIELD) || YIELD_DESCRIPTION.test(plain(input.description)))
+		// Mercado Pago manda os "Rendimentos" diários com RESGATE_APLIC_FINANCEIRA (dados reais): quando a descrição diz
+		// rendimento, o que entrou é o que rendeu, não o principal que voltou.
+		// A categoria sozinha não basta (um resgate de principal pode vir com ela): só vale a descrição ("Rendimentos",
+		// "remuneração"). Sem isso o principal que volta inflaria a receita.
+		return direction === "in" &&
+			(YIELD_DESCRIPTION.test(plain(input.description)) || REMUNERATION.test(plain(input.description)))
 			? "yield"
 			: "investment";
 	}
