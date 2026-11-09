@@ -32,7 +32,7 @@ const key = (v: string) =>
 const KNOWN_BANKS: ReadonlyArray<readonly [name: string, match: RegExp]> = [
 	["Santander", /^(banco )?santander\b/],
 	["Inter", /^(banco )?inter$/],
-	["Nubank", /^(nubank|nu bank|nu pagamentos)$/],
+	["Nubank", /^(nubank|nu bank|nu pagamentos)\b/],
 	["Mercado Pago", /^mercado pago$/],
 	["Itaú", /^(banco )?itau( unibanco)?$/],
 	["Bradesco", /^(banco )?bradesco$/],
@@ -89,7 +89,7 @@ export const isMeuPluggyConnector = (name: string | null | undefined): boolean =
 // Bancos reconhecidos DENTRO de um nome maior ("Conta Corrente Inter", "Nubank Mastercard Gold").
 const BANK_WORDS: ReadonlyArray<readonly [name: string, match: RegExp]> = [
 	["Santander", /\b(santander|van gogh|aadvantage)\b/],
-	["Nubank", /\b(nubank|nu bank)\b/],
+	["Nubank", /\b(nubank|nu bank|nu pagamentos)\b/],
 	["Inter", /\b(banco inter|inter)\b/],
 	["Mercado Pago", /\bmercado pago\b/],
 	["Itaú", /\bitau\b/],

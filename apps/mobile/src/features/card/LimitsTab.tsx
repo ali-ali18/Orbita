@@ -135,6 +135,11 @@ export function LimitsTab({ cards, hidden }: { cards: readonly CardLike[]; hidde
 							Usado {fmt(limit.usedCents)}
 							{limit.availableCents === null ? "" : ` · disponível ${fmt(limit.availableCents)}`}
 						</Text>
+						{limit.approvedLimitCents != null && limit.limitCents !== null ? (
+							<Text variant="caption" tone="secondary">
+								{`Limite ${fmt(limit.limitCents)} (aprovado ${fmt(limit.approvedLimitCents)})`}
+							</Text>
+						) : null}
 						{card ? (
 							<View style={{ flexDirection: "row", gap: spacing.sm }}>
 								<Text variant="caption" tone="secondary" style={{ flex: 1 }}>

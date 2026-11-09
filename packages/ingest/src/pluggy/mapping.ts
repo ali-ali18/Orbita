@@ -27,9 +27,9 @@ import {
 	type CategoryIndex,
 	categoryChain,
 	classifyFamily,
+	isCardSidePayment,
 	isGoogleDigitalCharge,
 	normalizeOperationType,
-	operationExcludesCardPayment,
 	operationSignal,
 	plain,
 	readableCategory,
@@ -444,6 +444,11 @@ export interface TransactionContext {
 	billMonths?: ReadonlyMap<string, string>;
 	/** As faturas não carregaram: débito da conta e crédito do cartão ficam de fora até carregarem. */
 	billsUnavailable?: boolean;
+	/**
+	 * `connector.isOpenFinance` da conexão. Só no Open Finance regulado o `billForecastDate` é confiável; no MeuPluggy
+	 * (`false`) ele vem inconsistente entre bancos (mês de fechamento num, de vencimento noutro), então não decide a fatura.
+	 */
+	isOpenFinance?: boolean;
 	/** A árvore de categorias do Pluggy (`GET /categories`); sem ela vale só o nome da categoria do lançamento. */
 	categoryIndex?: CategoryIndex;
 	/** Categorias do Órbita por slug → id. Sem ela, o lançamento fica sem categoria. */
@@ -570,17 +575,7 @@ export function transactionFacts(tx: PluggyTransaction): { amountCents: number; 
 	return typeof amount === "number" && date !== null ? { amountCents: amount, date } : null;
 }
 
-// O lado do cartão do pagamento costuma vir sem categoria própria.
-const CARD_SIDE_PAYMENT_DESCRIPTIONS = [
-	"pagamento recebido",
-	"pagamento de fatura",
-	"pagamento fatura",
-	"payment received",
-];
-
 const FORECAST_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
-
-const includesAny = (text: string, needles: readonly string[]) => needles.some((n) => text.includes(n));
 
 interface CategoryChoice {
 	categoryId: string | null;
@@ -914,11 +909,21 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 	const meta = tx.creditCardMetadata;
 	// A fatura que o próprio Pluggy indica (billId → mês do vencimento) vale mais que o cálculo pelo fechamento.
 	const billMonth = meta?.billId ? ctx.billMonths?.get(meta.billId) : undefined;
-	// Compra ainda sem billId (fatura aberta): `billForecastDate` é a fatura prevista pelo banco ("provided for pending
-	// and future transactions too", docs.pluggy.ai/reference/transactions-list). Sem ela, o cálculo do engine.
+	// `billForecastDate` ("provided for pending and future transactions too", docs.pluggy.ai/reference/transactions-list)
+	// só vale em conector Open Finance. Nos dados reais do MeuPluggy ele não segue convenção (Santander: mês do
+	// fechamento; Nubank: mês do vencimento; Inter: o da fatura que já fechou), então lá a fatura vem do fechamento.
 	const forecast =
-		meta?.billForecastDate && FORECAST_MONTH.test(meta.billForecastDate) ? meta.billForecastDate : null;
-	const invoiceMonth = billMonth ?? forecast ?? invoiceFor(date, ctx.card.config).month;
+		ctx.isOpenFinance !== false && meta?.billForecastDate && FORECAST_MONTH.test(meta.billForecastDate)
+			? meta.billForecastDate
+			: null;
+	// Compra PENDING sem `billId` = "not yet included in a closed bill" (docs): cai na fatura em que o banco vai lançá-la.
+	// `billPostDate` é o dia em que ela entra na fatura (a compra no dia do fechamento já é a da fatura que fecha); sem
+	// ele, vale o dia do lançamento. Parcela pendente não pode usar a data da compra (meses atrás).
+	const postDate = meta?.billPostDate ? pluggyDateToLocal(meta.billPostDate) : null;
+	const included = ctx.card.config.closingRule === "closing-day-included";
+	const invoiceRef =
+		pending && postDate !== null && !billMonth ? (included ? postDate : addDays(postDate, -1)) : date;
+	const invoiceMonth = billMonth ?? forecast ?? invoiceFor(invoiceRef, ctx.card.config).month;
 	const invoiceFromBank = billMonth !== undefined || forecast !== null;
 	const installment =
 		meta?.installmentNumber && meta.totalInstallments && meta.totalInstallments > 1
@@ -983,18 +988,19 @@ export function mapPluggyTransaction(tx: PluggyTransaction, ctx: TransactionCont
 			...(invoiceFromBank ? { invoiceFromBill: true as const } : {}),
 		};
 	}
-	// Crédito no cartão. `operationType` decide primeiro (docs.pluggy.ai/docs/transactions): PAGAMENTO_FATURA é baixa da
-	// fatura (o lado do banco é quem conta) e ESTORNO/CASHBACK são crédito que abate a fatura; só sem esse sinal valem a
-	// descrição e a categoria.
-	const signal = operationSignal(tx.operationType, "in");
-	if (signal === "card_payment") return { action: "skip", reason: "card_payment" };
-	if (signal !== "refund") {
+	// Crédito no cartão. ESTORNO/CASHBACK (`operationType`) são crédito que abate a fatura. Todo o resto que parece baixa
+	// de fatura NUNCA vira estorno: o `operationType` não serve (PAGAMENTO é também compra; Inter e Santander o usam na
+	// baixa, com categoria Shopping ou Credit card payment), então valem a categoria, a descrição ("pagamento on line",
+	// "pagamento de fatura", "pagamento recebido") e o valor igual a um pagamento registrado em `/bills` deste cartão.
+	const cardSignal = operationSignal(tx.operationType, "in");
+	if (cardSignal === "card_payment") return { action: "skip", reason: "card_payment" };
+	if (cardSignal !== "refund") {
 		if (ctx.billsUnavailable) return { action: "skip", reason: "bills_unavailable" };
-		const side = plain(tx.description) || plain(tx.descriptionRaw);
+		// `billPaymentMatches` já casou, um a um, os créditos com os `payments[]` do cartão (valor e dia): vale para o que
+		// vier com qualquer rótulo. (Não basta "valor igual a um pagamento": um estorno real de mesmo valor não é baixa.)
 		if (
 			ctx.billPaymentMatches?.has(tx.id) ||
-			isCardPayment ||
-			(!operationExcludesCardPayment(tx.operationType) && includesAny(side, CARD_SIDE_PAYMENT_DESCRIPTIONS))
+			isCardSidePayment({ chain, description, operationType: tx.operationType })
 		) {
 			return { action: "skip", reason: "card_payment" };
 		}

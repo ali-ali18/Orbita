@@ -161,6 +161,31 @@ export const operationExcludesCardPayment = (operationType: string | null | unde
 	return op !== null && CARD_KNOWN_NOT_PAYMENT.has(op);
 };
 
+/**
+ * Crédito no CARTÃO que é a baixa de uma fatura, mesmo quando o banco o rotula como outra coisa. Nos dados reais o
+ * `operationType` e a categoria variam: Inter "PAGAMENTO ON LINE" (op PAGAMENTO, categoria Shopping), Santander
+ * "PAGAMENTO DE FATURA" (op PAGAMENTO, categoria Credit card payment), Nubank e Mercado Pago "Pagamento recebido" (op
+ * PAGAMENTO_FATURA). `PAGAMENTO` também rotula COMPRAS no cartão, então o `operationType` não decide nada aqui: valem
+ * a categoria e a descrição. Só ESTORNO/CASHBACK (o banco disse que é estorno) escapam.
+ */
+const CARD_SIDE_PAYMENT_TEXT =
+	/\b(pagamento (on ?line|online|recebido|de fatura|fatura|efetuado)|pagto (de )?fatura|payment received|credit card payment)\b/;
+
+export function isCardSidePayment(input: {
+	chain: readonly string[];
+	description: string;
+	operationType?: string | null | undefined;
+}): boolean {
+	const op = normalizeOperationType(input.operationType);
+	if (op === "PAGAMENTO_FATURA") return true;
+	if (op === "ESTORNO" || op === "CASHBACK") return false;
+	const text = plain(input.description);
+	if (REFUND_WORDS.test(text) || anyMatch(input.chain, REFUND_WORDS)) return false;
+	return anyMatch(input.chain, CARD_PAYMENT) || CARD_SIDE_PAYMENT_TEXT.test(text);
+}
+
+const REFUND_WORDS = /\b(estorno|devolucao|refund|chargeback|cashback)\b/;
+
 export type PluggyFamily =
 	| "card_payment" // pagamento de fatura
 	| "own_transfer" // transferência para a mesma titularidade
@@ -185,7 +210,13 @@ export function classifyFamily(input: {
 	const signal = operationSignal(input.operationType, direction);
 	if (signal === "card_payment") return "card_payment";
 	if (signal === "yield") return "yield";
-	if (signal === "redemption") return "investment";
+	if (signal === "redemption") {
+		// Mercado Pago manda os "Rendimentos" diários com RESGATE_APLIC_FINANCEIRA (dados reais): quando a categoria ou a
+		// descrição diz rendimento, o que entrou é o que rendeu, não o principal que voltou.
+		return direction === "in" && (anyMatch(chain, YIELD) || YIELD_DESCRIPTION.test(plain(input.description)))
+			? "yield"
+			: "investment";
+	}
 	// O banco disse que a operação do cartão é compra, tarifa, crédito contratado, estorno ou cashback: não é pagamento
 	// de fatura, mesmo que a categoria do Pluggy ou o nome digam "pagamento".
 	if (!operationExcludesCardPayment(input.operationType) && anyMatch(chain, CARD_PAYMENT))

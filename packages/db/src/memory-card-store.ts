@@ -28,6 +28,7 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 				...normalizeCard(input),
 				...identity,
 				availableCents: null,
+				balanceCents: null,
 				limitSyncedAt: null,
 				archivedAt: null,
 				createdAt: now,
@@ -79,8 +80,17 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 			const found = state.cards.get(id);
 			return found ? toCardConfig(found) : null;
 		},
-		async recordAvailable(id, availableCents, syncedAt) {
-			const next = { ...need(id), availableCents: cleanAvailable(availableCents), limitSyncedAt: syncedAt };
+		async recordAvailable(id, availableCents, syncedAt, balanceCents) {
+			const current = need(id);
+			const next = {
+				...current,
+				availableCents: cleanAvailable(availableCents),
+				balanceCents:
+					balanceCents === undefined || balanceCents === null
+						? current.balanceCents
+						: cleanAvailable(balanceCents),
+				limitSyncedAt: syncedAt,
+			};
 			state.cards.set(id, next);
 			return { ...next };
 		},

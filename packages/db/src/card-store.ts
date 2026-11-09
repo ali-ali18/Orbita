@@ -12,6 +12,11 @@ export interface CardRecord {
 	limitCents: number | null;
 	/** Limite disponível que o banco informou (centavos). `null`: nunca informado. Só a sincronização grava. */
 	availableCents: number | null;
+	/**
+	 * Saldo do cartão que o banco informou (`Account.balance` da conta CREDIT), em centavos. No conector que NÃO é Open
+	 * Finance é a fatura aberta ainda não paga (docs.pluggy.ai). `null`: nunca informado. Só a sincronização grava.
+	 */
+	balanceCents: number | null;
 	limitSyncedAt: Date | null;
 	/** "manual" ou a origem que criou o cartão (ex.: "pluggy"). */
 	source: TransactionSource;
@@ -66,5 +71,10 @@ export interface CardStore {
 	 * Grava o limite disponível que o banco informou e o instante da leitura. Não mexe em `updatedAt` (não é edição
 	 * do dono). `not_found` se o cartão não existe; `invalid` se `availableCents` não é inteiro de centavos.
 	 */
-	recordAvailable(id: string, availableCents: number, syncedAt: Date): Promise<CardRecord>;
+	recordAvailable(
+		id: string,
+		availableCents: number,
+		syncedAt: Date,
+		balanceCents?: number | null,
+	): Promise<CardRecord>;
 }

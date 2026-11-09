@@ -23,6 +23,7 @@ describe("cleanBankName", () => {
 			["Banco Santander (Brasil) S.A.", "Santander"],
 			["BANCO INTER", "Inter"],
 			["Nu Pagamentos S.A.", "Nubank"],
+			["Nu Pagamentos S.A. - Instituição de Pagamento", "Nubank"],
 			["ITAÚ UNIBANCO S.A.", "Itaú"],
 			["Banco Bradesco S.A.", "Bradesco"],
 			["BANCO DO BRASIL S.A.", "Banco do Brasil"],
@@ -69,6 +70,7 @@ describe("banco e nome de cartão", () => {
 	it("findKnownBank acha o banco dentro de um nome maior", () => {
 		expect(findKnownBank("Conta Corrente Inter")).toBe("Inter");
 		expect(findKnownBank("MeuPluggy Nubank Mastercard Gold")).toBe("Nubank");
+		expect(findKnownBank("Nu Pagamentos S.A. - Instituição de Pagamento")).toBe("Nubank");
 		expect(findKnownBank("Banco Santander (Brasil) S.A.")).toBe("Santander");
 		expect(findKnownBank("Mastercard Black")).toBeNull();
 		expect(findKnownBank("Interessante")).toBeNull();

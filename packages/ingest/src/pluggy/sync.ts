@@ -13,7 +13,7 @@ import {
 import { PLUGGY_RECONNECT_MESSAGE, type PluggySyncStatus, type SecretName } from "@orbita/shared";
 import { type BankNumbersResult, recordBankNumbers, recordBills } from "./balances.ts";
 import { detectBankName, findKnownBank, hasMeuPluggyPrefix, isWeakCardName } from "./bank-name.ts";
-import { buildCategoryIndex, type CategoryIndex, operationExcludesCardPayment } from "./classify.ts";
+import { buildCategoryIndex, type CategoryIndex, operationSignal } from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
 import { chooseConnectionLabel } from "./connection-label.ts";
 import {
@@ -517,6 +517,27 @@ async function syncConnection(
 		if (dropped > 0)
 			result.notes.push(`${dropped} lançamento(s) vieram fora do formato e foram descartados.`);
 
+		// Fatura ABERTA de cada cartão (o banco não a manda em `/bills`): a soma das compras PENDING, que a doc define como
+		// "ainda não incluídas numa fatura fechada". O dono costuma pagar antes de a fatura fechar (o Mercado Pago aceita
+		// pagar o valor das pendentes), e esse débito só se liga ao cartão por este total. Entra como fatura sem vencimento.
+		for (const { target, txs } of fetched) {
+			if (!target.card) continue;
+			let openCents = 0;
+			for (const tx of txs) {
+				if (tx.status !== "PENDING" || tx.type !== "DEBIT") continue;
+				const facts = transactionFacts(tx);
+				if (facts) openCents += facts.amountCents;
+			}
+			if (openCents > 0) {
+				shared.bills.push({
+					cardId: target.card.id,
+					totalCents: openCents,
+					remainingCents: openCents,
+					dueDate: null,
+				});
+			}
+		}
+
 		// 2) Casa cada pagamento de fatura com UM lançamento. O pool do banco é da conexão inteira (o pagamento pode
 		// sair de qualquer conta); o do cartão é por cartão.
 		const matches = new Map<string, BillPayment>();
@@ -524,8 +545,9 @@ async function syncConnection(
 		for (const { target, txs } of fetched) {
 			const pool = txs.flatMap((tx) => {
 				if (tx.status === "PENDING") return [];
-				// O banco já disse que esta operação do cartão não é pagamento de fatura (estorno, cashback…).
-				if (target.card && operationExcludesCardPayment(tx.operationType)) return [];
+				// O banco já disse que este crédito do cartão é estorno ou cashback, não pagamento de fatura. (PAGAMENTO não
+				// exclui: nos dados reais é o rótulo da baixa da fatura no Inter e no Santander.)
+				if (target.card && operationSignal(tx.operationType, "in") === "refund") return [];
 				const facts = transactionFacts(tx);
 				if (!facts || tx.type !== (target.card ? "CREDIT" : "DEBIT")) return [];
 				return [{ id: tx.id, ...facts }];
@@ -559,6 +581,9 @@ async function syncConnection(
 			payments: shared.payments,
 			billMonths,
 			billsUnavailable,
+			...(typeof item.connector?.isOpenFinance === "boolean"
+				? { isOpenFinance: item.connector.isOpenFinance }
+				: {}),
 			...(categoryIndex ? { categoryIndex } : {}),
 			...(ownTransferCounterparts ? { ownTransferCounterparts } : {}),
 			categoryIds,
