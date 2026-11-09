@@ -36,6 +36,8 @@ export const KNOWN_SERVICES: readonly KnownService[] = [
 	sub("Deezer", ["deezer"]),
 	sub("ChatGPT", ["openai", "chatgpt"]),
 	sub("Claude", ["anthropic", "claude"]),
+	sub("Grok (SuperGrok)", ["grok"]),
+	sub("F1 TV", ["f1"]),
 	sub("Microsoft 365", ["microsoft"]),
 	sub("Adobe", ["adobe"]),
 	sub("Canva", ["canva"]),
@@ -112,18 +114,81 @@ const BRAND_RULES: ReadonlyArray<readonly [brand: string, match: RegExp]> = [
 ];
 
 /**
- * A "marca de assinatura" de um texto de estabelecimento: tira o intermediário de pagamento do começo, reconhece os
- * serviços de {@link BRAND_RULES} em qualquer ponto do texto e, no resto, usa a primeira palavra (como `merchantKey`
- * com 1 palavra). Vazio quando não sobra nada comparável.
+ * Apps vendidos pelo Google Play que o banco TRUNCA ("YouTub", "ChatGP", "Googl"): o texto cortado casa por prefixo
+ * (pelo menos 4 letras) e volta ao nome inteiro, que é a marca de assinatura. "google" sozinho como app é o Google One.
  */
-export function subscriptionBrand(text: string | null | undefined): string {
+const GOOGLE_PLAY_APPS: readonly string[] = ["youtube", "chatgpt", "googleone", "gemini"];
+
+/** Palavras do texto do banco depois de "GOOGLE" que não dizem qual app foi vendido. */
+const GOOGLE_PLAY_NOISE: ReadonlySet<string> = new Set([
+	"brasil",
+	"br",
+	"ltda",
+	"play",
+	"payment",
+	"pagamento",
+	"llc",
+	"inc",
+	"ireland",
+	"com",
+	"gsuite",
+]);
+
+const canonicalGoogleApp = (token: string): string => {
+	if (token.length < 4) return token;
+	return GOOGLE_PLAY_APPS.find((full) => full.startsWith(token)) ?? token;
+};
+
+/**
+ * Cobrança do Google Play ("Google One", "DL*GOOGLE YouTub", "DL *GOOGLE Pierre Cont"): o banco escreve o intermediário
+ * e depois o app vendido, e a marca é o APP (o texto depois do último "google"), não o Google. Devolve a marca do app,
+ * ou `null` quando o texto não é do Google. "Google" sozinho (ou "Google Brasil") sem app é `google`. Texto que repete
+ * "google" sem nada depois ("DL*GOOGLE Google", que é o Google One cobrado como "Google") é `googleone`.
+ */
+function googlePlayBrand(tokens: readonly string[]): string | null {
+	let last = -1;
+	let count = 0;
+	tokens.forEach((t, i) => {
+		if (t === "google") {
+			last = i;
+			count += 1;
+		}
+	});
+	if (last < 0) return null;
+	const app = tokens.slice(last + 1).filter((t) => !GOOGLE_PLAY_NOISE.has(t) && !PAYMENT_PROCESSORS.has(t));
+	const first = app[0];
+	if (first === undefined) return count >= 2 ? "googleone" : "google";
+	return canonicalGoogleApp(first);
+}
+
+const brandTokens = (text: string | null | undefined): string[] => {
 	const tokens = merchantKey(text, 40)
 		.split(" ")
 		.filter((t) => t !== "");
 	while (tokens.length > 1 && PAYMENT_PROCESSORS.has(tokens[0] as string)) tokens.shift();
+	return tokens;
+};
+
+/**
+ * Compra de um app pelo Google Play, com o app dito: "Google Pierre Control", "DL*GOOGLE YouTub", "Google One". São
+ * quase sempre assinaturas, então duas cobranças mensais bastam (como nas marcas conhecidas). "Google" sozinho não é.
+ */
+export function isGooglePlayApp(text: string | null | undefined): boolean {
+	const brand = googlePlayBrand(brandTokens(text));
+	return brand !== null && brand !== "google";
+}
+
+/**
+ * A "marca de assinatura" de um texto de estabelecimento: tira o intermediário de pagamento do começo, reconhece os
+ * serviços de {@link BRAND_RULES} em qualquer ponto do texto, no Google Play usa o app vendido (cada app é uma
+ * assinatura à parte, mesmo cobrados todos como "GOOGLE *...") e, no resto, a primeira palavra (como `merchantKey`
+ * com 1 palavra). Vazio quando não sobra nada comparável.
+ */
+export function subscriptionBrand(text: string | null | undefined): string {
+	const tokens = brandTokens(text);
 	const joined = tokens.join("");
 	for (const [brand, match] of BRAND_RULES) if (match.test(joined)) return brand;
-	return tokens[0] ?? "";
+	return googlePlayBrand(tokens) ?? tokens[0] ?? "";
 }
 
 /** Duas marcas são do mesmo serviço: iguais, ou uma começa pela outra ("amazon" cadastrado, "amazonprime" cobrado). */

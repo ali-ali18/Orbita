@@ -171,6 +171,17 @@ describe("subscriptionBrand", () => {
 		["AMAZON PRIME BR", "amazonprime"],
 		["Amazon Marketplace", "amazon"],
 		["Associação APC", "associacao"],
+		// Google Play: a marca é o app vendido (o texto depois de "GOOGLE"), mesmo truncado pelo banco.
+		["Google YouTube Member", "youtube"],
+		["DL*GOOGLE YouTub", "youtube"],
+		["DL*GOOGLE Google", "googleone"],
+		["Google dl*GOOGLE Google", "googleone"],
+		["DL*GOOGLE ChatGP", "chatgpt"],
+		["Google Pierre Control", "pierre"],
+		["DL *GOOGLE Pierre Cont", "pierre"],
+		["Google F1 TV", "f1"],
+		["DL*GOOGLE Grok", "grok"],
+		["Google Brasil", "google"],
 	])("%s -> %s", (text, brand) => {
 		expect(subscriptionBrand(text)).toBe(brand);
 	});
@@ -207,5 +218,67 @@ describe("findMonthlyRuns: marca com mais de um plano", () => {
 			charge("2026-08-31", 5000, "Loja X"),
 		];
 		expect(findMonthlyRuns({ charges, today })).toEqual([]);
+	});
+});
+
+describe("Google Play: cada app é uma assinatura (textos reais do cartão)", () => {
+	const today = "2026-11-09";
+	const series = (rows: Array<[string, number, string]>) =>
+		rows.map(([date, cents, merchant]) => charge(date, cents, merchant));
+	const charges = series([
+		// Google One: "Google One" e, antes, "DL*GOOGLE Google".
+		["2026-10-13", 9699, "Google One"],
+		["2026-09-13", 9699, "DL*GOOGLE Google"],
+		["2026-08-13", 9699, "DL*GOOGLE Google"],
+		// YouTube Premium e YouTube Member (membro de canal): faixas de valor diferentes.
+		["2026-10-07", 2690, "Google YouTube"],
+		["2026-09-07", 2690, "DL*GOOGLE YouTub"],
+		["2026-08-07", 2690, "DL*GOOGLE YouTub"],
+		["2026-10-19", 799, "Google YouTube Member"],
+		["2026-09-19", 799, "Google YouTube Member"],
+		// ChatGPT pelo Google Play, nome cortado.
+		["2026-10-14", 9599, "DL*GOOGLE ChatGP"],
+		["2026-09-14", 9599, "DL*GOOGLE ChatGP"],
+		["2026-08-14", 9599, "DL*GOOGLE ChatGP"],
+		// Pierre (cancelado): só duas cobranças.
+		["2026-09-30", 3899, "Google Pierre Control"],
+		["2026-09-01", 3899, "DL *GOOGLE Pierre Cont"],
+		// F1 TV.
+		["2026-09-29", 2990, "Google F1 TV"],
+		["2026-08-30", 2990, "DL*GOOGLE F1 TV"],
+	]);
+
+	it("acha um padrão por app e faixa de valor, sem misturar os apps", () => {
+		const runs = findMonthlyRuns({
+			charges,
+			today,
+			minKnownOccurrences: 2,
+			knownBrands: KNOWN_SUBSCRIPTION_BRANDS,
+		});
+		expect(runs.map((r) => [r.brand, r.amountCents, r.charges.length])).toEqual([
+			["chatgpt", 9599, 3],
+			["f1", 2990, 2],
+			["googleone", 9699, 3],
+			["pierre", 3899, 2],
+			["youtube", 799, 2],
+			["youtube", 2690, 3],
+		]);
+	});
+
+	it("Pierre (app desconhecido) com duas cobranças já é assinatura; outra loja desconhecida não", () => {
+		const pierre = charges.filter((c) => c.merchant.toLowerCase().includes("pierre"));
+		expect(findMonthlyRuns({ charges: pierre, today, minKnownOccurrences: 2 })).toHaveLength(1);
+		const store = series([
+			["2026-10-13", 5000, "Loja Zé"],
+			["2026-09-13", 5000, "Loja Zé"],
+		]);
+		expect(findMonthlyRuns({ charges: store, today, minKnownOccurrences: 2 })).toEqual([]);
+	});
+
+	it("conhece os serviços pelos textos do banco", () => {
+		expect(knownServiceOf("DL*GOOGLE Google")?.name).toBe("Google One (Gemini)");
+		expect(knownServiceOf("DL*GOOGLE YouTub")?.name).toBe("YouTube (Premium ou Music)");
+		expect(knownServiceOf("DL*GOOGLE ChatGP")?.name).toBe("ChatGPT");
+		expect(knownServiceOf("Google F1 TV")?.name).toBe("F1 TV");
 	});
 });
