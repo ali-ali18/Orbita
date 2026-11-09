@@ -5,6 +5,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { type ReactElement, useEffect, useRef, useState } from "react";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { LockGate } from "../features/lock/LockGate.tsx";
 import { LockProvider, useLock } from "../features/lock/LockProvider.tsx";
@@ -105,24 +106,26 @@ export default function RootLayout() {
 
 	return (
 		<SafeAreaProvider>
-			<QueryClientProvider client={queryClient}>
-				<ClockProvider>
-					<SessionProvider>
-						<QueryErrorBridge target={onError} />
-						<AutoUpdate />
-						<LockProvider>
-							<PrivacyProvider>
-								<StatusBar style="light" />
-								<Gate>
-									<LockGate>
-										<Routes />
-									</LockGate>
-								</Gate>
-							</PrivacyProvider>
-						</LockProvider>
-					</SessionProvider>
-				</ClockProvider>
-			</QueryClientProvider>
+			<KeyboardProvider>
+				<QueryClientProvider client={queryClient}>
+					<ClockProvider>
+						<SessionProvider>
+							<QueryErrorBridge target={onError} />
+							<AutoUpdate />
+							<LockProvider>
+								<PrivacyProvider>
+									<StatusBar style="light" />
+									<Gate>
+										<LockGate>
+											<Routes />
+										</LockGate>
+									</Gate>
+								</PrivacyProvider>
+							</LockProvider>
+						</SessionProvider>
+					</ClockProvider>
+				</QueryClientProvider>
+			</KeyboardProvider>
 		</SafeAreaProvider>
 	);
 }
