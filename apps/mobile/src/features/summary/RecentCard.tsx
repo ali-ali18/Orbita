@@ -11,6 +11,7 @@ import {
 	amountSignMode,
 	amountTone,
 	signedAmount,
+	transactionBrand,
 	transactionCaption,
 	transactionIcon,
 } from "./transaction-model.ts";
@@ -42,7 +43,7 @@ export function RecentCard({
 }) {
 	const accountById = new Map(accounts.map((a) => [a.id, a]));
 	const cardById = new Map(cards.map((c) => [c.id, c]));
-	const slugById = new Map(categories.map((c) => [c.id, c.slug]));
+	const categoryById = new Map(categories.map((c) => [c.id, c]));
 	return (
 		<LoadableCard
 			title="Últimos lançamentos"
@@ -71,7 +72,12 @@ export function RecentCard({
 									onPress={() => onOpen(t.id)}
 									leading={
 										<TransactionDisc
-											icon={transactionIcon(t.kind, t.categoryId ? slugById.get(t.categoryId) : undefined)}
+											icon={transactionIcon(
+												t.kind,
+												t.categoryId ? categoryById.get(t.categoryId)?.slug : undefined,
+												t.categoryId ? categoryById.get(t.categoryId)?.name : undefined,
+											)}
+											brand={transactionBrand(t)}
 											bank={source ? bankBadge(source) : undefined}
 										/>
 									}

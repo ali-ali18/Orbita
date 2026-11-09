@@ -1,4 +1,15 @@
-import { addDays, addMonths, decimalToCents, type LocalDate, type MonthKey, toLocalDate } from "@orbita/core";
+import {
+	addDays,
+	addMonths,
+	type CardConfig,
+	decimalToCents,
+	invoiceByMonth,
+	invoiceStatus,
+	type LocalDate,
+	type MonthKey,
+	paymentWindow,
+	toLocalDate,
+} from "@orbita/core";
 import {
 	type AccountRecord,
 	type CardRecord,
@@ -526,14 +537,27 @@ async function syncConnection(
 				result.notes.push(`Uma conta não sincronizou: ${safeErrorMessage(e)}`);
 			}
 		}
-		// Regra de fechamento de cada cartão, lida das faturas dele: o cartão que o banco fecha "incluindo" o dia do
-		// fechamento (e ainda está na regra padrão) passa a ela; sem evidência não muda nada. Só sobe de "next" para
-		// "included": o que o dono escolheu ou o padrão não é revertido por um dado ambíguo.
+		// Regra de fechamento de cada cartão, lida das faturas dele; sem evidência (ou com empate) não muda nada. A que o
+		// dono escolheu (`closingRuleSource` "owner") nunca é tocada. A padrão sobe para "included" quando o banco fecha
+		// incluindo o dia; a que o sync mesmo deduziu volta ao padrão se a evidência passar a dizer "next".
+		const ruleChanged = new Set<string>();
 		for (const { target, txs } of fetched) {
-			if (target.card?.closingRule !== "closing-day-next") continue;
+			const card = target.card;
+			if (!card || card.closingRuleSource === "owner") continue;
 			const rule = inferClosingRule(txs, billsOf.get(target.pluggyId)?.bills ?? []);
+			if (rule === null || rule === card.closingRule) continue;
 			if (rule === "closing-day-included") {
-				target.card = await deps.stores.cards.update(target.card.id, { closingRule: rule });
+				target.card = await deps.stores.cards.update(card.id, {
+					closingRule: rule,
+					closingRuleSource: "inferred",
+				});
+				ruleChanged.add(card.id);
+			} else if (card.closingRuleSource === "inferred") {
+				target.card = await deps.stores.cards.update(card.id, {
+					closingRule: rule,
+					closingRuleSource: "default",
+				});
+				ruleChanged.add(card.id);
 			}
 		}
 		if (dropped > 0)
@@ -645,6 +669,11 @@ async function syncConnection(
 			await storeTransactions(deps, txs, ctx, result, others, seenIds, {
 				windowFrom: from,
 				seenAt: startedAt,
+				// Regra deduzida pelo sync vale sempre (não só na rodada em que mudou): se esta rodada falhar depois de
+				// gravar a regra, a próxima ainda refaz as linhas (só as de fatura aberta ou sem pagamento, ver abaixo).
+				ruleChanged: target.card
+					? ruleChanged.has(target.card.id) || target.card.closingRuleSource === "inferred"
+					: false,
 			});
 			await trackPresence(deps, target, seenIds, { complete, from, today, startedAt }, result);
 		}
@@ -1031,6 +1060,20 @@ const bump = (counts: ConnectionSyncResult["skipped"], key: SkipReason | "archiv
 	counts[key] = (counts[key] ?? 0) + 1;
 };
 
+/**
+ * A regra de fechamento mudou: só se refaz a linha de fatura ainda aberta ou fechada sem pagamento conhecido. Fatura já
+ * paga (ou com pagamento atribuído a ela) foi quitada pelo total que o dono viu; mover compra dela adulteraria o histórico.
+ */
+async function invoiceCanBeRecomputed(
+	transactions: SyncPluggyDeps["stores"]["transactions"],
+	card: { id: string; config: CardConfig },
+	month: MonthKey,
+	today: LocalDate,
+): Promise<boolean> {
+	if (invoiceStatus(invoiceByMonth(month, card.config), today) === "open") return true;
+	return (await transactions.listCardPayments(card.id, paymentWindow(month, card.config))).length === 0;
+}
+
 async function storeTransactions(
 	deps: SyncPluggyDeps,
 	txs: readonly PluggyTransaction[],
@@ -1039,7 +1082,12 @@ async function storeTransactions(
 	others: Map<string, number>,
 	/** Os ids do Pluggy desta resposta: o que está gravado com OUTRO id do Pluggy veio de um item antigo. */
 	currentIds: ReadonlySet<string>,
-	bank: { windowFrom: string; seenAt: Date },
+	bank: {
+		windowFrom: string;
+		seenAt: Date;
+		/** A regra de fechamento deste cartão mudou nesta rodada: a fatura calculada (sem `billId`) é refeita. */
+		ruleChanged?: boolean;
+	},
 ): Promise<void> {
 	const { transactions } = deps.stores;
 	// Estornos por último: assim a compra original, se veio na mesma resposta, já está gravada.
@@ -1161,8 +1209,22 @@ async function storeTransactions(
 					// compra pesa no mês dela (o upsert por si só nunca corrigia). O que o engine calculou não mexe.
 					// Também recalcula a compra ainda pendente sem fatura do banco: versões antigas gravavam nela o mês de
 					// `billForecastDate` (hoje ignorado em conector que não é Open Finance) e a fatura ficava errada para sempre.
+					// Regra de fechamento mudada agora: a efetivada sem fatura do banco (`billId`), que o engine calculou pela
+					// regra antiga, também é refeita.
 					if (
 						(mapped.invoiceFromBill ||
+							(bank.ruleChanged === true &&
+								ctx.card != null &&
+								res.transaction?.invoiceMonth != null &&
+								// Compara antes do await: com a fatura já certa não há o que refazer nem consulta a gastar.
+								mapped.input.invoiceMonth != null &&
+								res.transaction.invoiceMonth !== mapped.input.invoiceMonth &&
+								(await invoiceCanBeRecomputed(
+									transactions,
+									ctx.card,
+									res.transaction.invoiceMonth,
+									toLocalDate(bank.seenAt),
+								))) ||
 							mapped.input.bankPending === true ||
 							res.transaction?.bankPending === true) &&
 						res.transaction &&

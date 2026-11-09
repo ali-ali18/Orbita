@@ -28,6 +28,7 @@ export {
 export {
 	type CardInvoicesLine,
 	cardLimit,
+	INVOICE_FUTURE_MONTHS,
 	INVOICE_HISTORY_MONTHS,
 	type InvoiceLine,
 	type InvoicesOverview,

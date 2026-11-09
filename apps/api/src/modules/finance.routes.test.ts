@@ -46,7 +46,7 @@ describe("contas", () => {
 
 describe("cartões", () => {
 	it("cria com regra padrão, edita e arquiva", async () => {
-		const { api } = await setupFinance();
+		const { api, stores } = await setupFinance();
 		const created = await api.post("/v1/cards", {
 			name: "Visa",
 			closingDay: 10,
@@ -55,6 +55,17 @@ describe("cartões", () => {
 		});
 		expect(created.status).toBe(201);
 		expect(created.body.card).toMatchObject({ closingRule: "closing-day-next", limitCents: 500000 });
+		// Regra não informada não é escolha do dono: o sync ainda pode deduzi-la.
+		const stored = await stores.cards.get(created.body.card.id);
+		expect(stored?.closingRuleSource).toBe("default");
+		const chosen = await api.post("/v1/cards", {
+			name: "Elo",
+			closingDay: 10,
+			dueDay: 20,
+			closingRule: "closing-day-included",
+		});
+		expect((await stores.cards.get(chosen.body.card.id))?.closingRuleSource).toBe("owner");
+		await api.delete(`/v1/cards/${chosen.body.card.id}`);
 		const { id } = created.body.card;
 		expect((await api.patch(`/v1/cards/${id}`, { dueDay: 25 })).body.card).toMatchObject({
 			dueDay: 25,

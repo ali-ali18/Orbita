@@ -155,4 +155,22 @@ describe("isLegacyRawName", () => {
 		const longRaw = `${raw} ${"x".repeat(60)}`;
 		expect(isLegacyRawName(longRaw.slice(0, 60), longRaw)).toBe(true);
 	});
+
+	it("renomeia o nome gravado truncado (com ou sem reticências), prefixo da razão social", () => {
+		const raw = "Nu Pagamentos S.A. - Instituição de Pagamento (Conta Pré-pagamento)";
+		expect(
+			isLegacyRawName("Nu Pagamentos S.A. - Ins…", "Nu Pagamentos S.A. - Instituição de Pagamento"),
+		).toBe(true);
+		expect(isLegacyRawName("Nu Pagamentos S.A. - Ins...", raw)).toBe(true);
+		expect(isLegacyRawName("Nu Pagamentos S.A. - Instituição de Pagamento (Conta Pré-pag", raw)).toBe(true);
+		expect(isLegacyRawName("Nu Pagamentos S.A.", raw)).toBe(true);
+	});
+
+	it("não renomeia nome curto ou editado que por acaso começa igual", () => {
+		const raw = "Nu Pagamentos S.A. - Instituição de Pagamento";
+		expect(isLegacyRawName("Roxinho gold", raw)).toBe(false);
+		expect(isLegacyRawName("Nu Pagam…", raw)).toBe(false);
+		expect(isLegacyRawName("Nu Pagamentos S.A. - Minha conta", raw)).toBe(false);
+		expect(isLegacyRawName("Banco do meu irmão…", "Banco do meu irmão Ltda")).toBe(false);
+	});
 });

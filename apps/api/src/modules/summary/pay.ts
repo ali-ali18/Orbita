@@ -14,11 +14,18 @@ export async function payInvoice(
 	input: { cardId: string; month: MonthKey; accountId: string; today: LocalDate },
 ): Promise<{ transaction: TransactionRecord }> {
 	const { cardId, month, accountId, today } = input;
-	const { card, invoice, composition } = await cardInvoice(stores, cardId, month, today);
+	const { card, invoice } = await cardInvoice(stores, cardId, month, today);
 	if (invoice.paymentStatus === "open") {
 		throw new DataError("invalid", "A fatura ainda está aberta: só dá para pagar depois que ela fecha.");
 	}
-	const remaining = composition.totalCents - invoice.paidCents;
+	if (invoice.paymentStatus === "history") {
+		throw new DataError(
+			"invalid",
+			"Fatura antiga sem pagamento registrado: não há cobrança para marcar como paga.",
+		);
+	}
+	// O que falta é o do engine (total do banco, quando há, menos o pago): o mesmo que a IA e o app mostram.
+	const remaining = invoice.owedCents;
 	if (invoice.paymentStatus === "paid" || remaining <= 0) {
 		throw new DataError("duplicate", "A fatura já está paga.");
 	}

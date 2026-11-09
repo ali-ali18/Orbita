@@ -238,6 +238,15 @@ export function isLegacyRawName(stored: string, raw: string | null | undefined, 
 	const name = squash(stored).toLowerCase();
 	if (own === "" || name === "") return false;
 	if (name === own || name === full) return true;
+	// Cortado (com ou sem reticências): o nome gravado é só o começo da razão social crua. Nome curto ou sem cara de
+	// razão social ("Roxinho gold") nunca entra: é o dono que editou.
+	const cut = name.replace(/\s*(…|\.{2,})\s*$/u, "").trim();
+	if (
+		cut.length >= 15 &&
+		full.startsWith(cut) &&
+		(/s\.a\.|instituição|instituicao|ltda/.test(cut) || /^nu pagamentos\b/.test(cut))
+	)
+		return true;
 	// Com o banco na frente só vale para razão social longa: um nome curto ("gold", "Santander") com algo antes
 	// ("Roxinho gold", "Conta Santander") é o dono que editou.
 	const long = full.length >= 30 || /s\.a\.|instituição|instituicao|ltda/.test(full);

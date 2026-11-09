@@ -122,25 +122,27 @@ model Account {
 }
 
 model Card {
-  id             String            @id @default(cuid())
-  name           String
-  bankCode       String?           @map("bank_code")
-  last4          String?
-  closingDay     Int               @map("closing_day")
-  dueDay         Int               @map("due_day")
-  closingRule    ClosingRule       @default(closing_day_next) @map("closing_rule")
-  limitCents     Int?              @map("limit_cents")
+  id                String            @id @default(cuid())
+  name              String
+  bankCode          String?           @map("bank_code")
+  last4             String?
+  closingDay        Int               @map("closing_day")
+  dueDay            Int               @map("due_day")
+  closingRule       ClosingRule       @default(closing_day_next) @map("closing_rule")
+  /// De onde vem `closingRule`: "default", "inferred" (deduzida pelo sync das faturas do banco) ou "owner" (o dono escolheu; o sync nunca muda).
+  closingRuleSource String            @default("default") @map("closing_rule_source")
+  limitCents        Int?              @map("limit_cents")
   /// Limite disponível que o banco informou (`creditData.availableCreditLimit`), em centavos. Nulo: nunca informado.
-  availableCents Int?              @map("available_cents")
+  availableCents    Int?              @map("available_cents")
   /// Saldo do cartão que o banco informou (`balance` da conta CREDIT; em conector não Open Finance, a fatura aberta não paga), em centavos.
-  balanceCents   Int?              @map("balance_cents")
-  limitSyncedAt  DateTime?         @map("limit_synced_at")
+  balanceCents      Int?              @map("balance_cents")
+  limitSyncedAt     DateTime?         @map("limit_synced_at")
   /// Origem do cadastro; com `externalId`, liga o cartão ao que veio de fora (ex.: cartão do Meu Pluggy).
-  source         TransactionSource @default(manual)
-  externalId     String?           @map("external_id")
-  archivedAt     DateTime?         @map("archived_at")
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
+  source            TransactionSource @default(manual)
+  externalId        String?           @map("external_id")
+  archivedAt        DateTime?         @map("archived_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
 
   transactions Transaction[]
   recurrences  Recurrence[]

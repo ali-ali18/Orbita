@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	agents,
 	banks,
+	brandDiscs,
 	categoryColor,
 	chart,
 	chartSeries,
@@ -129,5 +130,25 @@ describe("issuers", () => {
 	it("escolhe texto preto no amarelo e branco no roxo", () => {
 		expect(readableTextOn("#FFE600")).toBe("#111111");
 		expect(readableTextOn("#820AD1")).toBe("#FFFFFF");
+	});
+});
+
+describe("brandDiscs", () => {
+	it("todo disco é hex e o glifo passa AA (4,5:1) sobre ele", () => {
+		for (const { disc, glyph } of Object.values(brandDiscs)) {
+			expect(disc).toMatch(HEX);
+			expect(glyph).toMatch(HEX);
+			expect(contrastRatio(disc, glyph)).toBeGreaterThanOrEqual(4.5);
+		}
+	});
+
+	it("imita o ícone de app: escuro com logo colorido, branco com logo colorido, cor da marca com logo branco", () => {
+		expect(brandDiscs.netflix.disc).toBe("#000000");
+		expect(brandDiscs.spotify.disc).toBe("#000000");
+		expect(brandDiscs.claude.disc).toBe(brandDiscs.anthropic.disc);
+		expect(brandDiscs.youtube.disc).toBe("#FFFFFF");
+		expect(brandDiscs.ifood.glyph).toBe("#FFFFFF");
+		expect(brandDiscs.ifood.disc).not.toBe("#FFFFFF");
+		expect(brandDiscs.uber).toEqual({ disc: "#000000", glyph: "#FFFFFF" });
 	});
 });

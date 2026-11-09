@@ -59,7 +59,8 @@ export const cardCreateBody = z
 		last4: last4Schema.nullish(),
 		closingDay: dayOfMonthSchema,
 		dueDay: dayOfMonthSchema,
-		closingRule: z.enum(CLOSING_RULES, "Regra de fechamento inválida.").default("closing-day-next"),
+		// Sem `default`: o store decide (ausente = padrão com origem "default"; informada = escolha do dono).
+		closingRule: z.enum(CLOSING_RULES, "Regra de fechamento inválida.").optional(),
 		limitCents: nonNegativeCentsSchema.nullish(),
 	})
 	.strict();

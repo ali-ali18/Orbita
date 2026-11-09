@@ -1,5 +1,13 @@
-import { addMonths, type Cents, invoiceFor, type LocalDate, type MonthKey, monthOf } from "@orbita/core";
-import { type BillRecord, type CardRecord, type Stores, toCardConfig } from "@orbita/db";
+import {
+	addMonths,
+	type Cents,
+	invoiceFor,
+	type LocalDate,
+	type MonthKey,
+	monthOf,
+	projectMissingInstallments,
+} from "@orbita/core";
+import { type CardRecord, type Stores, toCardConfig } from "@orbita/db";
 import type {
 	CardLimitDto,
 	InvoiceHistoryPointDto,
@@ -7,10 +15,23 @@ import type {
 	InvoiceTotalSource,
 	LimitsTotalDto,
 } from "@orbita/shared";
-import { activeInstallments, cardInvoice } from "./summary.ts";
+import { activeInstallments, cardInvoice, consideredInvoiceMonths, invoiceOwedCents } from "./summary.ts";
 
-/** Quantos meses de fatura o gráfico de barras mostra (o aberto é o último). */
+export { invoiceOwedCents };
+
+/** Quantos meses de fatura o gráfico de barras mostra até o mês aberto (o aberto é o último desses). */
 export const INVOICE_HISTORY_MONTHS = 6;
+/** Até quantos meses depois do aberto o gráfico olha atrás de fatura já com valor (parcelas e lançamentos futuros). */
+export const INVOICE_FUTURE_MONTHS = 3;
+
+/**
+ * Situação de um mês com vários cartões: a mais urgente (vencida, fechada, aberta); depois paga; "histórico" só quando
+ * nenhum cartão tem outra coisa a dizer (fatura sem cobrança nunca passa na frente de uma paga).
+ */
+export function monthState(states: readonly InvoiceState[]): InvoiceState {
+	for (const s of ["overdue", "closed", "open", "paid"] as const) if (states.includes(s)) return s;
+	return states.length === 0 ? "paid" : "history";
+}
 
 /**
  * Uma fatura como a visão "Faturas" a mostra. Fechada com fatura do banco (`/bills`): total e pagamentos vêm dele;
@@ -21,7 +42,7 @@ export interface InvoiceLine {
 	closingDate: LocalDate;
 	dueDate: LocalDate;
 	status: "open" | "closed" | "overdue";
-	paymentStatus: "paid" | "partial" | "unpaid" | "open";
+	paymentStatus: "paid" | "partial" | "unpaid" | "open" | "history";
 	/** Situação honesta para o app: paga, fechada (a vencer), vencida ou aberta. */
 	state: InvoiceState;
 	/** De onde vêm `totalCents` e `paidCents`. */
@@ -57,13 +78,8 @@ export interface InvoicesOverview {
 	nextDueDate: LocalDate | null;
 	/** Limites de todos os cartões somados. */
 	limits: LimitsTotalDto;
-	/** Total de faturas por mês, os últimos 6 (o último inclui a aberta), para o gráfico de barras. */
+	/** Total de faturas por mês: 6 até a aberta, mais os meses seguintes que já têm fatura; para o gráfico de barras. */
 	history: InvoiceHistoryPointDto[];
-}
-
-/** O que ainda se deve numa fatura: o total se aberta; o total menos o pago se fechada (nunca negativo). */
-export function invoiceOwedCents(status: InvoiceLine["status"], totalCents: Cents, paidCents: Cents): Cents {
-	return status === "open" ? Math.max(0, totalCents) : Math.max(0, totalCents - paidCents);
 }
 
 const sum = (values: Iterable<number>) => {
@@ -72,23 +88,15 @@ const sum = (values: Iterable<number>) => {
 	return total;
 };
 
-/** A fatura do banco de `month`: o mês do vencimento é o mês da fatura. */
-const billOfMonth = (bills: readonly BillRecord[], month: MonthKey): BillRecord | null =>
-	bills
-		.filter((b) => monthOf(b.dueDate) === month)
-		.sort((a, b) => b.syncedAt.getTime() - a.syncedAt.getTime())[0] ?? null;
-
 async function lineOf(
 	stores: Stores,
 	cardId: string,
-	bills: readonly BillRecord[],
 	month: MonthKey,
 	today: LocalDate,
 ): Promise<InvoiceLine> {
-	const { invoice, composition } = await cardInvoice(stores, cardId, month, today);
-	const bill = invoice.status === "open" ? null : billOfMonth(bills, month);
-	if (!bill) {
-		const totalCents = composition.totalCents;
+	// Total, pago, o que falta e a situação vêm de `cardInvoice` (uma fonte só, a mesma da IA, do endpoint e do app).
+	const { invoice, bank } = await cardInvoice(stores, cardId, month, today);
+	if (!bank) {
 		return {
 			month,
 			closingDate: invoice.closingDate,
@@ -98,39 +106,31 @@ async function lineOf(
 			state: stateOf(invoice.status, invoice.paymentStatus),
 			source: "ledger",
 			bankSyncedAt: null,
-			totalCents,
+			totalCents: invoice.totalCents,
 			paidCents: invoice.paidCents,
-			owedCents: invoiceOwedCents(invoice.status, totalCents, invoice.paidCents),
+			owedCents: invoice.owedCents,
 		};
 	}
-	// O banco registra o pagamento da fatura N nos `payments` da N+1 (doc da Pluggy). Sem a N+1 ainda (é a última
-	// fechada), só resta o `card_payment` casado. As duas medidas são do MESMO pagamento: vale a maior, nunca a soma.
-	const next = billOfMonth(bills, addMonths(month, 1));
-	const bankPaid = next ? sum(next.payments.map((p) => p.amountCents)) : 0;
-	const paidCents = Math.max(bankPaid, invoice.paidCents);
-	const totalCents = bill.totalAmountCents;
-	const dueDate = bill.dueDate;
-	const status = dueDate < today ? "overdue" : "closed";
-	const paymentStatus =
-		totalCents <= 0 || paidCents >= totalCents ? "paid" : paidCents > 0 ? "partial" : "unpaid";
+	const status = bank.dueDate < today ? "overdue" : "closed";
 	return {
 		month,
-		closingDate: bill.closeDate ?? invoice.closingDate,
-		dueDate,
+		closingDate: bank.closeDate ?? invoice.closingDate,
+		dueDate: bank.dueDate,
 		status,
-		paymentStatus,
-		state: stateOf(status, paymentStatus),
+		paymentStatus: invoice.paymentStatus,
+		state: stateOf(status, invoice.paymentStatus),
 		source: "bank",
-		bankSyncedAt: bill.syncedAt.toISOString(),
-		totalCents,
-		paidCents,
-		owedCents: invoiceOwedCents(status, totalCents, paidCents),
+		bankSyncedAt: bank.syncedAt,
+		totalCents: invoice.totalCents,
+		paidCents: invoice.paidCents,
+		owedCents: invoice.owedCents,
 	};
 }
 
 function stateOf(status: InvoiceLine["status"], paymentStatus: InvoiceLine["paymentStatus"]): InvoiceState {
 	if (status === "open") return "open";
 	if (paymentStatus === "paid") return "paid";
+	if (paymentStatus === "history") return "history";
 	return status === "overdue" ? "overdue" : "closed";
 }
 
@@ -237,17 +237,11 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 	const installmentGroups = await activeInstallments(stores, thisMonth, today);
 	const lines: CardInvoicesLine[] = [];
 	const memo = new Map<string, InvoiceLine>();
-	const billsByCard = new Map<string, BillRecord[]>();
 	const line = async (card: CardRecord, month: MonthKey) => {
 		const key = `${card.id}|${month}`;
 		const hit = memo.get(key);
 		if (hit) return hit;
-		let bills = billsByCard.get(card.id);
-		if (!bills) {
-			bills = await stores.bills.listByCard(card.id);
-			billsByCard.set(card.id, bills);
-		}
-		const made = await lineOf(stores, card.id, bills, month, today);
+		const made = await lineOf(stores, card.id, month, today);
 		memo.set(key, made);
 		return made;
 	};
@@ -255,9 +249,7 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 	for (const card of cards) {
 		const openMonth = invoiceFor(today, toCardConfig(card)).month;
 		openMonths.push(openMonth);
-		const months = [
-			...new Set([addMonths(thisMonth, -1), thisMonth, addMonths(openMonth, -1), openMonth]),
-		].sort();
+		const months = [...consideredInvoiceMonths(card, today)].sort();
 		const byMonth = new Map<MonthKey, InvoiceLine>();
 		for (const m of months) byMonth.set(m, await line(card, m));
 		const all = [...byMonth.values()];
@@ -271,16 +263,25 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 		const owedCents = all.reduce((total, l) => total + l.owedCents, 0);
 		let futureCents = 0;
 		let remainingCents = 0;
+		// Parcelas que a fatura aberta já projeta (a que o banco ainda não lançou): estão no devido e não contam de novo.
+		const realOpen = await stores.transactions.listByInvoice(card.id, openMonth);
 		for (const g of installmentGroups) {
 			if (g.cardId !== card.id || g.remainingCount <= 0) continue;
+			const projectedCents = projectMissingInstallments([g], card.id, openMonth, realOpen).reduce(
+				(total, p) => total + p.amountCents,
+				0,
+			);
 			// Tudo que ainda falta do parcelamento: a vigente (que já está na fatura aberta ou na fechada devida) e as
 			// seguintes, lançadas ou não pelo banco (as que faltam são estimadas pelo valor da vigente).
 			remainingCents += g.remainingCents;
-			futureCents += Math.max(0, g.remainingCents - (g.currentNumber === null ? 0 : g.installmentCents));
+			futureCents += Math.max(
+				0,
+				g.remainingCents - (g.currentNumber === null ? 0 : g.installmentCents) - projectedCents,
+			);
 		}
 		// Sem nenhum dado do Órbita sobre o cartão (nem fatura do banco, nem lançamento) não há com o que conferir o
 		// número do banco: vale como veio.
-		const knowsCard = (billsByCard.get(card.id)?.length ?? 0) > 0 || owedCents + remainingCents > 0;
+		const knowsCard = (await stores.bills.listByCard(card.id)).length > 0 || owedCents + remainingCents > 0;
 		const limit = cardLimit(
 			card,
 			owedCents + futureCents,
@@ -301,16 +302,38 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 
 	const lastMonth = openMonths.sort().at(-1) ?? thisMonth;
 	const history: InvoiceHistoryPointDto[] = [];
-	for (let i = INVOICE_HISTORY_MONTHS - 1; i >= 0; i--) {
-		const month = addMonths(lastMonth, -i);
-		const own = await Promise.all(cards.map(async (card) => ({ card, l: await line(card, month) })));
-		history.push({
+	const pointOf = async (month: MonthKey, future = false): Promise<InvoiceHistoryPointDto> => {
+		const own = await Promise.all(
+			cards.map(async (card) => {
+				const l = await line(card, month);
+				// Fora dos meses que o overview considera, fechada sem pagamento conhecido é histórico (anterior ao
+				// Órbita), não dívida: estado neutro, nunca "overdue".
+				const considered = consideredInvoiceMonths(card, today);
+				return {
+					card,
+					l: l.state === "overdue" && !considered.has(month) ? { ...l, state: "closed" as const } : l,
+				};
+			}),
+		);
+		return {
 			month,
 			totalCents: sum(own.map((o) => Math.max(0, o.l.totalCents))),
-			open: own.some((o) => o.l.status === "open"),
-			byCard: own.map((o) => ({ cardId: o.card.id, totalCents: Math.max(0, o.l.totalCents) })),
-		});
-	}
+			// Mês depois do aberto: `open` fica falso (o app antigo destaca o último `open`); o `state` continua "open".
+			open: !future && own.some((o) => o.l.status === "open"),
+			state: monthState(own.map((o) => o.l.state)),
+			byCard: own.map((o) => ({
+				cardId: o.card.id,
+				totalCents: Math.max(0, o.l.totalCents),
+				state: o.l.state,
+			})),
+		};
+	};
+	for (let i = INVOICE_HISTORY_MONTHS - 1; i >= 0; i--) history.push(await pointOf(addMonths(lastMonth, -i)));
+	// Meses depois do aberto só entram até o último que já tem fatura (parcelas, compras futuras).
+	const future: InvoiceHistoryPointDto[] = [];
+	for (let i = 1; i <= INVOICE_FUTURE_MONTHS; i++) future.push(await pointOf(addMonths(lastMonth, i), true));
+	const lastWithValue = future.findLastIndex((p) => p.totalCents > 0);
+	history.push(...future.slice(0, lastWithValue + 1));
 
 	const dates = lines.flatMap((l) => (l.nextDueDate ? [l.nextDueDate] : [])).sort();
 	return {

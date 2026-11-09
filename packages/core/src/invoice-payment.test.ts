@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { type CardConfig, invoiceByMonth } from "./invoice.ts";
-import { invoiceMonthOfPayment, paidForInvoice, paymentStatus, paymentWindow } from "./invoice-payment.ts";
+import {
+	invoiceMonthOfPayment,
+	paidForInvoice,
+	paidWithAdvance,
+	paymentStatus,
+	paymentWindow,
+} from "./invoice-payment.ts";
 
 // Fecha dia 25, vence dia 5 do mês seguinte: a fatura "2026-11" fecha 25/10 e vence 05/11.
 const card: CardConfig = { closingDay: 25, dueDay: 5 };
@@ -81,5 +87,135 @@ describe("paymentStatus", () => {
 	it("fatura fechada sem nada a pagar conta como paga", () => {
 		expect(paymentStatus(nov, 0, 0, "2026-11-01")).toBe("paid");
 		expect(paymentStatus(nov, -500, 0, "2026-11-01")).toBe("paid");
+	});
+});
+
+describe("paidWithAdvance", () => {
+	// Fatura 2026-11 fecha 25/10 e vence 05/11; a 2026-12 fecha 25/11. Hoje: 28/11 (as duas já fecharam).
+	const base = { card, today: "2026-11-28" as const };
+
+	it("pagamento antes do fechamento que a fatura anterior (já quitada) não absorve vale para a que fecha logo depois", () => {
+		const payments = [
+			{ date: "2026-10-10", amountCents: 50000 }, // quita a 2026-10 (total 50.000)
+			{ date: "2026-11-20", amountCents: 69194 }, // antes de fechar a 2026-12: sobra para ela
+		];
+		expect(
+			paidWithAdvance({
+				...base,
+				payments,
+				month: "2026-12",
+				totalCents: 69194,
+				previousTotalCents: 0,
+				olderTotalCents: 0,
+			}),
+		).toBe(69194);
+		// A 2026-11 (anterior à adiantada) fica só com o que cobre o total dela.
+		expect(
+			paidWithAdvance({
+				...base,
+				payments,
+				month: "2026-11",
+				totalCents: 50000,
+				previousTotalCents: 50000,
+				olderTotalCents: 0,
+			}),
+		).toBe(50000);
+	});
+
+	it("pagamento que cabe no total da anterior continua dela; fatura seguinte aberta não recebe nem repassa", () => {
+		const payments = [{ date: "2026-11-20", amountCents: 30000 }];
+		expect(
+			paidWithAdvance({
+				...base,
+				payments,
+				month: "2026-12",
+				totalCents: 10000,
+				previousTotalCents: 50000,
+				olderTotalCents: 0,
+			}),
+		).toBe(0);
+		// 2026-12 ainda aberta (hoje 20/11): o excedente fica na 2026-11, como antes.
+		expect(
+			paidWithAdvance({
+				card,
+				today: "2026-11-21",
+				payments: [{ date: "2026-11-20", amountCents: 90000 }],
+				month: "2026-11",
+				totalCents: 50000,
+				previousTotalCents: 0,
+				olderTotalCents: 0,
+			}),
+		).toBe(90000);
+	});
+
+	it("total da anterior desconhecido (null): nenhum excedente é repassado", () => {
+		const payments = [{ date: "2026-11-03", amountCents: 80000 }];
+		expect(
+			paidWithAdvance({
+				...base,
+				payments,
+				month: "2026-12",
+				totalCents: 30000,
+				previousTotalCents: null,
+				olderTotalCents: null,
+			}),
+		).toBe(0);
+	});
+
+	it("o excedente repassado nunca passa do total da própria fatura", () => {
+		const payments = [{ date: "2026-11-03", amountCents: 80000 }];
+		expect(
+			paidWithAdvance({
+				...base,
+				payments,
+				month: "2026-12",
+				totalCents: 30000,
+				previousTotalCents: 10000,
+				olderTotalCents: 0,
+			}),
+		).toBe(30000);
+	});
+
+	it("pagamento atrasado de M-2 (depois do fechamento de M-1) quita M-2 primeiro e não marca M", () => {
+		const payments = [{ date: "2026-10-28", amountCents: 80000 }]; // janela da 2026-11; deve a 2026-10 (50.000)
+		expect(
+			paidWithAdvance({
+				...base,
+				payments,
+				month: "2026-12",
+				totalCents: 30000,
+				previousTotalCents: 30000,
+				olderTotalCents: 50000,
+			}),
+		).toBe(0);
+	});
+
+	it("total de M-2 desconhecido (sem fatura do banco): nenhum excedente é repassado, mesmo com a anterior conhecida", () => {
+		const payments = [{ date: "2026-10-28", amountCents: 80000 }]; // janela da 2026-11 (total 30.000): sobram 50.000
+		const input = {
+			...base,
+			payments,
+			month: "2026-12" as const,
+			totalCents: 30000,
+			previousTotalCents: 30000,
+		};
+		expect(paidWithAdvance({ ...input, olderTotalCents: null })).toBe(0);
+		// Com M-2 conhecido e quitado (0), o excedente repassa como antes.
+		expect(paidWithAdvance({ ...input, olderTotalCents: 0 })).toBe(30000);
+	});
+
+	it("a dívida de M-2 desconta o que o banco registrou como pago (olderPaidCents), além dos lançamentos", () => {
+		const payments = [{ date: "2026-10-28", amountCents: 80000 }];
+		const input = {
+			...base,
+			payments,
+			month: "2026-12" as const,
+			totalCents: 30000,
+			previousTotalCents: 30000,
+			olderTotalCents: 50000,
+		};
+		expect(paidWithAdvance(input)).toBe(0);
+		// O banco diz que M-2 já tinha sido paga (50.000): nada a cobrir antes, o excedente de 50.000 repassa.
+		expect(paidWithAdvance({ ...input, olderPaidCents: 50000 })).toBe(30000);
 	});
 });

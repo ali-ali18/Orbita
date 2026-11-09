@@ -1,36 +1,19 @@
-import { colors, spacing } from "@orbita/tokens";
+import { spacing } from "@orbita/tokens";
 import { View } from "react-native";
 import type { InvoiceView } from "../../lib/api.ts";
-import { money, monthName } from "../../lib/format.ts";
+import { money } from "../../lib/format.ts";
 import { Card, ProgressBar, Text } from "../../ui/index.ts";
-import { compositionBar, compositionRows, invoiceStatusTag } from "./card-model.ts";
+import { compositionBar, compositionRows } from "./card-model.ts";
 import { Dot } from "./parts.tsx";
 
-/** "Fatura de novembro · O que entrou nela" com a barra por tipo e as quatro linhas. */
+/** "O que entrou nela" com a barra por tipo e as quatro linhas. */
 export function InvoiceComposition({ data, hidden }: { data: InvoiceView; hidden: boolean }) {
 	const rows = compositionRows(data.composition);
 	return (
 		<Card style={{ gap: spacing.md }}>
-			<View style={{ flexDirection: "row", alignItems: "center" }}>
-				<View style={{ flex: 1 }}>
-					<Text variant="cardTitle" tone="secondary" accessibilityRole="header">
-						Fatura de {monthName(data.invoice.month).toLocaleLowerCase("pt-BR")}
-					</Text>
-					<Text variant="caption" tone="tertiary">
-						O que entrou nela
-					</Text>
-				</View>
-				<View
-					style={{
-						paddingHorizontal: 10,
-						paddingVertical: spacing.xs,
-						borderRadius: 999,
-						backgroundColor: colors.surface3,
-					}}
-				>
-					<Text variant="micro">{invoiceStatusTag(data.invoice)}</Text>
-				</View>
-			</View>
+			<Text variant="cardTitle" tone="secondary" accessibilityRole="header">
+				O que entrou nela
+			</Text>
 			<ProgressBar parts={compositionBar(rows)} height={10} />
 			{rows.map((r) => (
 				<View key={r.key} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>

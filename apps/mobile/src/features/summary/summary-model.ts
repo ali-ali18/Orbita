@@ -92,16 +92,15 @@ export function installmentsOverview(groups: readonly InstallmentGroupLike[], mo
 }
 
 /**
- * "paga" quando o pago cobre a fatura, "falta R$ Z" quando pagou em parte (Z = total − pago, do engine), `null` quando
- * nada foi pago ou a fatura ainda recebe compras (não há o que pagar).
+ * "paga" quando o pago cobre a fatura, "falta R$ Z" quando pagou em parte (Z = `owedCents`, do engine: total do banco
+ * menos o pago), `null` quando nada foi pago, é histórica ou a fatura ainda recebe compras (não há o que pagar).
  */
 export function paidSuffix(
-	invoice: { totalCents: Cents; paidCents: Cents; paymentStatus: "paid" | "partial" | "unpaid" | "open" },
+	invoice: { owedCents: Cents; paymentStatus: "paid" | "partial" | "unpaid" | "open" | "history" },
 	formatMoney: (cents: Cents) => string,
 ): string | null {
 	if (invoice.paymentStatus === "paid") return "paga";
-	if (invoice.paymentStatus === "partial")
-		return `falta ${formatMoney(Math.max(0, invoice.totalCents - invoice.paidCents))}`;
+	if (invoice.paymentStatus === "partial") return `falta ${formatMoney(Math.max(0, invoice.owedCents))}`;
 	return null;
 }
 

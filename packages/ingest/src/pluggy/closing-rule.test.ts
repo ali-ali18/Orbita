@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { inferClosingRule } from "./closing-rule.ts";
 import { CLIENT_ID, CLIENT_SECRET, fakePluggy, tx } from "./fake-pluggy.ts";
 import { mapPluggyTransaction, type TransactionContext } from "./mapping.ts";
-import { ITEMS, REAL_NOW, realPluggyOptions } from "./real-data.fixture.ts";
+import { ACCOUNTS, ITEMS, REAL_NOW, realPluggyOptions } from "./real-data.fixture.ts";
 import { billSchema, transactionSchema } from "./schemas.ts";
 import { syncPluggy } from "./sync.ts";
 
@@ -105,5 +105,188 @@ describe("sync guarda a regra inferida no cartão", () => {
 			"2689": "closing-day-next",
 			"5172": "closing-day-next",
 		});
+	});
+
+	async function realSync() {
+		const stores = createMemoryStores({ now: () => REAL_NOW });
+		for (const [id, label] of [
+			[ITEMS.inter, "Inter"],
+			[ITEMS.mp, "Mercado Pago"],
+			[ITEMS.santander, "Santander"],
+			[ITEMS.nubank, "Nubank"],
+		] as const) {
+			await stores.pluggyConnections.add({ id, label });
+		}
+		const { itemId: _itemId, ...options } = realPluggyOptions();
+		const run = () =>
+			syncPluggy({
+				stores,
+				readSecret: async (name) =>
+					({ pluggy_client_id: CLIENT_ID, pluggy_client_secret: CLIENT_SECRET })[name] ?? null,
+				fetch: fakePluggy(options).fetch,
+				now: () => REAL_NOW,
+			});
+		const card = async (last4: string) => {
+			const found = (await stores.cards.list()).find((c) => c.last4 === last4);
+			if (!found) throw new Error(`cartão ${last4} não encontrado`);
+			return found;
+		};
+		return { stores, run, card, options };
+	}
+
+	it("a regra deduzida fica marcada como inferida; a escolha do dono nunca é sobrescrita", async () => {
+		const { stores, run, card } = await realSync();
+		await run();
+		expect(await card("7054")).toMatchObject({
+			closingRule: "closing-day-included",
+			closingRuleSource: "inferred",
+		});
+		expect(await card("8316")).toMatchObject({
+			closingRule: "closing-day-next",
+			closingRuleSource: "default",
+		});
+		// O dono escolhe "next" no Mercado Pago (o PATCH de regra sem origem é do dono): a evidência não a muda.
+		const mp = await card("7054");
+		await stores.cards.update(mp.id, { closingRule: "closing-day-next" });
+		expect(await card("7054")).toMatchObject({ closingRule: "closing-day-next", closingRuleSource: "owner" });
+		await run();
+		expect(await card("7054")).toMatchObject({ closingRule: "closing-day-next", closingRuleSource: "owner" });
+	});
+
+	it("regra inferida volta ao padrão quando a evidência passa a dizer 'next'; a do dono não", async () => {
+		const { stores, run, card, options } = await realSync();
+		await run();
+		expect(await card("7054")).toMatchObject({
+			closingRule: "closing-day-included",
+			closingRuleSource: "inferred",
+		});
+		// O banco passa a postar, no dia do fechamento de 05/09, duas compras que caíram na fatura seguinte (a de 05/10):
+		// com a de 05/10 que já havia, "next" tem 2 contra 1.
+		const lateCard = (id: string) =>
+			tx(id, {
+				description: "Loja Exemplo",
+				date: "2026-09-05T00:00:00.000Z",
+				status: "POSTED",
+				creditCardMetadata: { billId: "bill-mp-a", billPostDate: "2026-09-05T00:00:00.000Z" },
+			});
+		options.transactions = {
+			...options.transactions,
+			[ACCOUNTS.mpCard]: [
+				...(options.transactions?.[ACCOUNTS.mpCard] ?? []),
+				lateCard("mp-late-1"),
+				lateCard("mp-late-2"),
+			],
+		};
+		await run();
+		expect(await card("7054")).toMatchObject({
+			closingRule: "closing-day-next",
+			closingRuleSource: "default",
+		});
+		// A mesma evidência não desfaz a escolha do dono.
+		const mp = await card("7054");
+		await stores.cards.update(mp.id, { closingRule: "closing-day-included" });
+		await run();
+		expect(await card("7054")).toMatchObject({
+			closingRule: "closing-day-included",
+			closingRuleSource: "owner",
+		});
+	});
+
+	it("mudou a regra: a compra efetivada sem billId e não editada é refeita na fatura certa", async () => {
+		const { stores, run, card, options } = await realSync();
+		// Compra postada no dia do fechamento de 05/11 do Mercado Pago, sem `billId`: pela regra "included" é da fatura
+		// de novembro; pela "next", da de dezembro (a aberta hoje, 09/11, então pode ser refeita).
+		const extra = tx("mp-extra", {
+			description: "Loja Exemplo",
+			amount: 50,
+			date: "2026-11-05T00:00:00.000Z",
+			status: "POSTED",
+			creditCardMetadata: { billId: null },
+		});
+		options.transactions = {
+			...options.transactions,
+			[ACCOUNTS.mpCard]: [...(options.transactions?.[ACCOUNTS.mpCard] ?? []), extra],
+		};
+		await run();
+		const mp = await card("7054");
+		const row = async () =>
+			(await stores.transactions.listByInvoice(mp.id, "2026-11")).find(
+				(t) => t.description === "Loja Exemplo",
+			);
+		expect(await row()).toBeDefined();
+		// Como estava antes da dedução: regra padrão e a compra na fatura de dezembro.
+		await stores.cards.update(mp.id, { closingRule: "closing-day-next", closingRuleSource: "default" });
+		const stored = await row();
+		await stores.transactions.update(stored?.id as string, { invoiceMonth: "2026-12" });
+		expect(await row()).toBeUndefined();
+		await run();
+		expect(await card("7054")).toMatchObject({
+			closingRule: "closing-day-included",
+			closingRuleSource: "inferred",
+		});
+		expect(await row()).toBeDefined();
+	});
+
+	async function withExtraPurchase(date: string) {
+		const ctx = await realSync();
+		const extra = tx("mp-extra", {
+			description: "Loja Exemplo",
+			amount: 50,
+			date: `${date}T00:00:00.000Z`,
+			status: "POSTED",
+			creditCardMetadata: { billId: null },
+		});
+		ctx.options.transactions = {
+			...ctx.options.transactions,
+			[ACCOUNTS.mpCard]: [...(ctx.options.transactions?.[ACCOUNTS.mpCard] ?? []), extra],
+		};
+		await ctx.run();
+		const mp = await ctx.card("7054");
+		const row = async (month: string) =>
+			(await ctx.stores.transactions.listByInvoice(mp.id, month as never)).find(
+				(t) => t.description === "Loja Exemplo",
+			);
+		return { ...ctx, mp, row };
+	}
+
+	it("a rodada seguinte ainda refaz a linha se a anterior gravou a regra mas não terminou o recálculo", async () => {
+		const { stores, run, card, row } = await withExtraPurchase("2026-11-05");
+		expect(await card("7054")).toMatchObject({
+			closingRule: "closing-day-included",
+			closingRuleSource: "inferred",
+		});
+		// A regra já está gravada (inferida), mas a linha ficou na fatura aberta (dezembro): rodada que falhou no meio.
+		const stored = await row("2026-11");
+		await stores.transactions.update(stored?.id as string, { invoiceMonth: "2026-12" });
+		expect(await row("2026-11")).toBeUndefined();
+		await run();
+		expect(await row("2026-11")).toBeDefined();
+	});
+
+	it("regra inferida: a rodada seguinte, com a fatura já certa, nem consulta os pagamentos (compara o mês antes do await)", async () => {
+		const { stores, run, card } = await realSync();
+		await run();
+		expect(await card("7054")).toMatchObject({ closingRuleSource: "inferred" });
+		let calls = 0;
+		const original = stores.transactions.listCardPayments.bind(stores.transactions);
+		stores.transactions.listCardPayments = async (...args) => {
+			calls += 1;
+			return original(...args);
+		};
+		await run();
+		// Nada mudou de fatura: não há o que recalcular, então nenhuma consulta é gasta.
+		expect(calls).toBe(0);
+	});
+
+	it("regra mudada não mexe em linha de fatura fechada que já tem pagamento", async () => {
+		// Fatura 2026-11 (fechou em 05/11) já tem o pagamento de 07/11 da fixture: a compra dela não é movida.
+		const { stores, run, mp, row } = await withExtraPurchase("2026-10-05");
+		expect(await row("2026-10")).toBeDefined();
+		await stores.cards.update(mp.id, { closingRule: "closing-day-next", closingRuleSource: "default" });
+		const stored = await row("2026-10");
+		await stores.transactions.update(stored?.id as string, { invoiceMonth: "2026-11" });
+		await run();
+		expect(await row("2026-10")).toBeUndefined();
+		expect(await row("2026-11")).toBeDefined();
 	});
 });

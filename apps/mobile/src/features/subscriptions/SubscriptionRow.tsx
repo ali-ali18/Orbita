@@ -1,6 +1,7 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
-import { type BankBadge, BankLogo, LetterAvatar, Text } from "../../ui/index.ts";
+import { brandOf } from "../../lib/brands.ts";
+import { type BankBadge, BankLogo, StoreDisc, Text } from "../../ui/index.ts";
 import type { MonthStatus } from "./subscriptions-model.ts";
 
 /** Selo do banco no canto do círculo (Figma "Banco/Logo", 20 em (30, 30) de um círculo de 48). */
@@ -9,7 +10,7 @@ const BADGE_OFFSET = 30;
 const LOGO = 48;
 
 /**
- * Linha da lista (Figma 28:488): círculo com a inicial e o selo da conta/cartão, nome, "Todo dia 12 · em 6 dias" e valor.
+ * Linha da lista (Figma 28:488): disco da marca (ou o ícone de assinatura) e o selo da conta/cartão, nome, "Todo dia 12 · em 6 dias" e valor.
  * Pendente ganha só um ponto discreto ao lado do nome (lançar é no card do topo ou na edição). Tocar na linha abre a edição.
  */
 export function SubscriptionRow({
@@ -45,7 +46,7 @@ export function SubscriptionRow({
 				})}
 			>
 				<View style={{ width: LOGO, height: LOGO }}>
-					<LetterAvatar letter={name.trim().charAt(0).toLocaleUpperCase("pt-BR") || "·"} size={LOGO} />
+					<StoreDisc brand={brandOf(name)} icon="assinatura" size={LOGO} />
 					{bank ? (
 						<View style={{ position: "absolute", left: BADGE_OFFSET, top: BADGE_OFFSET }}>
 							<BankLogo {...bank} size={BADGE} ring={colors.background} />

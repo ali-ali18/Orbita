@@ -9,10 +9,11 @@ import {
 	realPluggyOptions,
 } from "@orbita/ingest/testing";
 import { beforeAll, describe, expect, it } from "vitest";
+import { createAgentReader } from "./agent-reader.ts";
 import { accountBalances } from "./balances.ts";
 import { cashFlow } from "./cash-flow.ts";
 import { type CardInvoicesLine, cardLimit, invoicesOverview } from "./invoices-overview.ts";
-import { activeInstallments, loadSpendingMonth, monthSummary } from "./summary.ts";
+import { activeInstallments, cardInvoice, loadSpendingMonth, monthSummary } from "./summary.ts";
 
 /*
  * Leituras do ledger sobre o sync dos dados REAIS do dono (diagnóstico de 09/11/4052, 4 conexões MeuPluggy, hoje =
@@ -141,6 +142,17 @@ describe("Faturas e limites (dados fictícios)", () => {
 		expect(line.due).toMatchObject({ month: "2026-11", state: "paid" });
 	});
 
+	it("Inter: pagamento de 03/11 (antes do fechamento de 05/11) é da fatura que vence 12/11 (detalhe da fatura: paga)", async () => {
+		const id = cardLine("8316").card.id;
+		const { invoice } = await cardInvoice(stores, id, "2026-11", TODAY);
+		// O banco mostra essa fatura com total 0 e o pagamento de 03/11 (1.383,88) na anterior: o app diz "Paga".
+		expect(invoice).toMatchObject({ status: "closed", paymentStatus: "paid" });
+		// Total 0 no banco: o excedente do adiantado é limitado ao total desta fatura, então não sobra pago; ela já está quitada.
+		expect(invoice.paidCents).toBe(0);
+		const before = await cardInvoice(stores, id, "2026-10", TODAY);
+		expect(before.invoice).toMatchObject({ paidCents: 105114, paymentStatus: "paid" }); // só até o total dela
+	});
+
 	it("Nubank: a próxima fatura (dezembro) tem Farmácia 95,96 + Centauro 153,32; a de 10/11 (1.438,84) está paga", () => {
 		const line = cardLine("5172");
 		expect(line.open).toMatchObject({ month: "2026-12", dueDate: "2026-12-10", totalCents: 24928 });
@@ -217,6 +229,66 @@ describe("Faturas e limites (dados fictícios)", () => {
 
 	it("o usado do Nubank (555,92) é o que o Órbita também conta por lançamentos: fatura de dezembro 249,28 + 2 parcelas futuras da Centauro", () => {
 		expect(24928 + 2 * 15332).toBe(55592);
+	});
+});
+
+describe("Total, pago e o que falta numa fonte só (dados fictícios)", () => {
+	const reader = () => createAgentReader(stores, () => REAL_NOW);
+
+	it("Inter 2026-11 (banco: total 0): a IA, o endpoint e o overview dizem paga, nada a dever", async () => {
+		const id = cardLine("8316").card.id;
+		// A soma dos lançamentos desta fatura não é zero, mas o banco diz 0: é o que se paga.
+		const detail = await cardInvoice(stores, id, "2026-11", TODAY);
+		expect(detail.composition.totalCents).toBe(138388);
+		expect(detail.invoice).toMatchObject({
+			paymentStatus: "paid",
+			totalCents: 0,
+			paidCents: 0,
+			owedCents: 0,
+		});
+		expect(await reader().cardInvoice(id, "2026-11")).toMatchObject({
+			paymentStatus: "paid",
+			totalCents: 0,
+			paidCents: 0,
+			owedCents: 0,
+		});
+		expect(cardLine("8316").due).toMatchObject({ month: "2026-11", state: "paid", owedCents: 0 });
+	});
+
+	it("pagamentos do banco valem pela data: Nubank 09 não fica parcial (o pagamento é de 10), Inter 09 paga pelo total dela (sem herdar o de outubro)", async () => {
+		// Nubank: o único pagamento listado (13/10, R$ 1.055,86) é da fatura de outubro, listado nela mesma; a de setembro
+		// não herda mais um "parcial" dele. Sem nenhum pagamento dela registrado, é histórico (sem cobrança).
+		const nu = await cardInvoice(stores, cardLine("5172").card.id, "2026-09", TODAY);
+		expect(nu.invoice).toMatchObject({ paidCents: 0, paymentStatus: "history", owedCents: 0 });
+		const nuOct = await cardInvoice(stores, cardLine("5172").card.id, "2026-10", TODAY);
+		expect(nuOct.invoice).toMatchObject({ totalCents: 105586, paidCents: 105586, paymentStatus: "paid" });
+		const inter = await cardInvoice(stores, cardLine("8316").card.id, "2026-09", TODAY);
+		expect(inter.invoice).toMatchObject({ totalCents: 63514, paidCents: 63514, paymentStatus: "paid" });
+		// O pagamento de 03/11 (1.383,88) é da fatura de outubro (a fatura que se paga), listada nela mesma.
+		const oct = await cardInvoice(stores, cardLine("8316").card.id, "2026-10", TODAY);
+		expect(oct.invoice).toMatchObject({ paymentStatus: "paid", owedCents: 0 });
+	});
+
+	it("faturas antigas sem pagamento registrado (jun-ago) são histórico: sem cobrança, em todo lugar", async () => {
+		const nuId = cardLine("5172").card.id;
+		for (const month of ["2026-06", "2026-07", "2026-08"]) {
+			const { invoice } = await cardInvoice(stores, nuId, month, TODAY);
+			expect(invoice).toMatchObject({ paymentStatus: "history", owedCents: 0 });
+			expect(await reader().cardInvoice(nuId, month)).toMatchObject({
+				paymentStatus: "history",
+				owedCents: 0,
+			});
+		}
+		const states = overview.history.map((h) => [h.month, h.state]);
+		// Nunca "vencida" nem "fechada" para o que é só histórico; os meses atuais seguem como eram.
+		expect(states).toContainEqual(["2026-12", "open"]);
+		expect(states).toContainEqual(["2026-11", "paid"]);
+		expect(states).toContainEqual(["2026-10", "paid"]);
+		expect(overview.history.flatMap((h) => h.byCard.map((b) => b.state))).not.toContain("overdue");
+		// Setembro: Inter paga (pagamento próprio, listado na fatura), as outras sem o que mostrar de cobrança.
+		expect(overview.history.find((h) => h.month === "2026-09")?.byCard.map((b) => b.state)).not.toContain(
+			"overdue",
+		);
 	});
 });
 

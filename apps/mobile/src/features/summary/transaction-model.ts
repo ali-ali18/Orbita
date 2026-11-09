@@ -1,4 +1,5 @@
 import type { Cents, LocalDate } from "@orbita/core";
+import { type Brand, brandOf } from "../../lib/brands.ts";
 import { relativeDate } from "../../lib/format.ts";
 import type { IconName } from "../../ui/index.ts";
 
@@ -80,16 +81,83 @@ export function initialOf(name: string): string {
 	return name.trim().charAt(0).toLocaleUpperCase("pt-BR") || "·";
 }
 
+/** Ícone de cada categoria do sistema, pelo slug (o slug não muda depois de criado). */
+const SLUG_ICON: Readonly<Record<string, IconName>> = {
+	mercado: "mercado",
+	delivery: "comida",
+	transporte: "transporte",
+	assinaturas: "assinatura",
+	lazer: "lazer",
+	moradia: "inicio",
+	saude: "saude",
+	transferencias: "transferir",
+	investimentos: "investimento",
+	outros: "etiqueta",
+	salario: "salario",
+	"fatura-cartao": "cartao",
+};
+
 /**
- * Ícone do lançamento (Figma: "Icone/<nome>" dentro do disco de 44). Despesa segue a categoria pelo
- * slug; categoria fora da lista cai em "cartao". Entrada é "grafico", Pix/transferência é "pix".
+ * Categoria criada pelo dono não tem slug conhecido: procura palavras do nome (sem acento) na ordem da lista.
+ * Cada palavra casa o começo de uma palavra do nome ("farmac" casa "Farmácia").
  */
-export function transactionIcon(kind: TransactionLike["kind"], categorySlug: string | undefined): IconName {
+const NAME_ICON: ReadonlyArray<readonly [IconName, readonly string[]]> = [
+	["mercado", ["mercad", "supermerc", "feira", "hortifruti", "açougue", "acougue"]],
+	["comida", ["restaurante", "lanche", "padaria", "cafe", "pizza", "delivery", "comida", "aliment"]],
+	[
+		"transporte",
+		["transport", "uber", "combust", "gasolina", "estacion", "onibus", "metro", "carro", "pedagio"],
+	],
+	[
+		"saude",
+		["saude", "farmac", "medic", "dentist", "consulta", "exame", "hospital", "plano de saude", "academia"],
+	],
+	["educacao", ["educa", "escola", "curso", "faculdade", "livro", "mensalidade"]],
+	["assinatura", ["assinat", "stream"]],
+	["inicio", ["moradia", "casa", "aluguel", "condominio", "luz", "energia", "agua", "internet", "reforma"]],
+	["lazer", ["lazer", "cinema", "jogo", "game", "show", "festa", "diversao"]],
+	["aviao", ["viagem", "viagens", "hotel", "passagem", "turismo"]],
+	["compras", ["compra", "roupa", "vestuario", "shopping", "eletro", "presente"]],
+	["salario", ["salario", "renda", "freela", "pagamento recebido"]],
+	["investimento", ["invest", "poupanca", "reserva", "cofrinho"]],
+	["transferir", ["transfer"]],
+	["cartao", ["fatura", "cartao"]],
+];
+
+const plain = (text: string): string => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
+/** Ícone da categoria: pelo slug do sistema; senão pelas palavras do nome; senão "etiqueta" (Outros). */
+export function categoryIcon(slug: string | undefined, name?: string | undefined): IconName {
+	const bySlug = slug === undefined ? undefined : SLUG_ICON[slug];
+	if (bySlug) return bySlug;
+	const words = plain(name ?? "")
+		.split(/[^a-z0-9]+/)
+		.filter((w) => w !== "");
+	if (words.length > 0) {
+		const text = ` ${words.join(" ")} `;
+		for (const [icon, stems] of NAME_ICON) {
+			if (stems.some((stem) => text.includes(` ${plain(stem)}`))) return icon;
+		}
+	}
+	return "etiqueta";
+}
+
+/**
+ * Ícone do lançamento (Figma: "Icone/<nome>" dentro do disco de 44). Despesa segue a categoria (slug do sistema ou
+ * palavras do nome da categoria do dono, ver `categoryIcon`). Entrada é "salario", aplicação e resgate são
+ * "investimento", Pix/transferência é "pix".
+ */
+export function transactionIcon(
+	kind: TransactionLike["kind"],
+	categorySlug: string | undefined,
+	categoryName?: string | undefined,
+): IconName {
 	switch (kind) {
 		case "income":
+			return "salario";
 		case "investment":
 		case "redemption":
-			return "grafico";
+			return "investimento";
 		case "transfer":
 			return "pix";
 		case "card_payment":
@@ -97,17 +165,11 @@ export function transactionIcon(kind: TransactionLike["kind"], categorySlug: str
 		case "refund":
 			return "desfazer";
 		case "expense":
-			switch (categorySlug) {
-				case "mercado":
-					return "mercado";
-				case "delivery":
-					return "comida";
-				case "transporte":
-					return "transporte";
-				case "assinaturas":
-					return "assinatura";
-				default:
-					return "cartao";
-			}
+			return categoryIcon(categorySlug, categoryName);
 	}
+}
+
+/** Marca da loja ou serviço de uma despesa (ou estorno) pelo texto do lançamento; os outros tipos não têm marca. */
+export function transactionBrand(t: { kind: TransactionLike["kind"]; description: string }): Brand | null {
+	return t.kind === "expense" || t.kind === "refund" ? brandOf(t.description) : null;
 }

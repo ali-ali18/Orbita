@@ -301,6 +301,7 @@ describe("ferramentas de leitura", () => {
 				dueDate: "2026-11-17",
 				status: "closed",
 				paymentStatus: "partial",
+				totalCents: 65000,
 				paidCents: 20000,
 				owedCents: 45000,
 				composition: {
@@ -322,6 +323,40 @@ describe("ferramentas de leitura", () => {
 			purchaseCount: 2,
 		});
 		expect((out.data.latestPurchases as Array<{ id: string }>).map((p) => p.id)).toEqual(["p2", "p1"]);
+	});
+
+	it("fatura: o total é o do leitor (banco), não a soma da composição; histórica não é cobrança", async () => {
+		const base = {
+			card: { id: "card-1", name: "Nubank" },
+			month: "2026-07",
+			closingDate: "2026-06-25",
+			dueDate: "2026-07-05",
+			composition: {
+				purchasesCents: 60000,
+				installmentsCents: 0,
+				recurringCents: 0,
+				refundsCents: 0,
+				totalCents: 60000,
+			},
+			transactions: [],
+		};
+		const { reader } = fakeReader({
+			invoice: {
+				...base,
+				status: "overdue",
+				paymentStatus: "history",
+				totalCents: 100000,
+				paidCents: 0,
+				owedCents: 0,
+			},
+		});
+		const out = await run("get_card_invoice", {}, reader);
+		expect(out.data).toMatchObject({
+			status: "history",
+			paymentStatus: "history",
+			total: { cents: 100000 },
+			remaining: { cents: 0 },
+		});
 	});
 
 	it("fatura com vários cartões pede ao modelo para informar qual", async () => {
