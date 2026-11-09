@@ -1,5 +1,6 @@
 import { daysBetween } from "./dates.ts";
-import { medianCents, merchantKey } from "./merchant.ts";
+import { sameSubscriptionBrand, subscriptionBrand } from "./known-services.ts";
+import { medianCents } from "./merchant.ts";
 import { assertCents } from "./money.ts";
 import type { Cents, LocalDate } from "./types.ts";
 
@@ -14,13 +15,22 @@ export interface HuntedCharge {
 	amountCents: Cents;
 	/** Estabelecimento (ou descrição) como veio do banco. */
 	merchant: string;
+	/**
+	 * Texto usado só para achar a marca, quando o `merchant` sozinho não basta: o Pluggy devolve "Google" no nome e a
+	 * descrição diz "GOOGLE *YouTubeMusic". Padrão: o próprio `merchant`.
+	 */
+	brandText?: string;
 }
 
 /** Quantas cobranças seguidas formam um padrão. */
 export const RECURRING_MIN_OCCURRENCES = 3;
 /** Intervalo aceito entre duas cobranças do mesmo serviço (um "mês", com folga de feriado e fim de semana). */
-export const RECURRING_MIN_GAP_DAYS = 25;
-export const RECURRING_MAX_GAP_DAYS = 35;
+export const RECURRING_MIN_GAP_DAYS = 24;
+export const RECURRING_MAX_GAP_DAYS = 37;
+/** Com 3 cobranças ou mais, o maior e o menor intervalo não passam disto (compra solta que cai perto não é assinatura). */
+export const RECURRING_MAX_GAP_SPREAD_DAYS = 9;
+/** Cobranças iguais com até isto de diferença são a mesma (estorno e nova tentativa, duplicidade do banco). */
+export const DUPLICATE_WINDOW_DAYS = 3;
 /** Valores "parecidos": até 10 % da mediana (conta de 44,90 que vira 45,50 ainda é a mesma assinatura). */
 export const SIMILAR_AMOUNT_PERCENT = 10;
 /** A última cobrança não pode ser mais velha que isto, senão a assinatura já acabou. */
@@ -66,39 +76,81 @@ export function findMonthlyRuns<C extends HuntedCharge>(input: {
 	skipBrands?: ReadonlySet<string>;
 	excludeIds?: ReadonlySet<string>;
 }): Array<MonthlyRun<C>> {
-	const brandOf = input.brandOf ?? ((m: string) => merchantKey(m, 1));
+	const brandOf = input.brandOf ?? subscriptionBrand;
 	const min = input.minOccurrences ?? RECURRING_MIN_OCCURRENCES;
 	const minKnown = input.minKnownOccurrences ?? min;
 	const byBrand = new Map<string, C[]>();
 	for (const c of input.charges) {
 		assertCents(c.amountCents, "amountCents");
 		if (input.excludeIds?.has(c.id)) continue;
-		const brand = brandOf(c.merchant);
+		const brand = brandOf(c.brandText ?? c.merchant);
 		if (brand === "" || input.skipBrands?.has(brand)) continue;
 		byBrand.set(brand, [...(byBrand.get(brand) ?? []), c]);
 	}
 
 	const found: Array<MonthlyRun<C>> = [];
 	for (const [brand, list] of byBrand) {
-		const sorted = [...list].sort((a, b) =>
-			a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1,
-		);
-		// A sequência mais recente: anda de trás para frente enquanto o intervalo e o valor batem.
-		const last = sorted.at(-1) as C;
-		if (daysBetween(last.date, input.today) > RECURRING_STALE_DAYS) continue;
-		const run: C[] = [last];
-		for (let i = sorted.length - 2; i >= 0; i--) {
-			const older = sorted[i] as C;
-			const gap = daysBetween(older.date, (run[0] as C).date);
-			if (gap < RECURRING_MIN_GAP_DAYS || gap > RECURRING_MAX_GAP_DAYS) break;
-			const median = medianCents([...run, older].map((c) => c.amountCents));
-			if (![...run, older].every((c) => similar(c.amountCents, median))) break;
-			run.unshift(older);
+		const need = input.knownBrands?.has(brand) ? minKnown : min;
+		// Uma marca pode ter planos diferentes (Google One e YouTube Music, ou dois planos): cada faixa de valor é
+		// uma sequência à parte, senão uma cobrança de outro valor no meio do mês quebra a sequência inteira.
+		for (const cluster of clusterByAmount(list)) {
+			const run = latestRun(cluster, input.today);
+			if (run.length < need) continue;
+			found.push({ brand, charges: run, amountCents: medianCents(run.map((c) => c.amountCents)) });
 		}
-		if (run.length < (input.knownBrands?.has(brand) ? minKnown : min)) continue;
-		found.push({ brand, charges: run, amountCents: medianCents(run.map((c) => c.amountCents)) });
 	}
-	return found;
+	return found.sort((a, b) =>
+		a.brand < b.brand ? -1 : a.brand > b.brand ? 1 : a.amountCents - b.amountCents,
+	);
+}
+
+/** Agrupa por faixa de valor: uma faixa começa no menor valor e vai até esse valor + `SIMILAR_AMOUNT_PERCENT` %. */
+function clusterByAmount<C extends HuntedCharge>(list: readonly C[]): C[][] {
+	const sorted = [...list].sort((a, b) => a.amountCents - b.amountCents);
+	const clusters: C[][] = [];
+	for (const c of sorted) {
+		const current = clusters.at(-1);
+		const floor = current?.[0]?.amountCents ?? 0;
+		if (current && (c.amountCents - floor) * 100 <= floor * SIMILAR_AMOUNT_PERCENT) current.push(c);
+		else clusters.push([c]);
+	}
+	return clusters;
+}
+
+/** A sequência mais recente do grupo: anda de trás para frente enquanto o intervalo e o valor batem. */
+function latestRun<C extends HuntedCharge>(list: readonly C[], today: LocalDate): C[] {
+	const sorted = [...list].sort((a, b) =>
+		a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1,
+	);
+	// Duplicidade: mesmo valor em até `DUPLICATE_WINDOW_DAYS` dias conta uma vez só (fica a primeira).
+	const charges = sorted.filter((c, i) => {
+		const prev = sorted[i - 1];
+		return !(
+			prev &&
+			prev.amountCents === c.amountCents &&
+			daysBetween(prev.date, c.date) <= DUPLICATE_WINDOW_DAYS
+		);
+	});
+	const last = charges.at(-1);
+	if (!last || daysBetween(last.date, today) > RECURRING_STALE_DAYS) return [];
+	const run: C[] = [last];
+	for (let i = charges.length - 2; i >= 0; i--) {
+		const older = charges[i] as C;
+		const gap = daysBetween(older.date, (run[0] as C).date);
+		if (gap < RECURRING_MIN_GAP_DAYS || gap > RECURRING_MAX_GAP_DAYS) break;
+		const median = medianCents([...run, older].map((c) => c.amountCents));
+		if (![...run, older].every((c) => similar(c.amountCents, median))) break;
+		run.unshift(older);
+	}
+	if (run.length >= 3) {
+		const gaps = run.slice(1).map((c, i) => daysBetween((run[i] as C).date, c.date));
+		// Intervalos irregulares: tira as mais antigas até a sequência ficar regular (ou curta demais).
+		while (run.length >= 3 && Math.max(...gaps) - Math.min(...gaps) > RECURRING_MAX_GAP_SPREAD_DAYS) {
+			run.shift();
+			gaps.shift();
+		}
+	}
+	return run;
 }
 
 /**
@@ -115,13 +167,12 @@ export function detectRecurringCharges(input: {
 	excludeIds?: ReadonlySet<string>;
 	today: LocalDate;
 }): RecurringCandidate[] {
-	const registered = new Set(input.registeredNames.map((n) => merchantKey(n, 1)).filter((k) => k !== ""));
+	const registered = input.registeredNames.map((n) => subscriptionBrand(n)).filter((k) => k !== "");
 	const runs = findMonthlyRuns({
 		charges: input.charges,
 		today: input.today,
-		skipBrands: registered,
 		...(input.excludeIds ? { excludeIds: input.excludeIds } : {}),
-	});
+	}).filter((r) => !registered.some((b) => sameSubscriptionBrand(b, r.brand)));
 	const found: RecurringCandidate[] = runs.map((r) => {
 		const first = r.charges[0] as HuntedCharge;
 		const last = r.charges.at(-1) as HuntedCharge;
@@ -175,12 +226,14 @@ export function detectPriceIncreases(input: {
 	const found: PriceIncrease[] = [];
 	for (const sub of input.subscriptions) {
 		assertCents(sub.amountCents, "amountCents");
-		const brand = merchantKey(sub.name, 1);
+		const brand = subscriptionBrand(sub.name);
 		if (brand === "" || sub.amountCents <= 0) continue;
 		const recent = input.charges
 			.filter(
 				(c) =>
-					c.date >= input.sinceDate && !input.excludeIds?.has(c.id) && merchantKey(c.merchant, 1) === brand,
+					c.date >= input.sinceDate &&
+					!input.excludeIds?.has(c.id) &&
+					sameSubscriptionBrand(subscriptionBrand(c.brandText ?? c.merchant), brand),
 			)
 			.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.id < b.id ? 1 : -1));
 		const latest = recent[0];
