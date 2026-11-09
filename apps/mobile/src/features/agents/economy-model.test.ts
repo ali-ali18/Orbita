@@ -72,6 +72,7 @@ describe("registro", () => {
 
 	it("desfeita mostra a nota (ou 'Desfeito'); feita deixa o botão", () => {
 		expect(undoneLabel({ status: "done", undoNote: null })).toBeNull();
+		expect(undoneLabel({ status: "applying", undoNote: null })).toBe("Em andamento");
 		expect(undoneLabel({ status: "undone", undoNote: null })).toBe("Desfeito");
 		expect(undoneLabel({ status: "undone", undoNote: "Você já tinha mudado." })).toBe(
 			"Você já tinha mudado.",

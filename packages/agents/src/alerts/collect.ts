@@ -29,7 +29,7 @@ import {
 	type MonthSummaryResponse,
 } from "@orbita/shared";
 import type { SavingsReading } from "../backend.ts";
-import { opportunityText, savingsReportText } from "../economy/text.ts";
+import { opportunityActions, opportunityText, savingsReportText } from "../economy/text.ts";
 import {
 	type AlertText,
 	budgetThresholdText,
@@ -298,6 +298,10 @@ async function collectEconomia(port: FindingsPort): Promise<AlertCandidate[]> {
 	const reading = await port.savings();
 	const { result } = reading;
 	const categoryName = (id: string) => reading.categoryNames[id] ?? port.categoryName(id);
+	const state = {
+		remindingSubscriptionIds: new Set(reading.remindingSubscriptionIds),
+		limitedCategoryIds: new Set(reading.limitedCategoryIds),
+	};
 	const report = savingsReportText(result, categoryName);
 	if (report === null) return [];
 	const out: AlertCandidate[] = [
@@ -318,6 +322,8 @@ async function collectEconomia(port: FindingsPort): Promise<AlertCandidate[]> {
 					monthlySavingsCents: o.monthlySavingsCents,
 					confidence: o.confidence,
 					evidence: o.evidence,
+					// As ações de um toque que ainda cabem (o limite que o agente acabou de criar não é mais oferecido).
+					actions: opportunityActions(o, state),
 				},
 				o.evidence.transactionIds[0] ?? null,
 			),

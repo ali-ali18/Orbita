@@ -8,6 +8,7 @@ import {
 	type DuplicateCandidate,
 	detectDuplicateCharges,
 	type LocalDate,
+	merchantKey,
 	monthOf,
 	type PlannedAction,
 	planAutonomousActions,
@@ -133,7 +134,8 @@ async function gatherInput(
 			: [],
 	);
 
-	// Cobrança repetida nos últimos 7 dias (a mesma regra do Vigia: mesmo valor e estabelecimento em até 3 dias).
+	// Candidatas: a regra do Vigia (mesmo valor e estabelecimento em até 3 dias, últimos 7 dias); o planejador então só
+	// aceita as que passam na regra estrita da ação autônoma (`isAutonomousDuplicate`).
 	const watched: WatchedSpend[] = input.spends.map((s) => ({
 		id: s.id,
 		date: s.date,
@@ -150,13 +152,23 @@ async function gatherInput(
 			stores.transactions.get(d.transactionId),
 		]);
 		if (!a || !b) continue;
+		// Vai para revisão o lançamento que NÃO é do banco (o do dono ou da notificação); a linha do banco é a referência.
+		const flagB = b.source !== "pluggy" || a.source === "pluggy";
 		duplicates.push({
-			transactionId: d.transactionId,
-			firstTransactionId: d.firstTransactionId,
+			transactionId: flagB ? d.transactionId : d.firstTransactionId,
+			firstTransactionId: flagB ? d.firstTransactionId : d.transactionId,
 			merchant: d.merchant,
 			amountCents: d.amountCents,
 			editedByOwner: a.editedByOwner || b.editedByOwner,
-			alreadyPending: b.status === "pending",
+			alreadyPending: (flagB ? b : a).status === "pending",
+			daysApart: d.daysApart,
+			sources: [a.source, b.source],
+			sameValueCount30d: input.spends.filter(
+				(s) =>
+					s.amountCents === d.amountCents &&
+					s.date >= addDays(today, -29) &&
+					merchantKey(s.merchant) === merchantKey(d.merchant),
+			).length,
 		});
 	}
 
@@ -176,7 +188,11 @@ async function gatherInput(
 
 // ------------------------------------------------------------------ executar
 
-async function apply(stores: Stores, action: PlannedAction): Promise<Applied> {
+/**
+ * Passo 1 (só leitura): relê o que vai mexer, confere que o dono não editou e devolve o `undo` JÁ CALCULADO (estado
+ * anterior e retrato do que será criado). `null` = não há o que fazer agora; nada foi gravado e nada foi reservado.
+ */
+async function prepare(stores: Stores, action: PlannedAction): Promise<Applied> {
 	switch (action.kind) {
 		case "categorize_transaction": {
 			const { transactionId, categoryId } = action.payload;
@@ -187,7 +203,6 @@ async function apply(stores: Stores, action: PlannedAction): Promise<Applied> {
 			if (t.editedByOwner || t.categoryEditedByOwner) return null;
 			const category = await stores.categories.get(categoryId);
 			if (!category || category.archivedAt !== null) return null;
-			await stores.transactions.update(transactionId, { categoryId });
 			return { undo: { transactionId, categoryId, previousCategoryId: null } };
 		}
 		case "register_subscription": {
@@ -203,6 +218,51 @@ async function apply(stores: Stores, action: PlannedAction): Promise<Applied> {
 			if (brand !== "" && existing.some((r) => sameSubscriptionBrand(subscriptionBrand(r.name), brand))) {
 				return null;
 			}
+			// O retrato do que será criado: o Desfazer só mexe se continuar assim (o dono pode renomear, trocar valor ou dia).
+			return {
+				undo: {
+					recurrenceId: null,
+					name: p.name.slice(0, 60),
+					amountCents: p.amountCents,
+					dayOfMonth: p.dayOfMonth,
+					startDate: p.startDate,
+				},
+			};
+		}
+		case "set_budget_limit": {
+			const { categoryId, limitCents } = action.payload;
+			const category = await stores.categories.get(categoryId);
+			if (!category || category.archivedAt !== null) return null;
+			// O agente só cria: se o dono já pôs um limite (mesmo depois do planejamento), não mexe.
+			if ((await stores.budgets.list()).some((b) => b.scope === categoryId)) return null;
+			return { undo: { scope: categoryId, limitCents } };
+		}
+		case "flag_duplicate": {
+			const { transactionId } = action.payload;
+			const t = await stores.transactions.get(transactionId);
+			if (!t) return null;
+			if (t.kind !== "expense" || t.editedByOwner || t.status !== "confirmed") return null;
+			return { undo: { transactionId, previousStatus: "confirmed" } };
+		}
+		case "create_savings_goal": {
+			if ((await stores.goals.list()).some((g) => g.name === action.payload.name)) return null;
+			return {
+				undo: { goalId: null, name: action.payload.name, targetCents: action.payload.targetCents },
+			};
+		}
+	}
+}
+
+/** Passo 2 (escrita): faz a mudança e devolve o `undo` completo (com os ids criados). */
+async function execute(stores: Stores, action: PlannedAction, undo: UndoData): Promise<UndoData> {
+	switch (action.kind) {
+		case "categorize_transaction":
+			await stores.transactions.update(action.payload.transactionId, {
+				categoryId: action.payload.categoryId,
+			});
+			return undo;
+		case "register_subscription": {
+			const p = action.payload;
 			let categoryId = p.categoryId;
 			if (categoryId !== null) {
 				const category = await stores.categories.get(categoryId);
@@ -218,32 +278,74 @@ async function apply(stores: Stores, action: PlannedAction): Promise<Applied> {
 				accountId: p.cardId ? null : p.accountId,
 				cardId: p.cardId,
 			});
-			return { undo: { recurrenceId: created.id } };
+			return { ...undo, recurrenceId: created.id };
 		}
-		case "set_budget_limit": {
-			const { categoryId, limitCents } = action.payload;
-			const category = await stores.categories.get(categoryId);
-			if (!category || category.archivedAt !== null) return null;
-			// O agente só cria: se o dono já pôs um limite (mesmo depois do planejamento), não mexe.
-			if ((await stores.budgets.list()).some((b) => b.scope === categoryId)) return null;
-			await stores.budgets.set(categoryId, limitCents);
-			return { undo: { scope: categoryId, limitCents } };
-		}
-		case "flag_duplicate": {
-			const { transactionId } = action.payload;
-			const t = await stores.transactions.get(transactionId);
-			if (!t) return null;
-			if (t.kind !== "expense" || t.editedByOwner || t.status !== "confirmed") return null;
-			await stores.transactions.update(transactionId, { status: "pending" });
-			return { undo: { transactionId, previousStatus: "confirmed" } };
-		}
+		case "set_budget_limit":
+			await stores.budgets.set(action.payload.categoryId, action.payload.limitCents);
+			return undo;
+		case "flag_duplicate":
+			await stores.transactions.update(action.payload.transactionId, { status: "pending" });
+			return undo;
 		case "create_savings_goal": {
-			if ((await stores.goals.list()).some((g) => g.name === action.payload.name)) return null;
 			const created = await stores.goals.create({
 				name: action.payload.name,
 				targetCents: action.payload.targetCents,
 			});
-			return { undo: { goalId: created.id } };
+			return { ...undo, goalId: created.id };
+		}
+	}
+}
+
+/**
+ * Resolve o que ficou `applying` (o processo caiu, ou o passo final falhou): se o estado mostra que a ação gravou,
+ * conclui o registro com o `undo` completo; se comprovadamente não gravou, solta a reserva para o achado voltar.
+ */
+async function settleApplying(stores: Stores, agent: AgentRecord): Promise<void> {
+	const stuck = (await stores.agentActivity.list({ agentId: agent.id, limit: 100 })).filter(
+		(a) => a.status === "applying",
+	);
+	for (const a of stuck) {
+		const undo = await detectApplied(stores, a.kind, a.undo);
+		if (undo === null) await stores.agentActivity.release(a.id);
+		else await stores.agentActivity.finish(a.id, undo);
+	}
+}
+
+/** O estado atual mostra que a ação gravou? Devolve o `undo` completo, ou `null` se não gravou. */
+async function detectApplied(
+	stores: Stores,
+	kind: AutonomousActionKind,
+	undo: UndoData,
+): Promise<UndoData | null> {
+	switch (kind) {
+		case "categorize_transaction": {
+			const t = await stores.transactions.get(str(undo.transactionId) ?? "");
+			return t && t.categoryId === str(undo.categoryId) ? undo : null;
+		}
+		case "register_subscription": {
+			const found = (await stores.recurrences.list()).find(
+				(r) =>
+					r.id === str(undo.recurrenceId) ||
+					(r.name === undo.name &&
+						r.amountCents === undo.amountCents &&
+						r.dayOfMonth === undo.dayOfMonth &&
+						r.startDate === undo.startDate),
+			);
+			return found ? { ...undo, recurrenceId: found.id } : null;
+		}
+		case "set_budget_limit": {
+			const current = (await stores.budgets.list()).find((b) => b.scope === str(undo.scope));
+			return current && current.limitCents === undo.limitCents ? undo : null;
+		}
+		case "flag_duplicate": {
+			const t = await stores.transactions.get(str(undo.transactionId) ?? "");
+			return t && t.status === "pending" && !t.editedByOwner ? undo : null;
+		}
+		case "create_savings_goal": {
+			const found = (await stores.goals.list()).find(
+				(g) => g.id === str(undo.goalId) || (g.name === undo.name && g.targetCents === undo.targetCents),
+			);
+			return found ? { ...undo, goalId: found.id } : null;
 		}
 	}
 }
@@ -251,6 +353,10 @@ async function apply(stores: Stores, action: PlannedAction): Promise<Applied> {
 /**
  * Planeja e executa o que o agente pode fazer sozinho agora. Nível "Só avisar" não faz nada. Cada ação já vai para o
  * registro, com o motivo e a evidência; o limite por execução é `maxActionsPerRun` das escolhas do dono.
+ *
+ * Ordem de cada ação: ler e calcular o `undo` → reservar o registro (`applying`, já com o `undo`) → gravar → concluir
+ * (`done`). Só se solta a reserva quando se sabe que nada foi gravado; se a gravação falhou no meio (ou o passo final),
+ * o registro continua com o `undo` e a próxima passada o resolve (`settleApplying`): a mudança nunca fica sem registro.
  */
 export async function runEconomyActions(
 	stores: Stores,
@@ -259,6 +365,8 @@ export async function runEconomyActions(
 	context: { reading: SavingsReading; input?: SavingsInput },
 ): Promise<EconomyRunResult> {
 	const result: EconomyRunResult = { planned: 0, applied: [], skipped: 0, failed: 0 };
+	// Resolve o que ficou pendente de uma passada anterior, mesmo que o dono tenha voltado ao "Só avisar".
+	await settleApplying(stores, agent);
 	if (economySettings(agent).autonomy !== "reversible") return result;
 	const today = toLocalDate(now());
 	const input = context.input ?? (await loadSavingsInput(stores, today));
@@ -266,29 +374,36 @@ export async function runEconomyActions(
 	result.planned = plan.length;
 
 	for (const action of plan) {
+		let prepared: Applied;
+		try {
+			prepared = await prepare(stores, action);
+		} catch {
+			result.failed += 1;
+			continue;
+		}
+		if (prepared === null) {
+			// O dono mudou o que seria tocado: nada foi reservado nem gravado; o achado volta se a situação mudar.
+			result.skipped += 1;
+			continue;
+		}
 		const reserved = await stores.agentActivity.reserve(agent.id, {
 			kind: action.kind,
 			dedupeKey: action.dedupeKey,
 			summary: action.summary,
 			reason: action.reason,
 			evidence: action.evidence,
+			undo: prepared.undo,
 		});
 		if (reserved === null) {
 			result.skipped += 1;
 			continue;
 		}
 		try {
-			const applied = await apply(stores, action);
-			if (applied === null) {
-				// O dono mudou o que seria tocado: solta a reserva, para o achado voltar se a situação mudar.
-				await stores.agentActivity.release(reserved.id);
-				result.skipped += 1;
-				continue;
-			}
-			const saved = await stores.agentActivity.setUndo(reserved.id, applied.undo);
+			const finalUndo = await execute(stores, action, prepared.undo);
+			const saved = await stores.agentActivity.finish(reserved.id, finalUndo);
 			result.applied.push(saved ?? reserved);
 		} catch {
-			await stores.agentActivity.release(reserved.id).catch(() => undefined);
+			// Pode ter gravado: o registro fica `applying`, com o `undo`, e a próxima passada decide.
 			result.failed += 1;
 		}
 	}
@@ -317,6 +432,13 @@ async function revert(stores: Stores, kind: AutonomousActionKind, undo: UndoData
 			const id = str(undo.recurrenceId);
 			const r = id === null ? null : await stores.recurrences.get(id);
 			if (!r) return "A assinatura já tinha sido apagada.";
+			if (
+				(undo.name !== undefined && r.name !== undo.name) ||
+				(undo.amountCents !== undefined && r.amountCents !== undo.amountCents) ||
+				(undo.dayOfMonth !== undefined && r.dayOfMonth !== undo.dayOfMonth)
+			) {
+				return "Você já tinha mudado essa assinatura; deixei como está.";
+			}
 			if (r.archivedAt === null) await stores.recurrences.archive(r.id);
 			return null;
 		}
@@ -342,6 +464,12 @@ async function revert(stores: Stores, kind: AutonomousActionKind, undo: UndoData
 			const id = str(undo.goalId);
 			const goal = id === null ? null : await stores.goals.get(id);
 			if (!goal || goal.archivedAt !== null) return "A meta já tinha sido removida.";
+			if (
+				(undo.name !== undefined && goal.name !== undo.name) ||
+				(undo.targetCents !== undefined && goal.targetCents !== undo.targetCents)
+			) {
+				return "Você já tinha mudado essa meta; deixei como está.";
+			}
 			if ((await stores.goals.listContributions([goal.id])).length > 0) {
 				return "A meta já tem dinheiro guardado; mantive.";
 			}
@@ -365,6 +493,9 @@ export interface UndoResult {
 export async function undoActivity(stores: Stores, id: string): Promise<UndoResult> {
 	const found = await stores.agentActivity.get(id);
 	if (!found) throw new DataError("not_found", "Atividade não encontrada.");
+	if (found.status === "applying") {
+		throw new DataError("invalid", "Esta ação ainda está em andamento. Tente de novo em instantes.");
+	}
 	const marked = await stores.agentActivity.markUndone(id);
 	if (!marked) throw new DataError("duplicate", "Esta atividade já foi desfeita.");
 	try {

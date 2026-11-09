@@ -7,7 +7,11 @@ import type { AutonomousActionKind } from "@orbita/core";
  * continua no registro, também não volta sozinho.
  */
 
-export const ACTIVITY_STATUSES = ["done", "undone"] as const;
+/**
+ * `applying`: reservada e com o `undo` já gravado, mas a ação ainda não foi dada como concluída (está rodando, ou o
+ * processo caiu no meio). Não se desfaz enquanto está assim; a próxima passada do agente resolve (`done` ou solta).
+ */
+export const ACTIVITY_STATUSES = ["applying", "done", "undone"] as const;
 export type ActivityStatus = (typeof ACTIVITY_STATUSES)[number];
 
 export const ACTIVITY_SUMMARY_MAX = 160;
@@ -42,6 +46,8 @@ export interface ActivityDraft {
 	summary: string;
 	reason: string;
 	evidence: { transactionIds: readonly string[] };
+	/** O que o Desfazer precisa, calculado ANTES de agir: gravado já na reserva, para a mudança nunca ficar sem Desfazer. */
+	undo: Record<string, unknown>;
 }
 
 export interface ActivityQuery {
@@ -59,9 +65,13 @@ export interface AgentActivityStore {
 	 * ação não deve ser executada. Reservar primeiro é o que impede dois processos de fazerem a mesma coisa.
 	 */
 	reserve(agentId: string, draft: ActivityDraft): Promise<ActivityRecord | null>;
-	/** Guarda o que o Desfazer precisa, depois que a ação foi executada. `null` se o registro não existe. */
-	setUndo(id: string, undo: Record<string, unknown>): Promise<ActivityRecord | null>;
-	/** A ação falhou: solta a reserva (o achado pode ser tentado de novo). `true` se existia. */
+	/**
+	 * A ação foi executada: comparar-e-trocar atômico de `applying` para `done`, completando o `undo` (ids criados).
+	 * `null` se o registro não existe ou não está em `applying`.
+	 */
+	finish(id: string, undo: Record<string, unknown>): Promise<ActivityRecord | null>;
+	/** A ação comprovadamente NÃO gravou nada: solta a reserva (o achado pode ser tentado de novo). `true` se existia.
+	 * Nunca chamar quando a ação pode ter gravado: o registro fica `applying` e a próxima passada decide. */
 	release(id: string): Promise<boolean>;
 	/** Do mais novo para o mais antigo. */
 	list(query?: ActivityQuery): Promise<ActivityRecord[]>;

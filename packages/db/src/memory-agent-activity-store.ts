@@ -31,6 +31,7 @@ export function cleanActivityDraft(draft: ActivityDraft) {
 		summary: clean(draft.summary, "o resumo da atividade", ACTIVITY_SUMMARY_MAX),
 		reason: clean(draft.reason, "o motivo da atividade", ACTIVITY_REASON_MAX),
 		evidence: { transactionIds: [...new Set(draft.evidence.transactionIds)].slice(0, 20) },
+		undo: structuredClone(draft.undo ?? {}) as Record<string, unknown>,
 	};
 }
 
@@ -58,8 +59,7 @@ export function createMemoryAgentActivityStore(state: MemoryState): AgentActivit
 				id: randomUUID(),
 				agentId,
 				...draft,
-				undo: {},
-				status: "done",
+				status: "applying",
 				createdAt: state.now(),
 				undoneAt: null,
 				undoNote: null,
@@ -67,10 +67,10 @@ export function createMemoryAgentActivityStore(state: MemoryState): AgentActivit
 			state.agentActivities.set(record.id, record);
 			return copy(record);
 		},
-		async setUndo(id, undo) {
+		async finish(id, undo) {
 			const current = state.agentActivities.get(id);
-			if (!current) return null;
-			const next = { ...current, undo: structuredClone(undo) };
+			if (!current || current.status !== "applying") return null;
+			const next: ActivityRecord = { ...current, status: "done", undo: structuredClone(undo) };
 			state.agentActivities.set(id, next);
 			return copy(next);
 		},

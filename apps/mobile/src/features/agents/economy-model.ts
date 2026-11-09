@@ -105,6 +105,7 @@ export const activityWhen = (a: Pick<ActivityDto, "createdAt">, now: Date, today
 
 /** O que a linha mostra no lugar do botão quando a atividade já foi desfeita. */
 export function undoneLabel(a: Pick<ActivityDto, "status" | "undoNote">): string | null {
+	if (a.status === "applying") return "Em andamento";
 	if (a.status !== "undone") return null;
 	return a.undoNote ?? "Desfeito";
 }

@@ -62,7 +62,8 @@ export function createPrismaAgentActivityStore(db: Db, now: Clock): AgentActivit
 						summary: draft.summary,
 						reason: draft.reason,
 						evidence: draft.evidence as Prisma.InputJsonObject,
-						undo: {},
+						undo: draft.undo as Prisma.InputJsonObject,
+						status: "applying",
 						createdAt: now(),
 					},
 				});
@@ -74,10 +75,10 @@ export function createPrismaAgentActivityStore(db: Db, now: Clock): AgentActivit
 				throw error;
 			}
 		},
-		async setUndo(id, undo) {
+		async finish(id, undo) {
 			const { count } = await db.agentActivity.updateMany({
-				where: { id },
-				data: { undo: undo as Prisma.InputJsonObject },
+				where: { id, status: "applying" },
+				data: { status: "done", undo: undo as Prisma.InputJsonObject },
 			});
 			if (count === 0) return null;
 			const row = await db.agentActivity.findUnique({ where: { id } });

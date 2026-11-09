@@ -46,8 +46,18 @@ async function seed(settings: Record<string, unknown> = { autonomy: "reversible"
 	// Juros do cartão: dá um corte mensal que justifica a meta de economia.
 	await add("2026-11-01", 20000, "JUROS DE MORA", "outros");
 	// Cobrança repetida (mesmo valor e lugar em dias seguidos).
-	const first = await add("2026-11-05", 900, "Loja Esquina", "outros");
-	const second = await add("2026-11-06", 900, "Loja Esquina", "outros");
+	const first = await add("2026-11-06", 900, "Loja Esquina", "outros");
+	// A mesma compra, agora lida do banco: o clássico dobro (mesmo dia, origens diferentes).
+	const second = await stores.transactions.create({
+		kind: "expense",
+		amountCents: 900,
+		date: "2026-11-06",
+		description: "Loja Esquina",
+		accountId: account.id,
+		categoryId: cat("outros"),
+		source: "pluggy",
+		externalId: "pluggy-dup-1",
+	});
 	// Sem categoria: um com regra aprendida e um que o dono já editou.
 	await stores.categoryRules.upsert("padaria estrela", cat("mercado"));
 	const padaria = await add("2026-11-07", 3200, "Padaria Estrela", null);
@@ -136,8 +146,9 @@ describe("níveis de autonomia", () => {
 			editedByOwner: false,
 		});
 		// Duplicata marcada para revisão (continua existindo, só vai para "Para revisar").
-		expect((await s.stores.transactions.get(s.second.id))?.status).toBe("pending");
-		expect((await s.stores.transactions.get(s.first.id))?.status).toBe("confirmed");
+		// Vai para revisão o lançamento do dono; a linha do banco fica como está.
+		expect((await s.stores.transactions.get(s.first.id))?.status).toBe("pending");
+		expect((await s.stores.transactions.get(s.second.id))?.status).toBe("confirmed");
 		// Meta de economia com 6 meses do corte estimado.
 		const [goal] = await s.stores.goals.list();
 		expect(goal?.name).toBe("Economia do mês");
@@ -217,7 +228,7 @@ describe("desfazer", () => {
 			expect(undone.activity).toMatchObject({ status: "undone", undoNote: null });
 		}
 		expect((await s.stores.transactions.get(s.padaria.id))?.categoryId).toBeNull();
-		expect((await s.stores.transactions.get(s.second.id))?.status).toBe("confirmed");
+		expect((await s.stores.transactions.get(s.first.id))?.status).toBe("confirmed");
 		expect(await s.stores.recurrences.list()).toEqual([]);
 		expect(await s.stores.budgets.list()).toEqual([]);
 		expect(await s.stores.goals.list()).toEqual([]);
@@ -259,7 +270,7 @@ describe("desfazer", () => {
 		// E muda o limite que o agente criou.
 		await s.stores.budgets.set(s.cat("lazer"), 55000);
 		// E já revisou a duplicata (confirmou).
-		await s.stores.transactions.update(s.second.id, { status: "confirmed", editedByOwner: true });
+		await s.stores.transactions.update(s.first.id, { status: "confirmed", editedByOwner: true });
 		const log = await s.stores.agentActivity.list();
 		const byKind = (k: string) => log.find((a) => a.kind === k) as (typeof log)[number];
 
@@ -274,7 +285,7 @@ describe("desfazer", () => {
 
 		const duplicate = await undoActivity(s.stores, byKind("flag_duplicate").id);
 		expect(duplicate.reverted).toBe(false);
-		expect((await s.stores.transactions.get(s.second.id))?.editedByOwner).toBe(true);
+		expect((await s.stores.transactions.get(s.first.id))?.editedByOwner).toBe(true);
 	});
 
 	it("a meta com dinheiro guardado é mantida", async () => {

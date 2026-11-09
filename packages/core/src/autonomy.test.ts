@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	AUTONOMOUS_ACTION_KINDS,
 	type AutonomyInput,
+	type DuplicateCandidate,
+	isAutonomousDuplicate,
 	NEVER_AUTONOMOUS,
 	planAutonomousActions,
 } from "./autonomy.ts";
@@ -68,6 +70,9 @@ describe("níveis de autonomia", () => {
 				amountCents: 900,
 				editedByOwner: false,
 				alreadyPending: false,
+				daysApart: 0,
+				sources: ["manual", "pluggy"] as [string, string],
+				sameValueCount30d: 2,
 			},
 		],
 		monthlySavingsCents: 20000,
@@ -132,6 +137,9 @@ describe("respeito ao que o dono editou", () => {
 			amountCents: 900,
 			editedByOwner: false,
 			alreadyPending: false,
+			daysApart: 0,
+			sources: ["manual", "pluggy"] as [string, string],
+			sameValueCount30d: 2,
 			...over,
 		});
 		const plan = planAutonomousActions(
@@ -220,6 +228,9 @@ describe("o registro diz o quê, com nomes e valores", () => {
 						amountCents: 2990,
 						editedByOwner: false,
 						alreadyPending: false,
+						daysApart: 0,
+						sources: ["manual", "pluggy"] as [string, string],
+						sameValueCount30d: 2,
 					},
 				],
 				monthlySavingsCents: 20000,
@@ -238,5 +249,44 @@ describe("o registro diz o quê, com nomes e valores", () => {
 		expect(budgetReason).toContain("R$ 512,50");
 		expect(budgetReason).toContain("R$ 286,86");
 		for (const a of plan) expect(a.summary.length).toBeLessThanOrEqual(160);
+	});
+});
+
+describe("cobrança repetida: a ação autônoma é bem mais estrita que o aviso", () => {
+	const pair = (over: Partial<DuplicateCandidate> = {}): DuplicateCandidate => ({
+		transactionId: "b",
+		firstTransactionId: "a",
+		merchant: "Loja",
+		amountCents: 2990,
+		editedByOwner: false,
+		alreadyPending: false,
+		daysApart: 0,
+		sources: ["notification", "pluggy"],
+		sameValueCount30d: 2,
+		...over,
+	});
+
+	it("marca o clássico dobro: mesmo dia, lançamento do dono/notificação + o do banco", () => {
+		expect(isAutonomousDuplicate(pair())).toBe(true);
+		expect(isAutonomousDuplicate(pair({ sources: ["manual", "pluggy"] }))).toBe(true);
+		expect(planAutonomousActions(input({ duplicates: [pair()] }))).toHaveLength(1);
+	});
+
+	it("nunca marca duas linhas do próprio banco", () => {
+		expect(isAutonomousDuplicate(pair({ sources: ["pluggy", "pluggy"] }))).toBe(false);
+		expect(planAutonomousActions(input({ duplicates: [pair({ sources: ["pluggy", "pluggy"] })] }))).toEqual(
+			[],
+		);
+	});
+
+	it("nunca marca dois lançamentos do dono, nem o de dias diferentes", () => {
+		expect(isAutonomousDuplicate(pair({ sources: ["manual", "notification"] }))).toBe(false);
+		expect(isAutonomousDuplicate(pair({ daysApart: 1 }))).toBe(false);
+	});
+
+	it("não marca estabelecimento que cobra o mesmo valor com frequência (passagem de R$ 5,40, café igual)", () => {
+		expect(isAutonomousDuplicate(pair({ amountCents: 540, sameValueCount30d: 3 }))).toBe(false);
+		expect(isAutonomousDuplicate(pair({ sameValueCount30d: 20 }))).toBe(false);
+		expect(planAutonomousActions(input({ duplicates: [pair({ sameValueCount30d: 9 })] }))).toEqual([]);
 	});
 });
