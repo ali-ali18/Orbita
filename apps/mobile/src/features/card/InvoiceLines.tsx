@@ -3,7 +3,12 @@ import type { CategoriesView, InvoiceView } from "../../lib/api.ts";
 import { money } from "../../lib/format.ts";
 import { ListRow, Text } from "../../ui/index.ts";
 import { TransactionDisc } from "../summary/TransactionDisc.tsx";
-import { amountTone, transactionBadge, transactionIcon } from "../summary/transaction-model.ts";
+import {
+	amountTone,
+	transactionBadge,
+	transactionBrand,
+	transactionIcon,
+} from "../summary/transaction-model.ts";
 import {
 	emptyInvoiceMessage,
 	filterInvoiceLines,
@@ -39,7 +44,12 @@ export function InvoiceLines({
 				return (
 					<ListRow
 						key={t.id}
-						leading={<TransactionDisc icon={transactionIcon(t.kind, category?.slug)} />}
+						leading={
+							<TransactionDisc
+								icon={transactionIcon(t.kind, category?.slug, category?.name)}
+								brand={transactionBrand(t)}
+							/>
+						}
 						title={t.description}
 						caption={invoiceLineCaption(t, category?.name)}
 						value={money(t.amountCents, hidden, { sign: t.kind === "refund" ? "always" : "never" })}

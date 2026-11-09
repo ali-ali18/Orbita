@@ -1,8 +1,9 @@
 import { spacing } from "@orbita/tokens";
 import { View } from "react-native";
+import { brandOf } from "../../../lib/brands.ts";
 import { money } from "../../../lib/format.ts";
 import { toLoadable } from "../../../lib/loadable.ts";
-import { Text } from "../../../ui/index.ts";
+import { StoreDisc, Text } from "../../../ui/index.ts";
 import { useRecurrences } from "../../subscriptions/queries.ts";
 import {
 	countLabel,
@@ -86,6 +87,7 @@ export function SubscriptionsWidget({
 								const next = nextCharge(r, today);
 								return (
 									<View key={r.id} style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+										<StoreDisc brand={brandOf(r.name)} icon="assinatura" size={32} />
 										<View style={{ flex: 1 }}>
 											<Text variant="body" numberOfLines={1}>
 												{r.name}

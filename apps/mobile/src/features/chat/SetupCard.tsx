@@ -2,8 +2,10 @@ import type { ProposalDto, SetupProposal, SetupSelection } from "@orbita/shared"
 import { colors, radius, spacing } from "@orbita/tokens";
 import { type ReactNode, useState } from "react";
 import { Pressable, View } from "react-native";
-import { Button, Icon, Text } from "../../ui/index.ts";
+import { brandOf } from "../../lib/brands.ts";
+import { Button, Icon, StoreDisc, Text } from "../../ui/index.ts";
 import { useCategories } from "../summary/queries.ts";
+import { categoryIcon } from "../summary/transaction-model.ts";
 import { PROPOSAL_STATUS_LABEL } from "./chat-model.ts";
 import { type EditTarget, SetupEditSheet } from "./SetupEditSheet.tsx";
 import {
@@ -62,6 +64,7 @@ function ItemRow({
 	detail,
 	caption,
 	value,
+	lead,
 	onToggle,
 	onEdit,
 }: {
@@ -73,22 +76,27 @@ function ItemRow({
 	detail: string;
 	caption: string | null;
 	value: string | null;
+	/** Disco da loja ou da categoria, antes do texto. */
+	lead?: ReactNode;
 	onToggle: () => void;
 	onEdit: () => void;
 }) {
 	const body = (
-		<View style={{ flex: 1, gap: 2 }}>
-			<Text variant="body" numberOfLines={1}>
-				{title}
-			</Text>
-			<Text variant="caption" tone={locked ? "primary" : "secondary"} numberOfLines={2}>
-				{detail}
-			</Text>
-			{caption ? (
-				<Text variant="caption" tone="tertiary" numberOfLines={1}>
-					{caption}
+		<View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+			{lead}
+			<View style={{ flex: 1, gap: 2 }}>
+				<Text variant="body" numberOfLines={1}>
+					{title}
 				</Text>
-			) : null}
+				<Text variant="caption" tone={locked ? "primary" : "secondary"} numberOfLines={2}>
+					{detail}
+				</Text>
+				{caption ? (
+					<Text variant="caption" tone="tertiary" numberOfLines={1}>
+						{caption}
+					</Text>
+				) : null}
+			</View>
 		</View>
 	);
 	if (readOnly) {
@@ -264,6 +272,7 @@ export function SetupCard({
 								detail={`${nameOfCategory(pending ? d.categoryId : s.categoryId)} · ${subscriptionLine(s)}`}
 								caption={occurrencesLine(s)}
 								value={s.amountText}
+								lead={<StoreDisc brand={brandOf(s.name, s.merchant)} icon="assinatura" size={36} />}
 								onToggle={() => update(toggleItem(draft, ref))}
 								onEdit={() => edit(ref)}
 							/>
@@ -288,6 +297,13 @@ export function SetupCard({
 									detail={`→ ${nameOfCategory(pending ? d.categoryId : r.categoryId)}`}
 									caption={ruleLine(r)}
 									value={null}
+									lead={
+										<StoreDisc
+											brand={brandOf(r.merchant)}
+											icon={categoryIcon(undefined, nameOfCategory(pending ? d.categoryId : r.categoryId))}
+											size={36}
+										/>
+									}
 									onToggle={() => update(toggleItem(draft, ref))}
 									onEdit={() => edit(ref)}
 								/>

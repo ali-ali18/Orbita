@@ -31,6 +31,7 @@ import {
 	amountTone,
 	signedAmount,
 	transactionBadge,
+	transactionBrand,
 	transactionIcon,
 } from "../summary/transaction-model.ts";
 import {
@@ -200,7 +201,8 @@ export function ActivityScreen() {
 				onPress={() => router.push({ pathname: "/lancamento/[id]", params: { id: t.id } })}
 				leading={
 					<TransactionDisc
-						icon={transactionIcon(t.kind, category?.slug)}
+						icon={transactionIcon(t.kind, category?.slug, category?.name)}
+						brand={transactionBrand(t)}
 						bank={source ? bankBadge(source) : undefined}
 					/>
 				}

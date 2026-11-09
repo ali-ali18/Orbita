@@ -10,7 +10,13 @@ import { Button, ErrorState, Icon, IconButton, Screen, Skeleton, Text } from "..
 import { useAccounts, useCards, useCategories } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { TransactionDisc } from "../summary/TransactionDisc.tsx";
-import { amountSignMode, amountTone, signedAmount, transactionIcon } from "../summary/transaction-model.ts";
+import {
+	amountSignMode,
+	amountTone,
+	signedAmount,
+	transactionBrand,
+	transactionIcon,
+} from "../summary/transaction-model.ts";
 import { categoryDot } from "../transactions/new-transaction-model.ts";
 import { useConfirmPending, usePendingTransactions } from "./queries.ts";
 import {
@@ -187,7 +193,8 @@ export function ReviewScreen() {
 									) : null}
 									<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
 										<TransactionDisc
-											icon={transactionIcon(item.kind, category?.slug)}
+											icon={transactionIcon(item.kind, category?.slug, category?.name)}
+											brand={transactionBrand(item)}
 											bank={source ? bankBadge(source) : undefined}
 										/>
 										<View style={{ flex: 1, gap: spacing.xs }}>

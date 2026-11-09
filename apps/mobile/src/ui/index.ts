@@ -20,5 +20,6 @@ export { Segmented } from "./Segmented.tsx";
 export { Sheet } from "./Sheet.tsx";
 export { SheetGroup, SheetRow } from "./SheetGroup.tsx";
 export { Skeleton } from "./Skeleton.tsx";
+export { StoreDisc } from "./StoreDisc.tsx";
 export { Text, type TextTone } from "./Text.tsx";
 export { TextField } from "./TextField.tsx";

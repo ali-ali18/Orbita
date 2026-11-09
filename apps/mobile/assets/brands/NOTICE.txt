@@ -1,0 +1,26 @@
+Glifos de lojas e serviços (disco do lançamento e da assinatura).
+
+Origem: pacote npm `simple-icons` 16.37.0 (devDependency de @orbita/mobile), licença CC0-1.0 (domínio público).
+https://github.com/simple-icons/simple-icons
+Os caminhos SVG (viewBox 24 x 24) são extraídos em build por `pnpm --filter @orbita/mobile marcas`
+(scripts/gerar-marcas.mjs) para src/ui/brand-glyphs.ts, só os usados. Nada é baixado em runtime.
+
+As marcas e os logotipos são dos respectivos donos. Uso nominativo apenas (identificar a loja ou o serviço de um
+lançamento), sem sugerir parceria ou patrocínio.
+
+Glifos embutidos (id do app -> slug do Simple Icons):
+  spotify, google, googleone (googlegemini), youtube, netflix, apple, icloud, uber, ifood, steam, hostinger, vivo,
+  shopee, airbnb, booking (bookingdotcom), anthropic, claude, github, max.
+
+Sem glifo livre (o Simple Icons não tem, por pedido dos donos): Amazon, Prime Video, 99, Mercado Livre, KaBuM!,
+Centauro, Claro, TIM, Shein, Magalu, Americanas, OpenAI/ChatGPT, xAI/Grok, Microsoft, Adobe, Disney+, Globoplay,
+Rappi, Drogasil, Raia, Pague Menos. Estas aparecem como um disco na cor aproximada da marca com um ícone genérico do
+próprio app (carrinho, celular, play…), sem desenhar o logotipo. Cores em packages/tokens/src/brands.ts.
+
+Bancos (Nubank, Inter, Santander, Itaú, Bradesco, Caixa, Mercado Pago) usam os PNGs de ../banks (ver ../banks/NOTICE.txt).
+
+Ícones de categoria (saude, educacao, compras, lazer, salario, investimento, celular, reproduzir) são redesenhados no
+traço do conjunto (src/ui/icons.tsx), a partir do Lucide (ISC).
+
+Para acrescentar uma marca: inclua o id em src/lib/brands.ts, as cores em packages/tokens/src/brands.ts (o teste exige
+contraste AA entre disco e glifo) e, se o Simple Icons tiver o glifo, em scripts/gerar-marcas.mjs.
