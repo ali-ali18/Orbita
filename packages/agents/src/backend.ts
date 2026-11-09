@@ -51,6 +51,8 @@ export interface InvoiceData {
 	/** `open`, `unpaid`, `partial` ou `paid` (do engine). */
 	paymentStatus: string;
 	paidCents: number;
+	/** O que ainda se deve nesta fatura (do ledger): o total se aberta; total menos pago se fechada. */
+	owedCents: number;
 	composition: {
 		purchasesCents: number;
 		installmentsCents: number;
