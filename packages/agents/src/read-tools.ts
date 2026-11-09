@@ -424,9 +424,10 @@ export const getCardInvoice = defineTool({
 				month: invoice.month,
 				closingDate: invoice.closingDate,
 				dueDate: invoice.dueDate,
-				status: invoice.status,
+				// Fatura antiga sem pagamento registrado: não é cobrança, então nem "vencida" nem "não paga".
+				status: invoice.paymentStatus === "history" ? "history" : invoice.status,
 				paymentStatus: invoice.paymentStatus,
-				total: money(c.totalCents),
+				total: money(invoice.totalCents),
 				paid: money(invoice.paidCents),
 				remaining: money(remainingCents),
 				composition: {
@@ -458,7 +459,7 @@ export const getCardInvoice = defineTool({
 					},
 					{ label: "Já pago", caption: null, value: formatBRL(invoice.paidCents), cents: invoice.paidCents },
 				],
-				total: { label: "Total da fatura", value: formatBRL(c.totalCents) },
+				total: { label: "Total da fatura", value: formatBRL(invoice.totalCents) },
 			},
 		};
 	},

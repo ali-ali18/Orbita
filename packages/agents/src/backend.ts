@@ -48,10 +48,12 @@ export interface InvoiceData {
 	dueDate: string;
 	/** `open`, `closed` ou `overdue` (do engine). */
 	status: string;
-	/** `open`, `unpaid`, `partial` ou `paid` (do engine). */
+	/** `open`, `unpaid`, `partial`, `paid` ou `history` (fatura antiga sem pagamento registrado; do engine). */
 	paymentStatus: string;
+	/** O total da fatura: o do banco, quando há; senão a soma dos lançamentos (do ledger). */
+	totalCents: number;
 	paidCents: number;
-	/** O que ainda se deve nesta fatura (do ledger): o total se aberta; total menos pago se fechada. */
+	/** O que ainda se deve nesta fatura (do ledger): o total se aberta; total menos pago se fechada; 0 se histórica. */
 	owedCents: number;
 	composition: {
 		purchasesCents: number;

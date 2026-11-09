@@ -345,48 +345,50 @@ describe("limites", () => {
 
 describe("selo de pagamento da fatura", () => {
 	const reais = (c: number) => `R$ ${(c / 100).toFixed(2).replace(".", ",")}`;
-	const base = { dueDate: "2026-11-07", paidCents: 0 };
+	// O app só exibe: o que falta (`owedCents`) vem do servidor, nunca de total − pago calculado aqui.
+	const base = { dueDate: "2026-11-07", owedCents: 0 };
 
 	it("paga", () => {
-		expect(
-			paymentBadge({ ...base, status: "closed", paymentStatus: "paid", paidCents: 10_000 }, 10_000, reais),
-		).toEqual({
+		expect(paymentBadge({ ...base, status: "closed", paymentStatus: "paid" }, reais)).toEqual({
 			label: "Paga",
 			tone: "positive",
 		});
 		// Paga continua paga depois do vencimento.
-		expect(paymentBadge({ ...base, status: "overdue", paymentStatus: "paid" }, 10_000, reais).label).toBe(
-			"Paga",
-		);
+		expect(paymentBadge({ ...base, status: "overdue", paymentStatus: "paid" }, reais).label).toBe("Paga");
 	});
 
-	it("paga em parte diz quanto falta", () => {
+	it("paga em parte diz quanto falta, o do servidor (total do banco, não a composição)", () => {
 		const closed = paymentBadge(
-			{ ...base, status: "closed", paymentStatus: "partial", paidCents: 4_000 },
-			10_000,
+			{ ...base, status: "closed", paymentStatus: "partial", owedCents: 30_000 },
 			reais,
 		);
-		expect(closed.label).toBe("Paga em parte (falta R$ 60,00)");
+		expect(closed.label).toBe("Paga em parte (falta R$ 300,00)");
 		const late = paymentBadge(
-			{ ...base, status: "overdue", paymentStatus: "partial", paidCents: 4_000 },
-			10_000,
+			{ ...base, status: "overdue", paymentStatus: "partial", owedCents: 30_000 },
 			reais,
 		);
-		expect(late.label).toBe("Paga em parte (falta R$ 60,00) · atrasada");
+		expect(late.label).toBe("Paga em parte (falta R$ 300,00) · atrasada");
 	});
 
 	it("não paga: vence dia X antes do vencimento, Atrasada depois", () => {
-		expect(paymentBadge({ ...base, status: "closed", paymentStatus: "unpaid" }, 10_000, reais).label).toBe(
+		expect(paymentBadge({ ...base, status: "closed", paymentStatus: "unpaid" }, reais).label).toBe(
 			"Vence dia 7",
 		);
-		expect(paymentBadge({ ...base, status: "overdue", paymentStatus: "unpaid" }, 10_000, reais).label).toBe(
+		expect(paymentBadge({ ...base, status: "overdue", paymentStatus: "unpaid" }, reais).label).toBe(
 			"Atrasada",
 		);
 	});
 
 	it("aberta", () => {
-		expect(paymentBadge({ ...base, status: "open", paymentStatus: "open" }, 10_000, reais)).toEqual({
+		expect(paymentBadge({ ...base, status: "open", paymentStatus: "open" }, reais)).toEqual({
 			label: "Em aberto",
+			tone: "secondary",
+		});
+	});
+
+	it("histórica: neutra, sem cobrança nem atraso", () => {
+		expect(paymentBadge({ ...base, status: "overdue", paymentStatus: "history" }, reais)).toEqual({
+			label: "Histórico",
 			tone: "secondary",
 		});
 	});
@@ -405,25 +407,30 @@ describe("fatura paga não 'venceu'", () => {
 		expect(invoiceStatusTag({ status: "closed", paymentStatus: "paid" })).toBe("Paga");
 		expect(invoiceStatusTag({ status: "overdue", paymentStatus: "unpaid" })).toBe("Venceu");
 		expect(invoiceStatusTag({ status: "open", paymentStatus: "open" })).toBe("Aberta");
+		// Histórica não "venceu": fatura antiga sem pagamento registrada.
+		expect(invoiceStatusTag({ status: "overdue", paymentStatus: "history" })).toBe("Histórico");
+		expect(invoiceDatesCaption({ ...inv, status: "overdue", paymentStatus: "history" })).toBe(
+			"Fechada em 10/26",
+		);
 	});
 });
 
 describe("marcar como paga", () => {
-	const closed = { status: "closed", paymentStatus: "unpaid", paidCents: 0 } as const;
+	const closed = { status: "closed", paymentStatus: "unpaid", owedCents: 39_163 } as const;
 
-	it("fatura fechada ou vencida com saldo: o valor é o que falta (total menos o pago)", () => {
-		expect(payableCents(closed, 39_163)).toBe(39_163);
-		expect(payableCents({ status: "overdue", paymentStatus: "unpaid", paidCents: 0 }, 39_163)).toBe(39_163);
-		expect(payableCents({ status: "closed", paymentStatus: "partial", paidCents: 10_000 }, 39_163)).toBe(
-			29_163,
-		);
+	it("fatura fechada ou vencida com saldo: o valor é o que o servidor diz que falta", () => {
+		expect(payableCents(closed)).toBe(39_163);
+		expect(payableCents({ ...closed, status: "overdue" })).toBe(39_163);
+		// Banco 1.000 / lançamentos 600 / pago 700: faltam 300, não 600 − 700.
+		expect(payableCents({ status: "closed", paymentStatus: "partial", owedCents: 30_000 })).toBe(30_000);
 	});
 
-	it("sem botão: fatura aberta, já paga ou sem nada a pagar", () => {
-		expect(payableCents({ status: "open", paymentStatus: "open", paidCents: 0 }, 39_163)).toBe(0);
-		expect(payableCents({ status: "closed", paymentStatus: "paid", paidCents: 39_163 }, 39_163)).toBe(0);
-		expect(payableCents(closed, 0)).toBe(0);
-		expect(payableCents(closed, -500)).toBe(0);
+	it("sem botão: fatura aberta, já paga, histórica ou sem nada a pagar", () => {
+		expect(payableCents({ status: "open", paymentStatus: "open", owedCents: 39_163 })).toBe(0);
+		expect(payableCents({ status: "closed", paymentStatus: "paid", owedCents: 0 })).toBe(0);
+		expect(payableCents({ status: "overdue", paymentStatus: "history", owedCents: 0 })).toBe(0);
+		expect(payableCents({ ...closed, owedCents: 0 })).toBe(0);
+		expect(payableCents({ ...closed, owedCents: -500 })).toBe(0);
 	});
 
 	it("só contas ativas pagam a fatura, na ordem original", () => {

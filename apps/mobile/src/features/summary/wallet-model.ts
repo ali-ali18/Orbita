@@ -14,9 +14,11 @@ export interface WalletInvoice {
 	closingDate: LocalDate;
 	dueDate: LocalDate;
 	status: "open" | "closed" | "overdue";
-	paymentStatus: "paid" | "partial" | "unpaid" | "open";
+	paymentStatus: "paid" | "partial" | "unpaid" | "open" | "history";
 	totalCents: Cents;
 	paidCents: Cents;
+	/** O que falta (do servidor): o total do banco, quando há, menos o pago. */
+	owedCents: Cents;
 }
 
 export interface WalletCard {

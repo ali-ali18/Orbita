@@ -191,14 +191,14 @@ describe("invoiceOwedCents", () => {
 });
 
 describe("histórico de faturas: estados das barras", () => {
-	it("fatura antiga fechada sem pagamento conhecido é histórico neutro (closed), nunca overdue", async () => {
+	it("fatura antiga fechada sem pagamento conhecido é histórico neutro (history), nunca overdue ou closed", async () => {
 		const { stores, buy } = await setup({ closingDay: 25, dueDay: 5 });
 		await buy("2026-07-10", 5000); // 2026-08: fora dos meses considerados em 28/11
 		await buy("2026-10-10", 7000); // 2026-11: vencida há pouco, conta como overdue
 		const { overview } = await only(stores, "2026-11-28");
 		const aug = overview.history.find((h) => h.month === "2026-08");
-		expect(aug).toMatchObject({ totalCents: 5000, state: "closed" });
-		expect(aug?.byCard[0]?.state).toBe("closed");
+		expect(aug).toMatchObject({ totalCents: 5000, state: "history" });
+		expect(aug?.byCard[0]?.state).toBe("history");
 		expect(overview.history.find((h) => h.month === "2026-11")?.state).toBe("overdue");
 	});
 

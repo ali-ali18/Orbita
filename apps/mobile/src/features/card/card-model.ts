@@ -106,6 +106,7 @@ export function statusOfMonth(card: CardLike, month: MonthKey, today: LocalDate)
  */
 export function monthChipLabel(status: InvoiceStatus, payment?: PaymentStatusLike): string {
 	if (payment === "paid" && status !== "open") return "paga";
+	if (payment === "history" && status !== "open") return "histórico";
 	return statusLabel(status);
 }
 
@@ -120,7 +121,8 @@ export function statusLabel(status: InvoiceStatus): string {
 	}
 }
 
-export type PaymentStatusLike = "paid" | "partial" | "unpaid" | "open";
+/** `history`: fatura antiga sem pagamento registrado (anterior ao Órbita): sem cobrança, sem atraso. */
+export type PaymentStatusLike = "paid" | "partial" | "unpaid" | "open" | "history";
 
 export interface PaymentBadge {
 	label: string;
@@ -129,13 +131,12 @@ export interface PaymentBadge {
 }
 
 /**
- * Selo de pagamento da fatura, a partir do que o servidor calculou (`paymentStatus`, `paidCents`):
+ * Selo de pagamento da fatura, a partir do que o servidor calculou (`paymentStatus`, `owedCents`):
  * Paga · Paga em parte (falta R$ X) · Em aberto · Vence dia X · Atrasada. "Atrasada" só quando a fatura
  * venceu e não foi paga por inteiro; paga em parte e vencida acrescenta " · atrasada".
  */
 export function paymentBadge(
-	invoice: { status: InvoiceStatus; dueDate: LocalDate; paymentStatus: PaymentStatusLike; paidCents: Cents },
-	totalCents: Cents,
+	invoice: { status: InvoiceStatus; dueDate: LocalDate; paymentStatus: PaymentStatusLike; owedCents: Cents },
 	formatMoney: (cents: Cents) => string,
 ): PaymentBadge {
 	const overdue = invoice.status === "overdue";
@@ -143,7 +144,7 @@ export function paymentBadge(
 		case "paid":
 			return { label: "Paga", tone: "positive" };
 		case "partial": {
-			const left = formatMoney(Math.max(0, totalCents - invoice.paidCents));
+			const left = formatMoney(Math.max(0, invoice.owedCents));
 			return { label: `Paga em parte (falta ${left})${overdue ? " · atrasada" : ""}`, tone: "primary" };
 		}
 		case "unpaid":
@@ -152,20 +153,23 @@ export function paymentBadge(
 				: { label: `Vence dia ${Number(invoice.dueDate.slice(8, 10))}`, tone: "primary" };
 		case "open":
 			return { label: "Em aberto", tone: "secondary" };
+		case "history":
+			return { label: "Histórico", tone: "secondary" };
 	}
 }
 
 /**
- * "Marcar como paga" só aparece com a fatura fechada e com saldo a pagar. O valor sai do que o servidor já
- * calculou (total da fatura menos o pago, ambos do engine); aqui só se decide se o botão existe e se mostra.
+ * "Marcar como paga" só aparece com a fatura fechada e com saldo a pagar. O valor é o `owedCents` que o servidor já
+ * calculou (total da fatura, o do banco quando há, menos o pago); o app só decide se o botão existe e o mostra.
  */
-export function payableCents(
-	invoice: { status: InvoiceStatus; paymentStatus: PaymentStatusLike; paidCents: Cents },
-	totalCents: Cents,
-): Cents {
+export function payableCents(invoice: {
+	status: InvoiceStatus;
+	paymentStatus: PaymentStatusLike;
+	owedCents: Cents;
+}): Cents {
 	if (invoice.status === "open") return 0;
 	if (invoice.paymentStatus !== "unpaid" && invoice.paymentStatus !== "partial") return 0;
-	return Math.max(0, totalCents - invoice.paidCents);
+	return Math.max(0, invoice.owedCents);
 }
 
 /** Contas ativas que podem pagar a fatura, na ordem em que vieram. */
@@ -199,6 +203,8 @@ export function invoiceDatesCaption(invoice: {
 }): string {
 	const closing = dayMonth(invoice.closingDate);
 	const due = dayMonth(invoice.dueDate);
+	// Fatura histórica: só o fato do fechamento (mm/aa), sem vencimento nem cobrança.
+	if (invoice.paymentStatus === "history") return `Fechada em ${closingMonthYear(invoice.closingDate)}`;
 	switch (invoice.status) {
 		case "open":
 			return `Fecha ${closing} · vence ${due}`;
@@ -212,12 +218,18 @@ export function invoiceDatesCaption(invoice: {
 	}
 }
 
+/** "10/26" para "2026-10-31". */
+export function closingMonthYear(date: LocalDate): string {
+	return `${date.slice(5, 7)}/${date.slice(2, 4)}`;
+}
+
 /** Selo da fatura (canto do card): a situação do pagamento quando ela já fechou, senão o calendário. */
 export function invoiceStatusTag(invoice: {
 	status: InvoiceStatus;
 	paymentStatus: PaymentStatusLike;
 }): string {
 	if (invoice.status !== "open" && invoice.paymentStatus === "paid") return "Paga";
+	if (invoice.status !== "open" && invoice.paymentStatus === "history") return "Histórico";
 	return capitalize(statusLabel(invoice.status));
 }
 
