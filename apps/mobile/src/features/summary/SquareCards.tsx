@@ -1,10 +1,10 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import type { InstallmentsView } from "../../lib/api.ts";
 import { money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
-import { Card, ErrorState, Icon, type IconName, Skeleton, Text, useWidgetLongPress } from "../../ui/index.ts";
+import { Card, ErrorState, Icon, type IconName, Skeleton, Text } from "../../ui/index.ts";
 import { installmentsOverview } from "./summary-model.ts";
 
 /** Altura dos cards quadrados no Figma (173 de largura por 221 de altura). */
@@ -21,24 +21,20 @@ export function Frame({
 	onPress?: (() => void) | undefined;
 	label: string;
 }) {
-	const longPress = useWidgetLongPress();
+	// Um só toque: o `Card` já entrega o toque curto (`onPress`) e o segurar (contexto do widget). Um `Pressable` por
+	// fora, com o `Card` por dentro sem `onPress`, deixaria o de dentro engolir o toque e nada abriria.
 	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel={label}
-			disabled={!onPress && !longPress}
-			onPress={onPress}
-			onLongPress={longPress}
-			style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.8 : 1 })}
+		<Card
+			label={label}
+			{...(onPress ? { onPress } : {})}
+			style={{ flex: 1, minHeight: SQUARE_MIN_HEIGHT, justifyContent: "space-between" }}
 		>
-			<Card style={{ flex: 1, minHeight: SQUARE_MIN_HEIGHT, justifyContent: "space-between" }}>
-				<View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-					<View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm }}>{top}</View>
-					<Icon name="seta-direita" size={18} color={colors.textTertiary} />
-				</View>
-				<View>{children}</View>
-			</Card>
-		</Pressable>
+			<View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+				<View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm }}>{top}</View>
+				<Icon name="seta-direita" size={18} color={colors.textTertiary} />
+			</View>
+			<View>{children}</View>
+		</Card>
 	);
 }
 
