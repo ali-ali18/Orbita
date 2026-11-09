@@ -289,6 +289,54 @@ const bodies = {
 			<Path d="M4 4l16 16" />
 		</>
 	),
+	/**
+	 * Das categorias e das lojas sem logo livre (disco do lançamento): mesmo traço e viewBox do conjunto, desenhados
+	 * a partir do Lucide (ISC), que é a origem dos demais corpos deste arquivo.
+	 */
+	saude: (
+		<>
+			<Path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7z" />
+			<Path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27" />
+		</>
+	),
+	educacao: (
+		<>
+			<Path d="M21.42 10.92a1 1 0 0 0-.02-1.84L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.83l8.57 3.91a2 2 0 0 0 1.66 0z" />
+			<Path d="M22 10v6M6 12.5V16a6 3 0 0 0 12 0v-3.5" />
+		</>
+	),
+	compras: (
+		<>
+			<Path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+			<Path d="M3 6h18M16 10a4 4 0 0 1-8 0" />
+		</>
+	),
+	lazer: (
+		<>
+			<Path d="M6 11h4M8 9v4M15 12h.01M18 10h.01" />
+			<Path d="M17.32 5H6.68a4 4 0 0 0-3.98 3.59C2.6 9.42 2 14.46 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.41-1.41A2 2 0 0 1 9.83 16h4.34a2 2 0 0 1 1.41.59L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.55-.6-6.58-.69-7.26A4 4 0 0 0 17.32 5z" />
+		</>
+	),
+	salario: (
+		<>
+			<Rect x="2" y="6" width="20" height="12" rx="2" />
+			<Circle cx="12" cy="12" r="2" />
+			<Path d="M6 12h.01M18 12h.01" />
+		</>
+	),
+	investimento: (
+		<>
+			<Path d="m22 7-8.5 8.5-5-5L2 17" />
+			<Path d="M16 7h6v6" />
+		</>
+	),
+	celular: (
+		<>
+			<Rect x="5" y="2" width="14" height="20" rx="2" />
+			<Path d="M12 18h.01" />
+		</>
+	),
+	reproduzir: <Path d="M6 4v16l14-8z" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof bodies;

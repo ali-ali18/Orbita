@@ -75,6 +75,15 @@ Cada card do Início é um widget com tamanho `2x2` (quadrado de meia largura, 2
 
 `import { banks } from "@orbita/tokens"`: cor de fundo do círculo atrás do logo. Logos vêm do pacote `logos-bancos-br` (MIT; as marcas são das instituições, uso só para identificá-las): PNGs só dos bancos usados em `apps/mobile/assets/banks` (ver `NOTICE.txt`), casados por ISPB ou pelo nome em `lib/bank-logos.ts`. Com logo, o círculo é branco e mostra a imagem; sem logo, a cor da marca (ou `banks.generic`) com a inicial.
 
+### Ícones de categoria e de lojas
+
+O disco de 44 do lançamento (`TransactionDisc`, `StoreDisc`) mostra, nesta ordem: o **logo do banco** (Nubank, Inter, Santander, Itaú, Bradesco, Caixa, Mercado Pago), o **glifo da marca** (Spotify, Netflix, Uber…) ou, sem marca reconhecida, o **ícone da categoria** em `surface2`. Nunca mostra letra. Pela mesma regra o disco aparece nas assinaturas (lista, widget e chat de configuração).
+
+- **Categoria → ícone**: `categoryIcon(slug, nome)` em `summary/transaction-model.ts`. Slug do sistema manda (Mercado, Delivery → comida, Transporte, Assinaturas, Lazer, Moradia → casa, Saúde, Transferências, Investimentos, Salário, Fatura de cartão, Outros → etiqueta); categoria do dono cai nas palavras do nome (Restaurante, Farmácia, Educação, Compras, Viagens…) e, sem nada, em "etiqueta". Os ícones são do conjunto de `ui/icons.tsx` (traço 1,75, viewBox 24).
+- **Loja → marca**: `brandOf(texto)` em `lib/brands.ts` (função pura, ~45 marcas), usando `subscriptionBrand` e `friendlyMerchantName` para limpar o texto do banco ("DL*Spotify P48CE", "MLP KABUM-KABUM"). Só despesa e estorno têm marca.
+- **Cores**: `brandDiscs` em `@orbita/tokens` (disco e glifo, contraste AA testado). Marca preta ou escura demais para o fundo usa disco branco. Marca sem glifo livre fica na cor aproximada com um ícone genérico do app, sem desenhar o logotipo.
+- **Origem e licença** dos glifos (Simple Icons, CC0) em `apps/mobile/assets/brands/NOTICE.txt`. Marca nova: catálogo, tokens e `scripts/gerar-marcas.mjs`.
+
 ## Tipografia
 
 `import { typography } from "@orbita/tokens"` · fonte **Geist**.

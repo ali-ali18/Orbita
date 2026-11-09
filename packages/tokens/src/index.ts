@@ -1,5 +1,6 @@
 export { type AgentVisualKey, agents } from "./agents.ts";
 export { banks } from "./banks.ts";
+export { type BrandDisc, type BrandDiscId, brandDiscs } from "./brands.ts";
 export { categoryColor, chart, chartSeries, defaultCategoryColor } from "./chart.ts";
 export { colors } from "./colors.ts";
 export {
