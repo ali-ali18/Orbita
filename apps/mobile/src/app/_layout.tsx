@@ -106,7 +106,7 @@ export default function RootLayout() {
 
 	return (
 		<SafeAreaProvider>
-			<KeyboardProvider>
+			<KeyboardProvider statusBarTranslucent navigationBarTranslucent>
 				<QueryClientProvider client={queryClient}>
 					<ClockProvider>
 						<SessionProvider>

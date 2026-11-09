@@ -14,7 +14,7 @@
 				"foregroundImage": "./assets/adaptive-icon.png",
 				"backgroundColor": "#000000"
 			},
-			"permissions": ["INTERNET", "USE_BIOMETRIC"],
+			"permissions": ["INTERNET", "USE_BIOMETRIC", "RECORD_AUDIO"],
 			"blockedPermissions": [
 				"android.permission.SYSTEM_ALERT_WINDOW",
 				"android.permission.READ_EXTERNAL_STORAGE",
@@ -35,8 +35,7 @@
 				"expo-image-picker",
 				{
 					"photosPermission": "A Órbita acessa suas fotos só para você anexar um comprovante ao chat.",
-					"cameraPermission": "A Órbita usa a câmera só para você fotografar um comprovante e anexar ao chat.",
-					"microphonePermission": false
+					"cameraPermission": "A Órbita usa a câmera só para você fotografar um comprovante e anexar ao chat."
 				}
 			],
 			[

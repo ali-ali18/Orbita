@@ -9,7 +9,31 @@ import {
 	shortName,
 	userBubbleText,
 } from "./attachment-model.ts";
-import { dictationErrorMessage, mergeDictation, transcriptOf } from "./dictation-model.ts";
+import {
+	dictationErrorMessage,
+	dictationPermissionMessage,
+	dictationPermissionOutcome,
+	mergeDictation,
+	transcriptOf,
+} from "./dictation-model.ts";
+
+describe("permissão do ditado", () => {
+	it("concedida começa a ouvir", () => {
+		expect(dictationPermissionOutcome({ granted: true, canAskAgain: true })).toBe("start");
+		expect(dictationPermissionMessage("start")).toBeNull();
+	});
+	it("negada mas ainda pedível não manda para as configurações", () => {
+		const outcome = dictationPermissionOutcome({ granted: false, canAskAgain: true });
+		expect(outcome).toBe("denied-ask-again");
+		expect(dictationPermissionMessage(outcome)).not.toMatch(/configurações/);
+		expect(dictationPermissionOutcome({ granted: false })).toBe("denied-ask-again");
+	});
+	it("negada de vez manda para as configurações", () => {
+		const outcome = dictationPermissionOutcome({ granted: false, canAskAgain: false });
+		expect(outcome).toBe("denied-settings");
+		expect(dictationPermissionMessage(outcome)).toMatch(/configurações/);
+	});
+});
 
 describe("PDF escolhido", () => {
 	it("reconhece pelo tipo ou, sem tipo, pela extensão", () => {
