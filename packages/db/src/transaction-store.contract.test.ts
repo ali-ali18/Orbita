@@ -476,7 +476,7 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 					incoming({
 						accountId: null,
 						cardId: b.card.id,
-						invoiceMonth: `2026-${String(10 + number).padStart(2, "0")}`,
+						invoiceMonth: `2026-${String(Math.min(12, 10 + number)).padStart(2, "0")}`,
 					}),
 					{ groupId: "pluggy-g1", number, count: 10 },
 				);
@@ -502,6 +502,29 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 				expect(again.transaction).toEqual(first.transaction);
 				await tx.softDelete(first.transaction?.id ?? "");
 				expect(await parcel(1)).toEqual({ created: false, transaction: null });
+			});
+
+			it("grupo apagado não ressuscita com a parcela seguinte, mas outro grupo segue", async () => {
+				const first = await parcel(1);
+				await parcel(2);
+				expect(await tx.softDeleteGroup(first.transaction?.installmentGroupId ?? "")).toBe(2);
+				expect(await parcel(3)).toEqual({ created: false, transaction: null });
+				expect(await tx.findByExternal("pluggy", "p-3")).toBeNull();
+				expect(await tx.listInstallmentGroups("2026-01")).toHaveLength(0);
+				const other = await tx.upsertInstallmentByExternal(
+					"pluggy",
+					"q-1",
+					incoming({ accountId: null, cardId: b.card.id, invoiceMonth: "2026-11" }),
+					{ groupId: "pluggy-g2", number: 1, count: 10 },
+				);
+				expect(other.created).toBe(true);
+			});
+
+			it("grupo com parcela viva segue crescendo mesmo com uma apagada", async () => {
+				const first = await parcel(1);
+				await parcel(2);
+				await tx.softDelete(first.transaction?.id ?? "");
+				expect((await parcel(3)).created).toBe(true);
 			});
 
 			it("outra compra no mesmo grupo e número é duplicate", async () => {

@@ -189,6 +189,14 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			};
 			const existing = await find();
 			if (existing.found) return { created: false, transaction: existing.transaction };
+			// Grupo que o dono apagou (tem parcelas, nenhuma viva): a parcela nova do banco não o ressuscita.
+			const groupRows = await db.transaction.findMany({
+				where: { installmentGroupId: installment.groupId },
+				select: { deletedAt: true },
+			});
+			if (groupRows.length > 0 && groupRows.every((r) => r.deletedAt !== null)) {
+				return { created: false, transaction: null };
+			}
 			try {
 				await checkRefundTarget(db, data);
 				await checkReferences(db, refsOf(data));

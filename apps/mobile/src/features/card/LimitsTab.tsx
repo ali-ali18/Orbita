@@ -1,11 +1,10 @@
 import { colors, radius, spacing } from "@orbita/tokens";
-import { useMemo } from "react";
 import { View } from "react-native";
 import { useClock } from "../../lib/clock.tsx";
 import { money } from "../../lib/format.ts";
 import { toLoadable } from "../../lib/loadable.ts";
 import { BankLogo, ErrorState, ProgressBar, Skeleton, Text } from "../../ui/index.ts";
-import { useInstallments } from "../summary/queries.ts";
+import { useInvoicesOverview } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import {
 	bestPurchaseDay,
@@ -15,38 +14,17 @@ import {
 	cycleLabel,
 	limitBar,
 	limitsOverview,
-	openInvoiceMonth,
-	usageMonths,
 	usagePercent,
-	usedLimitCents,
 } from "./card-model.ts";
 import { BigNumber, Notice } from "./parts.tsx";
-import { useInvoiceTotals } from "./queries.ts";
 
-/** Aba Limites: disponível somando os cartões e o uso de cada um (estimado: o banco não manda o disponível). */
+/** Aba Limites: disponível somando os cartões e o uso de cada um. O uso vem do servidor (`GET /v1/invoices/overview`). */
 export function LimitsTab({ cards, hidden }: { cards: readonly CardLike[]; hidden: boolean }) {
 	const { today } = useClock();
-	const installments = toLoadable(useInstallments());
-	const pairs = useMemo(
-		() => cards.flatMap((c) => usageMonths(c, today).map((month) => ({ cardId: c.id, month }))),
-		[cards, today],
-	);
-	const invoiceQs = useInvoiceTotals(pairs);
+	const invoices = toLoadable(useInvoicesOverview());
 
-	const failed = invoiceQs.find((q) => q.data === undefined && q.isError);
-	if (installments.phase === "error")
-		return <ErrorState message={installments.message} onRetry={installments.retry} />;
-	if (failed) {
-		return (
-			<ErrorState
-				message="Não consegui carregar as faturas para calcular o uso do limite."
-				onRetry={() => {
-					for (const q of invoiceQs) void q.refetch();
-				}}
-			/>
-		);
-	}
-	if (installments.phase === "loading" || invoiceQs.some((q) => q.data === undefined)) {
+	if (invoices.phase === "error") return <ErrorState message={invoices.message} onRetry={invoices.retry} />;
+	if (invoices.phase === "loading") {
 		return (
 			<View accessibilityLabel="Carregando limites" style={{ gap: spacing.lg }}>
 				<Skeleton width="60%" height={40} />
@@ -56,18 +34,15 @@ export function LimitsTab({ cards, hidden }: { cards: readonly CardLike[]; hidde
 		);
 	}
 
-	const rows = cards.map((card) => {
-		const totals = pairs.flatMap((p, i) =>
-			p.cardId === card.id ? [invoiceQs[i]?.data?.composition.totalCents ?? 0] : [],
-		);
-		const usedCents = usedLimitCents(
-			totals,
-			installments.data.groups,
-			card.id,
-			openInvoiceMonth(card, today),
-		);
-		return { card, cardId: card.id, limitCents: card.limitCents, usedCents, color: cardColor(card) };
-	});
+	// O servidor (ledger) calcula o usado: devido das faturas não pagas + aberta + parcelas futuras. Aqui só se exibe.
+	const usedByCard = new Map(invoices.data.cards.map((l) => [l.card.id, l.usedLimitCents]));
+	const rows = cards.map((card) => ({
+		card,
+		cardId: card.id,
+		limitCents: card.limitCents,
+		usedCents: usedByCard.get(card.id) ?? 0,
+		color: cardColor(card),
+	}));
 	const overview = limitsOverview(rows);
 
 	if (overview.countedCards === 0) {
@@ -155,7 +130,7 @@ export function LimitsTab({ cards, hidden }: { cards: readonly CardLike[]; hidde
 					</View>
 				);
 			})}
-			<Notice text="Uso estimado: faturas ainda não vencidas mais parcelas futuras. O banco não envia o limite disponível." />
+			<Notice text="Uso estimado: o que ainda se deve nas faturas (as já pagas não contam) mais as parcelas futuras." />
 		</View>
 	);
 }

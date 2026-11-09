@@ -43,6 +43,7 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 						open: line.open,
 						owedCents: line.owedCents,
 						nextDueDate: line.nextDueDate,
+						usedLimitCents: line.usedLimitCents,
 					})),
 				});
 			})

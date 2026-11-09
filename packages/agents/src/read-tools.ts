@@ -378,7 +378,7 @@ export const getCardInvoice = defineTool({
 		}
 		const month = monthOr(input.month, ctx);
 		const invoice = await ctx.reader.cardInvoice(cardId, month);
-		const remainingCents = Math.max(0, invoice.composition.totalCents - invoice.paidCents);
+		const remainingCents = invoice.owedCents;
 		const purchases = [...invoice.transactions]
 			.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
 			.slice(0, 15)

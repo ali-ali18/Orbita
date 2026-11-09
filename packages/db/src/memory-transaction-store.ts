@@ -120,6 +120,13 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 			const existing = findExternal(data);
 			if (existing)
 				return { created: false, transaction: existing.deletedAt === null ? view(existing) : null };
+			// Grupo que o dono apagou (tem parcelas, nenhuma viva): a parcela nova do banco não o ressuscita.
+			const groupRows = [...state.transactions.values()].filter(
+				(t) => t.installmentGroupId === installment.groupId,
+			);
+			if (groupRows.length > 0 && groupRows.every((t) => t.deletedAt !== null)) {
+				return { created: false, transaction: null };
+			}
 			checkReferences(data);
 			// Mesma unicidade do banco: (grupo, número), contando também as apagadas.
 			if (

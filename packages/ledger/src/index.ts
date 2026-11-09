@@ -27,6 +27,7 @@ export {
 	type CardInvoicesLine,
 	type InvoiceLine,
 	type InvoicesOverview,
+	invoiceOwedCents,
 	invoicesOverview,
 } from "./invoices-overview.ts";
 export { reportForMonth } from "./report.ts";

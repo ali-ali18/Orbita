@@ -301,6 +301,7 @@ describe("ferramentas de leitura", () => {
 				status: "closed",
 				paymentStatus: "partial",
 				paidCents: 20000,
+				owedCents: 45000,
 				composition: {
 					purchasesCents: 50000,
 					installmentsCents: 10000,
