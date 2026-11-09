@@ -54,6 +54,7 @@
 					"imageWidth": 200
 				}
 			],
+			"./plugins/with-notification-listener.js",
 			"./plugins/with-release-signing.js"
 		],
 		"icon": "./assets/icon.png"
