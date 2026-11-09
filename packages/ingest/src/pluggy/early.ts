@@ -69,8 +69,13 @@ export async function adoptEarlyEntry(
 		);
 	const best = candidates[0];
 	if (best === undefined) return { outcome: "none" };
-	const tied = candidates.filter((c) => c.gap === best.gap).length;
-	if (tied > 1) return { outcome: "ambiguous", candidates: tied };
+	const tied = candidates.filter((c) => c.gap === best.gap);
+	// Lançamentos criados por notificação, iguais em tudo, são intercambiáveis (duas compras idênticas no mesmo dia):
+	// adota o mais antigo; o seguinte fica para a próxima transação do banco. Empate com algo digitado pelo dono é
+	// dúvida de verdade.
+	if (tied.length > 1 && !tied.every((c) => c.t.source === "notification")) {
+		return { outcome: "ambiguous", candidates: tied.length };
+	}
 
 	const adopted = await transactions.adoptExternal(best.t.id, source, mapped.externalId, {
 		date: input.date,

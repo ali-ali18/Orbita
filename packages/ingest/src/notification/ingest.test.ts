@@ -438,4 +438,36 @@ describe("notificação e depois Open Finance: um lançamento só", () => {
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ source: "pluggy" });
 	});
+
+	it("duas compras iguais no mesmo dia: 2 notificações + 2 do Pluggy = 2 lançamentos", async () => {
+		const deps = { stores, now: () => clock };
+		await ingestNotification(deps, item(NOTIFICATION));
+		await ingestNotification(deps, item(NOTIFICATION, { postedAt: POSTED + 10 * 60_000 }));
+		expect(await liveLivraria()).toHaveLength(2);
+		clock = new Date(NOW.getTime() + DAY);
+		const second = { ...pending, id: "p-2", providerId: "prov-livraria-2" };
+		const result = await sync([anchor, pending, second]);
+		expect(result.connections[0]?.adopted).toBe(2);
+		const rows = await liveLivraria();
+		expect(rows).toHaveLength(2);
+		expect(rows.map((r) => r.externalId).sort()).toEqual(["p-1", "p-2"]);
+		expect(rows.every((r) => r.source === "pluggy")).toBe(true);
+	});
+
+	it("2 notificações e só 1 do Pluggy: 2 lançamentos, um adotado e o outro aguardando o banco", async () => {
+		const deps = { stores, now: () => clock };
+		await ingestNotification(deps, item(NOTIFICATION));
+		await ingestNotification(deps, item(NOTIFICATION, { postedAt: POSTED + 10 * 60_000 }));
+		clock = new Date(NOW.getTime() + DAY);
+		await sync([anchor, pending]);
+		const rows = await liveLivraria();
+		expect(rows).toHaveLength(2);
+		expect(rows.filter((r) => r.source === "pluggy")).toHaveLength(1);
+		expect(rows.filter((r) => r.source === "notification")).toMatchObject([{ bankPending: true }]);
+		// A segunda chega depois: adota o que sobrou, sem criar terceiro.
+		clock = new Date(NOW.getTime() + 2 * DAY);
+		await sync([anchor, pending, { ...pending, id: "p-2", providerId: "prov-livraria-2" }]);
+		expect(await liveLivraria()).toHaveLength(2);
+		expect((await liveLivraria()).every((r) => r.source === "pluggy")).toBe(true);
+	});
 });
