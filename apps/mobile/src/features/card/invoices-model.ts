@@ -92,3 +92,11 @@ export function overviewDefaultMonth(
 export function barLabel(monthLabel: string, value: string, state: InvoiceStateLike): string {
 	return `Fatura de ${monthLabel}, ${value}, ${invoiceStateWord(state).toLowerCase()}`;
 }
+
+/**
+ * O que ainda se pode pagar de uma fatura: zero quando a barra (a fonte única da situação, vinda do overview) diz
+ * "paga" ou "aberta", mesmo que outra leitura ainda traga saldo. Evita "Paga" ao lado de um botão de pagar.
+ */
+export function payableForState(state: InvoiceStateLike | undefined, payableCents: Cents): Cents {
+	return state === "paid" || state === "open" ? 0 : payableCents;
+}

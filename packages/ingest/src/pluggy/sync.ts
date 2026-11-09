@@ -1,4 +1,15 @@
-import { addDays, addMonths, decimalToCents, type LocalDate, type MonthKey, toLocalDate } from "@orbita/core";
+import {
+	addDays,
+	addMonths,
+	type CardConfig,
+	decimalToCents,
+	invoiceByMonth,
+	invoiceStatus,
+	type LocalDate,
+	type MonthKey,
+	paymentWindow,
+	toLocalDate,
+} from "@orbita/core";
 import {
 	type AccountRecord,
 	type CardRecord,
@@ -658,7 +669,11 @@ async function syncConnection(
 			await storeTransactions(deps, txs, ctx, result, others, seenIds, {
 				windowFrom: from,
 				seenAt: startedAt,
-				ruleChanged: target.card ? ruleChanged.has(target.card.id) : false,
+				// Regra deduzida pelo sync vale sempre (não só na rodada em que mudou): se esta rodada falhar depois de
+				// gravar a regra, a próxima ainda refaz as linhas (só as de fatura aberta ou sem pagamento, ver abaixo).
+				ruleChanged: target.card
+					? ruleChanged.has(target.card.id) || target.card.closingRuleSource === "inferred"
+					: false,
 			});
 			await trackPresence(deps, target, seenIds, { complete, from, today, startedAt }, result);
 		}
@@ -1045,6 +1060,20 @@ const bump = (counts: ConnectionSyncResult["skipped"], key: SkipReason | "archiv
 	counts[key] = (counts[key] ?? 0) + 1;
 };
 
+/**
+ * A regra de fechamento mudou: só se refaz a linha de fatura ainda aberta ou fechada sem pagamento conhecido. Fatura já
+ * paga (ou com pagamento atribuído a ela) foi quitada pelo total que o dono viu; mover compra dela adulteraria o histórico.
+ */
+async function invoiceCanBeRecomputed(
+	transactions: SyncPluggyDeps["stores"]["transactions"],
+	card: { id: string; config: CardConfig },
+	month: MonthKey,
+	today: LocalDate,
+): Promise<boolean> {
+	if (invoiceStatus(invoiceByMonth(month, card.config), today) === "open") return true;
+	return (await transactions.listCardPayments(card.id, paymentWindow(month, card.config))).length === 0;
+}
+
 async function storeTransactions(
 	deps: SyncPluggyDeps,
 	txs: readonly PluggyTransaction[],
@@ -1184,7 +1213,15 @@ async function storeTransactions(
 					// regra antiga, também é refeita.
 					if (
 						(mapped.invoiceFromBill ||
-							bank.ruleChanged === true ||
+							(bank.ruleChanged === true &&
+								ctx.card != null &&
+								res.transaction?.invoiceMonth != null &&
+								(await invoiceCanBeRecomputed(
+									transactions,
+									ctx.card,
+									res.transaction.invoiceMonth,
+									toLocalDate(bank.seenAt),
+								))) ||
 							mapped.input.bankPending === true ||
 							res.transaction?.bankPending === true) &&
 						res.transaction &&

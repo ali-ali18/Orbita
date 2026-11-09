@@ -77,6 +77,13 @@ export interface InvoicesOverview {
 	history: InvoiceHistoryPointDto[];
 }
 
+/** Os meses que o overview olha por cartão: a aberta, a anterior a ela, o mês atual e o anterior do calendário. */
+function consideredMonths(card: CardRecord, today: LocalDate): Set<MonthKey> {
+	const thisMonth = monthOf(today);
+	const openMonth = invoiceFor(today, toCardConfig(card)).month;
+	return new Set([addMonths(thisMonth, -1), thisMonth, addMonths(openMonth, -1), openMonth]);
+}
+
 /** O que ainda se deve numa fatura: o total se aberta; o total menos o pago se fechada (nunca negativo). */
 export function invoiceOwedCents(status: InvoiceLine["status"], totalCents: Cents, paidCents: Cents): Cents {
 	return status === "open" ? Math.max(0, totalCents) : Math.max(0, totalCents - paidCents);
@@ -271,9 +278,7 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 	for (const card of cards) {
 		const openMonth = invoiceFor(today, toCardConfig(card)).month;
 		openMonths.push(openMonth);
-		const months = [
-			...new Set([addMonths(thisMonth, -1), thisMonth, addMonths(openMonth, -1), openMonth]),
-		].sort();
+		const months = [...consideredMonths(card, today)].sort();
 		const byMonth = new Map<MonthKey, InvoiceLine>();
 		for (const m of months) byMonth.set(m, await line(card, m));
 		const all = [...byMonth.values()];
@@ -326,12 +331,24 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 
 	const lastMonth = openMonths.sort().at(-1) ?? thisMonth;
 	const history: InvoiceHistoryPointDto[] = [];
-	const pointOf = async (month: MonthKey): Promise<InvoiceHistoryPointDto> => {
-		const own = await Promise.all(cards.map(async (card) => ({ card, l: await line(card, month) })));
+	const pointOf = async (month: MonthKey, future = false): Promise<InvoiceHistoryPointDto> => {
+		const own = await Promise.all(
+			cards.map(async (card) => {
+				const l = await line(card, month);
+				// Fora dos meses que o overview considera, fechada sem pagamento conhecido é histórico (anterior ao
+				// Órbita), não dívida: estado neutro, nunca "overdue".
+				const considered = consideredMonths(card, today);
+				return {
+					card,
+					l: l.state === "overdue" && !considered.has(month) ? { ...l, state: "closed" as const } : l,
+				};
+			}),
+		);
 		return {
 			month,
 			totalCents: sum(own.map((o) => Math.max(0, o.l.totalCents))),
-			open: own.some((o) => o.l.status === "open"),
+			// Mês depois do aberto: `open` fica falso (o app antigo destaca o último `open`); o `state` continua "open".
+			open: !future && own.some((o) => o.l.status === "open"),
 			state: monthState(own.map((o) => o.l.state)),
 			byCard: own.map((o) => ({
 				cardId: o.card.id,
@@ -343,7 +360,7 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 	for (let i = INVOICE_HISTORY_MONTHS - 1; i >= 0; i--) history.push(await pointOf(addMonths(lastMonth, -i)));
 	// Meses depois do aberto só entram até o último que já tem fatura (parcelas, compras futuras).
 	const future: InvoiceHistoryPointDto[] = [];
-	for (let i = 1; i <= INVOICE_FUTURE_MONTHS; i++) future.push(await pointOf(addMonths(lastMonth, i)));
+	for (let i = 1; i <= INVOICE_FUTURE_MONTHS; i++) future.push(await pointOf(addMonths(lastMonth, i), true));
 	const lastWithValue = future.findLastIndex((p) => p.totalCents > 0);
 	history.push(...future.slice(0, lastWithValue + 1));
 

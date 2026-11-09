@@ -15,7 +15,9 @@ interface BrandBase {
 	/**
 	 * Como a marca aparece no texto do estabelecimento, já sem acento nem maiúsculas e sem espaços (as janelas de 1 a 3
 	 * palavras são coladas: "pague menos" casa a chave "paguemenos"). Casa a palavra inteira; `*` no fim aceita
-	 * qualquer sufixo ("uber*" casa "uberrides"). Marca curta ou comum não leva `*` ("tim", "inter", "99").
+	 * qualquer sufixo ("uber*" casa "uberrides"). Nome curto ou que também é palavra, sobrenome ou lugar ("claro",
+	 * "tim", "inter", "vivo", "99", "claude", "amazon*", "gemini", "disney") só entra com contexto ("claro tv",
+	 * "banco inter", "claude ai") ou como chave exata: o texto do banco não distingue "Posto Rio Claro" da operadora.
 	 */
 	keys: readonly string[];
 }
@@ -36,16 +38,24 @@ const disc = (id: BrandDiscId, icon: IconName, ...keys: string[]): Brand => ({
 /** Ordem importa: a primeira marca que casa vence (Google One antes de Google; Prime Video antes de Amazon). */
 export const BRANDS: readonly Brand[] = [
 	disc("spotify", "assinatura", "spotify*"),
-	disc("googleone", "assinatura", "googleone*", "googlegemini*", "gemini"),
+	disc("googleone", "assinatura", "googleone*", "googlegemini*"),
 	disc("youtube", "assinatura", "youtube*", "youtub"),
 	disc("google", "assinatura", "google", "googleplay", "googlebrasil"),
 	disc("netflix", "assinatura", "netflix*"),
-	disc("primevideo", "reproduzir", "primevideo*", "amazonprime*", "amazonmusic*"),
-	disc("amazon", "compras", "amazon*", "amzn*"),
+	disc(
+		"primevideo",
+		"reproduzir",
+		"primevideo*",
+		"primevideobr*",
+		"amazonprimevideo*",
+		"amazonprime*",
+		"amazonmusic*",
+	),
+	disc("amazon", "compras", "amazon", "amazoncom*", "amazonmkt*", "amazonmktplace*", "amzn*"),
 	disc("icloud", "assinatura", "icloud*", "appleservices"),
 	disc("apple", "assinatura", "apple", "applecombill", "applemusic", "appletv", "applecom"),
 	disc("uber", "transporte", "uber", "uberrides", "ubertrip", "ubereats", "uberbr"),
-	disc("99", "transporte", "99", "99pop", "99food", "99taxi", "99app", "99tecnologia"),
+	disc("99", "transporte", "99pop", "99food", "99taxi", "99app", "99tecnologia"),
 	disc("ifood", "comida", "ifood*"),
 	disc("rappi", "comida", "rappi*"),
 	bank("mercadopago", "10573521", "mercadopago*"),
@@ -54,13 +64,13 @@ export const BRANDS: readonly Brand[] = [
 	disc("centauro", "compras", "centauro*"),
 	disc("steam", "lazer", "steam*", "steampowered"),
 	disc("hostinger", "codigo", "hostinger*"),
-	disc("vivo", "celular", "vivo", "telefonicabrasil"),
-	disc("claro", "celular", "claro", "clarosa", "claronet"),
-	disc("tim", "celular", "tim", "timbrasil", "timcelular"),
+	disc("vivo", "celular", "contavivo", "vivofibra", "vivomovel", "telefonica*"),
+	disc("claro", "celular", "clarosa", "clarotv", "claromovel", "claronet", "clarobrasil"),
+	disc("tim", "celular", "timsa", "timcelular", "timbrasil", "timparticipacoes"),
 	bank("nubank", "18236120", "nubank*", "nupagamentos"),
-	bank("inter", "00416968", "inter", "bancointer"),
+	bank("inter", "00416968", "bancointer*", "interco"),
 	bank("santander", "90400888", "santander*"),
-	bank("itau", "60701190", "itau*"),
+	bank("itau", "60701190", "itau", "itauunibanco*", "bancoitau*"),
 	bank("bradesco", "60746948", "bradesco*"),
 	bank("caixa", "00360305", "caixaeconomica*", "cef"),
 	disc("shopee", "compras", "shopee*"),
@@ -71,12 +81,12 @@ export const BRANDS: readonly Brand[] = [
 	disc("booking", "aviao", "booking*"),
 	disc("openai", "brilho", "openai*", "chatgpt*", "chatgp"),
 	disc("anthropic", "brilho", "anthropic*"),
-	disc("claude", "brilho", "claude*"),
-	disc("grok", "brilho", "grok*", "xai", "xaillc"),
+	disc("claude", "brilho", "claudeai*", "claudeanthropic*"),
+	disc("grok", "brilho", "grok*", "xai", "xaillc", "xaicorp*"),
 	disc("github", "codigo", "github*"),
 	disc("microsoft", "monitor", "microsoft*", "msft*", "xbox*"),
 	disc("adobe", "foto", "adobe*"),
-	disc("disneyplus", "reproduzir", "disneyplus*", "disney"),
+	disc("disneyplus", "reproduzir", "disneyplus*", "disneybrasil*"),
 	disc("max", "reproduzir", "hbomax*", "hbo"),
 	disc("globoplay", "reproduzir", "globoplay*"),
 	disc("drogasil", "saude", "drogasil*"),
@@ -104,6 +114,13 @@ function windows(tokens: readonly string[]): string[] {
 	return out;
 }
 
+/** Pix, TED e transferência: o texto depois do prefixo é o nome de quem recebeu, quase sempre uma pessoa. */
+const isTransfer = (text: string): boolean =>
+	/(^|\s)(pix|ted|doc)\s+(enviad|recebid)|^\s*(pix|ted)\b|transferencia/.test(plain(text));
+
+/** "Disney+" vira "disneyplus" (a pontuação some na separação em palavras e perderia a diferença para "Disney"). */
+const withPlus = (text: string): string => text.replace(/(\p{L})\+/gu, "$1plus");
+
 const keyMatches = (key: string, candidate: string): boolean =>
 	key.endsWith("*") ? candidate.startsWith(key.slice(0, -1)) : candidate === key;
 
@@ -122,11 +139,24 @@ function firstBrand(candidates: readonly string[]): Brand | null {
  * estabelecimento): o primeiro que reconhece vence.
  */
 export function brandOf(...texts: Array<string | null | undefined>): Brand | null {
-	for (const text of texts) {
-		if (!text) continue;
-		const byService = firstBrand(windows(tokensOf(subscriptionBrand(text))).slice(0, 1));
+	for (const raw of texts) {
+		if (!raw) continue;
+		const text = withPlus(raw);
+		const name = tokensOf(friendlyMerchantName(text));
+		if (isTransfer(text)) {
+			// Pix para pessoa nunca recebe marca: só vale se o nome inteiro de quem recebeu é a marca ("Magazine Luiza").
+			const whole = firstBrand([name.join("")]);
+			if (whole) return whole;
+			continue;
+		}
+		// O catálogo do core acha "gemini" em qualquer ponto ("Gemini Pizzaria"): o Google One só com "google" no texto.
+		const service = subscriptionBrand(text);
+		const byService =
+			service === "googleone" && !plain(text).includes("google")
+				? null
+				: firstBrand(windows(tokensOf(service)).slice(0, 1));
 		if (byService) return byService;
-		const byName = firstBrand(windows(tokensOf(friendlyMerchantName(text))));
+		const byName = firstBrand(windows(name));
 		if (byName) return byName;
 	}
 	return null;

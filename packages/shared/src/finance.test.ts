@@ -86,9 +86,12 @@ describe("cadastros", () => {
 		expect(accountCreateBody.safeParse({ name: "X", kind: "wallet", bankCode: "123" }).success).toBe(false);
 	});
 
-	it("cartão: padrão da regra só na criação, nunca no PATCH", () => {
+	it("cartão: regra ausente fica ausente (o store decide a origem), nunca no PATCH", () => {
 		const body = { name: "Nubank", closingDay: 10, dueDay: 17 };
-		expect(cardCreateBody.parse(body).closingRule).toBe("closing-day-next");
+		expect(cardCreateBody.parse(body)).not.toHaveProperty("closingRule");
+		expect(cardCreateBody.parse({ ...body, closingRule: "closing-day-included" }).closingRule).toBe(
+			"closing-day-included",
+		);
 		expect(cardUpdateBody.parse({ dueDay: 20 })).toEqual({ dueDay: 20 });
 		expect(cardCreateBody.safeParse({ ...body, closingDay: 32 }).success).toBe(false);
 		expect(cardCreateBody.safeParse({ ...body, last4: "12a4" }).success).toBe(false);

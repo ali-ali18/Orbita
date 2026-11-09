@@ -8,6 +8,7 @@ import {
 	invoiceStateTone,
 	invoiceStateWord,
 	overviewDefaultMonth,
+	payableForState,
 	selectedBarMonth,
 } from "./invoices-model.ts";
 
@@ -85,5 +86,15 @@ describe("faturas: visão geral", () => {
 	it("rótulo falado da barra", () => {
 		expect(barLabel("novembro", "R$ 1.200,00", "paid")).toBe("Fatura de novembro, R$ 1.200,00, paga");
 		expect(barLabel("dezembro", "R$ 80,00", "open")).toBe("Fatura de dezembro, R$ 80,00, aberta");
+	});
+});
+
+describe("payableForState", () => {
+	it("barra paga não oferece pagar nem mostra falta, mesmo com saldo na outra leitura", () => {
+		expect(payableForState("paid", 34_370)).toBe(0);
+		expect(payableForState("open", 500)).toBe(0);
+		expect(payableForState("closed", 34_370)).toBe(34_370);
+		expect(payableForState("overdue", 100)).toBe(100);
+		expect(payableForState(undefined, 100)).toBe(100);
 	});
 });
