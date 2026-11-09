@@ -69,7 +69,8 @@ export interface CardStore {
 	getConfig(id: string): Promise<CardConfig | null>;
 	/**
 	 * Grava o limite disponível que o banco informou e o instante da leitura. Não mexe em `updatedAt` (não é edição
-	 * do dono). `not_found` se o cartão não existe; `invalid` se `availableCents` não é inteiro de centavos.
+	 * do dono). O saldo do cartão acompanha a leitura: ausente (`undefined`/`null`) grava `null`, não mantém o último.
+	 * `not_found` se o cartão não existe; `invalid` se `availableCents` não é inteiro de centavos.
 	 */
 	recordAvailable(
 		id: string,

@@ -251,6 +251,21 @@ describe("números que o banco informa (saldo, limite disponível, faturas)", ()
 		expect((await t.stores.bills.list()).every((b) => b.syncedAt.getTime() === NOW.getTime())).toBe(true);
 	});
 
+	it("saldo do cartão ausente numa rodada em que o disponível veio grava null (não mantém o da rodada anterior)", async () => {
+		await t.run();
+		expect((await byLast4(t.stores, "1111"))?.balanceCents).not.toBeNull();
+		t.change({
+			accounts: [
+				...OWNER_ACCOUNTS.slice(0, 1),
+				{ ...card("cc-1", "1111", 5770, 5000), balance: null },
+				...OWNER_CARDS.slice(1),
+			],
+		});
+		t.setNow(LATER);
+		await t.run();
+		expect(await byLast4(t.stores, "1111")).toMatchObject({ availableCents: 500_000, balanceCents: null });
+	});
+
 	it("dado ruim não quebra a sincronização: fatura sem total ou outra moeda fica de fora", async () => {
 		t.change({
 			accounts: [bank("ba-mp", "Mercado Pago", "abc"), card("cc-1", "1111", 5770, { x: 1 } as never)],
