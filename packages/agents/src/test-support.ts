@@ -1,3 +1,4 @@
+import type { SavingsOpportunity } from "@orbita/core";
 import type {
 	BudgetBefore,
 	GoalsListResponse,
@@ -8,7 +9,14 @@ import type {
 	SetupUndo,
 	TransactionDto,
 } from "@orbita/shared";
-import type { AgentReader, AgentWriter, Catalog, InvoiceData, TransactionQuery } from "./backend.ts";
+import type {
+	AgentReader,
+	AgentWriter,
+	Catalog,
+	InvoiceData,
+	SavingsReading,
+	TransactionQuery,
+} from "./backend.ts";
 import type { ModelClient, ModelRequest, ModelResponse, TurnHandlers } from "./model.ts";
 import type { ToolContext } from "./tool.ts";
 
@@ -233,6 +241,63 @@ export const SETUP_UNDO: SetupUndo = {
 	previousBudgets: null,
 };
 
+/** Achados de exemplo do engine de economia: juros pagos (R$ 30,00 em 90 dias) e duas músicas cadastradas. */
+export const SAVINGS_OPPORTUNITIES: SavingsOpportunity[] = [
+	{
+		key: "duplicate_subscription:music:deezer+spotify",
+		type: "duplicate_subscription",
+		evidence: { transactionIds: [], subscriptionIds: ["rec-deezer", "rec-spotify"] },
+		monthlySavingsCents: 1790,
+		confidence: "high",
+		countsInTotal: true,
+		detail: {
+			group: "music",
+			services: [
+				{ name: "Deezer", amountCents: 1790, subscriptionId: "rec-deezer", transactionId: null },
+				{ name: "Spotify", amountCents: 2190, subscriptionId: "rec-spotify", transactionId: null },
+			],
+		},
+	},
+	{
+		key: "fees:interest:2026-11",
+		type: "fees",
+		evidence: { transactionIds: ["tx-juros"], subscriptionIds: [] },
+		monthlySavingsCents: 1000,
+		confidence: "high",
+		countsInTotal: true,
+		detail: { feeKind: "interest", totalCents: 3000, count: 1, windowDays: 90, monthlyCents: 1000 },
+	},
+	{
+		key: "category_above_average:cat-del:2026-11",
+		type: "category_above_average",
+		evidence: { transactionIds: ["tx-ifood"], subscriptionIds: [] },
+		monthlySavingsCents: 15000,
+		confidence: "high",
+		countsInTotal: false,
+		detail: {
+			categoryId: "cat-del",
+			spentCents: 45000,
+			averageCents: 30000,
+			excessCents: 15000,
+			percentAbove: 50,
+			monthsUsed: 3,
+			suggestedLimitCents: 30000,
+		},
+	},
+];
+
+export function savingsReading(overrides: Partial<SavingsReading> = {}): SavingsReading {
+	return {
+		month: MONTH,
+		result: { opportunities: SAVINGS_OPPORTUNITIES, totalMonthlySavingsCents: 2790 },
+		categoryNames: { "cat-del": "Delivery" },
+		remindingSubscriptionIds: ["rec-spotify"],
+		limitedCategoryIds: [],
+		autonomy: "notify",
+		...overrides,
+	};
+}
+
 export interface FakeReaderData {
 	transactions: TransactionDto[];
 	summaries: Record<string, MonthSummaryResponse>;
@@ -242,6 +307,7 @@ export interface FakeReaderData {
 	plan: PlanDto;
 	catalog: Catalog;
 	setup: SetupAnalysis;
+	savings: SavingsReading;
 }
 
 export function fakeReader(data: Partial<FakeReaderData> = {}) {
@@ -254,6 +320,7 @@ export function fakeReader(data: Partial<FakeReaderData> = {}) {
 		plan: plan(),
 		catalog: CATALOG,
 		setup: setupAnalysis(),
+		savings: savingsReading(),
 		...data,
 	};
 	const queries: TransactionQuery[] = [];
@@ -316,6 +383,9 @@ export function fakeReader(data: Partial<FakeReaderData> = {}) {
 		},
 		async setupAnalysis() {
 			return state.setup;
+		},
+		async savingsOpportunities() {
+			return state.savings;
 		},
 	};
 	return { reader, state, queries, planCalls };

@@ -10,7 +10,13 @@
  *   - dados:         AgentReader / AgentWriter (portas que o servidor implementa)
  */
 
-export { type AlertCandidate, collectAlerts, type FindingsPort, settingsFor } from "./alerts/collect.ts";
+export {
+	type AlertCandidate,
+	collectAlerts,
+	ECONOMY_ALERT_TOP,
+	type FindingsPort,
+	settingsFor,
+} from "./alerts/collect.ts";
 export {
 	CUSTOM_MAX_ITERATIONS,
 	type CustomRunDeps,
@@ -41,9 +47,18 @@ export {
 	type AgentWriter,
 	type Catalog,
 	type InvoiceData,
+	type SavingsReading,
 	ToolError,
 	type TransactionQuery,
 } from "./backend.ts";
+export {
+	OPPORTUNITY_ACTION_LABEL,
+	type OpportunityActionId,
+	opportunityActions,
+	opportunityText,
+	REPORT_TOP,
+	savingsReportText,
+} from "./economy/text.ts";
 export { getIncomePlan, proposeApplyPlan } from "./income-tools.ts";
 export {
 	type AgentEvent,
