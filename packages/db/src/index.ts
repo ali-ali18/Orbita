@@ -72,6 +72,12 @@ export type {
 } from "./income-source-store.ts";
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
+export {
+	NOTIFICATION_INBOX_LIMIT,
+	type NotificationInboxInput,
+	type NotificationInboxRecord,
+	type NotificationInboxStore,
+} from "./notification-inbox-store.ts";
 export type {
 	PluggyConnectSessionRecord,
 	PluggyConnectSessionStore,

@@ -385,10 +385,13 @@ model AppPreferences {
   /// Ou uma meta ativa (nunca os dois ao mesmo tempo). Também só a escolha: nenhum dinheiro é movido.
   leftoverGoalId       String?  @map("leftover_goal_id")
   leftoverGoal         Goal?    @relation("LeftoverGoal", fields: [leftoverGoalId], references: [id], onDelete: SetNull)
-  /// Escolhas da tela Notificações do celular. A captura ainda não existe: são só preferências guardadas.
+  /// Escolhas da tela Notificações do celular (a leitura das notificações de banco, no Android).
   notificationCapture  Boolean  @default(false) @map("notification_capture")
   notificationApps     String[] @default([]) @map("notification_apps")
+  /// Guardar na lista "Não entendi" o que o parser não reconhece (desligado: descarta).
   notificationToReview Boolean  @default(true) @map("notification_to_review")
+  /// O que o parser entendeu vai para "Para revisar" (true) em vez de entrar direto como "aguardando o banco" (false).
+  notificationAskFirst Boolean  @default(false) @map("notification_ask_first")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   @@map("app_preferences")
@@ -496,6 +499,24 @@ model ImportBatch {
 
   @@unique([fileHash, targetKey])
   @@map("import_batches")
+}
+
+/// Notificação de banco que não virou lançamento: formato que o parser não entendeu, ou cartão/conta que não achei. Só
+/// estas guardam o texto (cortado e limpo); a que virou lançamento não deixa o texto no servidor. Idempotente por `key`
+/// (hash de pacote + texto + minuto), a mesma que o lançamento usa como `externalId`.
+model NotificationInbox {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  app       String
+  title     String
+  text      String
+  /// "format" (não entendi) ou "target" (entendi, mas não achei o cartão ou a conta).
+  reason    String
+  postedAt  DateTime @map("posted_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("notification_inbox")
 }
 
 /// Conversa com a Órbita (o chat). O histórico mora no servidor: o app só mostra.

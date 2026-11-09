@@ -9,6 +9,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { clearCapture } from "../features/notifications/native.ts";
 import { type Api, createApi } from "./api.ts";
 import { NOT_NOTIFIED_MESSAGE, revokeOnServer, SESSION_ENDED_MESSAGE } from "./sign-out.ts";
 import { getItem, KEYS, removeItem, setItem } from "./storage.ts";
@@ -61,6 +62,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 		async (message: string | null) => {
 			// Mantém o endereço: ao reconectar, o campo já vem preenchido.
 			await removeItem(KEYS.token).catch(() => {});
+			// O serviço de notificações também esquece servidor, token e fila (nada fica para trás num aparelho "saído").
+			clearCapture();
 			setNotice(message);
 			setState({ status: "out" });
 			queryClient.clear();

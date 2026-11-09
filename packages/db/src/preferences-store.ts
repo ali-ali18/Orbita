@@ -6,10 +6,13 @@ export interface PreferencesRecord {
 	displayName: string | null;
 	/** Conta já marcada em "Novo lançamento". */
 	defaultAccountId: string | null;
-	/** Escolhas da tela "Notificações do celular". A captura ainda não existe: são só preferências guardadas. */
+	/** Escolhas da tela "Notificações do celular" (leitura das notificações de banco no Android). */
 	notificationCapture: boolean;
 	notificationApps: NotificationApp[];
+	/** Guardar na lista "Não entendi" o que o parser não reconhece (desligado: descarta). */
 	notificationToReview: boolean;
+	/** O que o parser entendeu vai para "Para revisar" em vez de entrar direto como "aguardando o banco". */
+	notificationAskFirst: boolean;
 	/** Avisar quando o gasto passar deste percentual do limite (1 a 100). O push ainda não existe. */
 	budgetAlertPercent: number;
 	/** Conta que recebe a sobra do mês; `null` = nenhuma. Só a escolha é guardada: nada é movido. */
@@ -26,6 +29,7 @@ export const DEFAULT_PREFERENCES: PreferencesRecord = {
 	notificationCapture: false,
 	notificationApps: [],
 	notificationToReview: true,
+	notificationAskFirst: false,
 	budgetAlertPercent: 80,
 	leftoverAccountId: null,
 	leftoverGoalId: null,

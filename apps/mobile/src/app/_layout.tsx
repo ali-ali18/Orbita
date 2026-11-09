@@ -9,6 +9,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { LockGate } from "../features/lock/LockGate.tsx";
 import { LockProvider, useLock } from "../features/lock/LockProvider.tsx";
+import { CaptureSync } from "../features/notifications/CaptureSync.tsx";
 import { AutoUpdate } from "../lib/auto-update.tsx";
 import { ClockProvider } from "../lib/clock.tsx";
 import { PrivacyProvider, usePrivacy } from "../lib/privacy.tsx";
@@ -116,6 +117,7 @@ export default function RootLayout() {
 						<SessionProvider>
 							<QueryErrorBridge target={onError} />
 							<AutoUpdate />
+							<CaptureSync />
 							<LockProvider>
 								<PrivacyProvider>
 									<StatusBar style="light" />

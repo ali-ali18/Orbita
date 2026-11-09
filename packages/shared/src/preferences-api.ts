@@ -70,27 +70,60 @@ export const preferencesPatchBody = z
 	.refine((v) => Object.keys(v).length > 0, "Envie o que mudar.");
 export type PreferencesPatchBody = z.infer<typeof preferencesPatchBody>;
 
-/** Apps de banco que o dono pode escolher para a leitura de notificações (quando ela existir). */
-export const NOTIFICATION_APPS = ["nubank", "inter", "santander", "mercadopago"] as const;
+/**
+ * Apps de banco que o dono pode escolher para a leitura de notificações. A lista é fechada: só estes pacotes (ver
+ * `NOTIFICATION_BANK_PACKAGES`) são lidos no aparelho; notificação de qualquer outro app nunca sai de lá.
+ */
+export const NOTIFICATION_APPS = [
+	"nubank",
+	"inter",
+	"santander",
+	"mercadopago",
+	"itau",
+	"bradesco",
+	"bb",
+	"caixa",
+	"c6",
+	"picpay",
+] as const;
 export type NotificationApp = (typeof NOTIFICATION_APPS)[number];
 export const NOTIFICATION_APP_LABELS: Record<NotificationApp, string> = {
 	nubank: "Nubank",
 	inter: "Inter",
 	santander: "Santander",
 	mercadopago: "Mercado Pago",
+	itau: "Itaú",
+	bradesco: "Bradesco",
+	bb: "Banco do Brasil",
+	caixa: "Caixa",
+	c6: "C6 Bank",
+	picpay: "PicPay",
 };
+/** Os bancos cujo formato de notificação foi escrito a partir de exemplos reais; os outros usam o leitor genérico. */
+export const NOTIFICATION_APPS_VERIFIED: readonly NotificationApp[] = [
+	"nubank",
+	"inter",
+	"santander",
+	"mercadopago",
+];
+/** Ligados por padrão ao ativar a leitura (só os verificados; o dono liga o resto se quiser). */
+export const NOTIFICATION_APPS_DEFAULT: readonly NotificationApp[] = NOTIFICATION_APPS_VERIFIED;
 
 export const notificationAppSchema = z.enum(NOTIFICATION_APPS, { error: "App de banco desconhecido." });
 
 /**
- * `GET /v1/notification-settings`. São só as escolhas do dono: a captura das notificações do banco ainda não
- * existe, então `active` é sempre `false` até ela ser construída (o app avisa isso na tela).
+ * `GET /v1/notification-settings`. `capture`: o dono ligou a leitura; `apps`: de quais bancos; `toReview`: guardar o que
+ * não entendi para ele ver (desligado, descarta); `askFirst`: o que entendi vai para "Para revisar" em vez de entrar
+ * direto como "aguardando o banco"; `active`: a leitura vale (ligada e com algum banco escolhido); `inbox`: quantas
+ * notificações esperam o dono na lista "Não entendi".
  */
 export const notificationSettingsSchema = z.object({
 	capture: z.boolean(),
 	apps: z.array(notificationAppSchema),
 	toReview: z.boolean(),
-	active: z.literal(false),
+	askFirst: z.boolean(),
+	active: z.boolean(),
+	inbox: z.number().int().min(0),
 });
 export type NotificationSettingsDto = z.infer<typeof notificationSettingsSchema>;
 export const notificationSettingsResponse = z.object({ notifications: notificationSettingsSchema });
@@ -101,6 +134,7 @@ export const notificationSettingsPatchBody = z
 		capture: z.boolean(),
 		apps: z.array(notificationAppSchema).max(NOTIFICATION_APPS.length, "Apps demais."),
 		toReview: z.boolean(),
+		askFirst: z.boolean(),
 	})
 	.partial()
 	.strict()
