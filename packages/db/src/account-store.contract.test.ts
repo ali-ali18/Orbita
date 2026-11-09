@@ -123,4 +123,27 @@ describe.each(contractSuites())("AccountStore: cadastro de fora (%s)", (_name, m
 			stores.accounts.create({ name: "A", kind: "checking", externalId: "x" }),
 		).rejects.toMatchObject({ code: "invalid" });
 	});
+
+	it("grava o saldo do banco (inclusive negativo) sem mexer em updatedAt e sem perder ao editar", async () => {
+		const a = await stores.accounts.create({ name: "MP", kind: "checking" });
+		expect(a).toMatchObject({ balanceCents: null, balanceSyncedAt: null });
+		const at = new Date("2026-11-09T12:00:00Z");
+		const saved = await stores.accounts.recordBalance(a.id, 20_535, at);
+		expect(saved).toMatchObject({ balanceCents: 20_535, balanceSyncedAt: at, updatedAt: a.updatedAt });
+		const later = new Date("2026-11-10T12:00:00Z");
+		expect((await stores.accounts.recordBalance(a.id, -1_500, later)).balanceCents).toBe(-1_500);
+		const renamed = await stores.accounts.update(a.id, { name: "Mercado Pago" });
+		expect(renamed).toMatchObject({ balanceCents: -1_500, balanceSyncedAt: later });
+		expect(await stores.accounts.get(a.id)).toEqual(renamed);
+	});
+
+	it("saldo: conta inexistente e valor que não é centavo inteiro são recusados", async () => {
+		const a = await stores.accounts.create({ name: "MP", kind: "checking" });
+		await expect(stores.accounts.recordBalance("nada", 1, new Date())).rejects.toMatchObject({
+			code: "not_found",
+		});
+		await expect(stores.accounts.recordBalance(a.id, 10.5, new Date())).rejects.toMatchObject({
+			code: "invalid",
+		});
+	});
 });

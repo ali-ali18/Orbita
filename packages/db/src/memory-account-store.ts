@@ -3,7 +3,7 @@ import type { AccountStore } from "./account-store.ts";
 import { DataError, notFound } from "./errors.ts";
 import { byCreated, type MemoryState } from "./memory-state.ts";
 import { EXTERNAL_TAKEN_MESSAGE } from "./messages.ts";
-import { applyPatch, normalizeAccount, normalizeIdentity } from "./rules.ts";
+import { applyPatch, cleanBalance, normalizeAccount, normalizeIdentity } from "./rules.ts";
 
 export function createMemoryAccountStore(state: MemoryState): AccountStore {
 	const need = (id: string) => {
@@ -27,6 +27,8 @@ export function createMemoryAccountStore(state: MemoryState): AccountStore {
 				id: randomUUID(),
 				...normalizeAccount(input),
 				...identity,
+				balanceCents: null,
+				balanceSyncedAt: null,
 				archivedAt: null,
 				createdAt: now,
 				updatedAt: now,
@@ -75,6 +77,11 @@ export function createMemoryAccountStore(state: MemoryState): AccountStore {
 			const updated = { ...current, externalId: next, updatedAt: state.now() };
 			state.accounts.set(id, updated);
 			return { ...updated };
+		},
+		async recordBalance(id, balanceCents, syncedAt) {
+			const next = { ...need(id), balanceCents: cleanBalance(balanceCents), balanceSyncedAt: syncedAt };
+			state.accounts.set(id, next);
+			return { ...next };
 		},
 	};
 }

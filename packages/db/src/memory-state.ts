@@ -1,5 +1,6 @@
 import type { AccountRecord } from "./account-store.ts";
 import type { AgentRecord, AlertRecord } from "./agent-store.ts";
+import type { BillRecord } from "./bill-store.ts";
 import type { BudgetRecord } from "./budget-store.ts";
 import type { CardRecord } from "./card-store.ts";
 import type { CategoryRuleRecord } from "./category-rule-store.ts";
@@ -23,6 +24,7 @@ export interface MemoryState {
 	now: Clock;
 	accounts: Map<string, AccountRecord>;
 	cards: Map<string, CardRecord>;
+	bills: Map<string, BillRecord>;
 	categories: Map<string, CategoryRecord & { createdAt: Date }>;
 	categoryRules: Map<string, CategoryRuleRecord>;
 	transactions: Map<string, StoredTransaction>;
@@ -45,6 +47,7 @@ export function createMemoryState(now: Clock = () => new Date()): MemoryState {
 		now,
 		accounts: new Map(),
 		cards: new Map(),
+		bills: new Map(),
 		categories: new Map(),
 		categoryRules: new Map(),
 		transactions: new Map(),

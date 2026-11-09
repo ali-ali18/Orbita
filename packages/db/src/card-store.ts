@@ -10,6 +10,9 @@ export interface CardRecord {
 	dueDay: number;
 	closingRule: ClosingRule;
 	limitCents: number | null;
+	/** Limite disponível que o banco informou (centavos). `null`: nunca informado. Só a sincronização grava. */
+	availableCents: number | null;
+	limitSyncedAt: Date | null;
 	/** "manual" ou a origem que criou o cartão (ex.: "pluggy"). */
 	source: TransactionSource;
 	externalId: string | null;
@@ -59,4 +62,9 @@ export interface CardStore {
 	relinkExternal(id: string, externalId: string): Promise<CardRecord | null>;
 	/** Atalho para o engine: `invoiceFor(date, (await cards.getConfig(id))!)`. */
 	getConfig(id: string): Promise<CardConfig | null>;
+	/**
+	 * Grava o limite disponível que o banco informou e o instante da leitura. Não mexe em `updatedAt` (não é edição
+	 * do dono). `not_found` se o cartão não existe; `invalid` se `availableCents` não é inteiro de centavos.
+	 */
+	recordAvailable(id: string, availableCents: number, syncedAt: Date): Promise<CardRecord>;
 }
