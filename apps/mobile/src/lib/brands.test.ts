@@ -36,6 +36,28 @@ describe("brandOf", () => {
 		expect(idOf("UBER *TRIP")).toBe("uber");
 	});
 
+	it("reconhece a marca com o contexto que a distingue da palavra comum", () => {
+		expect(idOf("AMAZON.COM.BR")).toBe("amazon");
+		expect(idOf("AmazonMktplc*Loja")).toBe("amazon");
+		expect(idOf("AMZN Mktp BR")).toBe("amazon");
+		expect(idOf("CLAUDE.AI SUBSCRIPTION")).toBe("claude");
+		expect(idOf("CLARO S.A.")).toBe("claro");
+		expect(idOf("Claro TV")).toBe("claro");
+		expect(idOf("TIM S.A.")).toBe("tim");
+		expect(idOf("TIM CELULAR")).toBe("tim");
+		expect(idOf("PG *99APP")).toBe("99");
+		expect(idOf("99 Pop")).toBe("99");
+		expect(idOf("ITAU UNIBANCO")).toBe("itau");
+		expect(idOf("Banco Itau")).toBe("itau");
+		expect(idOf("BANCO INTER")).toBe("inter");
+		expect(idOf("INTER&CO")).toBe("inter");
+		expect(idOf("VIVO FIBRA")).toBe("vivo");
+		expect(idOf("TELEFONICA BRASIL")).toBe("vivo");
+		expect(idOf("DISNEY+")).toBe("disneyplus");
+		expect(idOf("Disney Plus")).toBe("disneyplus");
+		expect(idOf("Google Gemini")).toBe("googleone");
+	});
+
 	it("banco vira o logo do banco", () => {
 		const nubank = brandOf("Nubank fatura");
 		expect(nubank).toMatchObject({ kind: "bank", logo: "18236120" });
@@ -49,6 +71,24 @@ describe("brandOf", () => {
 		expect(idOf("Caixa de Ferramentas")).toBeNull();
 		expect(idOf("Timoneiro Pesca")).toBeNull();
 		expect(idOf("Padaria do Zé")).toBeNull();
+		for (const text of [
+			"AMAZONAS ENERGIA",
+			"Drogaria Amazonas",
+			"Pix enviado - Claudete Souza",
+			"CLAUDEMIR LANCHES",
+			"Posto Rio Claro",
+			"Auto Posto Itauna",
+			"LOJA 1,99",
+			"Mercadinho 99",
+			"Restaurante Inter",
+			"Inter Shopping",
+			"Gemini Pizzaria",
+			"Oficina Disney",
+			"Posto Vivo",
+			"Pix enviado - Tim Souza",
+		]) {
+			expect(idOf(text), text).toBeNull();
+		}
 		expect(idOf("")).toBeNull();
 	});
 
