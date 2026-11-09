@@ -147,7 +147,9 @@ export const LIMIT_COHERENCE_PERCENT = 5;
  * cartão (B, o que se deve):
  * 1. L − A = B (±R$ 1): o limite é o do banco e usado = L − A (Inter, Mercado Pago e Santander, nos dados reais);
  * 2. L − A ≠ B e A + B < L: o dono baixou o limite no app do banco (ex.: aprovado 10.000, disponível 2.000,
- *    saldo 500). O limite efetivo é A + B (2.500) e o usado é B; o aprovado vai em `approvedLimitCents`;
+ *    saldo 500). O limite efetivo é A + B (2.500) e o usado é B; o aprovado vai em `approvedLimitCents`. Só vale se
+ *    B ≥ o que o Órbita sabe dever (`owedCents`) menos R$ 1: um saldo menor é velho ou de antes da fatura fechada
+ *    (não pago) e das compras novas, e não prova limite baixado; cai na estimativa;
  * 3. sem saldo do banco, ou A + B ≥ L (não fecha de jeito nenhum): se L − A passa do que o Órbita sabe dever
  *    (`plausibleUsedCents`) por mais que a tolerância, o usado é a estimativa por lançamentos (`estimated`), com o
  *    disponível do banco; senão L − A.
@@ -158,6 +160,7 @@ export function cardLimit(
 	card: CardRecord,
 	estimatedUsedCents: Cents,
 	plausibleUsedCents: Cents = Number.POSITIVE_INFINITY,
+	owedCents: Cents = 0,
 ): CardLimitDto {
 	const { limitCents, availableCents, balanceCents } = card;
 	const syncedAt = card.limitSyncedAt?.toISOString() ?? null;
@@ -167,7 +170,7 @@ export function cardLimit(
 			if (Math.abs(bankUsed - balanceCents) <= LIMIT_ROUNDING_CENTS) {
 				return { limitCents, availableCents, usedCents: bankUsed, source: "bank", syncedAt };
 			}
-			if (availableCents + balanceCents < limitCents) {
+			if (availableCents + balanceCents < limitCents && balanceCents >= owedCents - LIMIT_ROUNDING_CENTS) {
 				return {
 					limitCents: availableCents + balanceCents,
 					approvedLimitCents: limitCents,
@@ -281,7 +284,9 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 		const limit = cardLimit(
 			card,
 			owedCents + futureCents,
-			knowsCard ? owedCents + remainingCents : Number.POSITIVE_INFINITY,
+			// A parcela vigente já está em `owedCents`: só as que faltam depois dela entram (`futureCents`), sem contar duas vezes.
+			knowsCard ? owedCents + futureCents : Number.POSITIVE_INFINITY,
+			owedCents,
 		);
 		lines.push({
 			card,
