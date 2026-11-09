@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { type AgentScheduleSpec, isDue, latestOccurrence, localClock, weekdayOf } from "./agent-schedule.ts";
+import {
+	type AgentScheduleSpec,
+	invoiceClosedSince,
+	isDue,
+	latestOccurrence,
+	localClock,
+	weekdayOf,
+} from "./agent-schedule.ts";
 
 // São Paulo é UTC-3 o ano todo (sem horário de verão desde 2019).
 const sp = (iso: string) => new Date(`${iso}-03:00`);
@@ -77,5 +84,33 @@ describe("isDue", () => {
 		const monthly: AgentScheduleSpec = { frequency: "monthly", hour: 9, day: 5 };
 		expect(isDue(monthly, sp("2026-11-05T09:05:00"), sp("2026-11-30T12:00:00"))).toBe(false);
 		expect(isDue(monthly, sp("2026-11-05T09:05:00"), sp("2026-12-05T09:00:00"))).toBe(true);
+	});
+});
+
+describe("invoiceClosedSince", () => {
+	const at = (iso: string) => new Date(iso);
+
+	it("roda no dia seguinte ao fechamento, uma vez", () => {
+		// Fecha dia 5: dia 6 de novembro já vale; a última execução foi 3 de novembro.
+		expect(invoiceClosedSince([5], at("2026-11-03T12:00:00Z"), at("2026-11-06T12:00:00Z"))).toBe(true);
+		// No próprio dia do fechamento ainda não.
+		expect(invoiceClosedSince([5], at("2026-11-03T12:00:00Z"), at("2026-11-05T12:00:00Z"))).toBe(false);
+		// Depois de rodar no dia 6, não repete.
+		expect(invoiceClosedSince([5], at("2026-11-06T12:00:00Z"), at("2026-11-09T12:00:00Z"))).toBe(false);
+	});
+
+	it("vale o fechamento mais recente de qualquer cartão e recupera o que ficou parado", () => {
+		expect(invoiceClosedSince([5, 20], at("2026-10-25T12:00:00Z"), at("2026-11-09T12:00:00Z"))).toBe(true);
+		expect(invoiceClosedSince([5, 20], at("2026-11-07T12:00:00Z"), at("2026-11-09T12:00:00Z"))).toBe(false);
+	});
+
+	it("sem execução anterior ou sem cartão, a agenda normal decide", () => {
+		expect(invoiceClosedSince([5], null, at("2026-11-09T12:00:00Z"))).toBe(false);
+		expect(invoiceClosedSince([], at("2026-10-01T12:00:00Z"), at("2026-11-09T12:00:00Z"))).toBe(false);
+	});
+
+	it("vira o mês: fecha dia 28 e hoje é dia 2", () => {
+		expect(invoiceClosedSince([28], at("2026-10-20T12:00:00Z"), at("2026-11-02T12:00:00Z"))).toBe(true);
+		expect(invoiceClosedSince([28], at("2026-10-30T12:00:00Z"), at("2026-11-02T12:00:00Z"))).toBe(false);
 	});
 });

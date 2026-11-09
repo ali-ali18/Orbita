@@ -98,3 +98,32 @@ export function isDue(
 	if (lastRunAt === null) return true;
 	return before(localClock(lastRunAt, timeZone), occurrence);
 }
+
+/**
+ * Alguma fatura fechou desde a última execução? O gatilho "ao fechar fatura": a análise roda no dia seguinte ao
+ * fechamento de qualquer cartão (`closingDays` são os dias de fechamento dos cartões ativos). Se o agente nunca rodou,
+ * quem decide é a agenda normal (`isDue`); aqui é `false`. Se o worker ficou parado, uma execução recupera todas.
+ */
+export function invoiceClosedSince(
+	closingDays: readonly number[],
+	lastRunAt: Date | null,
+	now: Date,
+	timeZone: string = DEFAULT_TIME_ZONE,
+): boolean {
+	if (lastRunAt === null) return false;
+	const today = localClock(now, timeZone).date;
+	const lastRun = localClock(lastRunAt, timeZone).date;
+	for (const day of closingDays) {
+		let month = monthOf(today);
+		// O fechamento mais recente cujo "dia seguinte" já chegou.
+		for (let i = 0; i < 2; i++) {
+			const eventDate = addDays(clampDayInMonth(month, day), 1);
+			if (eventDate <= today) {
+				if (lastRun < eventDate) return true;
+				break;
+			}
+			month = addMonths(month, -1);
+		}
+	}
+	return false;
+}
