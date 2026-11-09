@@ -197,6 +197,18 @@ describe("categoria acima da média dos 3 meses", () => {
 		expect(ofType(base({ spends: rent }), "category_above_average")).toEqual([]);
 	});
 
+	it("falso positivo: 'Outros' é um balaio, não um hábito: nunca aparece como acima da média", () => {
+		const outros = (date: string, cents: number) =>
+			spend(date, cents, "Diversos", { categoryId: "outros", categorySlug: "outros" });
+		const spends = [
+			outros("2026-08-10", 10000),
+			outros("2026-09-10", 10000),
+			outros("2026-10-10", 10000),
+			outros("2026-11-03", 90000),
+		];
+		expect(ofType(base({ spends }), "category_above_average")).toEqual([]);
+	});
+
 	it("com só 2 meses de dados a confiança cai para média", () => {
 		const current = spend("2026-11-03", 45000, "Cinema", { categoryId: "lazer", categorySlug: "lazer" });
 		const two = mercadoMonths([30000, 30000, 30000]).slice(1);
@@ -360,7 +372,7 @@ describe("parcelamentos, projeção e fatura", () => {
 });
 
 describe("o conjunto", () => {
-	it("o total só soma o que não se sobrepõe e a ordem é pela maior economia", () => {
+	it("o total só soma o que não se sobrepõe e os cortes que somam vêm antes do contexto", () => {
 		const subs = [
 			{ id: "r1", name: "Spotify", amountCents: 2190, remindDayBefore: true },
 			{ id: "r2", name: "Deezer", amountCents: 1790, remindDayBefore: true },
@@ -374,9 +386,9 @@ describe("o conjunto", () => {
 			}),
 		);
 		expect(result.opportunities.map((o) => o.type)).toEqual([
-			"projected_over",
 			"duplicate_subscription",
 			"fees",
+			"projected_over",
 		]);
 		// juros 1000 (3000/3) + duplicada 1790; a projeção não entra.
 		expect(result.totalMonthlySavingsCents).toBe(2790);

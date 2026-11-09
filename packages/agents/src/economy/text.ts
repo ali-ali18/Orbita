@@ -151,7 +151,8 @@ export function savingsReportText(
 	if (top.length === 0) return null;
 	const lines = top.map((o, i) => {
 		const text = opportunityText(o, categoryName);
-		return o.monthlySavingsCents > 0
+		// Só o que soma no total leva valor: categoria, parcelas e projeção são contexto e não somam no total.
+		return o.countsInTotal && o.monthlySavingsCents > 0
 			? `${i + 1}) ${text.title}: ${money(o.monthlySavingsCents)} por mês.`
 			: `${i + 1}) ${text.title}.`;
 	});

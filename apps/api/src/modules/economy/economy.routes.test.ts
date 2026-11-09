@@ -185,7 +185,7 @@ describe("economia: registro e Desfazer", () => {
 		expect(body.activities).toHaveLength(result.applied.length);
 		const categorize = body.activities.find((a: Json) => a.kind === "categorize_transaction");
 		expect(categorize).toMatchObject({
-			summary: "Categorizei um lançamento",
+			summary: "Categorizei Padaria Estrela como Mercado",
 			status: "done",
 			canUndo: true,
 			undoneAt: null,

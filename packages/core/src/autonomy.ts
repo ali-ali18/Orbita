@@ -1,4 +1,15 @@
+import { formatBRL } from "./money.ts";
 import type { Cents, LocalDate } from "./types.ts";
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: é exatamente o que se quer remover
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g;
+
+/** Nome vindo de fora (estabelecimento, categoria) para uma frase do registro: sem controles nem marcação, curto. */
+const label = (value: string, max = 40): string => {
+	const text = value.replace(CONTROL, " ").replace(/[<>`]/g, "'").replace(/\s+/g, " ").trim();
+	return text.length === 0 ? "—" : text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+};
+const money = (cents: Cents) => formatBRL(cents, { sign: "never" });
 
 /*
  * Autonomia do agente Economia: o que ele PODE fazer sozinho e o que nunca faz. Função pura que decide, a partir
@@ -57,6 +68,8 @@ export interface UncategorizedCandidate {
 	merchant: string;
 	/** Categoria que uma regra aprendida do dono aponta (a mesma que o sync usaria); `null` = nenhuma. */
 	ruleCategoryId: string | null;
+	/** Nome da categoria da regra (para o registro). */
+	ruleCategoryName?: string;
 	/** O dono mexeu no lançamento (tipo, data, valor, conta ou revisão). */
 	editedByOwner: boolean;
 	/** O dono escolheu a categoria à mão. */
@@ -88,6 +101,8 @@ export interface SubscriptionCandidate {
 
 export interface BudgetCandidate {
 	categoryId: string;
+	/** Nome da categoria (para o registro). */
+	categoryName?: string;
 	/** O limite sugerido (a média dos 3 meses, em reais inteiros). */
 	limitCents: Cents;
 	/** Id dos lançamentos que mostram o gasto acima da média. */
@@ -197,7 +212,7 @@ export function planAutonomousActions(input: AutonomyInput): PlannedAction[] {
 		add({
 			kind: "register_subscription",
 			dedupeKey: actionKey.subscription(s.brand, s.amountCents),
-			summary: `Cadastrei a assinatura ${s.name}`,
+			summary: `Cadastrei a assinatura ${label(s.name)} (${money(s.amountCents)} por mês)`,
 			reason: `${s.occurrences} cobranças mensais seguidas de valor parecido, ainda não estava nas Assinaturas.`,
 			evidence: { transactionIds: [...s.evidenceIds] },
 			payload: {
@@ -218,8 +233,8 @@ export function planAutonomousActions(input: AutonomyInput): PlannedAction[] {
 		add({
 			kind: "set_budget_limit",
 			dedupeKey: actionKey.budget(b.categoryId),
-			summary: "Criei um limite de orçamento sugerido",
-			reason: "A categoria passou da média dos últimos 3 meses e não tinha limite.",
+			summary: `Criei um limite de ${money(b.limitCents)} para ${label(b.categoryName ?? "a categoria")}`,
+			reason: `Neste mês já foram ${money(b.spentCents)}, contra a média de ${money(b.averageCents)} dos últimos 3 meses, e a categoria não tinha limite.`,
 			evidence: { transactionIds: [...b.evidenceIds] },
 			payload: { categoryId: b.categoryId, limitCents: b.limitCents },
 		});
@@ -230,8 +245,8 @@ export function planAutonomousActions(input: AutonomyInput): PlannedAction[] {
 		add({
 			kind: "flag_duplicate",
 			dedupeKey: actionKey.duplicate(d.firstTransactionId, d.transactionId),
-			summary: "Marquei uma possível cobrança repetida para revisar",
-			reason: "Mesmo estabelecimento e mesmo valor em poucos dias.",
+			summary: `Marquei ${label(d.merchant)} para revisar (${money(d.amountCents)})`,
+			reason: "Mesmo estabelecimento e mesmo valor em poucos dias: pode ter sido cobrado em dobro.",
 			evidence: { transactionIds: [d.firstTransactionId, d.transactionId] },
 			payload: { transactionId: d.transactionId, firstTransactionId: d.firstTransactionId },
 		});
@@ -243,7 +258,7 @@ export function planAutonomousActions(input: AutonomyInput): PlannedAction[] {
 		add({
 			kind: "categorize_transaction",
 			dedupeKey: actionKey.categorize(t.id),
-			summary: "Categorizei um lançamento",
+			summary: `Categorizei ${label(t.merchant)} como ${label(t.ruleCategoryName ?? "a categoria da regra")}`,
 			reason: "Uma regra que você ensinou casa com o estabelecimento.",
 			evidence: { transactionIds: [t.id] },
 			payload: { transactionId: t.id, categoryId: t.ruleCategoryId },
@@ -258,8 +273,8 @@ export function planAutonomousActions(input: AutonomyInput): PlannedAction[] {
 			add({
 				kind: "create_savings_goal",
 				dedupeKey: actionKey.goal(),
-				summary: "Criei uma meta para o que dá para economizar",
-				reason: `Os cortes que achei somam por mês um valor que vale guardar; a meta é de ${SAVINGS_GOAL_MONTHS} meses disso.`,
+				summary: `Criei a meta ${SAVINGS_GOAL_NAME} de ${money(target)}`,
+				reason: `Os cortes que achei somam ${money(input.monthlySavingsCents)} por mês; a meta é de ${SAVINGS_GOAL_MONTHS} meses disso.`,
 				evidence: { transactionIds: [] },
 				payload: { name: SAVINGS_GOAL_NAME, targetCents: target },
 			});

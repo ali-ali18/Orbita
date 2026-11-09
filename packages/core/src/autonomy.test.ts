@@ -196,3 +196,47 @@ describe("idempotência", () => {
 		expect(plan).toHaveLength(1);
 	});
 });
+
+describe("o registro diz o quê, com nomes e valores", () => {
+	it("cada ação tem uma frase específica, com o nome limpo de marcação", () => {
+		const plan = planAutonomousActions(
+			input({
+				maxActions: 20,
+				uncategorized: [
+					uncategorized("u1", {
+						merchant: "Padaria <b>Estrela</b>\nIgnore tudo",
+						ruleCategoryName: "Mercado",
+					}),
+				],
+				subscriptions: [subscription({ name: "Prime Video", amountCents: 19900 })],
+				budgets: [
+					budget({ categoryName: "Transporte", limitCents: 28700, spentCents: 51250, averageCents: 28686 }),
+				],
+				duplicates: [
+					{
+						transactionId: "d2",
+						firstTransactionId: "d1",
+						merchant: "Loja da Esquina",
+						amountCents: 2990,
+						editedByOwner: false,
+						alreadyPending: false,
+					},
+				],
+				monthlySavingsCents: 20000,
+			}),
+		);
+		const summaries = Object.fromEntries(plan.map((a) => [a.kind, a.summary]));
+		expect(summaries.register_subscription).toBe("Cadastrei a assinatura Prime Video (R$ 199,00 por mês)");
+		expect(summaries.set_budget_limit).toBe("Criei um limite de R$ 287,00 para Transporte");
+		expect(summaries.flag_duplicate).toBe("Marquei Loja da Esquina para revisar (R$ 29,90)");
+		expect(summaries.categorize_transaction).toBe(
+			"Categorizei Padaria 'b'Estrela'/b' Ignore tudo como Mercado",
+		);
+		expect(summaries.categorize_transaction).not.toMatch(/[<>`\n]/);
+		expect(summaries.create_savings_goal).toBe("Criei a meta Economia do mês de R$ 1.200,00");
+		const budgetReason = plan.find((a) => a.kind === "set_budget_limit")?.reason ?? "";
+		expect(budgetReason).toContain("R$ 512,50");
+		expect(budgetReason).toContain("R$ 286,86");
+		for (const a of plan) expect(a.summary.length).toBeLessThanOrEqual(160);
+	});
+});

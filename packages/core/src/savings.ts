@@ -192,13 +192,15 @@ export const AVERAGE_MONTHS = 3;
 /** A categoria precisa estar pelo menos isto acima da média (%) e isto em centavos para valer um aviso. */
 export const CATEGORY_MIN_PERCENT_ABOVE = 20;
 export const CATEGORY_MIN_EXCESS_CENTS = 5000;
-/** Categorias que não são hábito de consumo: moradia (aluguel é fixo), e as que só movem dinheiro. */
+/** Categorias que não são hábito de consumo: moradia (aluguel é fixo), as que só movem dinheiro e "Outros". */
 export const CATEGORY_EXCLUDED_SLUGS: ReadonlySet<string> = new Set([
 	"moradia",
 	"transferencias",
 	"investimentos",
 	"fatura-cartao",
 	"salario",
+	// Catch-all: não é um hábito de consumo, então "acima da média" não quer dizer nada.
+	"outros",
 ]);
 /** Essencial: mercado, saúde e moradia não entram em "compras pequenas que somam". */
 export const ESSENTIAL_SLUGS: ReadonlySet<string> = new Set(["mercado", "saude", "moradia"]);
@@ -670,9 +672,14 @@ export function withoutKeys(result: SavingsResult, ignored: ReadonlySet<string>)
 	};
 }
 
-/** Maior economia primeiro; os riscos (economia 0) depois dos cortes, e o desempate pela chave. */
+/**
+ * Os cortes que somam no total vêm primeiro, do maior para o menor; depois os que só dão contexto (categoria acima da
+ * média, parcelas, projeção, fatura sem saldo), também do maior para o menor; o desempate é pela chave.
+ */
 const byImpact = (a: SavingsOpportunity, b: SavingsOpportunity): number =>
-	b.monthlySavingsCents - a.monthlySavingsCents || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+	Number(b.countsInTotal) - Number(a.countsInTotal) ||
+	b.monthlySavingsCents - a.monthlySavingsCents ||
+	(a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 
 export function findSavingsOpportunities(input: SavingsInput): SavingsResult {
 	for (const s of input.subscriptions) assertCents(s.amountCents, "amountCents");

@@ -22,6 +22,7 @@ async function clean(client: Db) {
 	await client.recurrencePosting.deleteMany();
 	await client.transaction.deleteMany();
 	await client.recurrence.deleteMany();
+	await client.categoryRule.deleteMany();
 	await client.budget.deleteMany();
 	await client.card.deleteMany();
 	await client.account.deleteMany();

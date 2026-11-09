@@ -68,6 +68,7 @@ async function gatherInput(
 		loadSetupAnalysis(stores, today),
 	]);
 	const activeCategories = new Set(categories.filter((c) => c.archivedAt === null).map((c) => c.id));
+	const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
 
 	// Sem categoria: só os do mês e do anterior (o passado distante o dono já viu).
 	const recent = (
@@ -83,6 +84,7 @@ async function gatherInput(
 			amountCents: t.amountCents,
 			merchant: t.merchantName ?? t.description,
 			ruleCategoryId: rule && activeCategories.has(rule.categoryId) ? rule.categoryId : null,
+			ruleCategoryName: rule ? (categoryNames.get(rule.categoryId) ?? "") : "",
 			editedByOwner: t.editedByOwner,
 			categoryEditedByOwner: t.categoryEditedByOwner,
 			categoryId: t.categoryId,
@@ -121,6 +123,7 @@ async function gatherInput(
 			? [
 					{
 						categoryId: o.detail.categoryId,
+						categoryName: categoryNames.get(o.detail.categoryId) ?? "",
 						limitCents: o.detail.suggestedLimitCents,
 						evidenceIds: o.evidence.transactionIds,
 						spentCents: o.detail.spentCents,
