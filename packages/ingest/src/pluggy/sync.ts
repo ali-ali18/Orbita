@@ -19,6 +19,7 @@ import {
 	RECOMPUTED_TRANSFER_NOTE,
 	reconcileAcrossConnections,
 } from "./cross.ts";
+import { adoptEarlyEntry, POSSIBLE_DUPLICATE_NOTE } from "./early.ts";
 import { PluggyError, safeErrorMessage } from "./errors.ts";
 import {
 	assignBillPayments,
@@ -92,6 +93,10 @@ export interface ConnectionSyncResult {
 	failed: number;
 	/** Lançamentos antigos corrigidos nesta rodada (receita gravada como despesa, transferência própria que contava como gasto). */
 	reclassified?: number;
+	/** Lançamentos do dono (manual, chat, extrato) que o Pluggy trouxe depois e passaram a ser o mesmo registro. */
+	adopted?: number;
+	/** Lançamentos do Pluggy gravados para revisão porque mais de um lançamento do dono servia (possível duplicata). */
+	possibleDuplicates?: number;
 	skipped: Partial<Record<SkipReason | "archived_account", number>>;
 	/** Avisos que não são erro (conta ignorada, por exemplo). Sem segredo. */
 	notes: string[];
@@ -485,6 +490,16 @@ async function syncConnection(
 				`${result.reclassified} lançamento(s) antigo(s) foram corrigidos (receita ou transferência entre contas suas que estavam como gasto).`,
 			);
 		}
+		if ((result.adopted ?? 0) > 0) {
+			result.notes.push(
+				`${result.adopted} lançamento(s) que você já tinha feito foram ligados ao banco, sem duplicar.`,
+			);
+		}
+		if ((result.possibleDuplicates ?? 0) > 0) {
+			result.notes.push(
+				`${result.possibleDuplicates} lançamento(s) do banco parecem repetir mais de um lançamento seu e foram para revisão.`,
+			);
+		}
 		const othersNote = describeOthers(others);
 		if (othersNote !== null) result.notes.push(othersNote);
 		const unlinked = result.skipped.card_payment_unlinked ?? 0;
@@ -703,7 +718,23 @@ async function storeTransactions(
 				continue;
 			}
 			if (mapped.action === "upsert") {
-				const res = await upsertTransaction(transactions, mapped, result);
+				const early = await adoptEarlyEntry(transactions, PLUGGY_SOURCE, mapped);
+				if (early.outcome === "adopted") result.adopted = (result.adopted ?? 0) + 1;
+				// Vários lançamentos do dono servem: não adota às cegas. Grava o do banco para revisão.
+				const toStore =
+					early.outcome === "ambiguous"
+						? {
+								...mapped,
+								input: {
+									...mapped.input,
+									status: "pending" as const,
+									note: mapped.input.note ?? POSSIBLE_DUPLICATE_NOTE,
+								},
+							}
+						: mapped;
+				const res = await upsertTransaction(transactions, toStore, result);
+				if (early.outcome === "ambiguous" && res.created)
+					result.possibleDuplicates = (result.possibleDuplicates ?? 0) + 1;
 				if (res.created) {
 					result.created += 1;
 					if (mapped.categorySource === "none" && mapped.input.kind === "expense") {

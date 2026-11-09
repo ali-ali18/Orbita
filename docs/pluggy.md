@@ -94,6 +94,24 @@ Como o Órbita sincroniza contas, cartões e lançamentos do Meu Pluggy (plano p
 - Aplicação entra como gasto na categoria Investimentos; resgate e rendimento entram como receita nessa categoria. Transferência entre contas suas continua de fora. Ver "Classificação".
 - Lançamentos de moeda estrangeira sem valor convertido são ignorados.
 
+## Lançamentos antecipados (sem duplicar)
+
+O Open Finance demora dias; o dono costuma lançar antes (à mão, pelo chat, ou importando extrato). Quando a compra chega pelo Pluggy, o sync **adota** o lançamento dele em vez de criar outro. Código em `packages/ingest/src/pluggy/early.ts` (`adoptEarlyEntry`), chamado por `storeTransactions` só para transação cujo `externalId` ainda não existe; método `TransactionStore.adoptExternal` (Prisma e memória, teste de contrato).
+
+**Quem é candidato:** lançamento vivo cuja origem NÃO é `pluggy` (manual, notificação, comprovante, `import`; os já casados viram `pluggy` e saem do páreo), na mesma conta ou no mesmo cartão, do mesmo tipo e com o mesmo valor em centavos.
+
+| Caso                                                     | Janela (data do banco, que no cartão é a da compra)                                          |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Despesa e receita                                        | até 3 dias para cada lado                                                                    |
+| Parcela                                                  | mesma parcela n/N; data até 3 dias **ou** mesma fatura (busca até 45 dias); à vista não casa |
+| Pagamento de fatura (`card_payment`, "Marcar como paga") | mesmo cartão, mesma conta se as duas informam, até 5 dias                                    |
+
+**Decisão:** um candidato mais próximo na data, sozinho, é adotado. Empate no mais próximo (dois lançamentos iguais no mesmo dia, por exemplo) é ambíguo: **nada é adotado**, o lançamento do banco é criado `pending` com a nota "Possível duplicata…" (cai em Para revisar) e a conexão ganha a nota "N lançamento(s) do banco parecem repetir mais de um lançamento seu" (`possibleDuplicates`). Na rodada seguinte o `externalId` já existe e nada se repete.
+
+**O que a adoção faz:** o registro ganha `source = pluggy` e o `externalId` do Pluggy, então os próximos syncs o atualizam como qualquer outro. Vêm do banco: a data, o mês do orçamento e a fatura (não nas parcelas, que seguem o cronograma do dono, nem no pagamento de fatura), a categoria do banco/merchant informativos. **Preservado:** descrição, nota, situação (pendente continua pendente), marca de categoria escolhida e a categoria do dono (a do banco só entra se ele não tinha uma). A conexão conta em `adopted` ("N lançamento(s) que você já tinha feito foram ligados ao banco"). Sync repetido é idempotente.
+
+**Efeitos a saber:** (1) o lançamento adotado passa a ser da origem Pluggy, então "apagar tudo do Pluggy" (`hardDeleteBySource`) também o leva; (2) de extrato importado, o `externalId` do arquivo se perde, então reimportar o mesmo extrato já não o reconhece como "duplicate" (aparece como "possible_duplicate" pela data e valor); (3) se o dono apagou o lançamento antes do sync, nada é adotado e a compra do banco entra normalmente.
+
 ## Datas do cartão
 
 O `creditData.balanceCloseDate`/`balanceDueDate` costuma vir nulo no MeuPluggy; antes o cartão era descartado e nenhuma compra entrava. Agora `resolveCardDates` (função pura em `mapping.ts`) escolhe, nesta ordem:
