@@ -33,6 +33,7 @@ import {
 	LimitWide,
 	WalletWide,
 } from "./variants.tsx";
+import { WIDGET_ROUTES } from "./widget-routes.ts";
 
 /** Tudo que os widgets exibem, já carregado pela tela (cada widget só desenha o que a API devolveu). */
 export interface HomeWidgetData {
@@ -61,32 +62,32 @@ export function WidgetBody({ item, data }: { item: HomeLayoutItem; data: HomeWid
 			return <HeroCard state={data.summary} hidden={hidden} compact={size === "2x4"} />;
 		case "wallet":
 			return size === "2x4" ? (
-				<WalletWide state={data.overview} hidden={hidden} onPress={() => open("/cartao?aba=faturas")} />
+				<WalletWide state={data.overview} hidden={hidden} onPress={() => open(WIDGET_ROUTES.wallet)} />
 			) : (
 				<WalletBlock
 					overview={data.overview}
 					today={today}
 					hidden={hidden}
-					onOpen={() => open("/cartao?aba=faturas")}
+					onOpen={() => open(WIDGET_ROUTES.wallet)}
 				/>
 			);
 		case "balance": {
-			const onPress = () => open("/saldo");
+			const onPress = () => open(WIDGET_ROUTES.balance);
 			if (size === "2x4") return <BalanceWide state={data.balances} hidden={hidden} onPress={onPress} />;
 			if (size === "4x4") return <BalanceTall state={data.balances} hidden={hidden} onPress={onPress} />;
 			return <BalanceTile state={data.balances} hidden={hidden} onPress={onPress} />;
 		}
 		case "limit": {
-			const onPress = () => open("/cartao?aba=limites");
+			const onPress = () => open(WIDGET_ROUTES.limit);
 			if (size === "2x4") return <LimitWide state={data.overview} hidden={hidden} onPress={onPress} />;
 			if (size === "4x4") return <LimitTall state={data.overview} hidden={hidden} onPress={onPress} />;
 			return <LimitTile state={data.overview} hidden={hidden} onPress={onPress} />;
 		}
 		case "cashflow":
 			return size === "2x4" ? (
-				<CashFlowWide state={data.cashFlow} hidden={hidden} onPress={() => open("/fluxo")} />
+				<CashFlowWide state={data.cashFlow} hidden={hidden} onPress={() => open(WIDGET_ROUTES.cashflow)} />
 			) : (
-				<CashFlowTile state={data.cashFlow} hidden={hidden} onPress={() => open("/fluxo")} />
+				<CashFlowTile state={data.cashFlow} hidden={hidden} onPress={() => open(WIDGET_ROUTES.cashflow)} />
 			);
 		case "installments":
 			return size === "2x4" ? (
@@ -94,14 +95,14 @@ export function WidgetBody({ item, data }: { item: HomeLayoutItem; data: HomeWid
 					state={data.installments}
 					month={month}
 					hidden={hidden}
-					onPress={() => open("/cartao?aba=parcelas")}
+					onPress={() => open(WIDGET_ROUTES.installments)}
 				/>
 			) : (
 				<InstallmentsSquare
 					installments={data.installments}
 					month={month}
 					hidden={hidden}
-					onPress={() => open("/cartao?aba=parcelas")}
+					onPress={() => open(WIDGET_ROUTES.installments)}
 				/>
 			);
 		case "categories":
@@ -109,21 +110,22 @@ export function WidgetBody({ item, data }: { item: HomeLayoutItem; data: HomeWid
 				<CategoriesSquare
 					state={data.summary}
 					hidden={hidden}
-					onPress={() => open("/configuracoes/orcamento")}
+					onPress={() => open(WIDGET_ROUTES.categories)}
 				/>
 			) : (
-				<CategoriesCard
-					state={data.summary}
-					hidden={hidden}
-					onPress={() => open("/configuracoes/orcamento")}
-				/>
+				<CategoriesCard state={data.summary} hidden={hidden} onPress={() => open(WIDGET_ROUTES.categories)} />
 			);
 		case "subscriptions":
 			return (
-				<SubscriptionsWidget size={size} today={today} hidden={hidden} onPress={() => open("/assinaturas")} />
+				<SubscriptionsWidget
+					size={size}
+					today={today}
+					hidden={hidden}
+					onPress={() => open(WIDGET_ROUTES.subscriptions)}
+				/>
 			);
 		case "report":
-			return <ReportLink month={month} onPress={() => open("/relatorio")} />;
+			return <ReportLink month={month} onPress={() => open(WIDGET_ROUTES.report)} />;
 		case "recent":
 			return (
 				<RecentCard
@@ -134,7 +136,7 @@ export function WidgetBody({ item, data }: { item: HomeLayoutItem; data: HomeWid
 					today={today}
 					hidden={hidden}
 					{...(size === "2x4" ? { max: 2 } : {})}
-					onSeeAll={() => open("/atividades")}
+					onSeeAll={() => open(WIDGET_ROUTES.recent)}
 					onOpen={data.openTransaction}
 				/>
 			);
