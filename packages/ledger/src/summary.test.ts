@@ -1,7 +1,7 @@
 import { createMemoryStores } from "@orbita/db";
 import { PAYMENT_REVIEW_NOTE } from "@orbita/ingest";
 import { describe, expect, it } from "vitest";
-import { countsAsSpending, loadSpendingMonth, monthSummary } from "./summary.ts";
+import { cardInvoice, countsAsSpending, loadSpendingMonth, monthSummary } from "./summary.ts";
 
 const NOW = new Date("2026-11-12T15:00:00Z");
 const TODAY = "2026-11-12";
@@ -102,5 +102,61 @@ describe("resgate no resumo do mês", () => {
 		});
 		const { summary } = await monthSummary(stores, "2026-11", TODAY);
 		expect(summary).toMatchObject({ investedCents: 60_000, incomeCents: 500, spentCents: 0 });
+	});
+});
+
+describe("fatura paga com pagamento adiantado", () => {
+	async function manualCard() {
+		const { stores } = await seed();
+		const account = (await stores.accounts.list())[0];
+		const card = await stores.cards.create({ name: "Manual", closingDay: 25, dueDay: 5 });
+		const pay = (date: string, amountCents: number) =>
+			stores.transactions.create({
+				kind: "card_payment",
+				amountCents,
+				date,
+				description: "Fatura",
+				accountId: account?.id,
+				cardId: card.id,
+			});
+		const bill = (externalId: string, dueDate: string, closeDate: string, totalAmountCents: number) =>
+			stores.bills.upsert({
+				cardId: card.id,
+				source: "pluggy",
+				externalId,
+				dueDate,
+				closeDate,
+				totalAmountCents,
+				payments: [],
+				syncedAt: NOW,
+			});
+		return { stores, card, pay, bill };
+	}
+
+	it("cartão manual: pagamento da fatura anterior (compras de antes do Órbita) não marca a seguinte como paga", async () => {
+		const { stores, card, pay } = await manualCard();
+		await stores.transactions.create({
+			kind: "expense",
+			amountCents: 30_000,
+			date: "2026-11-10",
+			description: "Compra",
+			cardId: card.id,
+			invoiceMonth: "2026-12",
+		});
+		await pay("2026-11-03", 80_000); // pagou a 2026-11, cujas compras são anteriores ao Órbita
+		const { invoice } = await cardInvoice(stores, card.id, "2026-12", "2026-11-28");
+		expect(invoice.paidCents).toBe(0);
+		expect(invoice.paymentStatus).toBe("unpaid");
+	});
+
+	it("pagamento atrasado de M-2 depois do fechamento de M-1 não marca M como paga", async () => {
+		const { stores, card, pay, bill } = await manualCard();
+		await bill("b-out", "2026-10-05", "2026-09-25", 50_000);
+		await bill("b-nov", "2026-11-05", "2026-10-25", 30_000);
+		await bill("b-dez", "2026-12-05", "2026-11-25", 30_000);
+		await pay("2026-10-28", 80_000); // atrasado: quita a 2026-10 (50.000) e a 2026-11 (30.000)
+		const dez = await cardInvoice(stores, card.id, "2026-12", "2026-11-28");
+		expect(dez.invoice.paidCents).toBe(0);
+		expect(dez.invoice.paymentStatus).toBe("unpaid");
 	});
 });

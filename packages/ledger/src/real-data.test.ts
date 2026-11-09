@@ -146,7 +146,8 @@ describe("Faturas e limites (dados fictícios)", () => {
 		const { invoice } = await cardInvoice(stores, id, "2026-11", TODAY);
 		// O banco mostra essa fatura com total 0 e o pagamento de 03/11 (1.383,88) na anterior: o app diz "Paga".
 		expect(invoice).toMatchObject({ status: "closed", paymentStatus: "paid" });
-		expect(invoice.paidCents).toBeGreaterThan(0); // o excedente do pagamento adiantado, que a anterior não absorveu
+		// Total 0 no banco: o excedente do adiantado é limitado ao total desta fatura, então não sobra pago; ela já está quitada.
+		expect(invoice.paidCents).toBe(0);
 		const before = await cardInvoice(stores, id, "2026-10", TODAY);
 		expect(before.invoice).toMatchObject({ paidCents: 105114, paymentStatus: "paid" }); // só até o total dela
 	});

@@ -125,4 +125,32 @@ describe("paidWithAdvance", () => {
 			}),
 		).toBe(90000);
 	});
+
+	it("total da anterior desconhecido (null): nenhum excedente é repassado", () => {
+		const payments = [{ date: "2026-11-03", amountCents: 80000 }];
+		expect(
+			paidWithAdvance({ ...base, payments, month: "2026-12", totalCents: 30000, previousTotalCents: null }),
+		).toBe(0);
+	});
+
+	it("o excedente repassado nunca passa do total da própria fatura", () => {
+		const payments = [{ date: "2026-11-03", amountCents: 80000 }];
+		expect(
+			paidWithAdvance({ ...base, payments, month: "2026-12", totalCents: 30000, previousTotalCents: 10000 }),
+		).toBe(30000);
+	});
+
+	it("pagamento atrasado de M-2 (depois do fechamento de M-1) quita M-2 primeiro e não marca M", () => {
+		const payments = [{ date: "2026-10-28", amountCents: 80000 }]; // janela da 2026-11; deve a 2026-10 (50.000)
+		expect(
+			paidWithAdvance({
+				...base,
+				payments,
+				month: "2026-12",
+				totalCents: 30000,
+				previousTotalCents: 30000,
+				olderTotalCents: 50000,
+			}),
+		).toBe(0);
+	});
 });

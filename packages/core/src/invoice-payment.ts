@@ -53,7 +53,8 @@ export function paidForInvoice(
  * Pago de uma fatura FECHADA contando o pagamento adiantado. A regra de `paidForInvoice` manda o pagamento feito antes
  * do fechamento para a fatura anterior (a mais antiga), mas se essa já estava quitada o que sobra pagou a que estava
  * aberta naquele dia e fechou logo depois (o banco a mostra como paga, com total 0). Então:
- * - entra o excedente da janela da fatura anterior sobre o total dela (`previousTotalCents`);
+ * - entra o excedente da janela da fatura anterior sobre o total dela (`previousTotalCents`, só se vem do banco),
+ *   limitado ao total desta;
  * - sai da própria janela o excedente sobre o total (`totalCents`), mas só quando a fatura seguinte já fechou (se
  *   ainda está aberta, o excedente fica aqui, como antes, e não se perde).
  * Fatura ainda aberta não recebe nem repassa nada (não há o que pagar): vale `paidForInvoice`.
@@ -65,17 +66,31 @@ export function paidWithAdvance(input: {
 	today: LocalDate;
 	/** Total da fatura de `month` (do banco ou dos lançamentos). */
 	totalCents: Cents;
-	/** Total da fatura anterior. */
-	previousTotalCents: Cents;
+	/**
+	 * Total da fatura anterior, só quando vem do banco. `null` (soma dos lançamentos, que pode estar subestimada por
+	 * compras anteriores ao Órbita): não repassa excedente nenhum, o pagamento fica com a fatura a que pertence.
+	 */
+	previousTotalCents: Cents | null;
+	/** Total (banco ou lançamentos) da fatura de dois meses antes: o pagamento atrasado dela quita antes de sobrar. */
+	olderTotalCents?: Cents | null;
 }): Cents {
 	const { payments, month, card, today } = input;
 	const own = paidForInvoice(payments, month, card);
 	if (invoiceStatus(invoiceByMonth(month, card), today) === "open") return own;
 	const previous = addMonths(month, -1);
-	const overflowIn = Math.max(
-		0,
-		paidForInvoice(payments, previous, card) - Math.max(0, input.previousTotalCents),
-	);
+	let overflowIn = 0;
+	if (input.previousTotalCents !== null) {
+		// Pagamento atrasado da fatura de dois meses antes cai na janela da anterior: cobre primeiro a dívida dela.
+		const olderMonth = addMonths(month, -2);
+		const olderDeficit =
+			input.olderTotalCents == null
+				? 0
+				: Math.max(0, input.olderTotalCents - paidForInvoice(payments, olderMonth, card));
+		overflowIn = Math.min(
+			Math.max(0, input.totalCents),
+			Math.max(0, paidForInvoice(payments, previous, card) - olderDeficit - Math.max(0, input.previousTotalCents)),
+		);
+	}
 	const next = invoiceByMonth(addMonths(month, 1), card);
 	const keptOwn = invoiceStatus(next, today) === "open" ? own : Math.min(own, Math.max(0, input.totalCents));
 	return keptOwn + overflowIn;

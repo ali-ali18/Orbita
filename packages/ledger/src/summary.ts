@@ -399,16 +399,16 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 	const invoice = invoiceByMonth(month, toCardConfig(card));
 	const config = toCardConfig(card);
 	const previousMonth = addMonths(month, -1);
-	const [posted, payments, groups, previousPosted] = await Promise.all([
+	const [posted, payments, groups, olderPosted] = await Promise.all([
 		stores.transactions.listByInvoice(cardId, month),
 		// Da janela da fatura anterior à desta: o pagamento adiantado que sobra da anterior vale para esta.
 		stores.transactions.listCardPayments(cardId, {
-			from: paymentWindow(previousMonth, config).from,
+			from: paymentWindow(addMonths(month, -2), config).from,
 			to: paymentWindow(month, config).to,
 		}),
 		// A parcela de dezembro pode ainda não ter lançamento: o grupo visto nos meses anteriores a projeta.
 		stores.transactions.listInstallmentGroups(addMonths(month, -71)),
-		stores.transactions.listByInvoice(cardId, previousMonth),
+		stores.transactions.listByInvoice(cardId, addMonths(month, -2)),
 	]);
 	const open = invoiceStatus(invoice, today) === "open";
 	const txs = [...posted, ...(open ? projectedRows(groups, cardId, month, invoice.closingDate, posted) : [])];
@@ -430,13 +430,16 @@ export async function cardInvoice(stores: Stores, cardId: string, month: MonthKe
 	// Pago = pagamentos de fatura (`card_payment`) atribuídos a esta fatura (regra em `invoice-payment.ts` do core),
 	// inclusive o adiantado de antes do fechamento que a fatura anterior, já quitada, não absorveu.
 	const previousBill = open ? undefined : bankTotalOf(previousMonth);
+	const olderBill = open ? undefined : bankTotalOf(addMonths(month, -2));
 	const paidCents = paidWithAdvance({
 		payments,
 		month,
 		card: config,
 		today,
 		totalCents: bill?.totalAmountCents ?? composition.totalCents,
-		previousTotalCents: previousBill?.totalAmountCents ?? invoiceComposition(previousPosted).totalCents,
+		// Só o total do banco prova o quanto a anterior absorve; a soma dos lançamentos pode ignorar compras de antes do Órbita.
+		previousTotalCents: previousBill?.totalAmountCents ?? null,
+		olderTotalCents: olderBill?.totalAmountCents ?? invoiceComposition(olderPosted).totalCents,
 	});
 	return {
 		card,
