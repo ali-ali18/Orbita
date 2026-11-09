@@ -8,12 +8,13 @@ import { modelLabel } from "../settings/ai-model.ts";
 import { useAiSettings } from "../settings/ai-queries.ts";
 import { useProfile } from "../settings/preferences-queries.ts";
 import { isAffectedByNewTransaction } from "../transactions/new-transaction-model.ts";
+import { pickAttachment } from "./attach-native.ts";
+import { type AttachKind, type PendingAttachment, userBubbleText } from "./attachment-model.ts";
 import { ChatHistorySheet } from "./ChatHistorySheet.tsx";
 import { ChatView, type ProposalAction } from "./ChatView.tsx";
 import { streamChat } from "./chat-client.ts";
 import { chatFetch } from "./chat-fetch.ts";
 import { chatReducer, initialChatState } from "./chat-model.ts";
-import { pickLocalFile } from "./pick-file.ts";
 import { isAffectedBySetup } from "./setup-card-model.ts";
 
 /**
@@ -92,12 +93,20 @@ export function ChatScreen() {
 		}
 	};
 
-	const send = (text: string) =>
-		stream(text, {
-			message: text,
+	const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
+
+	const send = async (text: string) => {
+		// O arquivo segue na mensagem e sai do campo; se o envio nem começar (resposta em andamento), fica onde estava.
+		const files = attachment ? [{ mediaType: attachment.mediaType, data: attachment.data }] : [];
+		if (stateRef.current.busy) return;
+		setAttachment(null);
+		await stream(userBubbleText(text, files.length), {
+			...(text ? { message: text } : {}),
+			...(files.length > 0 ? { attachments: files } : {}),
 			...(typeof agentId === "string" && agentId ? { agentId } : {}),
 			...(stateRef.current.conversationId ? { conversationId: stateRef.current.conversationId } : {}),
 		});
+	};
 
 	// "Configurar com a Órbita": abre a tela já rodando a tarefa, uma vez só (voltar ao chat não reinicia).
 	const startedSetup = useRef(false);
@@ -180,24 +189,10 @@ export function ChatScreen() {
 		void openRef.current(openId);
 	}, [requested, openId, api]);
 
-	const attach = async (kind: "receipt" | "photo") => {
-		if (typeof document === "undefined") {
-			dispatch({
-				type: "local",
-				id: nextId(),
-				userText: kind === "receipt" ? "Comprovante" : "Foto",
-				replyText: "Ainda não dá para escolher o arquivo neste aparelho.",
-			});
-			return;
-		}
-		const picked = await pickLocalFile(kind);
-		if (!picked) return;
-		dispatch({
-			type: "local",
-			id: nextId(),
-			userText: kind === "receipt" ? "Comprovante" : "Foto",
-			replyText: "Recebi. Ainda não leio comprovante nem foto: o valor dá para lançar por escrito.",
-		});
+	const attach = async (kind: AttachKind) => {
+		const picked = await pickAttachment(kind);
+		if (picked.status === "ok") setAttachment(picked.attachment);
+		else if (picked.status === "error") dispatch({ type: "notice", id: nextId(), text: picked.message });
 	};
 
 	return (
@@ -210,6 +205,8 @@ export function ChatScreen() {
 				onHistory={() => setHistoryOpen(true)}
 				onSend={(text) => void send(text)}
 				onAttach={(kind) => void attach(kind)}
+				attachment={attachment}
+				onRemoveAttachment={() => setAttachment(null)}
 				onProposal={(action, proposal, selection) => void answerProposal(action, proposal, selection)}
 				onOpenTransaction={(id) => router.push(`/lancamento/${id}`)}
 				onOpenServer={() => router.push("/configuracoes/servidor")}

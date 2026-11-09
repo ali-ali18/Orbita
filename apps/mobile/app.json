@@ -32,6 +32,22 @@
 			"expo-font",
 			"expo-local-authentication",
 			[
+				"expo-image-picker",
+				{
+					"photosPermission": "A Órbita acessa suas fotos só para você anexar um comprovante ao chat.",
+					"cameraPermission": "A Órbita usa a câmera só para você fotografar um comprovante e anexar ao chat.",
+					"microphonePermission": false
+				}
+			],
+			[
+				"expo-speech-recognition",
+				{
+					"microphonePermission": "A Órbita usa o microfone só para transformar sua fala em texto no chat.",
+					"speechRecognitionPermission": "A Órbita usa o reconhecimento de voz só para transformar sua fala em texto no chat.",
+					"androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+				}
+			],
+			[
 				"expo-splash-screen",
 				{
 					"backgroundColor": "#000000",

@@ -37,6 +37,8 @@ O APK carrega duas coisas para receber atualizações de JavaScript do servidor 
 
 O app só checa atualização se o servidor pareado for o mesmo host de `ORBITA_PUBLIC_URL` (`apps/mobile/src/lib/updates.ts`). Sem servidor pareado, com outro servidor, em dev ou na web, nada é checado.
 
+**Permissões do chat:** `expo-image-picker` pede `CAMERA` (só ao tocar em _Tirar foto_; a galeria usa o seletor do sistema) e `expo-speech-recognition` pede `RECORD_AUDIO` (só ao tocar no microfone). Os textos de justificativa em pt-BR ficam nos plugins do `app.json`. Foram acrescentados os módulos nativos `expo-image-picker`, `expo-image-manipulator` e `expo-speech-recognition`: **o primeiro APK com anexos e ditado exige instalar o APK novo** (o `runtimeVersion` muda, então o APK antigo continua funcionando, mas não recebe este JS por OTA).
+
 **Precisa de APK novo** quando muda algo nativo (dependência nativa, versão do Expo/React Native, permissões, ícone, plugin, certificado OTA): o `runtimeVersion` muda e o APK antigo para de receber o JS novo, mas continua funcionando. Mudou só JS? Basta o merge na `main`.
 
 ## Chave de assinatura
