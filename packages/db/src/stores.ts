@@ -29,6 +29,7 @@ import { createMemoryHomeLayoutStore } from "./memory-home-layout-store.ts";
 import { createMemoryIdempotencyStore } from "./memory-idempotency-store.ts";
 import { createMemoryImportBatchStore } from "./memory-import-batch-store.ts";
 import { createMemoryIncomeSourceStore } from "./memory-income-source-store.ts";
+import { createMemoryNotificationInboxStore } from "./memory-notification-inbox-store.ts";
 import { createMemoryPluggyConnectSessionStore } from "./memory-pluggy-connect-session-store.ts";
 import { createMemoryPluggyConnectionStore } from "./memory-pluggy-connection-store.ts";
 import { createMemoryPreferencesStore } from "./memory-preferences-store.ts";
@@ -36,6 +37,7 @@ import { createMemoryRecurrenceStore } from "./memory-recurrence-store.ts";
 import { createMemorySecretStore } from "./memory-secret-store.ts";
 import { type Clock, createMemoryState } from "./memory-state.ts";
 import { createMemoryTransactionStore } from "./memory-transaction-store.ts";
+import type { NotificationInboxStore } from "./notification-inbox-store.ts";
 import type { PluggyConnectSessionStore } from "./pluggy-connect-session-store.ts";
 import type { PluggyConnectionStore } from "./pluggy-connection-store.ts";
 import type { PreferencesStore } from "./preferences-store.ts";
@@ -54,6 +56,7 @@ import { createPrismaHomeLayoutStore } from "./prisma-home-layout-store.ts";
 import { createPrismaIdempotencyStore } from "./prisma-idempotency-store.ts";
 import { createPrismaImportBatchStore } from "./prisma-import-batch-store.ts";
 import { createPrismaIncomeSourceStore } from "./prisma-income-source-store.ts";
+import { createPrismaNotificationInboxStore } from "./prisma-notification-inbox-store.ts";
 import { createPrismaPluggyConnectSessionStore } from "./prisma-pluggy-connect-session-store.ts";
 import { createPrismaPluggyConnectionStore } from "./prisma-pluggy-connection-store.ts";
 import { createPrismaPreferencesStore } from "./prisma-preferences-store.ts";
@@ -80,6 +83,7 @@ export interface Stores {
 	idempotency: IdempotencyStore;
 	imports: ImportBatchStore;
 	preferences: PreferencesStore;
+	notificationInbox: NotificationInboxStore;
 	homeLayout: HomeLayoutStore;
 	goals: GoalStore;
 	incomeSources: IncomeSourceStore;
@@ -112,6 +116,7 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		idempotency: createPrismaIdempotencyStore(db),
 		imports: createPrismaImportBatchStore(db),
 		preferences: createPrismaPreferencesStore(db),
+		notificationInbox: createPrismaNotificationInboxStore(db, now),
 		homeLayout: createPrismaHomeLayoutStore(db),
 		goals: createPrismaGoalStore(db, now),
 		incomeSources: createPrismaIncomeSourceStore(db, now),
@@ -140,6 +145,7 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		idempotency: createMemoryIdempotencyStore(),
 		imports: createMemoryImportBatchStore(),
 		preferences: createMemoryPreferencesStore(state),
+		notificationInbox: createMemoryNotificationInboxStore(state.now),
 		homeLayout: createMemoryHomeLayoutStore(),
 		goals: createMemoryGoalStore(state),
 		incomeSources: createMemoryIncomeSourceStore(state),

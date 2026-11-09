@@ -15,6 +15,7 @@ describe.each(contractSuites())("PreferencesStore (%s)", (_name, make) => {
 			notificationCapture: false,
 			notificationApps: [],
 			notificationToReview: true,
+			notificationAskFirst: false,
 			budgetAlertPercent: 80,
 			leftoverAccountId: null,
 			leftoverGoalId: null,
@@ -34,6 +35,7 @@ describe.each(contractSuites())("PreferencesStore (%s)", (_name, make) => {
 			// Ordem fixa e sem repetição, qualquer que seja a ordem enviada.
 			notificationApps: ["nubank", "inter"],
 			notificationToReview: true,
+			notificationAskFirst: false,
 			budgetAlertPercent: 80,
 			leftoverAccountId: null,
 			leftoverGoalId: null,
