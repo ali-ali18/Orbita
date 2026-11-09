@@ -4,8 +4,11 @@ import {
 	BARE_CODE_PATTERN,
 	NOTIFICATION_BANK_PACKAGES,
 	NOTIFICATION_BATCH_MAX,
+	NOTIFICATION_REPOST_WINDOW_MINUTES,
+	NOTIFICATION_RESULTS,
 	NOTIFICATION_TEXT_MAX,
 	NOTIFICATION_TITLE_MAX,
+	notificationItemSchema,
 	SENSITIVE_PATTERN,
 } from "@orbita/shared";
 import { describe, expect, it } from "vitest";
@@ -34,6 +37,9 @@ describe("módulo nativo de notificações espelha o que o servidor aceita", () 
 		expect(read("TITLE_MAX")).toBe(NOTIFICATION_TITLE_MAX);
 		expect(read("TEXT_MAX")).toBe(NOTIFICATION_TEXT_MAX);
 		expect(read("BATCH_MAX")).toBe(NOTIFICATION_BATCH_MAX);
+		expect(Number(/REPOST_WINDOW_MINUTES = (\d+)L/.exec(policy)?.[1])).toBe(
+			NOTIFICATION_REPOST_WINDOW_MINUTES,
+		);
 	});
 
 	it("as regras de código de verificação são idênticas", () => {
@@ -42,5 +48,26 @@ describe("módulo nativo de notificações espelha o que o servidor aceita", () 
 			"";
 		expect(literal("SENSITIVE")).toBe(SENSITIVE_PATTERN);
 		expect(literal("BARE_CODE")).toBe(BARE_CODE_PATTERN);
+	});
+
+	it("os campos enviados e o resultado por item são os que o servidor define", () => {
+		const sender = readFileSync(join(NATIVE, "Sender.kt"), "utf8");
+		for (const field of ["package", "title", "text", "postedAt", "sbnKey"]) {
+			expect(Object.keys(notificationItemSchema.shape)).toContain(field);
+			expect(sender).toContain(`.put("${field}"`);
+		}
+		// Nada além destes campos sai do aparelho.
+		const sent = [...sender.matchAll(/\.put\("(\w+)", it\./g)].map((m) => m[1]);
+		expect(new Set(sent)).toEqual(new Set(["package", "title", "text", "postedAt", "sbnKey"]));
+		expect(NOTIFICATION_RESULTS).toContain("error");
+		expect(sender).toContain('"error"');
+	});
+
+	it("o serviço checa a lista fixa de pacotes antes de abrir a configuração cifrada", () => {
+		const listener = readFileSync(join(NATIVE, "OrbitaNotificationListener.kt"), "utf8");
+		const allowlist = listener.indexOf("pkg !in NotificationPolicy.BANK_PACKAGES");
+		expect(allowlist).toBeGreaterThan(0);
+		expect(allowlist).toBeLessThan(listener.indexOf("store.config()"));
+		expect(listener).toContain("`when`");
 	});
 });

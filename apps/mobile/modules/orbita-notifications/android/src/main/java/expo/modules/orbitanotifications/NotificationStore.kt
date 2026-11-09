@@ -13,6 +13,9 @@ internal data class QueuedNotification(
   val title: String,
   val text: String,
   val postedAt: Long,
+  /** `StatusBarNotification.key` (pacote, id, tag, usuário); vazio se o Android não deu. */
+  val sbnKey: String = "",
+  val attempts: Int = 0,
 )
 
 internal data class CaptureConfig(
@@ -76,12 +79,19 @@ internal class NotificationStore private constructor(context: Context) {
     set(value) { prefs.edit().putString(KEY_LAST_ERROR, value).apply() }
 
   /** Põe na fila, sem repetir a mesma notificação no mesmo minuto, e guarda no máximo `QUEUE_MAX` (descarta as velhas). */
-  fun enqueue(pkg: String, title: String, text: String, postedAt: Long) {
+  fun enqueue(pkg: String, title: String, text: String, postedAt: Long, sbnKey: String) {
     synchronized(lock) {
       val items = readQueue().toMutableList()
       val minute = postedAt / 60_000
-      if (items.any { it.pkg == pkg && it.title == title && it.text == text && it.postedAt / 60_000 == minute }) return
-      items.add(QueuedNotification(UUID.randomUUID().toString(), pkg, title, text, postedAt))
+      // Mesma notificação repostada (o app do banco a atualiza): mesma chave do Android e mesmo texto, minutos vizinhos.
+      // Duas compras iguais são notificações diferentes (chaves diferentes) e entram as duas.
+      val repost = items.any {
+        it.pkg == pkg && it.title == title && it.text == text &&
+          (if (sbnKey.isNotEmpty()) it.sbnKey == sbnKey && Math.abs(it.postedAt / 60_000 - minute) <= NotificationPolicy.REPOST_WINDOW_MINUTES
+          else it.postedAt / 60_000 == minute)
+      }
+      if (repost) return
+      items.add(QueuedNotification(UUID.randomUUID().toString(), pkg, title, text, postedAt, sbnKey))
       while (items.size > NotificationPolicy.QUEUE_MAX) items.removeAt(0)
       writeQueue(items)
     }
@@ -93,6 +103,15 @@ internal class NotificationStore private constructor(context: Context) {
     synchronized(lock) {
       val ids = sent.map { it.id }.toSet()
       writeQueue(readQueue().filter { it.id !in ids })
+    }
+  }
+
+  /** Conta uma tentativa que o servidor não conseguiu tratar; quem passa de `MAX_ATTEMPTS` é descartado. */
+  fun bumpAttempts(failed: Collection<QueuedNotification>) {
+    synchronized(lock) {
+      val ids = failed.map { it.id }.toSet()
+      val next = readQueue().map { if (it.id in ids) it.copy(attempts = it.attempts + 1) else it }
+      writeQueue(next.filter { it.attempts < NotificationPolicy.MAX_ATTEMPTS })
     }
   }
 
@@ -111,6 +130,8 @@ internal class NotificationStore private constructor(context: Context) {
           o.getString("title"),
           o.getString("text"),
           o.getLong("postedAt"),
+          o.optString("sbnKey", ""),
+          o.optInt("attempts", 0),
         )
       }
     } catch (e: Exception) {
@@ -132,6 +153,8 @@ internal class NotificationStore private constructor(context: Context) {
           .put("title", it.title)
           .put("text", it.text)
           .put("postedAt", it.postedAt)
+          .put("sbnKey", it.sbnKey)
+          .put("attempts", it.attempts)
       )
     }
     prefs.edit().putString(KEY_QUEUE, KeystoreCrypto.encrypt(array.toString())).apply()

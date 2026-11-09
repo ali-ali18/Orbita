@@ -41,6 +41,8 @@ export const NOTIFICATION_TEXT_MAX = 400;
 /** Limites do horário: de 2020 a 2100 (milissegundos). Fora disso o item é recusado; o servidor ainda trava o futuro. */
 export const NOTIFICATION_POSTED_MIN = 1_577_836_800_000;
 export const NOTIFICATION_POSTED_MAX = 4_102_444_800_000;
+/** A mesma notificação do Android repostada em até tantos minutos é a mesma (aparelho e servidor usam o mesmo valor). */
+export const NOTIFICATION_REPOST_WINDOW_MINUTES = 2;
 /** Notificações por pedido. */
 export const NOTIFICATION_BATCH_MAX = 10;
 

@@ -12,6 +12,7 @@ import {
 	isSensitiveNotification,
 	NOTIFICATION_APP_LABELS,
 	NOTIFICATION_APPS_VERIFIED,
+	NOTIFICATION_REPOST_WINDOW_MINUTES,
 	type NotificationApp,
 	type NotificationInboxReason,
 	type NotificationItem,
@@ -50,7 +51,7 @@ export interface NotificationDeps {
 }
 
 /** Quantos minutos para cada lado a mesma notificação repostada (o app do banco a atualiza) ainda conta como a mesma. */
-export const REPOST_WINDOW_MINUTES = 2;
+export const REPOST_WINDOW_MINUTES = NOTIFICATION_REPOST_WINDOW_MINUTES;
 /** Prazo da lista "Não entendi": passado isto, a notificação sai (o Open Finance já trouxe a compra há muito). */
 export const INBOX_MAX_AGE_DAYS = 30;
 
