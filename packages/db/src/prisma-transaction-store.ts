@@ -268,6 +268,70 @@ export function createPrismaTransactionStore(db: Db, now: Clock): TransactionSto
 			}
 		},
 
+		async markSeen(source, externalIds, at) {
+			const ids = [...new Set(externalIds)];
+			if (ids.length > 500) throw invalid("Informe de 0 a 500 identificadores externos.");
+			if (ids.length === 0) return 0;
+			const done = await db.transaction.updateMany({
+				where: { source, externalId: { in: ids }, deletedAt: null },
+				data: { lastSeenAt: at, removedByBankAt: null },
+			});
+			return done.count;
+		},
+
+		async listByProvider(source, target, anchors) {
+			const where = checkTarget(target);
+			const or: Prisma.TransactionWhereInput[] = [];
+			if (anchors.providerId) or.push({ providerId: anchors.providerId });
+			if (anchors.providerCode) or.push({ providerCode: anchors.providerCode });
+			if (or.length === 0) return [];
+			return many(
+				db.transaction.findMany({
+					where: { source, deletedAt: null, ...where, OR: or },
+					orderBy: [...ORDER_BY_DATE],
+				}),
+			);
+		},
+
+		async removeByBank(id, at) {
+			return db.$transaction(async (tx) => {
+				const live = await tx.transaction.findFirst({ where: { id, deletedAt: null }, select: { id: true } });
+				if (!live) return false;
+				if ((await tx.transaction.count({ where: { refundOfId: id, deletedAt: null } })) > 0) return false;
+				await tx.recurrencePosting.deleteMany({ where: { transactionId: id } });
+				await tx.transaction.update({
+					where: { id },
+					data: { deletedAt: at, removedByBankAt: at, updatedAt: at },
+				});
+				return true;
+			});
+		},
+
+		async flagMissingByBank(id, at, review) {
+			return db.$transaction(async (tx) => {
+				const row = await tx.transaction.findFirst({ where: { id, deletedAt: null } });
+				if (!row) return null;
+				const before = dataOf(toRecord(row));
+				const data = mergeTransaction(before, { status: review.status, note: review.note });
+				return toRecord(
+					await tx.transaction.update({
+						where: { id },
+						data: { ...toColumns(changedColumns(before, data)), removedByBankAt: at, updatedAt: now() },
+					}),
+				);
+			});
+		},
+
+		async reviveRemovedByBank(source, externalId, at) {
+			const done = await db.transaction.updateMany({
+				where: { source, externalId, deletedAt: { not: null }, removedByBankAt: { not: null } },
+				data: { deletedAt: null, removedByBankAt: null, lastSeenAt: at, updatedAt: now() },
+			});
+			if (done.count === 0) return null;
+			const row = await db.transaction.findUnique({ where: { source_externalId: { source, externalId } } });
+			return row && row.deletedAt === null ? toRecord(row) : null;
+		},
+
 		async existsByExternal(source, externalId) {
 			const row = await db.transaction.findUnique({
 				where: { source_externalId: { source, externalId } },

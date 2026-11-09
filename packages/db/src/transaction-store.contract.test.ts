@@ -1609,4 +1609,126 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 			expect(await stores.recurrences.listPostings("2026-11")).toEqual([]);
 		});
 	});
+	describe("o que o banco informa: pendência, âncoras e o que sumiu", () => {
+		const bank = (extra: Partial<UpsertByExternalInput> = {}): UpsertByExternalInput => ({
+			...cardPurchase(),
+			bankPending: true,
+			providerId: "prov-1",
+			providerCode: "nsu-9",
+			...extra,
+		});
+		const AT = new Date("2026-11-12T09:00:00Z");
+
+		it("grava pendência e âncoras; sem elas, os padrões (não pendente, sem âncora, nunca visto)", async () => {
+			const a = await tx.upsertByExternal("pluggy", "p-1", bank());
+			expect(a.transaction).toMatchObject({
+				bankPending: true,
+				providerId: "prov-1",
+				providerCode: "nsu-9",
+				lastSeenAt: null,
+				removedByBankAt: null,
+			});
+			const m = await tx.create(expense());
+			expect(m).toMatchObject({ bankPending: false, providerId: null, providerCode: null });
+			await expect(
+				tx.upsertByExternal("pluggy", "p-2", bank({ providerId: "x".repeat(201) })),
+			).rejects.toMatchObject({
+				code: "invalid",
+			});
+		});
+
+		it("o update atualiza pendência e âncoras, e recusa lastSeenAt/removedByBankAt", async () => {
+			const a = (await tx.upsertByExternal("pluggy", "p-1", bank({ providerId: null }))).transaction;
+			const done = await tx.update(a?.id as string, { bankPending: false, providerId: "prov-7" });
+			expect(done).toMatchObject({ bankPending: false, providerId: "prov-7" });
+			await expect(tx.update(a?.id as string, { lastSeenAt: AT } as never)).rejects.toMatchObject({
+				code: "invalid",
+			});
+		});
+
+		it("markSeen marca só os vivos da origem, limpa o aviso e conta quantos", async () => {
+			const a = (await tx.upsertByExternal("pluggy", "p-1", bank())).transaction;
+			await tx.upsertByExternal("pluggy", "p-2", bank({ providerId: null, providerCode: null }));
+			const gone = (await tx.upsertByExternal("pluggy", "p-3", bank({ description: "Outra" }))).transaction;
+			await tx.softDelete(gone?.id as string);
+			await tx.flagMissingByBank(a?.id as string, AT, { status: "pending", note: "x" });
+			expect(await tx.markSeen("pluggy", ["p-1", "p-3", "nao-existe"], AT)).toBe(1);
+			expect(await tx.get(a?.id as string)).toMatchObject({ lastSeenAt: AT, removedByBankAt: null });
+			expect(await tx.markSeen("pluggy", [], AT)).toBe(0);
+			expect(await tx.markSeen("import", ["p-1"], AT)).toBe(0);
+		});
+
+		it("listByProvider acha pelo providerId ou pelo providerCode, só na conta/cartão e só vivos", async () => {
+			const a = (await tx.upsertByExternal("pluggy", "p-1", bank())).transaction;
+			await tx.upsertByExternal("pluggy", "p-2", bank({ providerId: "prov-2", providerCode: "nsu-9" }));
+			await tx.upsertByExternal("pluggy", "p-3", {
+				...expense(),
+				providerId: "prov-1",
+			});
+			const byId = await tx.listByProvider("pluggy", { cardId: b.card.id }, { providerId: "prov-1" });
+			expect(byId.map((t) => t.externalId)).toEqual(["p-1"]);
+			const byCode = await tx.listByProvider("pluggy", { cardId: b.card.id }, { providerCode: "nsu-9" });
+			expect(byCode.map((t) => t.externalId).sort()).toEqual(["p-1", "p-2"]);
+			expect(await tx.listByProvider("pluggy", { cardId: b.card.id }, {})).toEqual([]);
+			expect(
+				await tx.listByProvider("pluggy", { accountId: b.checking.id }, { providerId: "prov-1" }),
+			).toHaveLength(1);
+			await tx.softDelete(a?.id as string);
+			expect(await tx.listByProvider("pluggy", { cardId: b.card.id }, { providerId: "prov-1" })).toEqual([]);
+			await expect(tx.listByProvider("pluggy", {}, { providerId: "prov-1" })).rejects.toMatchObject({
+				code: "invalid",
+			});
+		});
+
+		it("removeByBank apaga (some das listas) e marca; recusa o que tem estorno vivo ou já foi apagado", async () => {
+			const a = (await tx.upsertByExternal("pluggy", "p-1", bank())).transaction;
+			expect(await tx.removeByBank(a?.id as string, AT)).toBe(true);
+			expect(await tx.get(a?.id as string)).toBeNull();
+			expect(await tx.existsByExternal("pluggy", "p-1")).toBe(true);
+			expect(await tx.removeByBank(a?.id as string, AT)).toBe(false);
+
+			const e = await tx.create(expense({ description: "Com estorno" }));
+			await tx.create({ ...expense(), kind: "refund", refundOfId: e.id, description: "Estorno" });
+			expect(await tx.removeByBank(e.id, AT)).toBe(false);
+			expect(await tx.get(e.id)).not.toBeNull();
+		});
+
+		it("flagMissingByBank não apaga: marca removedByBankAt e põe em revisão", async () => {
+			const a = (await tx.upsertByExternal("pluggy", "p-1", bank())).transaction;
+			const flagged = await tx.flagMissingByBank(a?.id as string, AT, {
+				status: "pending",
+				note: "O banco sumiu",
+			});
+			expect(flagged).toMatchObject({ status: "pending", note: "O banco sumiu", removedByBankAt: AT });
+			expect(await tx.listPending()).toHaveLength(1);
+			expect(await tx.flagMissingByBank("nao-existe", AT, { status: "pending", note: null })).toBeNull();
+		});
+
+		it("reviveRemovedByBank só traz de volta o que o banco removeu, nunca o que o dono apagou", async () => {
+			const a = (await tx.upsertByExternal("pluggy", "p-1", bank())).transaction;
+			const mine = (await tx.upsertByExternal("pluggy", "p-2", bank({ description: "Do dono" }))).transaction;
+			await tx.removeByBank(a?.id as string, AT);
+			await tx.softDelete(mine?.id as string);
+			expect(await tx.reviveRemovedByBank("pluggy", "p-2", AT)).toBeNull();
+			expect(await tx.get(mine?.id as string)).toBeNull();
+			const back = await tx.reviveRemovedByBank("pluggy", "p-1", AT);
+			expect(back).toMatchObject({ id: a?.id, removedByBankAt: null, lastSeenAt: AT });
+			expect(await tx.get(a?.id as string)).not.toBeNull();
+			expect(await tx.reviveRemovedByBank("pluggy", "p-1", AT)).toBeNull();
+			expect(await tx.reviveRemovedByBank("pluggy", "nao-existe", AT)).toBeNull();
+		});
+
+		it("a divisão do dono não herda nada do banco", async () => {
+			const a = (await tx.upsertByExternal("pluggy", "p-1", bank({ amountCents: 1000 }))).transaction;
+			const parts = await tx.splitTransaction(a?.id as string, [{ amountCents: 600 }, { amountCents: 400 }]);
+			for (const part of parts) {
+				expect(part).toMatchObject({
+					bankPending: false,
+					providerId: null,
+					providerCode: null,
+					lastSeenAt: null,
+				});
+			}
+		});
+	});
 });

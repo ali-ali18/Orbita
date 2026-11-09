@@ -71,6 +71,17 @@ describe.each(contractSuites())("PluggyConnectionStore (%s)", (_name, make) => {
 		expect(await stores.pluggyConnections.setAutoLabel(ITEM, "Outro")).toBe(false);
 	});
 
+	it("guarda se o conector é Open Finance só quando a rodada leu; sem leitura não mexe", async () => {
+		await stores.pluggyConnections.add({ id: ITEM });
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ isOpenFinance: null });
+		await stores.pluggyConnections.recordSync(ITEM, { status: "ok", isOpenFinance: true });
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ isOpenFinance: true });
+		await stores.pluggyConnections.recordSync(ITEM, { status: "error", error: "x" });
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ isOpenFinance: true });
+		await stores.pluggyConnections.recordSync(ITEM, { status: "ok", isOpenFinance: false });
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ isOpenFinance: false });
+	});
+
 	it("guarda quantas contas e cartões a sincronização ligou; sem contagem não mexe", async () => {
 		await stores.pluggyConnections.add({ id: ITEM });
 		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ accountCount: 0, cardCount: 0 });
