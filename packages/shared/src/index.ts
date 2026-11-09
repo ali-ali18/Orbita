@@ -1,6 +1,7 @@
 export * from "./agents-api.ts";
 export * from "./category-rules.ts";
 export * from "./chat-api.ts";
+export * from "./economy-api.ts";
 export * from "./export-api.ts";
 export * from "./finance.ts";
 export * from "./finance-api.ts";

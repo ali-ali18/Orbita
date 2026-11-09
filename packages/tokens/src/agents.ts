@@ -13,6 +13,7 @@ export const agents = {
 	metas: { color: chart.yellow, tint: "#1C1300" },
 	caca_assinatura: { color: chart.magenta, tint: "#1E0B12" },
 	cofrinho: { color: chart.aqua, tint: "#041610" },
+	economia: { color: chart.lime, tint: "#141B09" },
 	custom: { color: chart.violet, tint: "#110D24" },
 } as const;
 

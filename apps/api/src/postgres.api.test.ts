@@ -1,4 +1,5 @@
 import { createDb, createPrismaStores, type Db } from "@orbita/db";
+import { findEconomyAgent, runEconomyActions, savingsOpportunities } from "@orbita/ledger";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Json, setupFinance } from "./test-support.ts";
 
@@ -9,6 +10,7 @@ afterAll(async () => db?.$disconnect());
 
 async function clean(client: Db) {
 	// Ordem das chaves estrangeiras: quem aponta vem antes de quem é apontado.
+	await client.agentActivity.deleteMany();
 	await client.alert.deleteMany();
 	await client.aiUsage.deleteMany();
 	await client.aiSettings.deleteMany();
@@ -20,6 +22,7 @@ async function clean(client: Db) {
 	await client.recurrencePosting.deleteMany();
 	await client.transaction.deleteMany();
 	await client.recurrence.deleteMany();
+	await client.categoryRule.deleteMany();
 	await client.budget.deleteMany();
 	await client.card.deleteMany();
 	await client.account.deleteMany();
@@ -369,7 +372,7 @@ describe.skipIf(!url)("API sobre Postgres", () => {
 		const first = (await api.get("/v1/agents")).body.agents as Json[];
 		const second = (await api.get("/v1/agents")).body.agents as Json[];
 		expect(first.map((a) => a.builtinKey)).toEqual(second.map((a) => a.builtinKey));
-		expect(first).toHaveLength(6);
+		expect(first).toHaveLength(7);
 		const vigia = first.find((a) => a.builtinKey === "vigia") as Json;
 		const on = await api.patch(`/v1/agents/${vigia.id}`, {
 			enabled: true,
@@ -406,5 +409,53 @@ describe.skipIf(!url)("API sobre Postgres", () => {
 		expect(mine.status).toBe(201);
 		expect((await api.delete(`/v1/agents/${mine.body.agent.id}`)).body).toEqual({ deleted: true });
 		expect((await api.delete(`/v1/agents/${vigia.id}`)).status).toBe(400);
+	});
+	it("economia: age sozinho no nível reversível, registra e desfaz (stores Prisma)", async () => {
+		const { api, stores, basics } = await setup();
+		const { account, category } = await basics();
+		const add = async (date: string, amountCents: number, description: string, slug: string | null) =>
+			(
+				await api.post("/v1/transactions", {
+					kind: "expense",
+					amountCents,
+					date,
+					description,
+					accountId: account.id,
+					...(slug ? { categoryId: category(slug) } : {}),
+				})
+			).body.transaction as Json;
+		for (const [i, month] of ["2026-08", "2026-09", "2026-10"].entries()) {
+			await add(`${month}-1${i}`, 30000, `Cinema ${i}`, "lazer");
+		}
+		await add("2026-11-03", 45000, "Show", "lazer");
+		await stores.categoryRules.upsert("padaria estrela", category("mercado"));
+		const padaria = await add("2026-11-07", 3200, "Padaria Estrela", null);
+
+		const agent = (await api.get("/v1/agents")).body.agents.find((a: Json) => a.builtinKey === "economia");
+		await api.patch(`/v1/agents/${agent.id}`, { enabled: true, settings: { autonomy: "reversible" } });
+		const now = () => new Date("2026-11-15T15:00:00Z");
+		const record = (await findEconomyAgent(stores)) as NonNullable<
+			Awaited<ReturnType<typeof findEconomyAgent>>
+		>;
+		const result = await runEconomyActions(stores, now, record, {
+			reading: await savingsOpportunities(stores, now),
+		});
+		expect(result.applied.map((a) => a.kind).sort()).toEqual(["categorize_transaction", "set_budget_limit"]);
+		expect((await stores.transactions.get(padaria.id))?.categoryId).toBe(category("mercado"));
+		expect((await stores.budgets.list()).find((b) => b.scope === category("lazer"))?.limitCents).toBe(30000);
+
+		const { activities } = (await api.get("/v1/agent-activity")).body;
+		expect(activities).toHaveLength(2);
+		for (const a of activities) {
+			expect((await api.post(`/v1/agent-activity/${a.id}/undo`)).body.reverted).toBe(true);
+			expect((await api.post(`/v1/agent-activity/${a.id}/undo`)).status).toBe(409);
+		}
+		expect((await stores.transactions.get(padaria.id))?.categoryId).toBeNull();
+		expect(await stores.budgets.list()).toEqual([]);
+		// O que foi desfeito não volta sozinho.
+		expect(
+			(await runEconomyActions(stores, now, record, { reading: await savingsOpportunities(stores, now) }))
+				.applied,
+		).toEqual([]);
 	});
 });

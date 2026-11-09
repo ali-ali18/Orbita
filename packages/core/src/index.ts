@@ -1,5 +1,6 @@
 export * from "./agent-findings.ts";
 export * from "./agent-schedule.ts";
+export * from "./autonomy.ts";
 export * from "./budget.ts";
 export * from "./budget-suggestion.ts";
 export * from "./classification.ts";
@@ -19,6 +20,7 @@ export * from "./money.ts";
 export * from "./recurrence.ts";
 export * from "./report.ts";
 export * from "./salary.ts";
+export * from "./savings.ts";
 export * from "./split.ts";
 export * from "./subscription-hunt.ts";
 export * from "./types.ts";

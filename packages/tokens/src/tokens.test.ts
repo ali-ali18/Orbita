@@ -103,7 +103,15 @@ describe("tokens", () => {
 
 	it("o tom do cartão de cada agente é a cor dele a 14% sobre o preto", () => {
 		const channel = (hex: string, i: number) => Number.parseInt(hex.slice(i, i + 2), 16);
-		for (const key of ["vigia", "fechamento", "metas", "caca_assinatura", "cofrinho", "custom"] as const) {
+		for (const key of [
+			"vigia",
+			"fechamento",
+			"metas",
+			"caca_assinatura",
+			"cofrinho",
+			"economia",
+			"custom",
+		] as const) {
 			const { color, tint } = agents[key];
 			for (const i of [1, 3, 5]) {
 				const expected = Math.round(channel(color, i) * 0.14);

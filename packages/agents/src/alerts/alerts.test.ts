@@ -12,6 +12,7 @@ import { READ_TOOLS } from "../read-tools.ts";
 import {
 	fakeReader,
 	MONTH,
+	savingsReading,
 	scriptedClient,
 	summary,
 	TODAY,
@@ -48,6 +49,7 @@ function port(over: Partial<FindingsPort> = {}): FindingsPort {
 		goals: async () => ({ goals: [], totals: { savedCents: 0, targetCents: 0 } }),
 		subscriptions: async () => [],
 		recurringTransactionIds: async () => new Set(),
+		savings: async () => savingsReading({ result: { opportunities: [], totalMonthlySavingsCents: 0 } }),
 		...over,
 	};
 }
@@ -488,7 +490,7 @@ describe("papéis dos agentes da casa", () => {
 		const orbita = resolvePersona({ builtinKey: "orbita", name: "Órbita", instructions: null, tools: [] });
 		expect(orbita.tools.some((t) => t.access === "write")).toBe(true);
 		expect(orbita.roleText).toBe("");
-		for (const key of ["vigia", "fechamento", "metas", "caca_assinatura", "cofrinho"] as const) {
+		for (const key of ["vigia", "fechamento", "metas", "caca_assinatura", "cofrinho", "economia"] as const) {
 			const persona = resolvePersona({ builtinKey: key, name: key, instructions: null, tools: [] });
 			expect(persona.tools.length).toBeGreaterThan(0);
 			expect(persona.tools.every((t) => t.access === "read")).toBe(true);

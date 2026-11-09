@@ -1,5 +1,12 @@
 export type { AccountInput, AccountPatch, AccountRecord, AccountStore } from "./account-store.ts";
 export type {
+	ActivityDraft,
+	ActivityQuery,
+	ActivityRecord,
+	ActivityStatus,
+	AgentActivityStore,
+} from "./agent-activity-store.ts";
+export type {
 	AgentPatch,
 	AgentRecord,
 	AgentStore,

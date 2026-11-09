@@ -101,6 +101,7 @@ describe("escolhas", () => {
 		]);
 		expect(settingRows("orbita")).toEqual([]);
 		expect(settingRows("cofrinho").map((r) => r.kind)).toEqual(["toggle", "cents"]);
+		expect(settingRows("economia").map((r) => r.key)).toEqual(["onInvoiceClose"]);
 	});
 	it("mostra o valor em reais cheios e o prazo em dias", () => {
 		const rows = settingRows("vigia");
@@ -127,6 +128,7 @@ describe("avisos", () => {
 		expect(isAffectedByAgents(["https://x", "agents"], "https://x")).toBe(true);
 		expect(isAffectedByAgents(["https://x", "alerts", "new"], "https://x")).toBe(true);
 		expect(isAffectedByAgents(["https://y", "agents"], "https://x")).toBe(false);
+		expect(isAffectedByAgents(["https://x", "economy", "savings"], "https://x")).toBe(true);
 		expect(isAffectedByAgents(["https://x", "goals"], "https://x")).toBe(false);
 	});
 });

@@ -3,6 +3,7 @@ import type { ChatRowsCard, MonthSummaryResponse, TransactionDto } from "@orbita
 import { z } from "zod";
 import { monthLabel } from "./alerts/text.ts";
 import { type Catalog, ToolError, type TransactionQuery } from "./backend.ts";
+import { opportunityActions, opportunityText } from "./economy/text.ts";
 import { getIncomePlan } from "./income-tools.ts";
 import { analyzeHistoryTool } from "./setup-tools.ts";
 import {
@@ -839,6 +840,63 @@ export const listCatalog = defineTool({
 	},
 });
 
+export const listSavingsOpportunities = defineTool({
+	name: "list_savings_opportunities",
+	label: "Procurando onde cortar…",
+	access: "read",
+	description:
+		"Onde o dono pode cortar custos, já calculado pelo engine: assinaturas parecidas ou que subiram de preço, " +
+		"categoria acima da média dos últimos 3 meses, taxas/IOF/juros/anuidade pagos, compras pequenas repetidas, " +
+		"parcelas pesando na renda, gasto projetado acima do orçamento e fatura a vencer sem saldo. `totalPerMonth` " +
+		"é a soma do que dá para cortar por mês (sem contar duas vezes); cada item traz `savingsPerMonth` e um " +
+		"`summary` pronto. Copie os valores e o texto prontos, NUNCA some itens. Use para 'onde posso cortar gastos', " +
+		"'como economizar', 'tem assinatura repetida'. Não existe 'assinatura sem uso': o app não sabe se o dono " +
+		"usa o serviço, então não afirme isso. Sugerir é só sugestão: quem cancela é o dono, direto no serviço.",
+	input: z.object({}),
+	async run(_input, ctx) {
+		const reading = await ctx.reader.savingsOpportunities();
+		const categoryName = (id: string) => reading.categoryNames[id] ?? "Sem categoria";
+		const state = {
+			remindingSubscriptionIds: new Set(reading.remindingSubscriptionIds),
+			limitedCategoryIds: new Set(reading.limitedCategoryIds),
+		};
+		const items = reading.result.opportunities.map((o) => {
+			const text = opportunityText(o, categoryName);
+			return {
+				key: o.key,
+				type: o.type,
+				title: text.title,
+				summary: text.body,
+				savingsPerMonth: money(o.monthlySavingsCents),
+				confidence: o.confidence,
+				countsInTotal: o.countsInTotal,
+				evidenceTransactionIds: o.evidence.transactionIds,
+				oneTapActions: opportunityActions(o, state),
+			};
+		});
+		return {
+			data: {
+				count: items.length,
+				totalPerMonth: money(reading.result.totalMonthlySavingsCents),
+				autonomy: reading.autonomy,
+				opportunities: items,
+			},
+			card: {
+				type: "rows",
+				tool: "list_savings_opportunities",
+				title: "Onde cortar",
+				rows: items.slice(0, 10).map((r) => ({
+					label: r.title,
+					caption: r.savingsPerMonth.cents > 0 ? "por mês" : "atenção",
+					value: r.savingsPerMonth.cents > 0 ? r.savingsPerMonth.text : "—",
+					cents: r.savingsPerMonth.cents,
+				})),
+				total: { label: "Dá para cortar por mês", value: formatBRL(reading.result.totalMonthlySavingsCents) },
+			},
+		};
+	},
+});
+
 export const READ_TOOLS: readonly Tool[] = [
 	getMonthSummary,
 	searchTransactions,
@@ -851,4 +909,5 @@ export const READ_TOOLS: readonly Tool[] = [
 	getCategoryBreakdown,
 	getMonthReport,
 	listCatalog,
+	listSavingsOpportunities,
 ];

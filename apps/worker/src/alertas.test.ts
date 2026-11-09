@@ -95,7 +95,7 @@ beforeEach(() => {
 describe("runDueAgents", () => {
 	it("cria os agentes da casa e, com todos desligados, não roda nada", async () => {
 		const result = await runDueAgents(deps());
-		expect(result).toEqual({ ran: 0, created: 0, worded: 0, failed: 0 });
+		expect(result).toEqual({ ran: 0, created: 0, worded: 0, failed: 0, actions: 0 });
 		expect((await stores.agents.list()).map((a) => a.builtinKey)).toEqual([
 			"orbita",
 			"vigia",
@@ -103,6 +103,7 @@ describe("runDueAgents", () => {
 			"metas",
 			"caca_assinatura",
 			"cofrinho",
+			"economia",
 		]);
 	});
 
@@ -113,7 +114,7 @@ describe("runDueAgents", () => {
 		await stores.agents.update(vigia.id, { enabled: true });
 
 		const result = await runDueAgents(deps());
-		expect(result).toEqual({ ran: 1, created: 1, worded: 0, failed: 0 });
+		expect(result).toEqual({ ran: 1, created: 1, worded: 0, failed: 0, actions: 0 });
 		const [alert] = await stores.agents.listAlerts();
 		expect(alert).toMatchObject({
 			agentId: vigia.id,
@@ -138,7 +139,7 @@ describe("runDueAgents", () => {
 		expect(await runDueAgents(deps())).toMatchObject({ ran: 0, created: 0 });
 		// Mesmo se o relógio de execução se perdesse, o achado já existe e não vira um segundo aviso.
 		await stores.agents.markRun(vigia.id, new Date("2026-11-01T00:00:00Z"));
-		expect(await runDueAgents(deps())).toEqual({ ran: 1, created: 0, worded: 0, failed: 0 });
+		expect(await runDueAgents(deps())).toEqual({ ran: 1, created: 0, worded: 0, failed: 0, actions: 0 });
 		expect(await stores.agents.listAlerts()).toHaveLength(1);
 	});
 
@@ -165,7 +166,7 @@ describe("runDueAgents", () => {
 		const result = await runDueAgents(
 			deps({ readApiKey: async () => "sk-teste", createClient: () => client }),
 		);
-		expect(result).toEqual({ ran: 1, created: 1, worded: 1, failed: 0 });
+		expect(result).toEqual({ ran: 1, created: 1, worded: 1, failed: 0, actions: 0 });
 		const [alert] = await stores.agents.listAlerts();
 		expect(alert).toMatchObject({
 			body: "A categoria Delivery já está em R$ 450,00 dos R$ 500,00 do orçamento. Ainda cabem R$ 50,00.",
@@ -200,7 +201,7 @@ describe("runDueAgents", () => {
 		await stores.aiUsage.setMonthlyLimit(0);
 		const { client, requests } = fakeClient([]);
 		const result = await runDueAgents(deps({ readApiKey: async () => "sk", createClient: () => client }));
-		expect(result).toEqual({ ran: 1, created: 1, worded: 0, failed: 0 });
+		expect(result).toEqual({ ran: 1, created: 1, worded: 0, failed: 0, actions: 0 });
 		expect(requests).toHaveLength(0);
 		expect((await stores.agents.listAlerts())[0]?.wordedByAi).toBe(false);
 	});
@@ -266,7 +267,7 @@ describe("runDueAgents", () => {
 		it("sem chave não roda nem marca como rodado (tenta de novo na próxima passada)", async () => {
 			const agent = await stores.agents.createCustom(custom);
 			const result = await runDueAgents(deps());
-			expect(result).toEqual({ ran: 0, created: 0, worded: 0, failed: 0 });
+			expect(result).toEqual({ ran: 0, created: 0, worded: 0, failed: 0, actions: 0 });
 			expect((await stores.agents.get(agent.id))?.lastRunAt).toBeNull();
 		});
 
@@ -274,7 +275,7 @@ describe("runDueAgents", () => {
 			const agent = await stores.agents.createCustom(custom);
 			const { client, requests } = fakeClient([() => ({ text: "Você gastou R$ 0,00 em bar." })]);
 			const result = await runDueAgents(deps({ readApiKey: async () => "sk", createClient: () => client }));
-			expect(result).toEqual({ ran: 1, created: 1, worded: 0, failed: 0 });
+			expect(result).toEqual({ ran: 1, created: 1, worded: 0, failed: 0, actions: 0 });
 			const [alert] = await stores.agents.listAlerts({ agentId: agent.id });
 			expect(alert).toMatchObject({
 				kind: "custom",
@@ -305,7 +306,7 @@ describe("runDueAgents", () => {
 			const agent = await stores.agents.createCustom(custom);
 			const { client } = fakeClient([() => ({ text: "SEM_AVISO" })]);
 			const result = await runDueAgents(deps({ readApiKey: async () => "sk", createClient: () => client }));
-			expect(result).toEqual({ ran: 1, created: 0, worded: 0, failed: 0 });
+			expect(result).toEqual({ ran: 1, created: 0, worded: 0, failed: 0, actions: 0 });
 			expect((await stores.agents.get(agent.id))?.lastRunAt).toEqual(NOW);
 		});
 	});
@@ -337,7 +338,7 @@ describe("runDueAgents", () => {
 		const result = await runDueAgents(
 			deps({ stores: broken, readApiKey: async () => "sk", createClient: () => client }),
 		);
-		expect(result).toEqual({ ran: 1, created: 1, worded: 0, failed: 1 });
+		expect(result).toEqual({ ran: 1, created: 1, worded: 0, failed: 1, actions: 0 });
 		expect(logs.join("\n")).toContain("Vigia falhou: banco caiu");
 		expect((await stores.agents.get(vigia.id))?.lastRunAt).toBeNull();
 		expect((await stores.agents.get(custom.id))?.lastRunAt).toEqual(NOW);
