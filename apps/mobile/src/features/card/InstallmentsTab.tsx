@@ -9,7 +9,7 @@ import { useInstallments } from "../summary/queries.ts";
 import { type CardLike, installmentTotals, monthColumns, visibleInstallments } from "./card-model.ts";
 import { InstallmentCard } from "./InstallmentCard.tsx";
 import { InstallmentsChart } from "./InstallmentsChart.tsx";
-import { BigNumber, BleedRow, CardChip } from "./parts.tsx";
+import { BigNumber, BleedRow, CardChip, Notice } from "./parts.tsx";
 
 /** Aba Parcelas: quanto está comprometido no mês, os próximos meses por cartão e cada parcelamento. */
 export function InstallmentsTab({ cards, hidden }: { cards: readonly CardLike[]; hidden: boolean }) {
@@ -53,7 +53,7 @@ export function InstallmentsTab({ cards, hidden }: { cards: readonly CardLike[];
 				caption={
 					totals.count === 0
 						? "Nada parcelado agora"
-						: `Restam ${money(totals.remainingCents, hidden, { sign: "never" })}${totals.estimated ? " (estimado)" : ""} em ${
+						: `Restam ${money(totals.remainingCents, hidden, { sign: "never" })} em ${
 								totals.count === 1 ? "1 parcelamento" : `${totals.count} parcelamentos`
 							}`
 				}
@@ -87,6 +87,7 @@ export function InstallmentsTab({ cards, hidden }: { cards: readonly CardLike[];
 							/>
 						))
 					)}
+					{totals.estimated ? <Notice text="Alguns valores são estimados pelo Órbita." /> : null}
 				</>
 			) : (
 				<Text variant="body" tone="secondary">

@@ -1,23 +1,18 @@
 import { chart, colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { View } from "react-native";
-import type {
-	AccountBalancesView,
-	CashFlowView,
-	InvoicesOverviewView,
-	SpendingDailyView,
-} from "../../lib/api.ts";
-import { money, monthName } from "../../lib/format.ts";
+import type { AccountBalancesView, CashFlowView, InvoicesOverviewView } from "../../lib/api.ts";
+import { money } from "../../lib/format.ts";
 import type { Loadable } from "../../lib/loadable.ts";
-import { BankLogo, ErrorState, LineChart, Ring, Text } from "../../ui/index.ts";
+import { BankLogo, ErrorState, Ring, Text } from "../../ui/index.ts";
 import { usagePercent } from "../card/card-model.ts";
-import { accountsCountLabel, freshnessLabel, variation } from "./bank-cards-model.ts";
+import { accountsCountLabel } from "./bank-cards-model.ts";
 import { Frame, Placeholder } from "./SquareCards.tsx";
 import { bankBadge } from "./summary-model.ts";
 
 /*
- * Os quatro cards-resumo do Início que vêm do banco: Saldo em contas, Limite, Fluxo de caixa e Gasto do mês.
- * Cada um é um quadrado tocável que abre o detalhe. Só exibem o que a API devolveu.
+ * Os cards-resumo do Início que vêm do banco: Saldo em contas, Limite e Fluxo de caixa. Cada um é um quadrado tocável
+ * que abre o detalhe, com um número principal e no máximo uma linha de apoio. Só exibem o que a API devolveu.
  */
 
 function Tile<T>({
@@ -52,31 +47,16 @@ function Tile<T>({
 	);
 }
 
-/** Valor grande do quadrado, com legenda e (discreta) a idade da leitura. */
-function Figure({
-	value,
-	caption,
-	fresh,
-	captionLines = 1,
-}: {
-	value: string;
-	caption: string;
-	fresh?: string | null;
-	captionLines?: number;
-}) {
+/** Valor grande do quadrado, com uma linha de apoio. */
+function Figure({ value, caption }: { value: string; caption: string }) {
 	return (
 		<View style={{ gap: 2 }}>
 			<Text variant="numberMedium" adjustsFontSizeToFit numberOfLines={1}>
 				{value}
 			</Text>
-			<Text variant="caption" tone="secondary" numberOfLines={captionLines}>
+			<Text variant="caption" tone="secondary" numberOfLines={1}>
 				{caption}
 			</Text>
-			{fresh ? (
-				<Text variant="micro" tone="tertiary" numberOfLines={1}>
-					{fresh}
-				</Text>
-			) : null}
 		</View>
 	);
 }
@@ -85,12 +65,10 @@ const MAX_LOGOS = 4;
 
 export function BalanceTile({
 	state,
-	now,
 	hidden,
 	onPress,
 }: {
 	state: Loadable<AccountBalancesView>;
-	now: Date;
 	hidden: boolean;
 	onPress: () => void;
 }) {
@@ -126,7 +104,6 @@ export function BalanceTile({
 							caption={
 								known === 0 ? "O banco não informou o saldo" : accountsCountLabel(data.accounts.length)
 							}
-							fresh={freshnessLabel(data.oldestSyncedAt, now)}
 						/>
 					</View>
 				);
@@ -137,12 +114,10 @@ export function BalanceTile({
 
 export function LimitTile({
 	state,
-	now,
 	hidden,
 	onPress,
 }: {
 	state: Loadable<InvoicesOverviewView>;
-	now: Date;
 	hidden: boolean;
 	onPress: () => void;
 }) {
@@ -155,22 +130,12 @@ export function LimitTile({
 					);
 				}
 				const percent = usagePercent(limits.usedCents, limits.limitCents) ?? 0;
-				const estimated = cards.some((c) => c.limit.source === "estimated");
 				return (
 					<View style={{ gap: spacing.md }}>
 						<Ring percent={percent} size={64} stroke={8} label={`${percent}% do limite usado`}>
 							<Text variant="bodyStrong">{`${percent}%`}</Text>
 						</Ring>
-						<Figure
-							value={money(limits.availableCents, hidden, { sign: "never" })}
-							caption="disponível"
-							fresh={`usado ${money(limits.usedCents, hidden, { sign: "never" })}${estimated ? " · estimado" : ""}`}
-						/>
-						{!estimated && freshnessLabel(limits.oldestSyncedAt, now) ? (
-							<Text variant="micro" tone="tertiary" numberOfLines={1}>
-								{freshnessLabel(limits.oldestSyncedAt, now)}
-							</Text>
-						) : null}
+						<Figure value={money(limits.availableCents, hidden, { sign: "never" })} caption="disponível" />
 					</View>
 				);
 			}}
@@ -180,12 +145,10 @@ export function LimitTile({
 
 export function CashFlowTile({
 	state,
-	month,
 	hidden,
 	onPress,
 }: {
 	state: Loadable<CashFlowView>;
-	month: string;
 	hidden: boolean;
 	onPress: () => void;
 }) {
@@ -226,61 +189,6 @@ export function CashFlowTile({
 					<View style={{ gap: spacing.md }}>
 						{row("Entrou", data.inCents, colors.positive, "positive")}
 						{row("Saiu", data.outCents, chart.other, "primary")}
-						<Text variant="micro" tone="tertiary">
-							{monthName(month)}, nas contas
-						</Text>
-					</View>
-				);
-			}}
-		</Tile>
-	);
-}
-
-export function SpendingTile({
-	state,
-	hidden,
-	onPress,
-}: {
-	state: Loadable<SpendingDailyView>;
-	hidden: boolean;
-	onPress: () => void;
-}) {
-	return (
-		<Tile title="Gasto do mês" label="Gasto do mês, abrir" state={state} onPress={onPress}>
-			{(data) => {
-				const peak = Math.max(
-					1,
-					data.current.at(-1)?.cumulativeCents ?? 0,
-					data.previous.at(-1)?.cumulativeCents ?? 0,
-				);
-				const v = variation(data.variancePercent);
-				return (
-					<View style={{ gap: spacing.md }}>
-						<LineChart
-							height={56}
-							pad={4}
-							xMax={data.daysInMonth}
-							yMax={peak}
-							series={[
-								{
-									key: "previous",
-									color: chart.other,
-									dashed: true,
-									points: data.previous.map((p) => ({ x: p.day, y: p.cumulativeCents })),
-								},
-								{
-									key: "current",
-									color: colors.text,
-									endDot: true,
-									points: data.current.map((p) => ({ x: p.day, y: p.cumulativeCents })),
-								},
-							]}
-						/>
-						<Figure
-							value={money(data.spentCents, hidden, { sign: "never" })}
-							caption={v.text}
-							captionLines={2}
-						/>
 					</View>
 				);
 			}}

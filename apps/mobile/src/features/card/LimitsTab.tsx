@@ -5,7 +5,7 @@ import { money } from "../../lib/format.ts";
 import { toLoadable } from "../../lib/loadable.ts";
 import { BankLogo, ErrorState, Ring, Skeleton, Text } from "../../ui/index.ts";
 import { useNow } from "../banks/use-now.ts";
-import { freshnessLabel, limitSourceLabel } from "../summary/bank-cards-model.ts";
+import { freshnessLabel } from "../summary/bank-cards-model.ts";
 import { useInvoicesOverview } from "../summary/queries.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import {
@@ -74,13 +74,13 @@ export function LimitsTab({ cards, hidden }: { cards: readonly CardLike[]; hidde
 						{fmt(limits.availableCents)}
 					</Text>
 					<Text variant="caption" tone="secondary">
-						Usado {fmt(limits.usedCents)} de {fmt(limits.limitCents)}
+						de {fmt(limits.limitCents)}
 					</Text>
-					<Text variant="micro" tone="tertiary">
-						{anyEstimated
-							? "inclui estimativa do Órbita"
-							: (fresh ?? `${limits.cardsCounted} ${limits.cardsCounted === 1 ? "cartão" : "cartões"}`)}
-					</Text>
+					{fresh && !anyEstimated ? (
+						<Text variant="micro" tone="tertiary">
+							{fresh}
+						</Text>
+					) : null}
 				</View>
 			</View>
 
@@ -131,34 +131,9 @@ export function LimitsTab({ cards, hidden }: { cards: readonly CardLike[]; hidde
 								/>
 							</View>
 						) : null}
-						<View style={{ flexDirection: "row", gap: spacing.sm }}>
-							<View style={{ flex: 1, gap: 2 }}>
-								<Text variant="caption" tone="secondary">
-									Usado
-								</Text>
-								<Text variant="bodyStrong">{fmt(limit.usedCents)}</Text>
-							</View>
-							<View style={{ flex: 1, gap: 2 }}>
-								<Text variant="caption" tone="secondary">
-									Disponível
-								</Text>
-								<Text variant="bodyStrong">
-									{limit.availableCents === null ? "—" : fmt(limit.availableCents)}
-								</Text>
-							</View>
-							<View style={{ flex: 1, gap: 2 }}>
-								<Text variant="caption" tone="secondary">
-									Limite
-								</Text>
-								<Text variant="bodyStrong">{limit.limitCents === null ? "—" : fmt(limit.limitCents)}</Text>
-							</View>
-						</View>
-						<View style={{ height: 1, backgroundColor: colors.border }} />
 						<Text variant="caption" tone="secondary">
-							{limit.source === "estimated" ? "Uso estimado pelo Órbita" : limitSourceLabel(limit.source)}
-							{limit.source === "bank" && limit.syncedAt
-								? ` · ${freshnessLabel(limit.syncedAt, now) ?? ""}`
-								: ""}
+							Usado {fmt(limit.usedCents)}
+							{limit.availableCents === null ? "" : ` · disponível ${fmt(limit.availableCents)}`}
 						</Text>
 						{card ? (
 							<View style={{ flexDirection: "row", gap: spacing.sm }}>

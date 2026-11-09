@@ -43,6 +43,7 @@ export function BalancesScreen() {
 		return <ServerDownScreen onRetry={() => balancesQuery.refetch()} />;
 	}
 
+	// A idade da leitura aparece só aqui, no detalhe; no Início e em cada conta ela só repetiria.
 	const caption =
 		balances.phase === "ready"
 			? [accountsCountLabel(balances.data.accounts.length), freshnessLabel(balances.data.oldestSyncedAt, now)]
@@ -70,9 +71,6 @@ export function BalancesScreen() {
 			) : (
 				<>
 					<View style={{ gap: spacing.xs, paddingVertical: spacing.sm }}>
-						<Text variant="cardTitle" tone="secondary">
-							Total nas contas
-						</Text>
 						<Text variant="numberHero" adjustsFontSizeToFit numberOfLines={1}>
 							{balances.data.accounts.length === balances.data.withoutBalanceCount
 								? "—"
@@ -103,11 +101,7 @@ export function BalancesScreen() {
 										{a.name}
 									</Text>
 									<Text variant="caption" tone="secondary" numberOfLines={1}>
-										{a.hasBalance
-											? [accountKindLabel(a.kind), freshnessLabel(a.syncedAt, now)]
-													.filter(Boolean)
-													.join(" · ")
-											: "Sem saldo do banco"}
+										{a.hasBalance ? accountKindLabel(a.kind) : "Sem saldo do banco"}
 									</Text>
 								</View>
 								{a.hasBalance ? (
@@ -148,9 +142,6 @@ export function BalancesScreen() {
 											}}
 										/>
 									</View>
-									<Text variant="caption" tone="secondary">
-										{`${String(a.sharePercent).replace(".", ",")}% do total`}
-									</Text>
 								</View>
 							) : null}
 						</View>

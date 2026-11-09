@@ -72,11 +72,9 @@ export function InstallmentCard({
 			<View style={{ flexDirection: "row" }}>
 				<Text variant="caption" tone="secondary" style={{ flex: 1 }}>
 					Pago {money(model.paidCents, hidden, { sign: "never" })}
-					{model.paidEstimated ? " (estimado)" : ""}
 				</Text>
 				<Text variant="caption" tone="secondary">
 					Falta {money(model.remainingCents, hidden, { sign: "never" })}
-					{model.remainingEstimated ? " (estimado)" : ""}
 				</Text>
 			</View>
 			<View style={{ height: 1, backgroundColor: colors.border }} />

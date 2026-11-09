@@ -12,15 +12,15 @@ const TOTAL_BUDGET_SCOPE = "total";
 
 const TITLE = "Dá pra gastar até o fim do mês";
 
-/** "Gasto R$ X" que abre "Como chegamos nesse número" (cada lançamento que somou, por ramo). */
+/** "Gasto R$ X" que abre o Gasto do mês (a linha dia a dia; de lá vai a "Como chegamos nesse número"). */
 function SpentLine({ month, cents, hidden }: { month: string; cents: number; hidden: boolean }) {
 	const router = useRouter();
 	return (
 		<Pressable
 			accessibilityRole="button"
-			accessibilityLabel={`Gasto ${hidden ? "escondido" : money(cents, false, { sign: "never" })}, ver como chegamos nesse número`}
+			accessibilityLabel={`Gasto ${hidden ? "escondido" : money(cents, false, { sign: "never" })}, ver o gasto do mês`}
 			hitSlop={8}
-			onPress={() => router.push({ pathname: "/gasto", params: { mes: month } })}
+			onPress={() => router.push({ pathname: "/gasto-do-mes", params: { mes: month } })}
 			style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
 		>
 			<Text variant="caption" tone="secondary" style={{ textDecorationLine: "underline" }}>
@@ -125,11 +125,6 @@ export function HeroCard({
 						? `${masked(hero.reservedCents)} reservados para contas do mês`
 						: `≈ ${masked(safe.perDayCents)} por dia · orçamento de ${masked(hero.limitCents)}`}
 			</Text>
-			{hero.reserveExceeds ? (
-				<Text variant="caption" tone="secondary">
-					O que falta pagar este mês passa do que sobra.
-				</Text>
-			) : null}
 			<View style={{ marginTop: spacing.xl }}>
 				<ProgressBar parts={bar} />
 			</View>
@@ -139,19 +134,9 @@ export function HeroCard({
 					{hero.percent}% do orçamento
 				</Text>
 			</View>
-			{invested > 0 ? (
-				<Text variant="caption" tone="secondary" style={{ marginTop: spacing.xs }}>
-					Investido {money(invested, hidden, { sign: "never" })}
-				</Text>
-			) : null}
 			{notice ? (
 				<Text variant="caption" accessibilityRole="alert" style={{ marginTop: spacing.sm }}>
 					{notice}
-				</Text>
-			) : null}
-			{hero.reservedCents > 0 && !hero.overBudget ? (
-				<Text variant="caption" tone="secondary" style={{ marginTop: spacing.xs }}>
-					Contas a vencer (listradas) {money(hero.reservedCents, hidden, { sign: "never" })}
 				</Text>
 			) : null}
 		</Shell>
