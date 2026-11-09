@@ -72,6 +72,14 @@ const BUILTIN_TEXT: Record<
 		intro: "Posso acompanhar o ritmo das suas metas.",
 		suggestions: ["Como estão minhas metas?", "Qual meta está mais atrasada?", "Quanto guardar por mês?"],
 	},
+	economia: {
+		intro: "Posso achar onde dá para cortar gastos.",
+		suggestions: [
+			"Onde dá para cortar gastos?",
+			"Quanto posso economizar por mês?",
+			"Quais taxas e juros estou pagando?",
+		],
+	},
 };
 
 const CUSTOM_SUGGESTIONS = ["O que você faz?", "Como foi o mês?", "Resuma o que você viu"] as const;

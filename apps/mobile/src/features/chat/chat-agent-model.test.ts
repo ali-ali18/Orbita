@@ -4,6 +4,7 @@ import { ATTACH_SUGGESTION, chatAgentView, ORBITA_VIEW } from "./chat-agent-mode
 const agents = [
 	{ id: "a-orbita", name: "Órbita", builtinKey: "orbita" },
 	{ id: "a-vigia", name: "Vigia", builtinKey: "vigia" },
+	{ id: "a-economia", name: "Economia", builtinKey: "economia" },
 	{ id: "a-meu", name: "Meu radar", builtinKey: null },
 ] as const;
 
@@ -19,6 +20,14 @@ describe("chatAgentView", () => {
 		expect(view.suggestions.length).toBeGreaterThanOrEqual(2);
 		expect(view.suggestions).not.toContain(ATTACH_SUGGESTION);
 		expect(view.suggestions).not.toEqual(ORBITA_VIEW.suggestions);
+	});
+
+	it("a Economia tem intro e sugestões próprias, sem a de anexo", () => {
+		const view = chatAgentView("a-economia", agents);
+		expect(view).toMatchObject({ id: "a-economia", name: "Economia", visual: "economia" });
+		expect(view.intro).not.toBe("");
+		expect(view.suggestions).toHaveLength(3);
+		expect(view.suggestions).not.toContain(ATTACH_SUGGESTION);
 	});
 
 	it("o agente do dono usa o nome dele e o rosto genérico", () => {
