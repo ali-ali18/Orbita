@@ -19,6 +19,7 @@ import {
 	UNCERTAIN_TARGET_NOTE,
 	UNVERIFIED_BANK_NOTE,
 } from "./ingest.ts";
+import { UNCONFIRMED_NOTE } from "./reconcile.ts";
 
 const NOW = new Date("2026-11-12T09:00:00Z");
 /** 09/11/2026, 12h em São Paulo. */
@@ -469,5 +470,37 @@ describe("notificação e depois Open Finance: um lançamento só", () => {
 		await sync([anchor, pending, { ...pending, id: "p-2", providerId: "prov-livraria-2" }]);
 		expect(await liveLivraria()).toHaveLength(2);
 		expect((await liveLivraria()).every((r) => r.source === "pluggy")).toBe(true);
+	});
+
+	it("notificação que o banco nunca confirma vai para Para revisar depois de 5 dias, sem apagar", async () => {
+		const deps = { stores, now: () => clock };
+		await ingestNotification(
+			deps,
+			item("Compra de R$ 77,70 APROVADA em LOJA SUMIDA para o cartão com final 4321"),
+		);
+		const find = async () =>
+			(await stores.transactions.listRecent({ limit: 100 })).find((t) => t.amountCents === 7770);
+		// 2 dias depois: ainda dentro do prazo.
+		clock = new Date(NOW.getTime() + 2 * DAY);
+		await sync([anchor]);
+		expect(await find()).toMatchObject({ status: "confirmed", bankPending: true, note: null });
+		// 6 dias depois, com sincronização completa do cartão: revisão.
+		clock = new Date(NOW.getTime() + 6 * DAY);
+		await sync([anchor]);
+		expect(await find()).toMatchObject({ status: "pending", note: UNCONFIRMED_NOTE, source: "notification" });
+		expect((await stores.transactions.listPending()).map((t) => t.amountCents)).toContain(7770);
+	});
+
+	it("não mexe no que o dono já mexeu, no que já tem nota nem no que o banco adotou", async () => {
+		const deps = { stores, now: () => clock };
+		await ingestNotification(
+			deps,
+			item("Compra de R$ 77,70 APROVADA em LOJA SUMIDA para o cartão com final 4321"),
+		);
+		const row = (await stores.transactions.listRecent({ limit: 100 })).find((t) => t.amountCents === 7770);
+		await stores.transactions.update(row?.id as string, { description: "Minha", editedByOwner: true });
+		clock = new Date(NOW.getTime() + 8 * DAY);
+		await sync([anchor]);
+		expect((await stores.transactions.get(row?.id as string))?.status).toBe("confirmed");
 	});
 });

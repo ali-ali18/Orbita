@@ -22,6 +22,7 @@ import {
 	type UpsertByExternalInput,
 } from "@orbita/db";
 import { PLUGGY_RECONNECT_MESSAGE, type PluggySyncStatus, type SecretName } from "@orbita/shared";
+import { flagUnconfirmedNotifications } from "../notification/reconcile.ts";
 import { type BankNumbersResult, recordBankNumbers, recordBills } from "./balances.ts";
 import {
 	detectBankName,
@@ -1403,6 +1404,12 @@ async function trackPresence(
 		from: when.from,
 		today: when.today,
 		now: when.startedAt,
+	});
+	// Notificação que o banco nunca confirmou (cartão/conta lidos por inteiro agora): vai para revisão, nunca some.
+	await flagUnconfirmedNotifications(transactions, {
+		target: target.account ? { accountId: owner.id } : { cardId: owner.id },
+		today: when.today,
+		syncedAt: when.startedAt,
 	});
 	if (done.removed > 0) result.removedByBank = (result.removedByBank ?? 0) + done.removed;
 	if (done.flagged > 0) result.flaggedMissing = (result.flaggedMissing ?? 0) + done.flagged;
