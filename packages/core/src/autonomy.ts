@@ -119,6 +119,30 @@ export interface DuplicateCandidate {
 	/** O dono mexeu em algum dos dois, ou o lançamento já está para revisar. */
 	editedByOwner: boolean;
 	alreadyPending: boolean;
+	/** Dias entre os dois lançamentos (0 = no mesmo dia). */
+	daysApart: number;
+	/** Origem de cada um (`manual`, `notification`, `pluggy`…). */
+	sources: readonly [string, string];
+	/** Quantas vezes o mesmo estabelecimento cobrou o mesmo valor nos últimos 30 dias (os dois deste par contam). */
+	sameValueCount30d: number;
+}
+
+/** Cobrança que se repete 3 vezes ou mais no mês com o mesmo valor é hábito (passagem, café), não cobrança em dobro. */
+export const DUPLICATE_HABIT_MIN_COUNT = 3;
+
+/**
+ * A ação autônoma é bem mais estrita que o aviso do Vigia: só o MESMO dia e com origens diferentes, uma delas o banco
+ * (`pluggy`), porque o clássico dobro é o lançamento do dono (ou da notificação) mais o do banco. Duas linhas do próprio
+ * banco nunca são marcadas sozinhas, e estabelecimento com hábito de cobrar o mesmo valor também não.
+ */
+export function isAutonomousDuplicate(d: DuplicateCandidate): boolean {
+	const [a, b] = d.sources;
+	return (
+		d.daysApart === 0 &&
+		a !== b &&
+		(a === "pluggy" || b === "pluggy") &&
+		d.sameValueCount30d < DUPLICATE_HABIT_MIN_COUNT
+	);
 }
 
 export interface AutonomyInput {
@@ -242,6 +266,7 @@ export function planAutonomousActions(input: AutonomyInput): PlannedAction[] {
 
 	for (const d of input.duplicates) {
 		if (d.editedByOwner || d.alreadyPending) continue;
+		if (!isAutonomousDuplicate(d)) continue;
 		add({
 			kind: "flag_duplicate",
 			dedupeKey: actionKey.duplicate(d.firstTransactionId, d.transactionId),

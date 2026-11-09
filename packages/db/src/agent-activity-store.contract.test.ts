@@ -11,12 +11,19 @@ const draft = (over: Partial<ActivityDraft> = {}): ActivityDraft => ({
 	summary: "Categorizei um lançamento",
 	reason: "Uma regra que você ensinou casa com o estabelecimento.",
 	evidence: { transactionIds: ["tx-1"] },
+	undo: { transactionId: "tx-1", categoryId: "c", previousCategoryId: null },
 	...over,
 });
 
 describe.each(contractSuites())("AgentActivityStore (%s)", (_name, make) => {
 	let stores: Stores;
 	let agentId: string;
+	/** Reserva e conclui (o caminho normal de uma ação feita). */
+	const concluded = async (d: ActivityDraft = draft()) => {
+		const rec = (await stores.agentActivity.reserve(agentId, d)) as { id: string };
+		await stores.agentActivity.finish(rec.id, d.undo);
+		return rec;
+	};
 	beforeEach(async () => {
 		stores = await make();
 		const info = BUILTIN_AGENTS.economia;
@@ -40,10 +47,10 @@ describe.each(contractSuites())("AgentActivityStore (%s)", (_name, make) => {
 			agentId,
 			kind: "categorize_transaction",
 			dedupeKey: "categorize:tx-1",
-			status: "done",
+			status: "applying",
 			undoneAt: null,
 			undoNote: null,
-			undo: {},
+			undo: { transactionId: "tx-1", categoryId: "c", previousCategoryId: null },
 			evidence: { transactionIds: ["tx-1"] },
 		});
 		expect(await stores.agentActivity.reserve(agentId, draft())).toBeNull();
@@ -53,24 +60,31 @@ describe.each(contractSuites())("AgentActivityStore (%s)", (_name, make) => {
 		expect(await stores.agentActivity.list()).toHaveLength(2);
 	});
 
-	it("guarda o que o Desfazer precisa e solta a reserva quando a ação falha", async () => {
+	it("o Desfazer já vem gravado na reserva; concluir troca applying por done uma vez só e completa o undo", async () => {
 		const rec = (await stores.agentActivity.reserve(agentId, draft())) as { id: string };
-		const saved = await stores.agentActivity.setUndo(rec.id, {
-			transactionId: "tx-1",
-			previousCategoryId: null,
-		});
-		expect(saved?.undo).toEqual({ transactionId: "tx-1", previousCategoryId: null });
-		expect(await stores.agentActivity.setUndo("nao-existe", {})).toBeNull();
+		// Enquanto está applying não se desfaz (nada garante que a ação já gravou).
+		expect(await stores.agentActivity.markUndone(rec.id)).toBeNull();
+		const [one, two] = await Promise.all([
+			stores.agentActivity.finish(rec.id, { transactionId: "tx-1", extra: 1 }),
+			stores.agentActivity.finish(rec.id, { transactionId: "tx-1", extra: 2 }),
+		]);
+		expect([one, two].filter((r) => r !== null)).toHaveLength(1);
+		expect((await stores.agentActivity.get(rec.id))?.status).toBe("done");
+		expect(await stores.agentActivity.finish(rec.id, {})).toBeNull();
+		expect(await stores.agentActivity.finish("nao-existe", {})).toBeNull();
+	});
+
+	it("solta a reserva só quando pedido: o achado pode ser tentado de novo", async () => {
+		const rec = (await stores.agentActivity.reserve(agentId, draft())) as { id: string };
 		expect(await stores.agentActivity.release(rec.id)).toBe(true);
 		expect(await stores.agentActivity.release(rec.id)).toBe(false);
-		// Solta a reserva: o achado pode ser tentado de novo.
 		expect(await stores.agentActivity.reserve(agentId, draft())).not.toBeNull();
 	});
 
 	it("lista do mais novo para o mais antigo, com limite, e dá as chaves (inclusive as desfeitas)", async () => {
-		const a = (await stores.agentActivity.reserve(agentId, draft({ dedupeKey: "a" }))) as { id: string };
-		await stores.agentActivity.reserve(agentId, draft({ dedupeKey: "b" }));
-		await stores.agentActivity.reserve(agentId, draft({ dedupeKey: "c" }));
+		const a = await concluded(draft({ dedupeKey: "a" }));
+		await concluded(draft({ dedupeKey: "b" }));
+		await concluded(draft({ dedupeKey: "c" }));
 		expect((await stores.agentActivity.list()).map((r) => r.dedupeKey)).toEqual(["c", "b", "a"]);
 		expect(await stores.agentActivity.list({ limit: 2 })).toHaveLength(2);
 		expect(await stores.agentActivity.list({ agentId: "outro" })).toEqual([]);
@@ -79,7 +93,7 @@ describe.each(contractSuites())("AgentActivityStore (%s)", (_name, make) => {
 	});
 
 	it("desfaz uma vez só (comparar-e-trocar) e o que foi desfeito não pode ser reservado de novo", async () => {
-		const rec = (await stores.agentActivity.reserve(agentId, draft())) as { id: string };
+		const rec = await concluded();
 		const [one, two] = await Promise.all([
 			stores.agentActivity.markUndone(rec.id, "  Você já tinha mudado a categoria.  "),
 			stores.agentActivity.markUndone(rec.id),
@@ -94,7 +108,7 @@ describe.each(contractSuites())("AgentActivityStore (%s)", (_name, make) => {
 	});
 
 	it("reabre quando o Desfazer falha no meio", async () => {
-		const rec = (await stores.agentActivity.reserve(agentId, draft())) as { id: string };
+		const rec = await concluded();
 		await stores.agentActivity.markUndone(rec.id, "nota");
 		const reopened = await stores.agentActivity.reopen(rec.id);
 		expect(reopened).toMatchObject({ status: "done", undoneAt: null, undoNote: null });
@@ -103,7 +117,7 @@ describe.each(contractSuites())("AgentActivityStore (%s)", (_name, make) => {
 	});
 
 	it("anota por que o Desfazer não mexeu em nada", async () => {
-		const rec = (await stores.agentActivity.reserve(agentId, draft())) as { id: string };
+		const rec = await concluded();
 		await stores.agentActivity.markUndone(rec.id);
 		const noted = await stores.agentActivity.setUndoNote(rec.id, "  Você já tinha mudado.  ");
 		expect(noted?.undoNote).toBe("Você já tinha mudado.");
