@@ -1,8 +1,7 @@
-import { daysBetween } from "@orbita/core";
 import { spacing } from "@orbita/tokens";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { View } from "react-native";
-import { money, monthName } from "../../lib/format.ts";
+import { money } from "../../lib/format.ts";
 import { toLoadable } from "../../lib/loadable.ts";
 import { ErrorState, Segmented, Skeleton, Text } from "../../ui/index.ts";
 import { useCategories, useInvoice, useInvoicesOverview } from "../summary/queries.ts";
@@ -11,31 +10,21 @@ import {
 	defaultInvoiceMonth,
 	INVOICE_FILTERS,
 	type InvoiceFilter,
-	invoiceDatesCaption,
-	monthChipLabel,
-	monthWindow,
-	openInvoiceMonth,
-	type PaymentStatusLike,
 	payableCents,
-	paymentBadge,
-	statusOfMonth,
 } from "./card-model.ts";
 import { InvoiceComposition } from "./InvoiceComposition.tsx";
 import { InvoiceHistoryChart } from "./InvoiceHistoryChart.tsx";
 import { InvoiceLines } from "./InvoiceLines.tsx";
 import { InvoiceOverviewCard } from "./InvoiceOverviewCard.tsx";
-import { dueShort, historyBars } from "./invoices-model.ts";
-import { MonthChips } from "./MonthChips.tsx";
+import {
+	historyBars,
+	invoiceStateLabel,
+	invoiceStateWord,
+	overviewDefaultMonth,
+	selectedBarMonth,
+} from "./invoices-model.ts";
 import { PayInvoice } from "./PayInvoice.tsx";
-import { BigNumber, BleedRow, CardChip, Notice } from "./parts.tsx";
-import { useInvoiceTotals } from "./queries.ts";
-
-/** "em 4 dias", "amanhã", "hoje" (ou "venceu" se já passou). */
-function untilText(days: number): string {
-	if (days < 0) return "venceu";
-	if (days === 0) return "hoje";
-	return days === 1 ? "amanhã" : `em ${days} dias`;
-}
+import { BleedRow, CardChip, Notice } from "./parts.tsx";
 
 /** Aba Faturas: cartão, total, mês, composição e lançamentos. */
 export function InvoicesTab({
@@ -54,28 +43,21 @@ export function InvoicesTab({
 	const card = cardId ? (cards.find((c) => c.id === cardId) ?? null) : null;
 	const overviewQ = useInvoicesOverview();
 	const overview = toLoadable(overviewQ);
-	// Escolha de mês por cartão: trocar de cartão volta para a fatura padrão dele.
-	const [picked, setPicked] = useState<{ cardId: string; month: string } | null>(null);
+	// O mês é escolhido tocando numa barra; trocar de cartão (ou voltar a "Todos") volta ao mês padrão.
+	const [picked, setPicked] = useState<{ key: string; month: string } | null>(null);
 	const [filter, setFilter] = useState<InvoiceFilter>("all");
-	const month = card
-		? picked?.cardId === card.id
-			? picked.month
-			: defaultInvoiceMonth(card, today)
-		: undefined;
+	const key = card?.id ?? "all";
+	const bars = overview.phase === "ready" ? historyBars(overview.data.history, card?.id ?? null) : [];
+	const preferred = card
+		? defaultInvoiceMonth(card, today)
+		: overviewDefaultMonth(overview.phase === "ready" ? overview.data.nextDueDate : null, bars, today);
+	const pickedMonth = picked?.key === key ? picked.month : null;
+	const month = selectedBarMonth(bars, pickedMonth, preferred) ?? (card ? (pickedMonth ?? preferred) : null);
+	const bar = bars.find((b) => b.month === month);
 
-	const invoiceQ = useInvoice(card?.id, month);
+	const invoiceQ = useInvoice(card?.id, card ? (month ?? undefined) : undefined);
 	const categoriesQ = useCategories();
 	const invoice = toLoadable(invoiceQ);
-
-	const months = useMemo(() => (card ? monthWindow(openInvoiceMonth(card, today)) : []), [card, today]);
-	const totals = useInvoiceTotals(card ? months.map((month) => ({ cardId: card.id, month })) : []);
-	const options = months.map((month, index) => ({
-		month,
-		status: monthChipLabel(
-			card ? statusOfMonth(card, month, today) : "open",
-			totals[index]?.data?.invoice.paymentStatus as PaymentStatusLike | undefined,
-		),
-	}));
 
 	const chips = (
 		<BleedRow>
@@ -88,34 +70,36 @@ export function InvoicesTab({
 
 	const history =
 		overview.phase === "ready" ? (
-			<InvoiceHistoryChart bars={historyBars(overview.data.history, card?.id ?? null)} hidden={hidden} />
+			<InvoiceHistoryChart
+				bars={bars}
+				month={month}
+				onSelect={(m) => setPicked({ key, month: m })}
+				hidden={hidden}
+			/>
 		) : overview.phase === "loading" ? (
-			<Skeleton height={180} />
+			<Skeleton height={200} />
 		) : (
 			<ErrorState message={overview.message} onRetry={overview.retry} />
 		);
 
+	// Situação honesta do mês escolhido; a data de vencimento vem da fatura (quando ainda carrega, só a palavra).
+	const owed =
+		invoice.phase === "ready" ? payableCents(invoice.data.invoice, invoice.data.composition.totalCents) : 0;
+	const stateCaption = !bar
+		? ""
+		: invoice.phase === "ready"
+			? `${invoiceStateLabel({ state: bar.state, dueDate: invoice.data.invoice.dueDate })}${
+					invoice.data.invoice.paymentStatus === "partial" && owed > 0
+						? ` · falta ${money(owed, hidden, { sign: "never" })}`
+						: ""
+				}`
+			: invoiceStateWord(bar.state);
+
 	if (!card || !month) {
 		return (
 			<View style={{ gap: spacing.lg }}>
-				{overview.phase === "ready" ? (
-					<BigNumber
-						label={`Total em faturas em ${monthName(today.slice(0, 7)).toLocaleLowerCase("pt-BR")}`}
-						value={money(overview.data.owedCents, hidden, { sign: "never" })}
-						caption={
-							overview.data.nextDueDate
-								? `Próximo vencimento ${dueShort(overview.data.nextDueDate)} (${untilText(daysBetween(today, overview.data.nextDueDate))})`
-								: "Nenhuma fatura a pagar"
-						}
-					/>
-				) : overview.phase === "loading" ? (
-					<View accessibilityLabel="Carregando faturas" style={{ gap: spacing.sm }}>
-						<Skeleton width="60%" height={40} />
-						<Skeleton width="50%" height={14} />
-					</View>
-				) : null}
-				{history}
 				{chips}
+				{history}
 				{overview.phase === "ready"
 					? overview.data.cards.map((line) => (
 							<InvoiceOverviewCard
@@ -139,34 +123,14 @@ export function InvoicesTab({
 			{chips}
 			{history}
 
-			{invoice.phase === "ready" ? (
-				<BigNumber
-					label={card.name}
-					value={money(invoice.data.composition.totalCents, hidden)}
-					caption={invoiceDatesCaption(invoice.data.invoice)}
-					badge={paymentBadge(invoice.data.invoice, invoice.data.composition.totalCents, (c) =>
-						money(c, hidden),
-					)}
-				/>
-			) : (
-				<View style={{ gap: spacing.sm }}>
-					<Text variant="cardTitle" tone="secondary">
-						{card.name}
+			<View style={{ gap: 2 }}>
+				<Text variant="bodyStrong">{card.name}</Text>
+				{bar ? (
+					<Text variant="caption" tone="secondary">
+						{stateCaption}
 					</Text>
-					{invoice.phase === "loading" ? (
-						<View accessibilityLabel="Carregando a fatura" style={{ gap: spacing.sm }}>
-							<Skeleton width="60%" height={40} />
-							<Skeleton width="50%" height={14} />
-						</View>
-					) : null}
-				</View>
-			)}
-
-			<MonthChips
-				options={options}
-				value={month}
-				onChange={(m) => setPicked({ cardId: card.id, month: m })}
-			/>
+				) : null}
+			</View>
 
 			{invoice.phase === "error" ? (
 				<ErrorState message={invoice.message} onRetry={invoice.retry} />

@@ -9,8 +9,16 @@ import type {
 } from "@orbita/shared";
 import { activeInstallments, cardInvoice } from "./summary.ts";
 
-/** Quantos meses de fatura o gráfico de barras mostra (o aberto é o último). */
+/** Quantos meses de fatura o gráfico de barras mostra até o mês aberto (o aberto é o último desses). */
 export const INVOICE_HISTORY_MONTHS = 6;
+/** Até quantos meses depois do aberto o gráfico olha atrás de fatura já com valor (parcelas e lançamentos futuros). */
+export const INVOICE_FUTURE_MONTHS = 3;
+
+/** Situação de um mês com vários cartões: a mais urgente (vencida, fechada, aberta); paga só se todas estão. */
+export function monthState(states: readonly InvoiceState[]): InvoiceState {
+	for (const s of ["overdue", "closed", "open"] as const) if (states.includes(s)) return s;
+	return "paid";
+}
 
 /**
  * Uma fatura como a visão "Faturas" a mostra. Fechada com fatura do banco (`/bills`): total e pagamentos vêm dele;
@@ -57,7 +65,7 @@ export interface InvoicesOverview {
 	nextDueDate: LocalDate | null;
 	/** Limites de todos os cartões somados. */
 	limits: LimitsTotalDto;
-	/** Total de faturas por mês, os últimos 6 (o último inclui a aberta), para o gráfico de barras. */
+	/** Total de faturas por mês: 6 até a aberta, mais os meses seguintes que já têm fatura; para o gráfico de barras. */
 	history: InvoiceHistoryPointDto[];
 }
 
@@ -301,16 +309,26 @@ export async function invoicesOverview(stores: Stores, today: LocalDate): Promis
 
 	const lastMonth = openMonths.sort().at(-1) ?? thisMonth;
 	const history: InvoiceHistoryPointDto[] = [];
-	for (let i = INVOICE_HISTORY_MONTHS - 1; i >= 0; i--) {
-		const month = addMonths(lastMonth, -i);
+	const pointOf = async (month: MonthKey): Promise<InvoiceHistoryPointDto> => {
 		const own = await Promise.all(cards.map(async (card) => ({ card, l: await line(card, month) })));
-		history.push({
+		return {
 			month,
 			totalCents: sum(own.map((o) => Math.max(0, o.l.totalCents))),
 			open: own.some((o) => o.l.status === "open"),
-			byCard: own.map((o) => ({ cardId: o.card.id, totalCents: Math.max(0, o.l.totalCents) })),
-		});
-	}
+			state: monthState(own.map((o) => o.l.state)),
+			byCard: own.map((o) => ({
+				cardId: o.card.id,
+				totalCents: Math.max(0, o.l.totalCents),
+				state: o.l.state,
+			})),
+		};
+	};
+	for (let i = INVOICE_HISTORY_MONTHS - 1; i >= 0; i--) history.push(await pointOf(addMonths(lastMonth, -i)));
+	// Meses depois do aberto só entram até o último que já tem fatura (parcelas, compras futuras).
+	const future: InvoiceHistoryPointDto[] = [];
+	for (let i = 1; i <= INVOICE_FUTURE_MONTHS; i++) future.push(await pointOf(addMonths(lastMonth, i)));
+	const lastWithValue = future.findLastIndex((p) => p.totalCents > 0);
+	history.push(...future.slice(0, lastWithValue + 1));
 
 	const dates = lines.flatMap((l) => (l.nextDueDate ? [l.nextDueDate] : [])).sort();
 	return {

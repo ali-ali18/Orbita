@@ -10,7 +10,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { accountBalances } from "./balances.ts";
 import { cashFlow } from "./cash-flow.ts";
-import { invoicesOverview } from "./invoices-overview.ts";
+import { invoicesOverview, monthState } from "./invoices-overview.ts";
 import { spendingDaily } from "./spending-daily.ts";
 import { activeInstallments, monthSummary } from "./summary.ts";
 
@@ -90,6 +90,33 @@ describe("limite do cartão: o que o banco informa", () => {
 			cardsWithoutLimit: 1,
 			oldestSyncedAt: null,
 		});
+	});
+
+	it("o gráfico segue além do mês aberto só até a última fatura que já tem valor", async () => {
+		const stores = newStores();
+		const card = await stores.cards.create({
+			name: "Futuro",
+			closingDay: 10,
+			dueDay: 20,
+			limitCents: 100000,
+		});
+		await purchase(stores, card, "2026-11-12", 1000, "Aberta");
+		const none = await invoicesOverview(stores, "2026-11-15");
+		expect(none.history).toHaveLength(6);
+		expect(none.history.at(-1)?.month).toBe("2026-12");
+		await purchase(stores, card, "2027-01-12", 7000, "Parcela futura");
+		const overview = await invoicesOverview(stores, "2026-11-15");
+		expect(overview.history.map((h) => h.month).slice(-3)).toEqual(["2026-12", "2027-01", "2027-02"]);
+		expect(overview.history.at(-1)).toMatchObject({ month: "2027-02", totalCents: 7000, state: "open" });
+		for (const h of overview.history) invoiceHistoryPointDto.parse(h);
+	});
+
+	it("situação do mês entre cartões: a mais urgente; paga só se todas pagas", () => {
+		expect(monthState(["paid", "closed"])).toBe("closed");
+		expect(monthState(["open", "overdue", "paid"])).toBe("overdue");
+		expect(monthState(["paid", "open"])).toBe("open");
+		expect(monthState(["paid", "paid"])).toBe("paid");
+		expect(monthState([])).toBe("paid");
 	});
 
 	it("disponível maior que o limite não dá uso negativo", async () => {

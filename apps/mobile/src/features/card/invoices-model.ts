@@ -44,28 +44,51 @@ export function invoiceSourceLabel(source: "bank" | "ledger"): string {
 export interface HistoryBar {
 	month: MonthKey;
 	cents: Cents;
-	/** O mês ainda recebe compras (o valor pode crescer): é o destacado. */
-	open: boolean;
+	/** Situação do mês (a do cartão escolhido ou, em "Todos", a mais urgente entre os cartões). */
+	state: InvoiceStateLike;
 }
 
-/** Barras dos últimos meses: de todos os cartões ou só do escolhido. */
+/** Barras dos meses: de todos os cartões ou só do escolhido. Cartão sem fatura no mês fica com 0 e "aberta". */
 export function historyBars(
 	history: readonly {
 		month: MonthKey;
 		totalCents: Cents;
-		open: boolean;
-		byCard: readonly { cardId: string; totalCents: Cents }[];
+		state: InvoiceStateLike;
+		byCard: readonly { cardId: string; totalCents: Cents; state: InvoiceStateLike }[];
 	}[],
 	cardId: string | null,
 ): HistoryBar[] {
-	return history.map((h) => ({
-		month: h.month,
-		open: h.open,
-		cents: cardId === null ? h.totalCents : (h.byCard.find((c) => c.cardId === cardId)?.totalCents ?? 0),
-	}));
+	return history.map((h) => {
+		if (cardId === null) return { month: h.month, cents: h.totalCents, state: h.state };
+		const own = h.byCard.find((c) => c.cardId === cardId);
+		return { month: h.month, cents: own?.totalCents ?? 0, state: own?.state ?? "open" };
+	});
 }
 
-/** O mês que a barra destaca de início: o último ainda aberto; sem aberto, o último da série. */
-export function defaultHistoryMonth(bars: readonly HistoryBar[]): MonthKey | null {
-	return (bars.findLast((b) => b.open) ?? bars.at(-1))?.month ?? null;
+/**
+ * O mês selecionado: o que o dono tocou, se ainda existe nas barras; senão o padrão (`preferred`, a fatura aberta ou a
+ * que vence, se tem barra); senão o último mês com barra. Sem barras, `null`.
+ */
+export function selectedBarMonth(
+	bars: readonly HistoryBar[],
+	picked: MonthKey | null,
+	preferred: MonthKey | null,
+): MonthKey | null {
+	for (const m of [picked, preferred]) if (m && bars.some((b) => b.month === m)) return m;
+	return bars.at(-1)?.month ?? null;
+}
+
+/** Em "Todos" o mês padrão é o do próximo vencimento (o mês da fatura é o do vencimento); sem ele, o da aberta. */
+export function overviewDefaultMonth(
+	nextDueDate: LocalDate | null,
+	bars: readonly HistoryBar[],
+	today: LocalDate,
+): MonthKey | null {
+	if (nextDueDate) return nextDueDate.slice(0, 7);
+	return bars.find((b) => b.month === today.slice(0, 7))?.month ?? null;
+}
+
+/** Rótulo falado da barra: "Fatura de novembro, R$ 1.200,00, paga". */
+export function barLabel(monthLabel: string, value: string, state: InvoiceStateLike): string {
+	return `Fatura de ${monthLabel}, ${value}, ${invoiceStateWord(state).toLowerCase()}`;
 }

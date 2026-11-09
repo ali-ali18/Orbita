@@ -63,7 +63,9 @@ export const invoiceHistoryPointDto = z.object({
 	totalCents: cents,
 	/** `true` se alguma fatura do mês ainda está aberta (o total pode crescer). */
 	open: z.boolean(),
-	byCard: z.array(z.object({ cardId: z.string(), totalCents: cents })),
+	/** Situação do mês: a mais urgente entre os cartões (vencida, fechada, aberta; paga só se todas estão pagas). */
+	state: z.enum(INVOICE_STATES),
+	byCard: z.array(z.object({ cardId: z.string(), totalCents: cents, state: z.enum(INVOICE_STATES) })),
 });
 export type InvoiceHistoryPointDto = z.infer<typeof invoiceHistoryPointDto>;
 
