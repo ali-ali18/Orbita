@@ -156,6 +156,31 @@ describe("limite com parcelamento", () => {
 	});
 });
 
+describe("parcela projetada na fatura aberta", () => {
+	it("a parcela que o devido já projeta não entra de novo nas que faltam (limite usado)", async () => {
+		const { stores, card } = await setup({ closingDay: 25, dueDay: 5 });
+		// Só a 1/5 (nov) lançada: a 2/5 ainda não existe e é projetada na aberta (2026-12).
+		await stores.transactions.createInstallmentGroup(
+			(["2026-11"] as const).map((m, i) => ({
+				kind: "expense" as const,
+				amountCents: 2000,
+				date: "2026-10-10",
+				description: "TV 5x",
+				cardId: card.id,
+				invoiceMonth: m,
+				budgetMonth: m,
+				installmentNumber: i + 1,
+				installmentCount: 5,
+			})),
+		);
+		const { line } = await only(stores, "2026-11-12");
+		expect(line.open.month).toBe("2026-12");
+		// Devido: 1/5 (fechada de nov, 2.000) + 2/5 projetada na aberta (2.000). Faltam depois dela a 3/5, 4/5 e 5/5.
+		expect(line.owedCents).toBe(4000);
+		expect(line.usedLimitCents).toBe(10_000);
+	});
+});
+
 describe("invoiceOwedCents", () => {
 	it("aberta deve o total; fechada, o total menos o pago, nunca negativo", () => {
 		expect(invoiceOwedCents("open", 5000, 0)).toBe(5000);
