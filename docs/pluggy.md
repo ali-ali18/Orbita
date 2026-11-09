@@ -206,7 +206,7 @@ O plano pessoal não mostra o ID da conexão no meu.pluggy.ai e não lista items
 
 1. App: `POST /v1/pluggy/connect-sessions` (Bearer do aparelho). O servidor cria um token aleatório de 32 bytes (guarda só o SHA-256, o aparelho que pediu e a hora; vale 15 min; uso único; uma sessão ativa por vez, garantido por lock no banco) e devolve `{ path: "/pluggy/conectar#s=<token>", expiresAt }`. O app monta a URL com o endereço do servidor pareado (recusa caminho que saia dele) e abre no navegador.
 2. Página `GET /pluggy/conectar` (HTML estático, pt-BR, tema escuro dos tokens) + `GET /pluggy/conectar/app.<hash>.js` (o widget). O JS lê o token do fragmento e o apaga do histórico (`history.replaceState`).
-3. `POST /pluggy/connect-token {session}`: o servidor confere a sessão (sem gastar) e que o aparelho que a pediu não foi revogado, chama `POST /connect_token` no Pluggy com as chaves do cofre e `clientUserId: "orbita"`, e devolve **só** `{ connectToken }`. O widget abre (`includeSandbox: false`, `language: "pt"`, `theme: "dark"`).
+3. `POST /pluggy/connect-token {session}`: o servidor confere a sessão (sem gastar) e que o aparelho que a pediu não foi revogado, chama `POST /connect_token` no Pluggy com as chaves do cofre e `clientUserId: "orbita"`, e devolve **só** `{ connectToken }` (na reconexão, `{ connectToken, updateItem }`). O widget abre (`includeSandbox: false`, `language: "pt"`, `theme: "dark"`).
 4. `onSuccess({ item })`: a página manda `POST /pluggy/connect-complete {session, itemId}` com `item.id`. O servidor: confere a sessão e o aparelho; confere `GET /items/{id}` com as nossas chaves e recusa (422, sem gastar a sessão) item que não existe na nossa aplicação (404/403 no Pluggy), conector de teste (`connector.isSandbox`) e item criado antes de `sessão − 2 min` (`item.createdAt`; a folga cobre diferença de relógio); gasta a sessão (atômico, uso único); cadastra a conexão (nome do banco como rótulo; idempotente se já existe) e, se o cadastro falhar, **devolve** a sessão (`release`) para tentar de novo; enfileira a sincronização.
 5. A página mostra "Pronto!" e um botão para `orbita://configuracoes/bancos` (scheme do `app.json`). O app, ao voltar para o primeiro plano, recarrega o status e a lista.
 
@@ -245,6 +245,25 @@ Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
 | O conteúdo do iframe real, o OAuth dos bancos e o `COOP` ausente                                            | **Suposição**: não foi possível abrir o widget de verdade aqui. Se algo falhar no celular, o primeiro suspeito é a CSP (ver o console do navegador) |
 | `connect.pluggy.ai` aceita ser embutido por qualquer origem                                                 | Suposição (é o uso documentado)                                                                                                                     |
 
+## Reconectar sem duplicar
+
+Os ids de conta e de lançamento do Pluggy são **por item**. Entrar no banco de novo como conexão nova cria um item novo e, sem cuidado, duplica contas, cartões e ~122 dias de lançamentos. Duas camadas evitam isso.
+
+**1. Modo de atualização do Connect (caminho normal).** "Reconectar o <banco>" (aviso no Início e na tela Bancos) chama `POST /v1/pluggy/connect-sessions` com `{ "connectionId": "<itemId>" }` (corpo opcional; sem ele é conexão nova).
+
+- O servidor só aceita `connectionId` de uma conexão **já cadastrada** (404 `nao_encontrado` senão) e guarda o item na sessão (`pluggy_connect_sessions.update_item_id`). O navegador nunca escolhe o item.
+- `POST /pluggy/connect-token`: se a sessão é de reconexão, o servidor chama `POST /connect_token` com `itemId` (e `options.clientUserId`) e devolve `{ connectToken, updateItem }` (confere que a conexão ainda existe; 401 se foi removida). A página abre o widget com `updateItem` (opção `updateItem` do `pluggy-connect-sdk`, confirmada nos tipos 2.15.0): o mesmo item é atualizado, com os mesmos ids.
+- `POST /pluggy/connect-complete`: na reconexão o `itemId` do navegador tem de ser **exatamente** o da sessão e a conexão tem de continuar cadastrada (422 `conexao_invalida` sem gastar a sessão, senão); a regra "item criado depois da sessão" não vale (o item é velho de propósito). Continuam valendo: sessão de uso único, aparelho não revogado, item existente na nossa aplicação Pluggy, recusa de sandbox. Não cadastra conexão nova; só enfileira a sincronização.
+- Suposição não testada contra o Pluggy real (a doc está fora da rede da sessão): o `connect_token` aceita `itemId` no corpo, no nível de `options`. É o formato do `createConnectToken(itemId, options)` do SDK.
+
+**2. Rede de segurança no sync (`packages/ingest/src/pluggy/relink.ts`).** Se mesmo assim chega um item novo do mesmo banco (reconexão antiga, login feito direto no meu.pluggy.ai):
+
+- **Conta/cartão**: quando o id do Pluggy não está ligado a nada, procura uma conta/cartão do Pluggy (viva, cujo id não veio nesta resposta) do mesmo tipo e banco (ISPB) e com o mesmo nome (conta; o Órbita não guarda o número) ou os mesmos 4 últimos dígitos (cartão). Só religa se houver **uma** candidata e **um** item novo que a queira. Troca só o `externalId` (`relinkExternal`, Prisma e memória); nome, limite, datas e lançamentos ficam.
+- **Quem segura a conta**: antes de religar, o sync olha as outras conexões cadastradas (`GET /items` e `/accounts`, só quando há candidata). Se o id ainda é de uma conexão **viva**, o item novo é um segundo login legítimo e não herda nada. Conexão que pede login (`LOGIN_ERROR`, `WAITING_USER_*`) ou que o Pluggy não conhece mais não segura. Se alguma não puder ser conferida (falha passageira), a conta/cartão **espera** a próxima rodada (conexão `partial`) em vez de nascer duplicada.
+- **Arquivar a antiga**: depois de religar, as conexões paradas ou apagadas do mesmo banco (mesmo `connector.id`; se o Pluggy já esqueceu o item, o mesmo nome) são removidas da lista (`remove`: só para de sincronizar; contas e lançamentos ficam).
+- **Lançamentos**: os ids mudam. Antes do `early.ts`, cada lançamento novo procura, na mesma conta/cartão e no mesmo dia, um lançamento **do Pluggy** vivo com id que não veio nesta resposta e o mesmo tipo, valor, descrição normalizada (sem acento/caixa) e parcela. Se achou, só troca o id externo (`rekeyExternal`): o que o dono editou fica, e o upsert seguinte o encontra. Iguais no mesmo dia (dois cafés) casam um a um; se o número de iguais não bate (há mais de um candidato para menos lançamentos novos, por exemplo), nada é religado e o novo vai para revisão (`pending` + nota de possível duplicata). Exceção a `early.ts`, que ignora lançamentos de origem Pluggy: esta regra existe só para eles. Estornos seguem a mesma regra.
+- Idempotente: depois da primeira rodada os ids já são os novos e as seguintes não mudam nada. Lançamento que o dono apagou no item antigo volta (o id novo não está reservado).
+
 ## Rotas
 
 Todas as de `/v1/pluggy/*` exigem `Authorization: Bearer`; as de `/pluggy/*` são públicas e autenticadas pela sessão (ver acima).
@@ -252,7 +271,7 @@ Todas as de `/v1/pluggy/*` exigem `Authorization: Bearer`; as de `/pluggy/*` sã
 - `GET /v1/pluggy/connections` → `{ connections }`
 - `POST /v1/pluggy/connections` `{ itemId, label? }` → 201 `{ connection }` (409 se repetida; com chaves cadastradas confere no Pluggy: 422 `conexao_invalida` se o ID não existe ou é de outra conta)
 - `DELETE /v1/pluggy/connections/:id` → `{ connection }` (404 se não existe)
-- `POST /v1/pluggy/connect-sessions` → 201 `{ path, expiresAt }` (409 `sem_chaves` se as chaves não estão cadastradas)
+- `POST /v1/pluggy/connect-sessions` `{ connectionId? }` → 201 `{ path, expiresAt }` (409 `sem_chaves` se as chaves não estão cadastradas; com `connectionId` é reconexão: 404 se a conexão não está cadastrada, 400 se não é UUID)
 - `POST /pluggy/connect-token`, `POST /pluggy/connect-complete` (públicos; 30 pedidos por IP a cada 10 min, corpo até 1 KB, mensagens fixas; 401 `sessao_invalida`, 409 `sem_chaves`, 422 `conexao_invalida`, 502 falha do Pluggy)
 - `GET /pluggy/conectar`, `GET /pluggy/conectar/app.<hash>.js` e `GET /pluggy/conectar/limpar.js` (públicos; 60 por IP a cada 10 min)
 - `POST /v1/pluggy/reimport` → 202 `{ deleted, sync }` (ver "Reimportar do zero")

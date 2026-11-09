@@ -124,12 +124,18 @@ export function routes(deps: PluggyConnectRoutesDeps) {
 				async (c) => {
 					const { session } = c.req.valid("json");
 					// Só confere: a sessão é gasta no `connect-complete`, e o widget pode precisar de um token novo antes.
-					if (!(await liveSession(session))) return c.json(SESSION_INVALID, 401);
+					const live = await liveSession(session);
+					if (!live) return c.json(SESSION_INVALID, 401);
 					const keys = await readKeys(vault);
 					if (!keys) return c.json(NO_KEYS, 409);
+					// Reconexão: o item vem da SESSÃO (criada pelo app), nunca do navegador, e continua sendo uma conexão
+					// cadastrada (se o dono a removeu nesse meio-tempo, não há o que atualizar).
+					const updateItem = live.updateItemId;
+					if (updateItem && !(await connections.get(updateItem))) return c.json(SESSION_INVALID, 401);
 					try {
 						const client = createPluggyClient({ fetch: doFetch, ...keys, now: deps.now });
-						return c.json({ connectToken: await client.connectToken(CONNECT_CLIENT_USER_ID) });
+						const connectToken = await client.connectToken(CONNECT_CLIENT_USER_ID, updateItem ?? undefined);
+						return c.json(updateItem ? { connectToken, updateItem } : { connectToken });
 					} catch (e) {
 						return c.json(pluggyFailure(e), 502);
 					}
@@ -148,8 +154,18 @@ export function routes(deps: PluggyConnectRoutesDeps) {
 					const keys = await readKeys(vault);
 					if (!keys) return c.json(NO_KEYS, 409);
 
+					// Reconexão: o ID do navegador tem de ser exatamente o item da sessão, que é de uma conexão já cadastrada.
+					const updating = live.updateItemId;
+					if (updating && (itemId !== updating || !(await connections.get(updating)))) {
+						return c.json(
+							apiError("conexao_invalida", "Essa não é a conexão que você pediu para reconectar."),
+							422,
+						);
+					}
+
 					// O ID veio do navegador: só vale se o item existe na NOSSA aplicação Pluggy (com as nossas chaves),
-					// é de banco de verdade e nasceu depois que a sessão começou. Falha passageira não gasta a sessão.
+					// é de banco de verdade e (conexão nova) nasceu depois que a sessão começou. Falha passageira não
+					// gasta a sessão.
 					let name: string | null;
 					try {
 						const item = await createPluggyClient({ fetch: doFetch, ...keys, now: deps.now }).item(itemId);
@@ -159,7 +175,8 @@ export function routes(deps: PluggyConnectRoutesDeps) {
 								422,
 							);
 						}
-						if (!itemIsFresh(item.createdAt, live.createdAt)) {
+						// Na reconexão o item é velho de propósito: o que vale é ser o item registrado da sessão.
+						if (!updating && !itemIsFresh(item.createdAt, live.createdAt)) {
 							return c.json(
 								apiError(
 									"conexao_invalida",
@@ -185,7 +202,7 @@ export function routes(deps: PluggyConnectRoutesDeps) {
 					// Idempotente: se a conexão já existe, é sucesso (o dono refez a conexão do mesmo banco).
 					// Se o cadastro falhar, a sessão volta a valer: o dono não perde a conexão que acabou de fazer.
 					try {
-						if (!(await connections.get(itemId))) {
+						if (!updating && !(await connections.get(itemId))) {
 							await connections.add(name ? { id: itemId, label: name } : { id: itemId });
 						}
 					} catch (e) {

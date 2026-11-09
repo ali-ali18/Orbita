@@ -93,6 +93,25 @@ describe.each(contractSuites())("AccountStore: cadastro de fora (%s)", (_name, m
 		expect(renamed).toMatchObject({ source: "pluggy", externalId: "x" });
 	});
 
+	it("relinkExternal troca só o id externo; manual, inexistente ou id em uso dão null", async () => {
+		const a = await stores.accounts.create({
+			name: "A",
+			kind: "checking",
+			source: "pluggy",
+			externalId: "old",
+		});
+		await stores.accounts.create({ name: "B", kind: "checking", source: "pluggy", externalId: "busy" });
+		const manual = await stores.accounts.create({ name: "M", kind: "checking" });
+		const moved = await stores.accounts.relinkExternal(a.id, " new ");
+		expect(moved).toMatchObject({ id: a.id, name: "A", source: "pluggy", externalId: "new" });
+		expect(await stores.accounts.findByExternal("pluggy", "old")).toBeNull();
+		expect((await stores.accounts.findByExternal("pluggy", "new"))?.id).toBe(a.id);
+		expect(await stores.accounts.relinkExternal(a.id, "busy")).toBeNull();
+		expect(await stores.accounts.relinkExternal(manual.id, "x")).toBeNull();
+		expect(await stores.accounts.relinkExternal("nada", "x")).toBeNull();
+		expect(await stores.accounts.relinkExternal(a.id, "  ")).toBeNull();
+	});
+
 	it("origem de fora exige id externo e cadastro manual não aceita", async () => {
 		await expect(
 			stores.accounts.create({ name: "A", kind: "checking", source: "pluggy" }),

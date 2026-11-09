@@ -55,6 +55,8 @@ export interface CardStore {
 	get(id: string): Promise<CardRecord | null>;
 	/** O cartão ligado a um cadastro de fora, arquivado ou não. */
 	findByExternal(source: TransactionSource, externalId: string): Promise<CardRecord | null>;
+	/** Como `AccountStore.relinkExternal`, para cartão: troca só o identificador externo (mesma origem). */
+	relinkExternal(id: string, externalId: string): Promise<CardRecord | null>;
 	/** Atalho para o engine: `invoiceFor(date, (await cards.getConfig(id))!)`. */
 	getConfig(id: string): Promise<CardConfig | null>;
 }

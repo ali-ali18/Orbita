@@ -42,9 +42,10 @@ export interface PluggyTransactionsResult {
 export interface PluggyClient {
 	/**
 	 * `POST /connect_token` com `clientUserId` fixo: o token de curta duração com que a página web abre o
-	 * Pluggy Connect. Devolve só o `accessToken` (nunca a apiKey).
+	 * Pluggy Connect. Devolve só o `accessToken` (nunca a apiKey). Com `updateItemId` o token é de ATUALIZAÇÃO
+	 * (`itemId` no corpo): o widget reabre aquele item em vez de criar outro.
 	 */
-	connectToken(clientUserId: string): Promise<string>;
+	connectToken(clientUserId: string, updateItemId?: string): Promise<string>;
 	/** `GET /items/{id}`: existe? qual banco? em que estado? */
 	item(itemId: string): Promise<PluggyItem>;
 	/** `GET /accounts?itemId=`: todas as páginas. */
@@ -265,9 +266,12 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 	};
 
 	return {
-		async connectToken(clientUserId) {
+		async connectToken(clientUserId, updateItemId) {
 			if (!SAFE_ID.test(clientUserId)) throw new RangeError("clientUserId inválido");
-			const body = await authed("/connect_token", "POST", { options: { clientUserId } });
+			const body = await authed("/connect_token", "POST", {
+				...(updateItemId === undefined ? {} : { itemId: needUuid(updateItemId) }),
+				options: { clientUserId },
+			});
 			return parse(connectTokenResponse, body).accessToken;
 		},
 		async item(itemId) {

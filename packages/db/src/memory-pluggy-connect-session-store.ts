@@ -1,19 +1,35 @@
 import type { PluggyConnectSessionStore } from "./pluggy-connect-session-store.ts";
 
-type Row = { tokenHash: string; deviceId: string; createdAt: Date; expiresAt: Date; usedAt: Date | null };
+type Row = {
+	tokenHash: string;
+	deviceId: string;
+	createdAt: Date;
+	expiresAt: Date;
+	usedAt: Date | null;
+	updateItemId: string | null;
+};
 
 /** Implementação em memória, para testes. Segue as mesmas regras da versão Prisma. */
 export function createMemoryPluggyConnectSessionStore(): PluggyConnectSessionStore {
 	const rows: Row[] = [];
 	const alive = (r: Row, now: Date) => r.usedAt === null && r.expiresAt > now;
 	return {
-		async create({ tokenHash, deviceId, expiresAt, now }) {
+		async create({ tokenHash, deviceId, expiresAt, now, updateItemId }) {
 			for (const r of rows) if (alive(r, now)) r.expiresAt = now;
-			rows.push({ tokenHash, deviceId, createdAt: now, expiresAt, usedAt: null });
+			rows.push({
+				tokenHash,
+				deviceId,
+				createdAt: now,
+				expiresAt,
+				usedAt: null,
+				updateItemId: updateItemId ?? null,
+			});
 		},
 		async find(tokenHash, now) {
 			const r = rows.find((x) => x.tokenHash === tokenHash);
-			return r && alive(r, now) ? { deviceId: r.deviceId, createdAt: r.createdAt } : null;
+			return r && alive(r, now)
+				? { deviceId: r.deviceId, createdAt: r.createdAt, updateItemId: r.updateItemId }
+				: null;
 		},
 		async consume(tokenHash, now) {
 			const r = rows.find((x) => x.tokenHash === tokenHash);

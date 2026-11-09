@@ -220,6 +220,12 @@ export interface TransactionStore {
 		patch: AdoptExternalPatch,
 	): Promise<TransactionRecord | null>;
 	/**
+	 * Troca o identificador externo de um lançamento VIVO que já é de `source` (o banco refez a conexão e os ids
+	 * mudaram). Não mexe em mais nada. `null`, sem mudar nada, se o lançamento não existe, foi apagado, não é de
+	 * `source` ou se a identidade nova já está em uso (inclusive de um lançamento apagado).
+	 */
+	rekeyExternal(id: string, source: TransactionSource, externalId: string): Promise<TransactionRecord | null>;
+	/**
 	 * Já existe lançamento com esta identidade externa? Conta também o apagado: o identificador continua
 	 * reservado (a ingestão não recria o que o dono apagou). Serve para decidir antes de montar o lançamento.
 	 */

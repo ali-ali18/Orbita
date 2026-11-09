@@ -518,3 +518,80 @@ describe("widget empacotado no build", () => {
 		}
 	});
 });
+
+describe("reconexão (modo de atualização do mesmo item)", () => {
+	const OLD = { createdAt: "2026-06-01T10:00:00.000Z" };
+	const reconnectSession = async (t: Awaited<ReturnType<typeof make>>, connectionId = ITEM) => {
+		const res = await t.api.post("/v1/pluggy/connect-sessions", { connectionId });
+		expect(res.status).toBe(201);
+		return (res.body.path as string).split("#s=")[1] as string;
+	};
+
+	it("pede o token do widget com o itemId e devolve o item a atualizar", async () => {
+		const t = await make({ item: OLD });
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		const session = await reconnectSession(t);
+		const res = await t.pub("/pluggy/connect-token", { session });
+		expect(res.status).toBe(200);
+		expect(res.body).toEqual({ connectToken: CONNECT_TOKEN, updateItem: ITEM });
+		const call = t.log.find((l) => l.path === "POST /connect_token");
+		expect(JSON.parse(call?.body ?? "{}")).toEqual({ itemId: ITEM, options: { clientUserId: "orbita" } });
+	});
+
+	it("aceita o item antigo do dono, não duplica a conexão e enfileira a sincronização", async () => {
+		const t = await make({ item: OLD });
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM, label: "Meu nome" });
+		const session = await reconnectSession(t);
+		const res = await t.pub("/pluggy/connect-complete", { session, itemId: ITEM });
+		expect(res.status).toBe(200);
+		expect(t.q.calls).toEqual(["enqueue"]);
+		const list = (await t.api.get("/v1/pluggy/connections")).body.connections;
+		expect(list).toHaveLength(1);
+		expect(list[0]).toMatchObject({ id: ITEM, label: "Meu nome" });
+		// Uso único também na reconexão.
+		expect((await t.pub("/pluggy/connect-complete", { session, itemId: ITEM })).status).toBe(401);
+	});
+
+	it("sem reconexão, item antigo continua recusado", async () => {
+		const t = await make({ item: OLD });
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		const res = await t.pub("/pluggy/connect-complete", { session: await t.newSession(), itemId: ITEM });
+		expect(res.status).toBe(422);
+	});
+
+	it("não abre sessão de reconexão para item que não é do dono", async () => {
+		const t = await make({ item: OLD });
+		const res = await t.api.post("/v1/pluggy/connect-sessions", { connectionId: FOREIGN });
+		expect(res.status).toBe(404);
+		const bad = await t.api.post("/v1/pluggy/connect-sessions", { connectionId: "nao-e-uuid" });
+		expect(bad.status).toBe(400);
+	});
+
+	it("o navegador não troca o item: itemId diferente do da sessão é recusado e não gasta a sessão", async () => {
+		const t = await make({ item: OLD });
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		const session = await reconnectSession(t);
+		const res = await t.pub("/pluggy/connect-complete", { session, itemId: FOREIGN });
+		expect(res.status).toBe(422);
+		expect(res.body.error.code).toBe("conexao_invalida");
+		expect(t.q.calls).toEqual([]);
+		expect((await t.api.get("/v1/pluggy/connections")).body.connections).toHaveLength(1);
+		expect((await t.pub("/pluggy/connect-complete", { session, itemId: ITEM })).status).toBe(200);
+	});
+
+	it("conexão removida entre a sessão e o fim: recusa", async () => {
+		const t = await make({ item: OLD });
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		const session = await reconnectSession(t);
+		await t.api.delete(`/v1/pluggy/connections/${ITEM}`);
+		expect((await t.pub("/pluggy/connect-token", { session })).status).toBe(401);
+		expect((await t.pub("/pluggy/connect-complete", { session, itemId: ITEM })).status).toBe(422);
+	});
+
+	it("sandbox continua recusado na reconexão", async () => {
+		const t = await make({ item: { ...OLD, isSandbox: true } });
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		const session = await reconnectSession(t);
+		expect((await t.pub("/pluggy/connect-complete", { session, itemId: ITEM })).status).toBe(422);
+	});
+});

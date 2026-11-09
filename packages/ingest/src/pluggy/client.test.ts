@@ -52,6 +52,14 @@ describe("createPluggyClient", () => {
 		await expect(make(fake.fetch).connectToken("a/b")).rejects.toThrow(RangeError);
 	});
 
+	it("pede token de atualização com o itemId no corpo e recusa itemId que não é UUID", async () => {
+		const fake = fakePluggy();
+		await make(fake.fetch).connectToken("orbita", ITEM_ID);
+		const req = fake.requests.filter((r) => r.url.pathname === "/connect_token").at(-1);
+		expect(JSON.parse(req?.body ?? "{}")).toEqual({ itemId: ITEM_ID, options: { clientUserId: "orbita" } });
+		await expect(make(fake.fetch).connectToken("orbita", "../x")).rejects.toThrow();
+	});
+
 	it("lê createdAt e connector.isSandbox do item", async () => {
 		const fake = fakePluggy({ item: { connector: { name: "Banco Teste", isSandbox: true } } });
 		const item = await make(fake.fetch).item(ITEM_ID);

@@ -142,6 +142,24 @@ export function createMemoryTransactionStore(state: MemoryState): TransactionSto
 			return view(next);
 		},
 
+		async rekeyExternal(id, source, externalId) {
+			const current = state.transactions.get(id);
+			if (
+				!current ||
+				current.deletedAt !== null ||
+				current.source !== source ||
+				current.externalId === null
+			) {
+				return null;
+			}
+			if ([...state.transactions.values()].some((t) => t.source === source && t.externalId === externalId)) {
+				return null;
+			}
+			const next: StoredTransaction = { ...current, externalId, updatedAt: state.now() };
+			state.transactions.set(id, next);
+			return view(next);
+		},
+
 		async existsByExternal(source, externalId) {
 			return [...state.transactions.values()].some((t) => t.source === source && t.externalId === externalId);
 		},
