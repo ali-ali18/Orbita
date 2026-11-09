@@ -1,37 +1,65 @@
 import { chart, colors, radius, spacing } from "@orbita/tokens";
-import { useState } from "react";
-import { Pressable, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { Pressable, ScrollView, type ScrollViewInstance, View } from "react-native";
 import { money, monthName } from "../../lib/format.ts";
 import { Text } from "../../ui/index.ts";
 import { monthAbbrev } from "./card-model.ts";
-import { defaultHistoryMonth, type HistoryBar } from "./invoices-model.ts";
+import { barLabel, type HistoryBar } from "./invoices-model.ts";
 
 const BAR_MAX = 120;
 const BAR_MIN = 6;
+/** Largura de cada barra tocável (acima do mínimo de 44 de toque). */
+const SLOT = 48;
 
 /**
- * Faturas dos últimos 6 meses, uma barra por mês. O mês ainda aberto (o atual) fica em destaque; os fechados, em
- * cinza. Tocar numa barra mostra o valor do mês acima do gráfico. Os valores vêm prontos do servidor.
+ * Faturas por mês: os 6 até a aberta e os seguintes que já têm valor. A barra do mês selecionado fica em destaque, as
+ * outras neutras; tocar numa barra escolhe o mês (a tela decide o que mostrar). O título é único: mês e valor do
+ * selecionado. Rola na horizontal quando não cabe. Os valores vêm prontos do servidor.
  */
-export function InvoiceHistoryChart({ bars, hidden }: { bars: readonly HistoryBar[]; hidden: boolean }) {
-	const [picked, setPicked] = useState<string | null>(null);
-	const month = picked && bars.some((b) => b.month === picked) ? picked : defaultHistoryMonth(bars);
+export function InvoiceHistoryChart({
+	bars,
+	month,
+	onSelect,
+	hidden,
+}: {
+	bars: readonly HistoryBar[];
+	month: string | null;
+	onSelect: (month: string) => void;
+	hidden: boolean;
+}) {
+	const ref = useRef<ScrollViewInstance>(null);
 	const selected = bars.find((b) => b.month === month);
-	const max = Math.max(1, ...bars.map((b) => b.cents));
+	const index = bars.findIndex((b) => b.month === month);
+	useEffect(() => {
+		if (index >= 0)
+			ref.current?.scrollTo({ x: Math.max(0, (index - 2) * (SLOT + spacing.sm)), animated: false });
+	}, [index]);
 	if (bars.length === 0) return null;
+	const max = Math.max(1, ...bars.map((b) => b.cents));
 	return (
 		<View style={{ gap: spacing.md }}>
 			{selected ? (
 				<View style={{ gap: 2 }}>
-					<Text variant="caption" tone="secondary">
+					<Text variant="cardTitle" tone="secondary">
 						Fatura de {monthName(selected.month).toLocaleLowerCase("pt-BR")}
 					</Text>
-					<Text variant="numberLarge" adjustsFontSizeToFit numberOfLines={1}>
+					<Text variant="numberHero" adjustsFontSizeToFit numberOfLines={1}>
 						{money(selected.cents, hidden, { sign: "never" })}
 					</Text>
 				</View>
 			) : null}
-			<View style={{ flexDirection: "row", alignItems: "flex-end", gap: spacing.sm, height: BAR_MAX + 28 }}>
+			<ScrollView
+				ref={ref}
+				horizontal
+				showsHorizontalScrollIndicator={false}
+				style={{ marginHorizontal: -spacing.lg, flexGrow: 0 }}
+				contentContainerStyle={{
+					paddingHorizontal: spacing.lg,
+					gap: spacing.sm,
+					alignItems: "flex-end",
+					height: BAR_MAX + 36,
+				}}
+			>
 				{bars.map((b) => {
 					const active = b.month === month;
 					const height = b.cents <= 0 ? BAR_MIN : Math.max(BAR_MIN, Math.round((b.cents / max) * BAR_MAX));
@@ -39,11 +67,15 @@ export function InvoiceHistoryChart({ bars, hidden }: { bars: readonly HistoryBa
 						<Pressable
 							key={b.month}
 							accessibilityRole="button"
-							accessibilityLabel={`${monthName(b.month)}: ${money(b.cents, hidden, { sign: "never" })}${b.open ? ", aberta" : ""}`}
+							accessibilityLabel={barLabel(
+								monthName(b.month).toLocaleLowerCase("pt-BR"),
+								money(b.cents, hidden, { sign: "never" }),
+								b.state,
+							)}
 							accessibilityState={{ selected: active }}
-							onPress={() => setPicked(b.month)}
+							onPress={() => onSelect(b.month)}
 							style={{
-								flex: 1,
+								width: SLOT,
 								alignItems: "center",
 								justifyContent: "flex-end",
 								gap: spacing.sm,
@@ -55,17 +87,17 @@ export function InvoiceHistoryChart({ bars, hidden }: { bars: readonly HistoryBa
 									width: "100%",
 									height,
 									borderRadius: radius.sm,
-									backgroundColor: b.open ? colors.accent : chart.other,
+									backgroundColor: active ? colors.accent : chart.other,
 									opacity: active ? 1 : 0.55,
 								}}
 							/>
-							<Text variant="micro" tone={b.open || active ? "primary" : "secondary"}>
+							<Text variant="micro" tone={active ? "primary" : "secondary"}>
 								{monthAbbrev(b.month)}
 							</Text>
 						</Pressable>
 					);
 				})}
-			</View>
+			</ScrollView>
 		</View>
 	);
 }
