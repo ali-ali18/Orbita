@@ -51,6 +51,8 @@ export interface AgentRunInput {
 	/** Conversa anterior, já no formato do modelo. */
 	history: ModelMessage[];
 	userText: string;
+	/** Conteúdo da mensagem do dono quando há anexo (blocos `image`/`document`); vale no lugar de `userText`. */
+	userContent?: ModelMessage["content"];
 	maxTokens?: number;
 	/** Teto de voltas modelo → ferramentas → modelo. */
 	maxIterations?: number;
@@ -97,7 +99,10 @@ interface ToolResultBlock {
 
 export async function runAgent(deps: AgentLoopDeps, input: AgentRunInput): Promise<AgentRunResult> {
 	const schemas = toolSchemas(deps.tools);
-	const messages: ModelMessage[] = [...input.history, { role: "user", content: input.userText }];
+	const messages: ModelMessage[] = [
+		...input.history,
+		{ role: "user", content: input.userContent ?? input.userText },
+	];
 	const cards: ChatCard[] = [];
 	const emit = input.emit ?? (() => {});
 	let text = "";

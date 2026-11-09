@@ -1,7 +1,15 @@
 import type { ChatCard, ChatRowsCard, ProposalDto, SetupSelection } from "@orbita/shared";
 import { chart, colors, radius, spacing } from "@orbita/tokens";
-import { useState } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+	Keyboard,
+	KeyboardAvoidingView,
+	Pressable,
+	ScrollView,
+	type ScrollViewInstance,
+	TextInput,
+	View,
+} from "react-native";
 import { percentOf } from "../../lib/format.ts";
 import {
 	Button,
@@ -15,8 +23,10 @@ import {
 	Text,
 } from "../../ui/index.ts";
 import { hello } from "../settings/profile-model.ts";
+import { type AttachKind, canSend, type PendingAttachment, shortName } from "./attachment-model.ts";
 import { type ChatBubble, NO_KEY_ACTION_LABEL, PROPOSAL_STATUS_LABEL, proposalAmount } from "./chat-model.ts";
 import { SetupCard } from "./SetupCard.tsx";
+import { useDictation } from "./use-dictation.ts";
 
 const SUGGESTIONS = [
 	"Quanto gastei com delivery?",
@@ -309,6 +319,8 @@ export function ChatView({
 	onHistory,
 	onSend,
 	onAttach,
+	attachment = null,
+	onRemoveAttachment,
 	onProposal,
 	onOpenTransaction,
 	onOpenServer,
@@ -324,8 +336,11 @@ export function ChatView({
 	/** Abre a lista de conversas anteriores. */
 	onHistory: () => void;
 	onSend: (text: string) => void;
-	/** Comprovante ou foto, depois que a folha fecha. */
-	onAttach?: (kind: "receipt" | "photo") => void;
+	/** Foto (câmera ou galeria) ou PDF, depois que a folha fecha. */
+	onAttach?: (kind: AttachKind) => void;
+	/** Anexo escolhido, esperando o envio. */
+	attachment?: PendingAttachment | null;
+	onRemoveAttachment?: () => void;
 	onProposal: (action: ProposalAction, proposal: ProposalDto, selection?: SetupSelection) => void;
 	onOpenTransaction?: (id: string) => void;
 	onOpenServer?: () => void;
@@ -337,73 +352,97 @@ export function ChatView({
 	const [draft, setDraft] = useState("");
 	const [attachOpen, setAttachOpen] = useState(false);
 	const empty = messages.length === 0;
+	const dictation = useDictation({ draft, onDraft: setDraft });
+	const scroll = useRef<ScrollViewInstance>(null);
+	const toEnd = () => scroll.current?.scrollToEnd({ animated: true });
+	// Teclado aberto: a lista volta para a última mensagem, que fica logo acima do campo.
+	useEffect(() => {
+		const sub = Keyboard.addListener("keyboardDidShow", () =>
+			setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 50),
+		);
+		return () => sub.remove();
+	}, []);
 	const send = () => {
 		const text = draft.trim();
-		if (!text || busy) return;
+		if (!canSend(text, attachment !== null, busy)) return;
+		dictation.cancel();
 		setDraft("");
 		onSend(text);
 	};
 	return (
 		<Screen>
-			<View style={{ flex: 1, paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.lg }}>
-				<View style={{ flexDirection: "row", alignItems: "center" }}>
-					<IconButton icon="fechar" label="Fechar" onPress={onClose} />
-					<View
-						style={{
-							flex: 1,
-							flexDirection: "row",
-							alignItems: "center",
-							justifyContent: "center",
-							gap: spacing.sm,
-						}}
-					>
-						<OrbitaAvatar size={24} />
-						<View>
-							<Text variant="bodyStrong">Órbita</Text>
-							{modelName ? (
-								<Text variant="caption" tone="secondary" accessibilityLabel={`Respondendo com ${modelName}`}>
-									{modelName}
-								</Text>
-							) : null}
+			{/* No Android com a tela de ponta a ponta o sistema não encolhe a janela: o campo sobe junto com o teclado. */}
+			<KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+				<View style={{ flex: 1, paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.lg }}>
+					<View style={{ flexDirection: "row", alignItems: "center" }}>
+						<IconButton icon="fechar" label="Fechar" onPress={onClose} />
+						<View
+							style={{
+								flex: 1,
+								flexDirection: "row",
+								alignItems: "center",
+								justifyContent: "center",
+								gap: spacing.sm,
+							}}
+						>
+							<OrbitaAvatar size={24} />
+							<View>
+								<Text variant="bodyStrong">Órbita</Text>
+								{modelName ? (
+									<Text
+										variant="caption"
+										tone="secondary"
+										accessibilityLabel={`Respondendo com ${modelName}`}
+									>
+										{modelName}
+									</Text>
+								) : null}
+							</View>
 						</View>
+						<IconButton icon="relogio" label="Conversas" onPress={onHistory} />
 					</View>
-					<IconButton icon="relogio" label="Conversas" onPress={onHistory} />
+					{empty ? (
+						<View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 6 }}>
+							<OrbitaAvatar size={88} />
+							<View style={{ height: spacing.md }} />
+							<Text variant="numberMedium">{hello(displayName)}</Text>
+							<Text variant="body" tone="secondary">
+								Como posso te ajudar com o seu dinheiro?
+							</Text>
+						</View>
+					) : (
+						<ScrollView
+							ref={scroll}
+							style={{ flex: 1 }}
+							contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end", gap: 14 }}
+							keyboardShouldPersistTaps="handled"
+							onContentSizeChange={toEnd}
+						>
+							{messages.map((message) => (
+								<Bubble
+									key={message.id}
+									message={message}
+									busyProposalId={busyProposalId}
+									onProposal={onProposal}
+									onOpenTransaction={onOpenTransaction}
+									onOpenServer={onOpenServer}
+								/>
+							))}
+						</ScrollView>
+					)}
+					{empty ? <Suggestions onSend={onSend} onAttach={() => setAttachOpen(true)} /> : null}
+					<Composer
+						draft={draft}
+						busy={busy}
+						onChange={setDraft}
+						onSend={send}
+						onAttach={() => setAttachOpen(true)}
+						attachment={attachment}
+						onRemoveAttachment={onRemoveAttachment}
+						dictation={dictation}
+					/>
 				</View>
-				{empty ? (
-					<View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 6 }}>
-						<OrbitaAvatar size={88} />
-						<View style={{ height: spacing.md }} />
-						<Text variant="numberMedium">{hello(displayName)}</Text>
-						<Text variant="body" tone="secondary">
-							Como posso te ajudar com o seu dinheiro?
-						</Text>
-					</View>
-				) : (
-					<ScrollView
-						style={{ flex: 1 }}
-						contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end", gap: 14 }}
-					>
-						{messages.map((message) => (
-							<Bubble
-								key={message.id}
-								message={message}
-								busyProposalId={busyProposalId}
-								onProposal={onProposal}
-								onOpenTransaction={onOpenTransaction}
-								onOpenServer={onOpenServer}
-							/>
-						))}
-					</ScrollView>
-				)}
-				{empty ? <Suggestions onSend={onSend} onAttach={() => setAttachOpen(true)} /> : null}
-				<Composer
-					draft={draft}
-					busy={busy}
-					onChange={setDraft}
-					onSend={send}
-					onAttach={() => setAttachOpen(true)}
-				/>
-			</View>
+			</KeyboardAvoidingView>
 			<AttachSheet
 				visible={attachOpen}
 				onClose={() => setAttachOpen(false)}
@@ -416,7 +455,7 @@ export function ChatView({
 	);
 }
 
-/** Menu do "+": Comprovante ou Foto, na gaveta única do app (sobre o campo de mensagem e as sugestões). */
+/** Menu do "+": tirar foto, escolher da galeria ou anexar PDF, na gaveta única do app (sobre o campo de mensagem e as sugestões). */
 function AttachSheet({
 	visible,
 	onClose,
@@ -424,13 +463,14 @@ function AttachSheet({
 }: {
 	visible: boolean;
 	onClose: () => void;
-	onChoose: (kind: "receipt" | "photo") => void;
+	onChoose: (kind: AttachKind) => void;
 }) {
 	return (
 		<Sheet visible={visible} onClose={onClose}>
 			<SheetGroup gap={false}>
-				<SheetRow icon="escanear" label="Comprovante" onPress={() => onChoose("receipt")} />
-				<SheetRow icon="foto" label="Foto" onPress={() => onChoose("photo")} />
+				<SheetRow icon="camera" label="Tirar foto" onPress={() => onChoose("camera")} />
+				<SheetRow icon="foto" label="Escolher da galeria" onPress={() => onChoose("library")} />
+				<SheetRow icon="documento" label="Documento (PDF)" onPress={() => onChoose("pdf")} />
 			</SheetGroup>
 		</Sheet>
 	);
@@ -487,50 +527,108 @@ function Composer({
 	onChange,
 	onSend,
 	onAttach,
+	attachment,
+	onRemoveAttachment,
+	dictation,
 }: {
 	draft: string;
 	busy: boolean;
 	onChange: (text: string) => void;
 	onSend: () => void;
 	onAttach: () => void;
+	attachment: PendingAttachment | null;
+	onRemoveAttachment: (() => void) | undefined;
+	dictation: ReturnType<typeof useDictation>;
 }) {
-	const ready = draft.trim().length > 0 && !busy;
+	const ready = canSend(draft, attachment !== null, busy);
 	return (
-		<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-			<IconButton icon="mais" label="Anexar" size={52} iconSize={22} bordered onPress={onAttach} />
-			<View
-				style={{
-					flex: 1,
-					height: 52,
-					borderRadius: radius.pill,
-					backgroundColor: colors.surface,
-					borderWidth: 1,
-					borderColor: colors.border,
-					flexDirection: "row",
-					alignItems: "center",
-					paddingLeft: 18,
-					paddingRight: 6,
-					gap: spacing.sm,
-				}}
-			>
-				<TextInput
-					value={draft}
-					onChangeText={onChange}
-					placeholder="Pergunte ou lance um gasto"
-					placeholderTextColor={colors.textSecondary}
-					style={{ flex: 1, color: colors.text, fontSize: 15 }}
-					onSubmitEditing={onSend}
-					accessibilityLabel="Pergunte ou lance um gasto"
-				/>
-				<Icon name="escanear" size={20} color={colors.textSecondary} />
-				<IconButton
-					icon={ready ? "enviar" : "microfone"}
-					label={ready ? "Enviar" : "Ditar"}
-					size={40}
-					iconSize={20}
-					filled
-					{...(ready ? { onPress: onSend } : { disabled: true })}
-				/>
+		<View style={{ gap: spacing.sm }}>
+			{attachment ? (
+				<View
+					style={{
+						alignSelf: "flex-start",
+						flexDirection: "row",
+						alignItems: "center",
+						gap: spacing.sm,
+						backgroundColor: colors.surface,
+						borderWidth: 1,
+						borderColor: colors.border,
+						borderRadius: radius.pill,
+						paddingLeft: spacing.md,
+						paddingRight: spacing.xs,
+						paddingVertical: spacing.xs,
+					}}
+				>
+					<Icon
+						name={attachment.mediaType === "application/pdf" ? "documento" : "foto"}
+						size={16}
+						color={colors.textSecondary}
+					/>
+					<Text variant="caption" numberOfLines={1} accessibilityLabel={`Anexo: ${attachment.name}`}>
+						{shortName(attachment.name)}
+					</Text>
+					<IconButton
+						icon="fechar"
+						label="Remover anexo"
+						size={28}
+						iconSize={14}
+						background={colors.surface3}
+						{...(onRemoveAttachment ? { onPress: onRemoveAttachment } : {})}
+					/>
+				</View>
+			) : null}
+			{dictation.error ? (
+				<Text variant="caption" tone="secondary" accessibilityLiveRegion="polite">
+					{dictation.error}
+				</Text>
+			) : null}
+			<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+				<IconButton icon="mais" label="Anexar" size={52} iconSize={22} bordered onPress={onAttach} />
+				<View
+					style={{
+						flex: 1,
+						height: 52,
+						borderRadius: radius.pill,
+						backgroundColor: colors.surface,
+						borderWidth: 1,
+						borderColor: colors.border,
+						flexDirection: "row",
+						alignItems: "center",
+						paddingLeft: 18,
+						paddingRight: 6,
+						gap: spacing.sm,
+					}}
+				>
+					<TextInput
+						value={draft}
+						onChangeText={onChange}
+						placeholder={dictation.listening ? "Estou ouvindo…" : "Pergunte ou lance um gasto"}
+						placeholderTextColor={colors.textSecondary}
+						style={{ flex: 1, color: colors.text, fontSize: 15 }}
+						onSubmitEditing={onSend}
+						accessibilityLabel="Pergunte ou lance um gasto"
+					/>
+					{dictation.supported ? (
+						<IconButton
+							icon="microfone"
+							label={dictation.listening ? "Parar o ditado" : "Ditar"}
+							size={40}
+							iconSize={20}
+							filled={dictation.listening}
+							background={colors.surface}
+							onPress={() => void dictation.toggle()}
+						/>
+					) : null}
+					<IconButton
+						icon="enviar"
+						label="Enviar"
+						size={40}
+						iconSize={20}
+						filled
+						disabled={!ready}
+						{...(ready ? { onPress: onSend } : {})}
+					/>
+				</View>
 			</View>
 		</View>
 	);

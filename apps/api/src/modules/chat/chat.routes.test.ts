@@ -1,6 +1,7 @@
 import type { ChatModelConfig, ModelBlock, ModelClient, ModelRequest, ModelUsage } from "@orbita/agents";
 import { describe, expect, it } from "vitest";
 import { type Json, setupFinance } from "../../test-support.ts";
+import { CHAT_MAX_BODY_BYTES } from "./routes.ts";
 
 const KEY = "sk-ant-api03-ZzYyXxWwVvUuTtSsRrQqPp9876543210";
 
@@ -55,11 +56,11 @@ async function setup(steps: Step[], extra: { chatRateLimit?: number; chatModels?
 	return { ...ctx, model };
 }
 
-async function chat(ctx: Awaited<ReturnType<typeof setup>>, message: string, conversationId?: string) {
+async function chatBody(ctx: Awaited<ReturnType<typeof setup>>, body: unknown) {
 	const res = await ctx.app.request("/v1/chat", {
 		method: "POST",
 		headers: { authorization: `Bearer ${ctx.token}`, "content-type": "application/json" },
-		body: JSON.stringify({ message, ...(conversationId ? { conversationId } : {}) }),
+		body: JSON.stringify(body),
 	});
 	const raw = await res.text();
 	const events: Json[] = raw
@@ -73,6 +74,10 @@ async function chat(ctx: Awaited<ReturnType<typeof setup>>, message: string, con
 		events,
 		json: res.headers.get("content-type")?.includes("json") ? JSON.parse(raw) : null,
 	};
+}
+
+async function chat(ctx: Awaited<ReturnType<typeof setup>>, message: string, conversationId?: string) {
+	return chatBody(ctx, { message, ...(conversationId ? { conversationId } : {}) });
 }
 
 describe("POST /v1/chat", () => {
@@ -693,5 +698,94 @@ describe("lista de conversas", () => {
 		expect((await ctx.api.get("/v1/chat/conversations")).body.conversations[0].title).toBe(
 			"Quanto eu gastei com delivery e mercado…",
 		);
+	});
+
+	describe("anexos", () => {
+		const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)]).toString(
+			"base64",
+		);
+		const PDF = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(200, 7)]).toString("base64");
+
+		it("manda a imagem e o PDF ao modelo só nesta volta e guarda só o marcador", async () => {
+			const ctx = await setup([say("Vi um gasto de R$ 10,00."), say("Certo.")]);
+			await ctx.vault.put("anthropic_api_key", KEY, "Teste");
+			const { res, events } = await chatBody(ctx, {
+				message: "lança este",
+				attachments: [
+					{ mediaType: "image/jpeg", data: JPEG },
+					{ mediaType: "application/pdf", data: PDF },
+				],
+			});
+			expect(res.status).toBe(200);
+			const id = events[0]?.conversationId as string;
+
+			const content = ctx.model.requests[0]?.messages.at(-1)?.content as Json[];
+			expect(content.map((b) => b.type)).toEqual(["text", "image", "document", "text"]);
+			expect(content[1]?.source).toEqual({ type: "base64", media_type: "image/jpeg", data: JPEG });
+			expect(content[2]?.source).toEqual({ type: "base64", media_type: "application/pdf", data: PDF });
+			expect(content[3]?.text).toBe("lança este");
+			// O modelo mais capaz lê o anexo (nunca o barato).
+			expect(ctx.model.requests[0]?.model).toBe("claude-sonnet-5-5");
+
+			// O histórico tem o texto e o marcador, sem o binário.
+			const history = await ctx.api.get(`/v1/chat/conversations/${id}`);
+			expect(history.body.messages[0].text).toBe("lança este\n📎 anexo");
+			expect(JSON.stringify(history.body)).not.toContain(JPEG);
+			expect(history.body.conversation.title).toBe("lança este");
+
+			// Na volta seguinte o modelo vê só o marcador.
+			await chat(ctx, "e agora?", id);
+			const replay = ctx.model.requests[1]?.messages ?? [];
+			expect(replay[0]?.content).toBe("lança este\n📎 anexo");
+			expect(JSON.stringify(replay)).not.toContain(JPEG);
+		});
+
+		it("aceita anexo sem texto", async () => {
+			const ctx = await setup([say("Li o comprovante.")]);
+			await ctx.vault.put("anthropic_api_key", KEY, "Teste");
+			const { res } = await chatBody(ctx, { attachments: [{ mediaType: "image/jpeg", data: JPEG }] });
+			expect(res.status).toBe(200);
+			const content = ctx.model.requests[0]?.messages.at(-1)?.content as Json[];
+			expect(content.at(-1)?.text).toMatch(/Leia o anexo/);
+			const list = await ctx.api.get("/v1/chat/conversations");
+			expect(list.body.conversations[0].title).toBe("Anexo");
+		});
+
+		it("recusa tipo não permitido, conteúdo que não bate e anexo grande, sem chamar o modelo", async () => {
+			const ctx = await setup([]);
+			await ctx.vault.put("anthropic_api_key", KEY, "Teste");
+			const gif = await chatBody(ctx, {
+				message: "x",
+				attachments: [{ mediaType: "image/gif", data: JPEG }],
+			});
+			expect(gif.res.status).toBe(400);
+			expect(gif.json.error.message).toBe("Só aceito foto (JPEG, PNG ou WebP) e PDF.");
+
+			const lie = await chatBody(ctx, {
+				message: "x",
+				attachments: [{ mediaType: "image/png", data: PDF }],
+			});
+			expect(lie.res.status).toBe(400);
+			expect(lie.json.error.code).toBe("anexo_invalido");
+
+			const big = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(5 * 1024 * 1024)]).toString(
+				"base64",
+			);
+			const tooBig = await chatBody(ctx, {
+				message: "x",
+				attachments: [{ mediaType: "image/jpeg", data: big }],
+			});
+			expect(tooBig.res.status).toBe(400);
+			expect(tooBig.json.error.message).toBe("O anexo passa de 5 MB. Escolha um arquivo menor.");
+			expect(ctx.model.requests).toHaveLength(0);
+		});
+
+		it("corpo acima do teto do chat vira 413 e o resto da API segue com o limite pequeno", async () => {
+			const ctx = await setup([]);
+			const huge = await chatBody(ctx, { message: "x".repeat(CHAT_MAX_BODY_BYTES) });
+			expect(huge.res.status).toBe(413);
+			const other = await ctx.call("POST", "/v1/goals", { name: "x".repeat(20_000), targetCents: 100 });
+			expect(other.status).toBe(413);
+		});
 	});
 });
