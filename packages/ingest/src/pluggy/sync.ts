@@ -39,6 +39,7 @@ import {
 	type SkipReason,
 	shouldUpgradeCategory,
 	type TransactionContext,
+	touchedByOwner,
 	transactionFacts,
 } from "./mapping.ts";
 import {
@@ -170,7 +171,7 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 	const startedAt = now();
 	const lookups = createLookups(deps, client);
 	const results: ConnectionSyncResult[] = [];
-	const shared: RunShared = { cards: [], bills: [] };
+	const shared: RunShared = { owners: new Map(), cards: [], bills: [] };
 	for (const connection of connections) {
 		const guard = createRelinkGuard(client, connection, connections);
 		const result = await syncConnection(deps, client, connection, startedAt, lookups, shared, guard);
@@ -193,6 +194,8 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 
 /** O que as conexões já sincronizadas desta rodada sabem dos cartões e das faturas (para as conexões seguintes e o passo final). */
 interface RunShared {
+	/** Titular de cada conta (id da conta do Órbita → `owner` do Pluggy), para o sinal de titularidade do passo final. */
+	owners: Map<string, string | null>;
 	cards: { id: string; name: string; last4: string | null }[];
 	bills: BillInfo[];
 }
@@ -212,6 +215,7 @@ async function crossConnections(
 			today: toLocalDate(startedAt),
 			cards: shared.cards,
 			bills: shared.bills,
+			owners: new Map(shared.owners),
 		});
 		const n = done.billPayments + done.ownTransfers;
 		if (n > 0) {
@@ -397,6 +401,9 @@ async function syncConnection(
 				}
 			}
 		}
+		for (const l of linked) {
+			if (l.account && l.ownerName) shared.owners.set(l.account.id, l.ownerName);
+		}
 		for (const l of liveCards) {
 			if (l.card && !shared.cards.some((c) => c.id === l.card?.id)) {
 				shared.cards.push({ id: l.card.id, name: l.card.name, last4: l.card.last4 });
@@ -497,6 +504,8 @@ async function syncConnection(
 					direction: tx.type === "DEBIT" ? "out" : "in",
 					amountCents: mapped.input.amountCents,
 					date: mapped.input.date,
+					// O mapeamento só grava `transfer` com sinal (CPF/CNPJ, nome do titular, categoria ou texto de titularidade).
+					ownerSignal: true,
 				});
 			}
 		}
@@ -909,7 +918,9 @@ async function storeTransactions(
 					// compra pesa no mês dela (o upsert por si só nunca corrigia). O que o engine calculou não mexe.
 					if (
 						mapped.invoiceFromBill &&
-						res.transaction?.cardId != null &&
+						res.transaction &&
+						!touchedByOwner(res.transaction) &&
+						res.transaction.cardId != null &&
 						mapped.input.invoiceMonth != null &&
 						res.transaction.invoiceMonth !== mapped.input.invoiceMonth
 					) {
@@ -923,7 +934,7 @@ async function storeTransactions(
 						res.transaction &&
 						res.transaction.kind === "expense" &&
 						mapped.input.kind === "expense" &&
-						!res.transaction.categoryEditedByOwner &&
+						!touchedByOwner(res.transaction) &&
 						mapped.input.budgetMonth != null &&
 						(res.transaction.date !== mapped.input.date ||
 							res.transaction.budgetMonth !== mapped.input.budgetMonth)
@@ -947,6 +958,15 @@ async function storeTransactions(
 			}
 			// Estorno: só entra se a compra original está gravada. Sem ela, fica de fora e a próxima rodada tenta de novo.
 			if (await transactions.existsByExternal(PLUGGY_SOURCE, mapped.externalId)) {
+				// Estorno na conta que um sync antigo gravou como receita: vira estorno assim que a despesa original aparece.
+				const stored = ctx.card ? null : await transactions.findByExternal(PLUGGY_SOURCE, mapped.externalId);
+				if (stored && stored.kind === "income" && !touchedByOwner(stored) && ctx.accountId) {
+					const originalId = await findAccountRefundOriginal(transactions, ctx.accountId, mapped.original);
+					if (originalId !== null) {
+						await transactions.update(stored.id, { kind: "refund", refundOfId: originalId });
+						result.reclassified = (result.reclassified ?? 0) + 1;
+					}
+				}
 				result.existing += 1;
 				continue;
 			}
@@ -955,14 +975,17 @@ async function storeTransactions(
 				result.existing += 1;
 				continue;
 			}
-			const originalId = ctx.card
-				? await findRefundOriginal(
-						transactions,
-						ctx.card,
-						mapped.original,
-						mapped.input.invoiceMonth as MonthKey,
-					)
-				: null;
+			let originalId: string | null = null;
+			if (ctx.card) {
+				originalId = await findRefundOriginal(
+					transactions,
+					ctx.card,
+					mapped.original,
+					mapped.input.invoiceMonth as MonthKey,
+				);
+			} else if (ctx.accountId) {
+				originalId = await findAccountRefundOriginal(transactions, ctx.accountId, mapped.original);
+			}
 			if (originalId === null) {
 				bump(result.skipped, "refund_without_original");
 				continue;
@@ -989,10 +1012,13 @@ async function storeTransactions(
 
 /**
  * Recálculo do que já foi gravado errado (a sincronização é idempotente e nunca mexia no tipo). Só quando o lançamento
- * existente é despesa ou receita e o mapeamento de hoje diz o contrário, e nunca se o dono editou a categoria:
+ * existente é despesa ou receita e o mapeamento de hoje diz o contrário, e nunca se o dono mexeu no lançamento
+ * (`touchedByOwner`: categoria trocada, tipo/data/valor/conta corrigidos ou pendente confirmado):
  * - o mapeamento diz `investment` (aplicação) e está gravado como despesa → vira `investment`: sai do gasto e vai
  *   para o "Investido" (e, se já era `investment`, nada muda);
  * - entrou dinheiro (o Pluggy diz CREDIT, o mapeamento diz `income`) e está gravado como despesa → vira receita;
+ * - resgate de investimento (o mapeamento diz `redemption`) gravado como despesa ou receita → vira `redemption`: deixa
+ *   de contar como renda e abate o "Investido";
  * - o mapeamento reconhece transferência para si mesmo e está gravado como despesa ou receita → vira `transfer` no
  *   lugar (continua nas Atividades, categoria mantida, observação avisando) e deixa de contar como gasto ou renda;
  * - já é `transfer` sem destino e agora há um par único → preenche o destino.
@@ -1003,6 +1029,7 @@ async function fixKind(
 		id: string;
 		kind: string;
 		categoryEditedByOwner: boolean;
+		editedByOwner: boolean;
 		note: string | null;
 		counterpartAccountId: string | null;
 		cardId?: string | null;
@@ -1016,7 +1043,7 @@ async function fixKind(
 		note?: string | null | undefined;
 	},
 ): Promise<boolean> {
-	if (current.categoryEditedByOwner) return false;
+	if (touchedByOwner(current)) return false;
 	// Pagamento de fatura: gravado como gasto/transferência (ou "Fatura de cartão"/revisão) e agora o mapeamento sabe de
 	// qual cartão é → vira `card_payment` (0 no gasto). Idempotente: depois de virar, `current.kind` já é card_payment.
 	if (
@@ -1053,6 +1080,11 @@ async function fixKind(
 	}
 	if (current.kind === "expense" && next.kind === "income") {
 		await transactions.update(current.id, { kind: "income", categoryId: next.categoryId ?? null });
+		return true;
+	}
+	// Resgate gravado como despesa ou receita (antes o principal que voltava contava como renda): vira `redemption`.
+	if ((current.kind === "expense" || current.kind === "income") && next.kind === "redemption") {
+		await transactions.update(current.id, { kind: "redemption", categoryId: next.categoryId ?? null });
 		return true;
 	}
 	if (next.kind !== "transfer") return false;
@@ -1122,6 +1154,69 @@ function safeMap(tx: PluggyTransaction, ctx: TransactionContext) {
 		if (e instanceof RangeError) return null;
 		throw e;
 	}
+}
+
+/** Palavras de estorno/devolução que não dizem de qual compra é. */
+const REFUND_FILLER = new Set([
+	"estorno",
+	"estornos",
+	"estornado",
+	"estornada",
+	"devolucao",
+	"devolvido",
+	"devolvida",
+	"refund",
+	"chargeback",
+	"compra",
+	"pix",
+	"debito",
+	"cartao",
+	"pagamento",
+	"credito",
+	"recebido",
+	"recebida",
+	"enviado",
+	"enviada",
+	"transferencia",
+	"transf",
+	"para",
+	"por",
+	"com",
+	"dos",
+	"das",
+]);
+
+const refundWords = (text: string) =>
+	plain(text)
+		.split(/[^a-z0-9]+/)
+		.filter((w) => w.length >= 3 && !REFUND_FILLER.has(w) && !/^\d+$/.test(w));
+
+/** Quantos dias para trás a despesa de um estorno na conta pode estar. */
+const ACCOUNT_REFUND_LOOKBACK_DAYS = 90;
+
+/**
+ * A despesa que um estorno/devolução na CONTA desfaz: mesma conta, mesmo valor, de data igual ou anterior (até 90
+ * dias) e ainda sem estorno. A descrição do estorno ("Estorno compra Mercado X") precisa citar uma palavra da despesa;
+ * estorno sem palavra que sirva (só "Estorno") casa com a única despesa de mesmo valor. Na dúvida, o mais recente.
+ */
+async function findAccountRefundOriginal(
+	transactions: SyncPluggyDeps["stores"]["transactions"],
+	accountId: string,
+	original: { amountCents: number; description: string; date: string },
+): Promise<string | null> {
+	const range = { from: addDays(original.date, -ACCOUNT_REFUND_LOOKBACK_DAYS), to: original.date };
+	const rows = await transactions.listByTarget({ accountId }, range);
+	const refunded = new Set(rows.filter((r) => r.kind === "refund").map((r) => r.refundOfId));
+	const wanted = refundWords(original.description);
+	const sameAmount = rows.filter(
+		(r) => r.kind === "expense" && r.amountCents === original.amountCents && !refunded.has(r.id),
+	);
+	const named = sameAmount.filter((r) => {
+		const words = refundWords(r.description);
+		return wanted.some((w) => words.includes(w) || plain(r.description).includes(w));
+	});
+	const pool = wanted.length > 0 ? named : sameAmount.length === 1 ? sameAmount : [];
+	return [...pool].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))[0]?.id ?? null;
 }
 
 /**

@@ -201,6 +201,8 @@ export const transactionDto = z.object({
 	merchantName: z.string().nullable().optional(),
 	/** O dono trocou a categoria à mão: regras novas não a reclassificam. */
 	categoryEditedByOwner: z.boolean().optional(),
+	/** O dono mexeu no tipo, data, valor, conta ou cartão (ou revisou um pendente): a sincronização não o reescreve. */
+	editedByOwner: z.boolean().optional(),
 	/** Partes de uma compra dividida pelo dono dividem o mesmo grupo; `null` se não é parte de uma divisão. */
 	splitGroupId: z.string().nullable().optional(),
 	createdAt: timestampSchema,

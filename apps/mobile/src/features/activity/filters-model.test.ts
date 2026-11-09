@@ -170,8 +170,8 @@ describe("toQueryParams", () => {
 		});
 	});
 
-	it("investimentos filtra só a aplicação, à parte das saídas", () => {
-		expect(toQueryParams(f({ types: ["invest"] }), TODAY).kinds).toBe("investment");
+	it("investimentos filtra a aplicação e o resgate, à parte das saídas", () => {
+		expect(toQueryParams(f({ types: ["invest"] }), TODAY).kinds).toBe("investment,redemption");
 		expect(toQueryParams(f({ types: ["out"] }), TODAY).kinds).toBe("expense");
 	});
 

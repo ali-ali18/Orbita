@@ -715,7 +715,7 @@ describe("syncPluggy", () => {
 				tx("i-5", { description: "Sem nome", amount: -30, category: null, categoryId: null }),
 			];
 
-			it("aplicação é investimento (não gasto) em Investimentos; resgate e rendimento são receita nessa categoria", async () => {
+			it("aplicação é investimento (não gasto); resgate é `redemption` (nem renda nem gasto) e só o rendimento é receita", async () => {
 				const t2 = setup({ categories, transactions: { [BANK_ACCOUNT_ID]: txs, [CARD_ACCOUNT_ID]: [] } });
 				await t2.stores.pluggyConnections.add({ id: ITEM_ID });
 				const result = await t2.run();
@@ -726,7 +726,7 @@ describe("syncPluggy", () => {
 				expect(Object.keys(rows).sort()).toEqual(["i-1", "i-2", "i-3", "i-4", "i-5"]);
 				expect(rows["i-1"]).toMatchObject({ kind: "investment" });
 				expect(cats.get(rows["i-1"]?.categoryId ?? "")).toBe("investimentos");
-				expect(rows["i-2"]).toMatchObject({ kind: "income" });
+				expect(rows["i-2"]).toMatchObject({ kind: "redemption", amountCents: 100_000 });
 				expect(cats.get(rows["i-2"]?.categoryId ?? "")).toBe("investimentos");
 				expect(rows["i-3"]).toMatchObject({ kind: "income" });
 				expect(cats.get(rows["i-3"]?.categoryId ?? "")).toBe("investimentos");
@@ -745,6 +745,25 @@ describe("syncPluggy", () => {
 				expect(again.connections[0]?.reclassified).toBe(1);
 				const after = (await everything(t2.stores)).find((r) => r.externalId === "i-1");
 				expect(after).toMatchObject({ id: before?.id, kind: "investment" });
+			});
+
+			it("resgate gravado como receita (antes do tipo redemption) é recalculado; o que o dono editou fica", async () => {
+				const t2 = setup({ categories, transactions: { [BANK_ACCOUNT_ID]: txs, [CARD_ACCOUNT_ID]: [] } });
+				await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+				await t2.run();
+				const before = (await everything(t2.stores)).find((r) => r.externalId === "i-2");
+				// Como estava gravado: o principal que voltou como receita.
+				await t2.stores.transactions.update(before?.id ?? "", { kind: "income" });
+				const again = await t2.run();
+				expect(again.connections[0]?.reclassified).toBe(1);
+				expect((await everything(t2.stores)).find((r) => r.externalId === "i-2")).toMatchObject({
+					id: before?.id,
+					kind: "redemption",
+				});
+				// O dono diz que foi receita (por exemplo, um prêmio): a marca geral protege o tipo.
+				await t2.stores.transactions.update(before?.id ?? "", { kind: "income", editedByOwner: true });
+				await t2.run();
+				expect((await everything(t2.stores)).find((r) => r.externalId === "i-2")?.kind).toBe("income");
 			});
 
 			it("busca /categories uma vez por rodada; se falhar, segue pelo nome e avisa", async () => {
@@ -1364,5 +1383,113 @@ describe("syncPluggy: corrige o que foi gravado errado antes", () => {
 		const result = await t.run();
 		expect(result.connections[0]?.reclassified).toBe(1);
 		expect((await everything(t.stores))[0]).toMatchObject({ kind: "income" });
+	});
+});
+
+describe("syncPluggy: o que o dono corrigiu à mão fica (marca geral editedByOwner)", () => {
+	const day = (d: string) => `2026-11-${d}T00:00:00.000Z`;
+
+	it("tipo corrigido pelo dono não volta: sem a marca o sync reclassifica, com ela não", async () => {
+		const pix = tx("own-1", {
+			description: "Pix para mim",
+			amount: -300,
+			category: "Same person transfer",
+			date: day("05"),
+		});
+		const t = setup({ transactions: { [BANK_ACCOUNT_ID]: [pix], [CARD_ACCOUNT_ID]: [] } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		const row = (await everything(t.stores))[0];
+		expect(row).toMatchObject({ kind: "transfer", editedByOwner: false });
+		// Sem a marca (edição por um caminho que não a liga): o sync reclassifica de volta.
+		await t.stores.transactions.update(row?.id ?? "", { kind: "expense" });
+		await t.run();
+		expect((await everything(t.stores))[0]?.kind).toBe("transfer");
+		// Com a marca: o dono disse "foi gasto" e o sync respeita, rodada após rodada.
+		await t.stores.transactions.update(row?.id ?? "", { kind: "expense", editedByOwner: true });
+		const again = await t.run();
+		await t.run();
+		expect(again.connections[0]?.reclassified ?? 0).toBe(0);
+		expect((await everything(t.stores))[0]).toMatchObject({
+			kind: "expense",
+			editedByOwner: true,
+			categoryEditedByOwner: false,
+		});
+	});
+
+	it("data e mês de uma compra no cartão que o dono mudou não são reescritos pela compra do banco", async () => {
+		const purchase = tx("own-c", { description: "Livraria", amount: 100, date: day("09") });
+		const t = setup({ transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: [purchase] } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		const row = (await everything(t.stores))[0];
+		expect(row).toMatchObject({ date: "2026-11-09", budgetMonth: "2026-11" });
+		// Sem a marca, a data volta para a da compra.
+		await t.stores.transactions.update(row?.id ?? "", { date: "2026-10-31", budgetMonth: "2026-10" });
+		await t.run();
+		expect((await everything(t.stores))[0]).toMatchObject({ date: "2026-11-09", budgetMonth: "2026-11" });
+		// Com a marca (o PATCH de data liga), fica como o dono deixou.
+		await t.stores.transactions.update(row?.id ?? "", {
+			date: "2026-10-31",
+			budgetMonth: "2026-10",
+			editedByOwner: true,
+		});
+		const again = await t.run();
+		expect(again.connections[0]?.reclassified ?? 0).toBe(0);
+		expect((await everything(t.stores))[0]).toMatchObject({ date: "2026-10-31", budgetMonth: "2026-10" });
+	});
+});
+
+describe("syncPluggy: estorno na conta não é renda", () => {
+	const day = (d: string) => `2026-11-${d}T00:00:00.000Z`;
+	const purchase = tx("buy", { description: "Padaria Central", amount: -45.9, date: day("03") });
+	const refund = tx("ref", {
+		description: "Estorno compra Padaria Central",
+		type: "CREDIT",
+		amount: 45.9,
+		date: day("05"),
+	});
+
+	it("com a despesa original gravada vira `refund` ligado a ela, sem renda, e é idempotente", async () => {
+		const t = setup({ transactions: { [BANK_ACCOUNT_ID]: [purchase, refund], [CARD_ACCOUNT_ID]: [] } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		const rows = Object.fromEntries((await everything(t.stores)).map((r) => [r.externalId, r]));
+		expect(rows.ref).toMatchObject({
+			kind: "refund",
+			refundOfId: rows.buy?.id,
+			accountId: rows.buy?.accountId,
+		});
+		expect((await everything(t.stores)).some((r) => r.kind === "income")).toBe(false);
+		const again = await t.run();
+		expect(again.connections[0]?.created).toBe(0);
+	});
+
+	it("sem a despesa original o crédito espera: não vira renda e é tentado de novo", async () => {
+		const t = setup({ transactions: { [BANK_ACCOUNT_ID]: [refund], [CARD_ACCOUNT_ID]: [] } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		const first = await t.run();
+		expect(first.connections[0]?.skipped.refund_without_original).toBe(1);
+		expect(await everything(t.stores)).toHaveLength(0);
+	});
+
+	it("estorno que um sync antigo gravou como receita é corrigido quando a despesa existe; o do dono não", async () => {
+		const t = setup({ transactions: { [BANK_ACCOUNT_ID]: [purchase, refund], [CARD_ACCOUNT_ID]: [] } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		const stored = (await everything(t.stores)).find((r) => r.externalId === "ref");
+		// Estado antigo: o crédito gravado como receita, sem ligação com a despesa.
+		await t.stores.transactions.update(stored?.id ?? "", { kind: "income", refundOfId: null });
+		const fixed = await t.run();
+		expect(fixed.connections[0]?.reclassified).toBe(1);
+		expect((await everything(t.stores)).find((r) => r.externalId === "ref")?.kind).toBe("refund");
+		// Dono disse que é receita: fica.
+		await t.stores.transactions.update(stored?.id ?? "", {
+			kind: "income",
+			refundOfId: null,
+			editedByOwner: true,
+		});
+		await t.run();
+		expect((await everything(t.stores)).find((r) => r.externalId === "ref")?.kind).toBe("income");
 	});
 });

@@ -8,7 +8,13 @@ import {
 	type WatchedSpend,
 } from "@orbita/core";
 import type { Stores } from "@orbita/db";
-import { categoryForSummary, listGoals, monthSummary, reportForMonth } from "@orbita/ledger";
+import {
+	categoryForSummary,
+	countsAsSpending,
+	listGoals,
+	monthSummary,
+	reportForMonth,
+} from "@orbita/ledger";
 
 /**
  * A porta de dados dos agentes em cima das stores e do `@orbita/ledger`: os mesmos serviços das telas, então o
@@ -37,7 +43,7 @@ export async function createFindingsPort(stores: Stores, now: () => Date): Promi
 			);
 			return perMonth
 				.flat()
-				.filter((t) => t.kind === "expense" && t.date >= from && t.date <= to)
+				.filter((t) => t.kind === "expense" && countsAsSpending(t) && t.date >= from && t.date <= to)
 				.map(
 					(t): WatchedSpend => ({
 						id: t.id,

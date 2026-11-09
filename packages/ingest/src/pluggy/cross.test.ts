@@ -1,5 +1,6 @@
 import { createMemoryStores, type Stores } from "@orbita/db";
 import { describe, expect, it } from "vitest";
+import { directionFromDescription, type OwnTransferLeg, pairLegs } from "./cross.ts";
 import {
 	API_KEY,
 	BANK_ACCOUNT_ID,
@@ -165,13 +166,67 @@ describe("sincronização com várias conexões: transferência entre contas sua
 		date: day("02"),
 	});
 
-	it("saída numa conexão e entrada igual em outra, sem nome do titular: as duas pontas viram transferência com destino", async () => {
+	it("Pix a um terceiro com entrada de mesmo valor noutra conta, sem sinal de titularidade: continua gasto e receita", async () => {
 		const t = await setup({ [BANK_ACCOUNT_ID]: [interOut], [mpAccount.id]: [mpIn] });
+		await t.sync();
+		const r = await rows(t.stores);
+		expect(r["i-out"]).toMatchObject({ kind: "expense", counterpartAccountId: null, amountCents: 17_116 });
+		expect(r["m-in"]).toMatchObject({ kind: "income", counterpartAccountId: null });
+		// Rodar de novo não muda nada.
+		const again = await t.sync();
+		expect(again.connections.every((c) => (c.reclassified ?? 0) === 0)).toBe(true);
+	});
+
+	it("uma ponta com sinal (categoria 'mesma titularidade') basta: as duas viram transferência com destino", async () => {
+		const signalled = { ...interOut, category: "Same person transfer" };
+		const t = await setup({ [BANK_ACCOUNT_ID]: [signalled], [mpAccount.id]: [mpIn] });
 		await t.sync();
 		const r = await rows(t.stores);
 		expect(r["i-out"]).toMatchObject({ kind: "transfer", counterpartAccountId: r["m-in"]?.accountId });
 		expect(r["m-in"]).toMatchObject({ kind: "transfer", counterpartAccountId: r["i-out"]?.accountId });
 		expect(r["i-out"]?.accountId).not.toBe(r["m-in"]?.accountId);
+	});
+
+	it("o nome do titular na descrição de uma ponta também vale (e o nome de um terceiro, não)", async () => {
+		const named = tx("i-own", {
+			description: "Pix enviado - Alisson Alves Bapka",
+			amount: -80,
+			category: "Transfer - PIX",
+			date: day("07"),
+		});
+		const inMp = tx("m-own", {
+			description: "Pix recebido",
+			type: "CREDIT",
+			amount: 80,
+			category: "Transfer - PIX",
+			date: day("07"),
+		});
+		const t = await setup({ [BANK_ACCOUNT_ID]: [named], [mpAccount.id]: [inMp] });
+		await t.sync();
+		const r = await rows(t.stores);
+		expect(r["i-own"]).toMatchObject({ kind: "transfer", counterpartAccountId: r["m-own"]?.accountId });
+		expect(r["m-own"]).toMatchObject({ kind: "transfer" });
+	});
+
+	it("transferência de sentido desconhecido nunca pareia com DESPESA de outra conta (só com entrada)", async () => {
+		// Transferência própria (categoria) sem a palavra enviado/recebido na descrição: o sentido não é conhecido.
+		const unknownTransfer = tx("u-1", {
+			description: "Transferência Inter",
+			amount: -120,
+			category: "Same person transfer",
+			date: day("07"),
+		});
+		const expenseElsewhere = tx("e-1", {
+			description: "Pix enviado - Loja Qualquer",
+			amount: -120,
+			category: "Transfer - PIX",
+			date: day("07"),
+		});
+		const t = await setup({ [BANK_ACCOUNT_ID]: [unknownTransfer], [mpAccount.id]: [expenseElsewhere] });
+		await t.sync();
+		const r = await rows(t.stores);
+		expect(r["u-1"]).toMatchObject({ kind: "transfer", counterpartAccountId: null });
+		expect(r["e-1"]).toMatchObject({ kind: "expense" });
 	});
 
 	it("Santander em caixa alta, com espaços e nome cortado, também é transferência própria (e pareia com o Mercado Pago)", async () => {
@@ -182,7 +237,7 @@ describe("sincronização com várias conexões: transferência entre contas sua
 		expect(r["m-in2"]).toMatchObject({ kind: "transfer", counterpartAccountId: r["s-out"]?.accountId });
 	});
 
-	it("Rei dos Coins e a Associação continuam gasto; o valor igual de outra conta é que decide, não o texto", async () => {
+	it("Rei dos Coins, a Associação e o Pix a terceiro continuam gasto: valor igual em outra conta não decide", async () => {
 		const t = await setup({
 			[BANK_ACCOUNT_ID]: [interOut, rei],
 			[santAccount.id]: [assoc],
@@ -192,10 +247,11 @@ describe("sincronização com várias conexões: transferência entre contas sua
 		const r = await rows(t.stores);
 		expect(r["i-rei"]).toMatchObject({ kind: "expense", amountCents: 3_975 });
 		expect(r["s-assoc"]).toMatchObject({ kind: "expense", amountCents: 29_703 });
+		expect(r["i-out"]).toMatchObject({ kind: "expense" });
 		const spent = (await t.stores.transactions.listByBudgetMonth("2026-11"))
 			.filter((x) => x.kind === "expense")
 			.reduce((sum, x) => sum + x.amountCents, 0);
-		expect(spent).toBe(3_975 + 29_703);
+		expect(spent).toBe(17_116 + 3_975 + 29_703);
 	});
 
 	it("par ambíguo (duas entradas iguais) não é pareado; a linha de gasto continua gasto", async () => {
@@ -217,18 +273,24 @@ describe("sincronização com várias conexões: transferência entre contas sua
 		expect(await rows(t.stores)).toEqual(before);
 
 		// O dono marcou a saída como gasto: o passo entre contas não a transforma de novo.
-		const owned = await setup({ [BANK_ACCOUNT_ID]: [interOut], [mpAccount.id]: [mpIn] });
+		const owned = await setup({
+			[BANK_ACCOUNT_ID]: [{ ...interOut, category: "Same person transfer" }],
+			[mpAccount.id]: [mpIn],
+		});
 		await owned.sync();
 		const out = (await rows(owned.stores))["i-out"];
 		await owned.stores.transactions.update(out?.id ?? "", {
 			kind: "expense",
 			counterpartAccountId: null,
-			categoryEditedByOwner: true,
+			editedByOwner: true,
 		});
 		await owned.sync();
-		expect((await rows(owned.stores))["i-out"]).toMatchObject({
+		const after = await rows(owned.stores);
+		// Só a marca geral (sem ter trocado a categoria) já protege o tipo, e a ponta de fora não vira transferência sozinha.
+		expect(after["i-out"]).toMatchObject({
 			kind: "expense",
-			categoryEditedByOwner: true,
+			editedByOwner: true,
+			categoryEditedByOwner: false,
 		});
 	});
 });
@@ -327,6 +389,51 @@ describe("sincronização com várias conexões: pagamento de fatura", () => {
 	});
 });
 
+describe("sincronização com várias conexões: pagamento que o dono já revisou", () => {
+	it("pendente que o dono confirmou como gasto (marca geral) não é religado a cartão depois", async () => {
+		const pay = tx("p-1", {
+			description: "Pagamento de fatura Cartão",
+			amount: -148.38,
+			category: "Credit card payment",
+			date: day("07"),
+		});
+		const both = {
+			[mpCard.id]: [bill("b1", day("10"), 148.38)],
+			[santCard.id]: [bill("b2", day("10"), 148.38)],
+		};
+		const t = await setup({ [BANK_ACCOUNT_ID]: [pay] }, both);
+		await t.sync();
+		const pending = (await rows(t.stores))["p-1"];
+		expect(pending).toMatchObject({ kind: "expense", status: "pending" });
+		// O dono confirmou ("é gasto mesmo"): a confirmação liga a marca geral.
+		await t.stores.transactions.update(pending?.id ?? "", { status: "confirmed", editedByOwner: true });
+		// Agora só um cartão tem a fatura: sem a marca, o pagamento viraria card_payment desse cartão.
+		const fake = fakePluggy({
+			accounts: [interAccount],
+			otherItems: {
+				[ITEM_MP]: { accounts: [mpAccount, mpCard] },
+				[ITEM_SANT]: { accounts: [santAccount, santCard] },
+			},
+			transactions: {
+				[BANK_ACCOUNT_ID]: [pay],
+				[mpAccount.id]: [],
+				[mpCard.id]: [],
+				[santAccount.id]: [],
+				[santCard.id]: [],
+			},
+			bills: { [mpCard.id]: [bill("b1", day("10"), 148.38)], [santCard.id]: [] },
+		});
+		await syncPluggy({
+			stores: t.stores,
+			readSecret: async (name) =>
+				({ pluggy_client_id: CLIENT_ID, pluggy_client_secret: CLIENT_SECRET })[name] ?? null,
+			fetch: fake.fetch,
+			now: () => NOW,
+		});
+		expect((await rows(t.stores))["p-1"]).toMatchObject({ kind: "expense", status: "confirmed" });
+	});
+});
+
 describe("sincronização: compra no cartão pela data da compra", () => {
 	const kiwify = tx("c-kiwify", { description: "Kiwify", amount: 134.14, date: day("06") });
 	const amazon = tx("c-amazon", {
@@ -383,5 +490,51 @@ describe("sincronização: compra no cartão pela data da compra", () => {
 		const again = await t.sync();
 		expect(again.connections.every((c) => (c.reclassified ?? 0) === 0)).toBe(true);
 		expect(await rows(t.stores)).toEqual(snapshot);
+	});
+});
+
+describe("pairLegs: sinal de titularidade e sentido", () => {
+	const leg = (
+		id: string,
+		accountId: string,
+		direction: OwnTransferLeg["direction"],
+		ownerSignal: boolean,
+	) => ({
+		id,
+		accountId,
+		direction,
+		amountCents: 5_000,
+		date: "2026-11-07",
+		ownerSignal,
+	});
+
+	it("sem sinal em nenhuma ponta não pareia; com sinal em uma, pareia", () => {
+		expect([...pairLegs([leg("o", "A", "out", false), leg("i", "B", "in", false)])]).toEqual([]);
+		expect(pairLegs([leg("o", "A", "out", true), leg("i", "B", "in", false)]).get("i")).toBe("o");
+		expect(pairLegs([leg("o", "A", "out", false), leg("i", "B", "in", true)]).get("o")).toBe("i");
+	});
+
+	it("sentido desconhecido nunca pareia com saída; pareia com entrada ou com outro desconhecido", () => {
+		expect([...pairLegs([leg("u", "A", "unknown", true), leg("o", "B", "out", false)])]).toEqual([]);
+		expect(pairLegs([leg("u", "A", "unknown", true), leg("i", "B", "in", false)]).get("u")).toBe("i");
+		expect(pairLegs([leg("u", "A", "unknown", true), leg("v", "B", "unknown", true)]).get("u")).toBe("v");
+		// Duas saídas ou duas entradas nunca são os dois lados.
+		expect([...pairLegs([leg("o1", "A", "out", true), leg("o2", "B", "out", true)])]).toEqual([]);
+	});
+
+	it("empate (duas candidatas) não pareia, mesmo com sinal", () => {
+		const legs = [
+			leg("o", "A", "out", true),
+			leg("i1", "B", "in", false),
+			{ ...leg("i2", "C", "in", false) },
+		];
+		expect([...pairLegs(legs)]).toEqual([]);
+	});
+
+	it("o sentido de uma transferência já gravada vem da descrição", () => {
+		expect(directionFromDescription("PIX ENVIADO Alisson")).toBe("out");
+		expect(directionFromDescription("Pix recebido FULANO")).toBe("in");
+		expect(directionFromDescription("Transferência Inter")).toBe("unknown");
+		expect(directionFromDescription("Pix enviado e recebido")).toBe("unknown");
 	});
 });

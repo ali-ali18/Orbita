@@ -19,6 +19,7 @@ export const TRANSACTION_KINDS = [
 	"card_payment",
 	"refund",
 	"investment",
+	"redemption",
 ] as const;
 export type TransactionKindValue = (typeof TRANSACTION_KINDS)[number];
 

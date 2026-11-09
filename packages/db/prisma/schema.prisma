@@ -63,6 +63,7 @@ enum TransactionKind {
   card_payment
   refund
   investment
+  redemption
 
   @@map("transaction_kind")
 }
@@ -200,6 +201,8 @@ model Transaction {
   merchantName          String?           @map("merchant_name")
   /// O dono trocou a categoria à mão: regras novas não reclassificam este lançamento.
   categoryEditedByOwner Boolean           @default(false) @map("category_edited_by_owner")
+  /// O dono mexeu no tipo, data, valor, conta ou cartão (ou revisou um pendente): sincronização e pareamento não o reescrevem.
+  editedByOwner         Boolean           @default(false) @map("edited_by_owner")
   /// Partes de uma compra que o dono dividiu em categorias diferentes dividem este id. Sem unicidade: é só o agrupamento.
   splitGroupId          String?           @map("split_group_id")
   createdAt             DateTime          @default(now()) @map("created_at")

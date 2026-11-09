@@ -134,8 +134,11 @@ export function classifyFamily(input: {
 		return "card_payment";
 	if (anyMatch(chain, OWN_TRANSFER)) return "own_transfer";
 	if (direction === "in" && anyMatch(chain, YIELD)) return "yield";
-	if (anyMatch(chain, INVESTMENT)) return "investment";
 	const description = plain(input.description);
+	// Categoria de investimento, mas a descrição diz rendimento ("Rendimentos CDB"): é o que rendeu, não o principal.
+	if (anyMatch(chain, INVESTMENT)) {
+		return direction === "in" && YIELD_DESCRIPTION.test(description) ? "yield" : "investment";
+	}
 	const noCategory = chain.length === 0 || chain.every((c) => GENERIC.test(c));
 	if (input.allowDescriptionFallback && noCategory) {
 		if (direction === "in" && YIELD_DESCRIPTION.test(description)) return "yield";

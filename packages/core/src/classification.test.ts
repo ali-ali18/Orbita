@@ -330,6 +330,21 @@ describe("gasto pela data da compra e investido (caso do dono)", () => {
 		expect(s.incomeCents).toBe(1234);
 		expect(s.byCategory).toEqual({ mercado: 5150 + 3000, lazer: 7666 });
 	});
+	it("resgate não é renda nem gasto: abate o Investido, e nunca deixa o mês negativo", () => {
+		const redemption = (amountCents: number) =>
+			tx({ kind: "redemption", amountCents, date: "2026-11-09", categoryId: "investimentos" });
+		const s = summarizeMonth([invest, yieldIn, redemption(50000)], M);
+		expect(s.investedCents).toBe(150000);
+		expect(s.incomeCents).toBe(1234); // só o rendimento; o principal que voltou não é renda
+		expect(s.spentCents).toBe(0);
+		// Resgate maior que o aplicado no mês: vem de aplicações antigas, não vira número negativo.
+		const big = summarizeMonth([invest, redemption(300000)], M);
+		expect(big.investedCents).toBe(0);
+		expect(big.incomeCents).toBe(0);
+		expect(spendingDelta(redemption(1))).toBe(0);
+		expect(incomeDelta(redemption(1))).toBe(0);
+		expect(investedDelta(redemption(70))).toBe(-70);
+	});
 	it("compra de outubro pesa em outubro, mesmo com a fatura vencendo em novembro", () => {
 		expect(summarizeMonth(octOnNovInvoice, "2026-10").spentCents).toBe(12464 + 51000);
 		expect(summarizeMonth(octOnNovInvoice, M).spentCents).toBe(0);

@@ -51,6 +51,7 @@ export type TransactionDraft = TransactionInput & {
 	installmentNumber?: number | null;
 	installmentCount?: number | null;
 	categoryEditedByOwner?: boolean;
+	editedByOwner?: boolean;
 	splitGroupId?: string | null;
 };
 
@@ -94,6 +95,7 @@ function normalizeDraft(input: TransactionDraft): TransactionData {
 		sourceCategory: cleanSourceCategory(input.sourceCategory),
 		merchantName: cleanMerchantName(input.merchantName),
 		categoryEditedByOwner: input.categoryEditedByOwner === true,
+		editedByOwner: input.editedByOwner === true,
 		splitGroupId: input.splitGroupId ?? null,
 	};
 }
@@ -130,6 +132,7 @@ export function normalizeSplit(
 			categoryId: part.categoryId ?? null,
 			externalId: null,
 			categoryEditedByOwner: true,
+			editedByOwner: true,
 			splitGroupId,
 		}),
 	);
@@ -167,6 +170,7 @@ const PATCHABLE = new Set([
 	"status",
 	"note",
 	"categoryEditedByOwner",
+	"editedByOwner",
 ]);
 
 /**

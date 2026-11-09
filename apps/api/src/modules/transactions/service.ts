@@ -80,6 +80,16 @@ export async function createInstallments(
 	);
 }
 
+/** Campos que dizem o que o lançamento é: trocar um deles à mão protege o lançamento do recálculo do sync. */
+const IDENTITY_FIELDS = [
+	"kind",
+	"date",
+	"amountCents",
+	"cardId",
+	"accountId",
+	"counterpartAccountId",
+] as const;
+
 export async function updateTransaction(
 	stores: Stores,
 	id: string,
@@ -90,6 +100,10 @@ export async function updateTransaction(
 	// Trocar a categoria à mão protege o lançamento de reclassificação por regra.
 	if (patch.categoryId !== undefined && patch.categoryId !== current.categoryId) {
 		patch.categoryEditedByOwner = true;
+	}
+	// Mexer no que o lançamento É (tipo, data, valor, conta ou cartão) o tira do alcance da sincronização e do pareamento.
+	if (IDENTITY_FIELDS.some((key) => patch[key] !== undefined && patch[key] !== current[key])) {
+		patch.editedByOwner = true;
 	}
 
 	// O calendário de um parcelamento (fatura e mês de cada parcela) nasce junto com o grupo: mexer em
@@ -169,10 +183,16 @@ export async function splitTransaction(
 	);
 }
 
-/** Pendente vira confirmado. Já confirmado volta como está (dois toques seguidos não dão erro). */
+/**
+ * Pendente vira confirmado. Já confirmado volta como está (dois toques seguidos não dão erro). Confirmar é o dono
+ * dizendo "é isto mesmo" (um pagamento em revisão que ele aceitou como gasto, uma possível duplicata que é legítima):
+ * o lançamento ganha a marca de editado e o sync/pareamento não o reclassifica depois.
+ */
 export async function confirmTransaction(stores: Stores, id: string): Promise<TransactionRecord> {
 	const current = orNotFound(await stores.transactions.get(id), "Lançamento", "o");
-	return current.status === "confirmed" ? current : stores.transactions.update(id, { status: "confirmed" });
+	return current.status === "confirmed"
+		? current
+		: stores.transactions.update(id, { status: "confirmed", editedByOwner: true });
 }
 
 export { decodeCursor, encodeCursor, listRecentPage } from "@orbita/ledger";

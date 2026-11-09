@@ -92,7 +92,9 @@ const searchInput = z.object({
 		.describe("Mês (AAAA-MM) pela data do lançamento. Combine com from/to só se precisar."),
 	from: dateInput.optional().describe("Data inicial, inclusive."),
 	to: dateInput.optional().describe("Data final, inclusive."),
-	kind: z.enum(["expense", "income", "refund", "transfer", "card_payment", "investment"]).optional(),
+	kind: z
+		.enum(["expense", "income", "refund", "transfer", "card_payment", "investment", "redemption"])
+		.optional(),
 	categoryId: z.string().max(64).optional().describe("Id de categoria (veja list_catalog)."),
 	accountId: z.string().max(64).optional().describe("Id de conta (veja list_catalog)."),
 	cardId: z.string().max(64).optional().describe("Id de cartão (veja list_catalog)."),
