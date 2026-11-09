@@ -1130,6 +1130,51 @@ describe("syncPluggy", () => {
 			expect((await t2.stores.cards.get(mine.id))?.name).toBe("Meu cartão");
 		});
 
+		it("nome legado (razão social crua) vira o nome curto uma vez; o que o dono editou fica", async () => {
+			const razao = "Nu Pagamentos S.A. - Instituição de Pagamento";
+			const t2 = setup({
+				item: { connector: { id: 1, name: "MeuPluggy", isSandbox: false } },
+				accounts: [
+					{ ...bankAccount, name: `${razao} (Conta Pré-pag`, marketingName: null },
+					{ ...cardAccount, name: razao, marketingName: null },
+				],
+				transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: [] },
+			});
+			await t2.stores.pluggyConnections.add({ id: ITEM_ID });
+			const acc = await t2.stores.accounts.create({
+				name: `${razao} (Conta Pré-pag`,
+				kind: "checking",
+				source: "pluggy",
+				externalId: BANK_ACCOUNT_ID,
+			});
+			const card = await t2.stores.cards.create({
+				name: razao,
+				closingDay: 10,
+				dueDay: 17,
+				source: "pluggy",
+				externalId: CARD_ACCOUNT_ID,
+			});
+			await t2.run();
+			expect((await t2.stores.accounts.get(acc.id))?.name).toBe("Nubank");
+			expect((await t2.stores.cards.get(card.id))?.name).toBe("Nubank");
+
+			const t3 = setup({
+				item: { connector: { id: 1, name: "MeuPluggy", isSandbox: false } },
+				accounts: [{ ...cardAccount, name: razao, marketingName: null }],
+				transactions: { [CARD_ACCOUNT_ID]: [] },
+			});
+			await t3.stores.pluggyConnections.add({ id: ITEM_ID });
+			const edited = await t3.stores.cards.create({
+				name: "Roxinho",
+				closingDay: 10,
+				dueDay: 17,
+				source: "pluggy",
+				externalId: CARD_ACCOUNT_ID,
+			});
+			await t3.run();
+			expect((await t3.stores.cards.get(edited.id))?.name).toBe("Roxinho");
+		});
+
 		it("conector que não é o MeuPluggy mantém o nome do banco", async () => {
 			const t2 = setup({ transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: [] } });
 			await t2.stores.pluggyConnections.add({ id: ITEM_ID, label: "Nubank" });

@@ -183,11 +183,16 @@ export function cardLimit(
 			Math.round((limitCents * LIMIT_COHERENCE_PERCENT) / 100),
 		);
 		const coherent = bankUsed <= plausibleUsedCents + tolerance;
+		if (coherent) return { limitCents, availableCents, usedCents: bankUsed, source: "bank", syncedAt };
+		// Incoerente (o dono baixou o limite e o saldo ainda não foi lido): usado = estimativa por lançamentos e o limite
+		// efetivo é disponível + usado, para o % e o total não misturarem o aprovado com o efetivo.
+		const effective = availableCents + estimatedUsedCents;
 		return {
-			limitCents,
+			limitCents: Math.min(effective, limitCents),
+			...(effective < limitCents ? { approvedLimitCents: limitCents } : {}),
 			availableCents,
-			usedCents: coherent ? bankUsed : estimatedUsedCents,
-			source: coherent ? "bank" : "estimated",
+			usedCents: estimatedUsedCents,
+			source: "estimated",
 			syncedAt,
 		};
 	}

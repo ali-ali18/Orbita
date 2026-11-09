@@ -12,7 +12,13 @@ import {
 } from "@orbita/db";
 import { PLUGGY_RECONNECT_MESSAGE, type PluggySyncStatus, type SecretName } from "@orbita/shared";
 import { type BankNumbersResult, recordBankNumbers, recordBills } from "./balances.ts";
-import { detectBankName, findKnownBank, hasMeuPluggyPrefix, isWeakCardName } from "./bank-name.ts";
+import {
+	detectBankName,
+	findKnownBank,
+	hasMeuPluggyPrefix,
+	isLegacyRawName,
+	isWeakCardName,
+} from "./bank-name.ts";
 import { buildCategoryIndex, type CategoryIndex, operationSignal } from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
 import { chooseConnectionLabel } from "./connection-label.ts";
@@ -876,7 +882,12 @@ async function linkAccounts(
 					if (!(e instanceof DataError && e.code === "duplicate")) throw e;
 					account = await accounts.findByExternal(PLUGGY_SOURCE, mapped.externalId);
 				}
-			} else if (account.archivedAt === null && hasMeuPluggyPrefix(account.name)) {
+			} else if (
+				account.archivedAt === null &&
+				account.name !== mapped.input.name &&
+				(hasMeuPluggyPrefix(account.name) ||
+					isLegacyRawName(account.name, pa.marketingName?.trim() || pa.name))
+			) {
 				// Importada antes da limpeza do nome ("MeuPluggy Inter"): o prefixo é a marca de que o dono ainda não
 				// mexeu no nome, então troca uma vez; depois do nome novo isto não roda de novo.
 				account = await accounts.update(account.id, { name: mapped.input.name });
@@ -947,7 +958,9 @@ async function linkAccounts(
 			card &&
 			card.archivedAt === null &&
 			card.name !== mapped.input.name &&
-			(hasMeuPluggyPrefix(card.name) || (isWeakCardName(card.name) && !isWeakCardName(mapped.input.name)))
+			(hasMeuPluggyPrefix(card.name) ||
+				isLegacyRawName(card.name, pa.marketingName?.trim() || pa.name) ||
+				(isWeakCardName(card.name) && !isWeakCardName(mapped.input.name)))
 		) {
 			card = await cards.update(card.id, { name: mapped.input.name });
 		}
