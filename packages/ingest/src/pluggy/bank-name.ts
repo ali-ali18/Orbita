@@ -233,11 +233,13 @@ export function rawBankName(raw: string): string {
  * editou: pode ser trocado pelo nome curto, uma vez.
  */
 export function isLegacyRawName(stored: string, raw: string | null | undefined, maxLength = 60): boolean {
-	const own = rawBankName(raw ?? "")
-		.slice(0, maxLength)
-		.trim()
-		.toLowerCase();
+	const full = rawBankName(raw ?? "").toLowerCase();
+	const own = full.slice(0, maxLength).trim();
 	const name = squash(stored).toLowerCase();
 	if (own === "" || name === "") return false;
-	return name === own || name.endsWith(` ${own}`);
+	if (name === own || name === full) return true;
+	// Com o banco na frente só vale para razão social longa: um nome curto ("gold", "Santander") com algo antes
+	// ("Roxinho gold", "Conta Santander") é o dono que editou.
+	const long = full.length >= 30 || /s\.a\.|instituição|instituicao|ltda/.test(full);
+	return long && name.endsWith(` ${own}`);
 }

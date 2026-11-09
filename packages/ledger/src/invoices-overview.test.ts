@@ -131,6 +131,31 @@ describe("invoicesOverview", () => {
 	});
 });
 
+describe("limite com parcelamento", () => {
+	it("a parcela vigente (já no devido) não entra duas vezes na conferência do limite do banco", async () => {
+		const { stores, card } = await setup({ closingDay: 25, dueDay: 5 });
+		await stores.cards.update(card.id, { limitCents: 100_000 });
+		await stores.transactions.createInstallmentGroup(
+			(["2026-11", "2026-12", "2027-01", "2027-02", "2027-03"] as const).map((m, i) => ({
+				kind: "expense" as const,
+				amountCents: 2000,
+				date: "2026-11-10",
+				description: "TV 5x",
+				cardId: card.id,
+				invoiceMonth: m,
+				budgetMonth: m,
+				installmentNumber: i + 1,
+				installmentCount: 5,
+			})),
+		);
+		// Devido 2.000 (a 1/5 na aberta) + 8.000 que faltam = 10.000. O banco diz usado 21.000, acima do plausível
+		// (10.000) mais a tolerância (10.000); contando a vigente duas vezes (12.000) ele passaria por coerente.
+		await stores.cards.recordAvailable(card.id, 79_000, new Date("2026-11-12T12:00:00Z"), null);
+		const { line } = await only(stores, "2026-11-12");
+		expect(line.limit).toMatchObject({ source: "estimated", usedCents: 10_000 });
+	});
+});
+
 describe("invoiceOwedCents", () => {
 	it("aberta deve o total; fechada, o total menos o pago, nunca negativo", () => {
 		expect(invoiceOwedCents("open", 5000, 0)).toBe(5000);

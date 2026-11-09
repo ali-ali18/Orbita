@@ -161,13 +161,14 @@ describe.each(contractSuites())("CardStore: cadastro de fora (%s)", (_name, make
 		const edited = await stores.cards.update(c.id, { dueDay: 20 });
 		expect(edited).toMatchObject({ availableCents: 523_267, limitSyncedAt: at });
 		expect(await stores.cards.get(c.id)).toEqual(edited);
-		// O saldo do cartão acompanha o disponível; ausente mantém o último.
+		// O saldo do cartão acompanha o disponível; ausente na leitura grava null (nunca mantém o de outra rodada).
 		expect(saved.balanceCents).toBeNull();
 		const withBalance = await stores.cards.recordAvailable(c.id, 150_000, at, 50_000);
 		expect(withBalance).toMatchObject({ availableCents: 150_000, balanceCents: 50_000 });
-		expect(await stores.cards.recordAvailable(c.id, 150_000, at)).toMatchObject({ balanceCents: 50_000 });
+		expect(await stores.cards.recordAvailable(c.id, 150_000, at)).toMatchObject({ balanceCents: null });
+		await stores.cards.recordAvailable(c.id, 150_000, at, 50_000);
 		expect(await stores.cards.recordAvailable(c.id, 150_000, at, null)).toMatchObject({
-			balanceCents: 50_000,
+			balanceCents: null,
 		});
 		await expect(stores.cards.recordAvailable(c.id, 1, at, 2.5)).rejects.toMatchObject({ code: "invalid" });
 		await expect(stores.cards.recordAvailable("nada", 1, at)).rejects.toMatchObject({ code: "not_found" });

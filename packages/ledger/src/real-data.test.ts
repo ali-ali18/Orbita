@@ -265,6 +265,19 @@ describe("cardLimit: coerência do número do banco", () => {
 		});
 	});
 
+	it("limite baixado só vale se o saldo confere com o que o Órbita sabe dever (fatura fechada não paga + compras novas)", () => {
+		// Saldo do banco 555,92 mas o Órbita sabe dever 3.000: o saldo é velho, não prova limite baixado.
+		const stale = cardLimit(card(1390000, 524408, 55592), 300000, 300000, 300000);
+		expect(stale).toMatchObject({ source: "estimated", usedCents: 300000 });
+		expect(stale.limitCents).not.toBe(580000);
+		// Dentro de R$ 1 do devido: continua valendo.
+		expect(cardLimit(card(1390000, 524408, 55592), 55592, 55592, 55692)).toMatchObject({
+			limitCents: 580000,
+			usedCents: 55592,
+			source: "bank",
+		});
+	});
+
 	it("disponível + saldo ≥ limite (não fecha de jeito nenhum): cai na estimativa", () => {
 		expect(cardLimit(card(200000, 40000, 180000), 10000, 10000)).toMatchObject({
 			usedCents: 10000,
