@@ -6,6 +6,7 @@ import {
 	detectBankName,
 	findKnownBank,
 	hasMeuPluggyPrefix,
+	isLegacyRawName,
 	isMeuPluggyConnector,
 	isWeakCardName,
 } from "./bank-name.ts";
@@ -135,5 +136,23 @@ describe("Santander (conector Santander PF, cartão FREE VISA)", () => {
 		expect(bankIspb("Nubank")).toBe("18236120");
 		expect(bankIspb("Banco Desconhecido")).toBeNull();
 		expect(bankIspb(null)).toBeNull();
+	});
+});
+
+describe("isLegacyRawName", () => {
+	it("não renomeia nome que o dono editou (raw curto com algo na frente)", () => {
+		expect(isLegacyRawName("Roxinho gold", "gold")).toBe(false);
+		expect(isLegacyRawName("Conta Santander", "Santander")).toBe(false);
+		expect(isLegacyRawName("Cartão Mercado Pago", "Mercado Pago")).toBe(false);
+		expect(isLegacyRawName("Meu FREE VISA", "FREE VISA")).toBe(false);
+	});
+
+	it("renomeia o nome igual à razão social crua, cortada ou com o banco na frente", () => {
+		const raw = "Nu Pagamentos S.A. - Instituição de Pagamento";
+		expect(isLegacyRawName(raw, raw)).toBe(true);
+		expect(isLegacyRawName("Nubank Nu Pagamentos S.A. - Instituição de Pagamento", raw)).toBe(true);
+		expect(isLegacyRawName("gold", "gold")).toBe(true);
+		const longRaw = `${raw} ${"x".repeat(60)}`;
+		expect(isLegacyRawName(longRaw.slice(0, 60), longRaw)).toBe(true);
 	});
 });
