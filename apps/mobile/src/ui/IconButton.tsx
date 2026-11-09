@@ -44,6 +44,7 @@ export function IconButton({
 				borderRadius: radius.pill,
 				alignItems: "center",
 				justifyContent: "center",
+				flexShrink: 0,
 				backgroundColor: filled ? colors.accent : background,
 				borderWidth: bordered ? 1 : 0,
 				borderColor: colors.border,

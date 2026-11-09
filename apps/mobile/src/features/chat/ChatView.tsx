@@ -587,6 +587,7 @@ function Composer({
 				<View
 					style={{
 						flex: 1,
+						minWidth: 0,
 						height: 52,
 						borderRadius: radius.pill,
 						backgroundColor: colors.surface,
@@ -604,7 +605,7 @@ function Composer({
 						onChangeText={onChange}
 						placeholder={dictation.listening ? "Estou ouvindo…" : "Pergunte ou lance um gasto"}
 						placeholderTextColor={colors.textSecondary}
-						style={{ flex: 1, color: colors.text, fontSize: 15 }}
+						style={{ flex: 1, minWidth: 0, color: colors.text, fontSize: 15 }}
 						onSubmitEditing={onSend}
 						accessibilityLabel="Pergunte ou lance um gasto"
 					/>
