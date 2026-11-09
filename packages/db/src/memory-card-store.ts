@@ -86,7 +86,8 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 				...current,
 				availableCents: cleanAvailable(availableCents),
 				// Saldo ausente na leitura grava null: o último, de outra rodada, enganaria a conferência do limite.
-				balanceCents: balanceCents === undefined || balanceCents === null ? null : cleanAvailable(balanceCents),
+				balanceCents:
+					balanceCents === undefined || balanceCents === null ? null : cleanAvailable(balanceCents),
 				limitSyncedAt: syncedAt,
 			};
 			state.cards.set(id, next);

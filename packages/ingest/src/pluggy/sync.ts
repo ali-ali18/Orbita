@@ -530,7 +530,7 @@ async function syncConnection(
 		// fechamento (e ainda está na regra padrão) passa a ela; sem evidência não muda nada. Só sobe de "next" para
 		// "included": o que o dono escolheu ou o padrão não é revertido por um dado ambíguo.
 		for (const { target, txs } of fetched) {
-			if (!target.card || target.card.closingRule !== "closing-day-next") continue;
+			if (target.card?.closingRule !== "closing-day-next") continue;
 			const rule = inferClosingRule(txs, billsOf.get(target.pluggyId)?.bills ?? []);
 			if (rule === "closing-day-included") {
 				target.card = await deps.stores.cards.update(target.card.id, { closingRule: rule });
