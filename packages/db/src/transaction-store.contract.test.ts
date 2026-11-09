@@ -658,6 +658,98 @@ describe.each(contractSuites())("TransactionStore (%s)", (_name, make) => {
 		});
 	});
 
+	describe("adoptExternal", () => {
+		const patch = { date: "2026-11-06" as const };
+
+		it("passa a apontar para a origem externa, mantém o que o dono definiu e usa a data do banco", async () => {
+			const mine = await tx.create(
+				expense({ description: "Padaria da esquina", note: "pão", categoryId: b.food.id }),
+			);
+			const adopted = await tx.adoptExternal(mine.id, "pluggy", "px-1", {
+				...patch,
+				categoryId: null,
+				merchantName: "PADARIA SAO JOAO",
+			});
+			expect(adopted).toMatchObject({
+				id: mine.id,
+				source: "pluggy",
+				externalId: "px-1",
+				date: "2026-11-06",
+				budgetMonth: "2026-11",
+				description: "Padaria da esquina",
+				note: "pão",
+				categoryId: b.food.id,
+				status: "confirmed",
+				amountCents: 1990,
+				merchantName: "PADARIA SAO JOAO",
+			});
+			expect(await tx.get(mine.id)).toEqual(adopted);
+			// O próximo upsert acha o mesmo registro: não cria outro.
+			const again = await tx.upsertByExternal("pluggy", "px-1", expense());
+			expect(again.created).toBe(false);
+			expect(again.transaction?.id).toBe(mine.id);
+			expect(await tx.countMatching()).toBe(1);
+		});
+
+		it("a categoria do banco só entra se o lançamento não tinha uma", async () => {
+			const mine = await tx.create(expense());
+			const adopted = await tx.adoptExternal(mine.id, "pluggy", "px-2", { ...patch, categoryId: b.food.id });
+			expect(adopted?.categoryId).toBe(b.food.id);
+		});
+
+		it("o mês do orçamento acompanha a data nova quando era o padrão", async () => {
+			const mine = await tx.create(expense({ date: "2026-10-31" }));
+			const adopted = await tx.adoptExternal(mine.id, "pluggy", "px-3", { date: "2026-11-01" });
+			expect(adopted).toMatchObject({ date: "2026-11-01", budgetMonth: "2026-11" });
+		});
+
+		it("cartão: a fatura do banco vale", async () => {
+			const mine = await tx.create(cardPurchase());
+			const adopted = await tx.adoptExternal(mine.id, "pluggy", "px-4", {
+				...patch,
+				invoiceMonth: "2026-12",
+			});
+			expect(adopted).toMatchObject({ cardId: b.card.id, invoiceMonth: "2026-12" });
+		});
+
+		it("devolve null e não muda nada: apagado, inexistente, já da origem ou identificador em uso", async () => {
+			const gone = await tx.create(expense());
+			await tx.softDelete(gone.id);
+			expect(await tx.adoptExternal(gone.id, "pluggy", "px-5", patch)).toBeNull();
+			expect(
+				await tx.adoptExternal("00000000-0000-4000-8000-000000000000", "pluggy", "px-5", patch),
+			).toBeNull();
+
+			const already = (await tx.upsertByExternal("pluggy", "px-6", expense())).transaction;
+			expect(await tx.adoptExternal(already?.id as string, "pluggy", "px-7", patch)).toBeNull();
+
+			const mine = await tx.create(expense());
+			expect(await tx.adoptExternal(mine.id, "pluggy", "px-6", patch)).toBeNull();
+			// Identificador de um lançamento apagado continua reservado.
+			await tx.softDelete(already?.id as string);
+			expect(await tx.adoptExternal(mine.id, "pluggy", "px-6", patch)).toBeNull();
+			expect(await tx.get(mine.id)).toMatchObject({ source: "manual", externalId: null, date: "2026-11-05" });
+		});
+
+		it("mantém o parcelamento do lançamento adotado", async () => {
+			const [first] = await tx.createInstallmentGroup([
+				{ ...cardPurchase({ amountCents: 5000 }), installmentNumber: 1, installmentCount: 2 },
+				{
+					...cardPurchase({ amountCents: 5000, date: "2026-12-05", invoiceMonth: "2026-12" }),
+					installmentNumber: 2,
+					installmentCount: 2,
+				},
+			]);
+			const adopted = await tx.adoptExternal(first?.id as string, "pluggy", "px-8", patch);
+			expect(adopted).toMatchObject({
+				installmentGroupId: first?.installmentGroupId,
+				installmentNumber: 1,
+				installmentCount: 2,
+				budgetMonth: first?.budgetMonth,
+			});
+		});
+	});
+
 	describe("exclusão lógica", () => {
 		it("some de get e de todas as listas, e softDelete é idempotente", async () => {
 			const t = await tx.create(cardPurchase({ status: "pending" }));

@@ -99,6 +99,7 @@ export type { SecretStore, StoredSecret } from "./secret-store.ts";
 export { createSecretVault, type SecretVault, type SecretVaultDeps } from "./secret-vault.ts";
 export { createMemoryStores, createPrismaStores, type Stores, type StoresOptions } from "./stores.ts";
 export {
+	type AdoptExternalPatch,
 	type ExternalInstallment,
 	type InstallmentGroupRecord,
 	type InstallmentInput,
