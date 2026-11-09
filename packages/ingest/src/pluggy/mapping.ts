@@ -319,7 +319,7 @@ export type PaymentCardMatch = { kind: "one"; cardId: string } | { kind: "ambigu
 export function matchPaymentCard(
 	amountCents: number,
 	description: string,
-	ctx: Pick<TransactionContext, "billTotals" | "cards" | "bills">,
+	ctx: Pick<TransactionContext, "billTotals" | "cards" | "bills" | "payments">,
 	date?: LocalDate,
 ): PaymentCardMatch {
 	// Faturas de QUALQUER conexão: o valor é o total ou o que faltava pagar, e o dia cai a até 5 dias do vencimento.
@@ -332,6 +332,15 @@ export function matchPaymentCard(
 		...new Set([
 			...(ctx.billTotals ?? []).filter((b) => b.amountCents === amountCents).map((b) => b.cardId),
 			...billHits.map((b) => b.cardId),
+			// Pagamento que o próprio banco registrou na fatura (qualquer conexão, qualquer dia antes do vencimento).
+			...(date === undefined
+				? []
+				: (ctx.payments ?? [])
+						.filter(
+							(p) =>
+								p.amountCents === amountCents && Math.abs(daysBetween(p.date, date)) <= BILL_PAYMENT_DAYS,
+						)
+						.map((p) => p.cardId)),
 		]),
 	];
 	const named = cardsNamedIn(description, ctx.cards ?? []);
@@ -416,6 +425,8 @@ export interface TransactionContext {
 	billTotals?: readonly BillTotal[];
 	/** Faturas de todos os cartões conectados, de qualquer conexão (total, falta pagar e vencimento). */
 	bills?: readonly BillInfo[];
+	/** `payments[]` das faturas de TODAS as conexões: um pagamento parcial ou adiantado saído de outra conexão. */
+	payments?: readonly BillPayment[];
 	/** Os cartões vivos da conexão (nome e final), para ler o emissor na descrição do pagamento da fatura. */
 	cards?: readonly { id: string; name: string; last4: string | null }[];
 	/** Mês de cada fatura (`billId` → mês do vencimento): vale mais que o cálculo pelo dia de fechamento. */

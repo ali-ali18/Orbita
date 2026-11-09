@@ -173,7 +173,7 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 	const startedAt = now();
 	const lookups = createLookups(deps, client);
 	const results: ConnectionSyncResult[] = [];
-	const shared: RunShared = { owners: new Map(), cards: [], bills: [] };
+	const shared: RunShared = { owners: new Map(), cards: [], bills: [], payments: [] };
 	for (const connection of connections) {
 		const guard = createRelinkGuard(client, connection, connections);
 		const result = await syncConnection(deps, client, connection, startedAt, lookups, shared, guard);
@@ -202,6 +202,8 @@ interface RunShared {
 	owners: Map<string, string | null>;
 	cards: { id: string; name: string; last4: string | null }[];
 	bills: BillInfo[];
+	/** `payments[]` das faturas de todas as conexões vistas. */
+	payments: BillPayment[];
 }
 
 /** Passo final, com todas as conexões já gravadas: pagamento de fatura e transferência entre contas de conexões diferentes. */
@@ -219,6 +221,7 @@ async function crossConnections(
 			today: toLocalDate(startedAt),
 			cards: shared.cards,
 			bills: shared.bills,
+			payments: shared.payments,
 			owners: new Map(shared.owners),
 		});
 		const n = done.billPayments + done.ownTransfers;
@@ -289,11 +292,11 @@ async function finish(
 	connection: PluggyConnectionRecord,
 	result: ConnectionSyncResult,
 	startedAt?: Date,
+	/** Dia de onde a janela desta rodada buscou; vai para `historyFrom` quando a conexão termina `ok`. */
+	from?: string,
 ): Promise<ConnectionSyncResult> {
 	await deps.stores.pluggyConnections.recordSync(connection.id, {
 		status: result.status,
-	/** Dia de onde a janela desta rodada buscou; vai para `historyFrom` quando a conexão termina `ok`. */
-	from?: string,
 		error: result.error,
 		...(result.status === "ok" && startedAt
 			? { syncedAt: startedAt, ...(from ? { historyFrom: from } : {}) }
@@ -409,6 +412,7 @@ async function syncConnection(
 				}
 			}
 		}
+		shared.payments.push(...billPayments);
 		for (const l of linked) {
 			if (l.account && l.ownerName) shared.owners.set(l.account.id, l.ownerName);
 		}
@@ -492,6 +496,7 @@ async function syncConnection(
 			// Cartões e faturas de todas as conexões já vistas: o pagamento sai de uma conta e pode ser de cartão de outro banco.
 			cards: shared.cards,
 			bills: shared.bills,
+			payments: shared.payments,
 			billMonths,
 			billsUnavailable,
 			...(categoryIndex ? { categoryIndex } : {}),

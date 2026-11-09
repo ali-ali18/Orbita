@@ -2,7 +2,9 @@ import { addDays, daysBetween, type LocalDate } from "@orbita/core";
 import type { Stores, TransactionFilter, TransactionRecord } from "@orbita/db";
 import { plain } from "./classify.ts";
 import {
+	assignBillPayments,
 	type BillInfo,
+	type BillPayment,
 	looksLikeOwnerName,
 	matchPaymentCard,
 	PAYMENT_REVIEW_NOTE,
@@ -117,6 +119,8 @@ export interface CrossInput {
 	cards: readonly { id: string; name: string; last4: string | null }[];
 	/** Faturas de todos os cartões conectados. */
 	bills: readonly BillInfo[];
+	/** `payments[]` das faturas de todos os cartões conectados (pagamento parcial ou adiantado, de qualquer conexão). */
+	payments?: readonly BillPayment[];
 	/** Nome do titular de cada conta (id da conta do Órbita → `owner` do Pluggy), para o sinal de titularidade. */
 	owners?: ReadonlyMap<string, string | null>;
 }
@@ -142,8 +146,9 @@ export async function reconcileAcrossConnections(input: CrossInput): Promise<Cro
 async function relinkBillPayments(input: CrossInput, from: LocalDate): Promise<number> {
 	const { transactions } = input;
 	const rows = await listAll(transactions, { kinds: ["expense"], sources: [PLUGGY_SOURCE], from });
-	let changed = 0;
+	let changed = await linkByBillPayments(input, rows, from);
 	for (const row of rows) {
+		if (row.kind !== "expense") continue;
 		if (touchedByOwner(row) || row.accountId === null || !isPaymentNote(row.note)) continue;
 		const found = matchPaymentCard(row.amountCents, row.description, input, row.date);
 		if (found.kind === "one") {
@@ -164,6 +169,60 @@ async function relinkBillPayments(input: CrossInput, from: LocalDate): Promise<n
 			});
 			changed += 1;
 		}
+	}
+	return changed;
+}
+
+/**
+ * Pagamento parcial ou adiantado de cartão feito por uma conta de OUTRA conexão: o `payments[]` da fatura (valor exato,
+ * até 3 dias) é o que prova que o débito é pagamento, em qualquer dia antes do vencimento. Pagamentos já ligados a um
+ * `card_payment` são consumidos primeiro (um débito igual não casa de novo). Só débito de conta da origem Pluggy que o
+ * dono não mexeu e que não é transferência própria; devolve quantos foram ligados (e atualiza `rows`).
+ */
+async function linkByBillPayments(
+	input: CrossInput,
+	rows: TransactionRecord[],
+	from: LocalDate,
+): Promise<number> {
+	const payments = input.payments ?? [];
+	if (payments.length === 0) return 0;
+	const { transactions } = input;
+	const linked = await listAll(transactions, { kinds: ["card_payment"], sources: [PLUGGY_SOURCE], from });
+	const taken = new Set<BillPayment>();
+	for (const row of linked) {
+		const hit = payments.find(
+			(p) =>
+				!taken.has(p) &&
+				p.cardId === row.cardId &&
+				p.amountCents === row.amountCents &&
+				Math.abs(daysBetween(p.date, row.date)) <= 3,
+		);
+		if (hit) taken.add(hit);
+	}
+	const free = payments.filter((p) => !taken.has(p));
+	const candidates = rows.filter(
+		(r) => r.kind === "expense" && r.accountId !== null && r.cardId === null && !touchedByOwner(r),
+	);
+	const byId = new Map(candidates.map((r) => [r.id, r]));
+	const matches = assignBillPayments(
+		candidates.map((r) => ({ id: r.id, amountCents: r.amountCents, date: r.date })),
+		free,
+	);
+	let changed = 0;
+	for (const [id, payment] of matches) {
+		const row = byId.get(id);
+		if (!row) continue;
+		await transactions.update(id, {
+			kind: "card_payment",
+			cardId: payment.cardId,
+			counterpartAccountId: null,
+			categoryId: null,
+			status: "confirmed",
+			note: null,
+		});
+		// Já é pagamento de fatura: o laço seguinte (texto) e o pareamento de transferência não o veem mais.
+		row.kind = "card_payment";
+		changed += 1;
 	}
 	return changed;
 }

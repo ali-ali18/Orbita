@@ -389,6 +389,107 @@ describe("sincronização com várias conexões: pagamento de fatura", () => {
 	});
 });
 
+describe("sincronização com várias conexões: pagamento parcial ou adiantado (payments[])", () => {
+	// Fatura do Mercado Pago de R$ 800,00 vencendo dia 10; R$ 200,00 pagos dia 02 (8 dias antes) pela conta do Inter.
+	const partialBill = {
+		id: "b1",
+		dueDate: day("10"),
+		totalAmount: 800,
+		payments: [{ paymentDate: day("02"), amount: 200 }],
+	};
+	const pix = tx("p-pix", { description: "Pix enviado", amount: -200, date: day("02") });
+
+	it("débito de uma conta de OUTRA conexão que bate com payments[] vira card_payment do cartão certo", async () => {
+		const t = await setup({ [BANK_ACCOUNT_ID]: [pix] }, { [mpCard.id]: [partialBill] });
+		await t.sync();
+		const [card] = (await t.stores.cards.list()).filter((c) => c.last4 === "7777");
+		expect((await rows(t.stores))["p-pix"]).toMatchObject({
+			kind: "card_payment",
+			cardId: card?.id,
+			note: null,
+		});
+		// Idempotente.
+		const again = await t.sync();
+		expect(again.connections.every((c) => (c.reclassified ?? 0) === 0)).toBe(true);
+		expect((await rows(t.stores))["p-pix"]?.kind).toBe("card_payment");
+	});
+
+	it("pagamento com texto de fatura feito mais de 5 dias antes do vencimento também liga pelo payments[]", async () => {
+		const text = tx("p-1", {
+			description: "Pagamento de fatura Cartão",
+			amount: -200,
+			category: "Credit card payment",
+			date: day("02"),
+		});
+		const t = await setup({ [BANK_ACCOUNT_ID]: [text] }, { [mpCard.id]: [partialBill] });
+		await t.sync();
+		const [card] = (await t.stores.cards.list()).filter((c) => c.last4 === "7777");
+		expect((await rows(t.stores))["p-1"]).toMatchObject({ kind: "card_payment", cardId: card?.id });
+	});
+
+	it("valor diferente ou mais de 3 dias de distância continuam sendo gasto", async () => {
+		const other = tx("p-other", { description: "Pix enviado", amount: -201, date: day("02") });
+		const late = tx("p-late", { description: "Pix enviado", amount: -200, date: day("07") });
+		const t = await setup({ [BANK_ACCOUNT_ID]: [other, late] }, { [mpCard.id]: [partialBill] });
+		await t.sync();
+		const r = await rows(t.stores);
+		expect(r["p-other"]?.kind).toBe("expense");
+		expect(r["p-late"]?.kind).toBe("expense");
+	});
+
+	it("um pagamento casa com UM débito: o segundo Pix igual continua gasto", async () => {
+		const twin = tx("p-twin", { description: "Pix enviado", amount: -200, date: day("02") });
+		const t = await setup({ [BANK_ACCOUNT_ID]: [pix, twin] }, { [mpCard.id]: [partialBill] });
+		await t.sync();
+		const kinds = Object.values(await rows(t.stores)).map((r) => r.kind);
+		expect(kinds.filter((k) => k === "card_payment")).toHaveLength(1);
+		expect(kinds.filter((k) => k === "expense")).toHaveLength(1);
+	});
+
+	it("o que o dono editou não é religado ao cartão", async () => {
+		const t = await setup({ [BANK_ACCOUNT_ID]: [pix] }, {});
+		await t.sync();
+		const mine = (await rows(t.stores))["p-pix"];
+		expect(mine?.kind).toBe("expense");
+		await t.stores.transactions.update(mine?.id ?? "", { editedByOwner: true });
+		const fake = fakePluggy({
+			accounts: [interAccount],
+			otherItems: {
+				[ITEM_MP]: { accounts: [mpAccount, mpCard] },
+				[ITEM_SANT]: { accounts: [santAccount, santCard] },
+			},
+			transactions: {
+				[BANK_ACCOUNT_ID]: [pix],
+				[mpAccount.id]: [],
+				[mpCard.id]: [],
+				[santAccount.id]: [],
+				[santCard.id]: [],
+			},
+			bills: { [mpCard.id]: [partialBill], [santCard.id]: [] },
+		});
+		await syncPluggy({
+			stores: t.stores,
+			readSecret: async (name) =>
+				({ pluggy_client_id: CLIENT_ID, pluggy_client_secret: CLIENT_SECRET })[name] ?? null,
+			fetch: fake.fetch,
+			now: () => NOW,
+		});
+		expect((await rows(t.stores))["p-pix"]).toMatchObject({ kind: "expense", cardId: null });
+	});
+
+	it("transferência própria já identificada (com sinal de titularidade) não vira pagamento de fatura", async () => {
+		const own = tx("p-own", {
+			description: "Pix para mim",
+			amount: -200,
+			category: "Same person transfer",
+			date: day("02"),
+		});
+		const t = await setup({ [BANK_ACCOUNT_ID]: [own] }, { [mpCard.id]: [partialBill] });
+		await t.sync();
+		expect((await rows(t.stores))["p-own"]?.kind).toBe("transfer");
+	});
+});
+
 describe("sincronização com várias conexões: pagamento que o dono já revisou", () => {
 	it("pendente que o dono confirmou como gasto (marca geral) não é religado a cartão depois", async () => {
 		const pay = tx("p-1", {
