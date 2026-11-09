@@ -5,6 +5,8 @@
 
 export { createAgentReader } from "./agent-reader.ts";
 export { budgetBlock, limitMessage } from "./ai-budget.ts";
+export { accountBalances } from "./balances.ts";
+export { cashFlow } from "./cash-flow.ts";
 export { toCardDto, toPostingDto, toRecurrenceDto, toTransactionDto } from "./dto.ts";
 export {
 	type GoalClock,
@@ -25,6 +27,8 @@ export {
 } from "./income-plan.ts";
 export {
 	type CardInvoicesLine,
+	cardLimit,
+	INVOICE_HISTORY_MONTHS,
 	type InvoiceLine,
 	type InvoicesOverview,
 	invoiceOwedCents,
@@ -42,6 +46,7 @@ export {
 	type SetupTransaction,
 } from "./setup-analysis.ts";
 export { applySetup, undoSetup } from "./setup-apply.ts";
+export { spendingDaily } from "./spending-daily.ts";
 export {
 	activeInstallments,
 	cardInvoice,
@@ -50,6 +55,7 @@ export {
 	monthSummary,
 	refundOriginalsOutside,
 	spendingBreakdown,
+	spendingOfMonth,
 	toCoreTransaction,
 } from "./summary.ts";
 export { decodeCursor, encodeCursor, listRecentPage } from "./transaction-list.ts";
