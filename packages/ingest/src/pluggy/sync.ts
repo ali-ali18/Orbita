@@ -1137,8 +1137,12 @@ async function storeTransactions(
 					}
 					// A fatura que o banco indica vale mais que a gravada por quem só calculava pelo fechamento: a
 					// compra pesa no mês dela (o upsert por si só nunca corrigia). O que o engine calculou não mexe.
+					// Também recalcula a compra ainda pendente sem fatura do banco: versões antigas gravavam nela o mês de
+					// `billForecastDate` (hoje ignorado em conector que não é Open Finance) e a fatura ficava errada para sempre.
 					if (
-						mapped.invoiceFromBill &&
+						(mapped.invoiceFromBill ||
+							mapped.input.bankPending === true ||
+							res.transaction?.bankPending === true) &&
 						res.transaction &&
 						!touchedByOwner(res.transaction) &&
 						res.transaction.cardId != null &&
