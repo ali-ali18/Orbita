@@ -6,7 +6,7 @@ import { bankBadge } from "../summary/summary-model.ts";
 import { initialOf } from "../summary/transaction-model.ts";
 import type { CardLike, InstallmentCardModel } from "./card-model.ts";
 
-/** Um parcelamento: inicial da compra com o selo do banco, "Parcela N de M", barra, pago/falta e fim. */
+/** Um parcelamento: inicial da compra com o selo do banco, "n de N", barra, pago/falta (estimado quando for) e fim. */
 export function InstallmentCard({
 	model,
 	card,
@@ -72,9 +72,11 @@ export function InstallmentCard({
 			<View style={{ flexDirection: "row" }}>
 				<Text variant="caption" tone="secondary" style={{ flex: 1 }}>
 					Pago {money(model.paidCents, hidden, { sign: "never" })}
+					{model.paidEstimated ? " (estimado)" : ""}
 				</Text>
 				<Text variant="caption" tone="secondary">
 					Falta {money(model.remainingCents, hidden, { sign: "never" })}
+					{model.remainingEstimated ? " (estimado)" : ""}
 				</Text>
 			</View>
 			<View style={{ height: 1, backgroundColor: colors.border }} />
