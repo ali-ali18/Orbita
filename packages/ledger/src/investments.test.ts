@@ -197,7 +197,7 @@ describe("detalhe", () => {
 	it("posição com movimentações (mais recente primeiro) e retratos; encerrada também abre; inexistente é null", async () => {
 		const { stores, acao, resgatado } = await seed();
 		await stores.investments.upsertSnapshot(acao.id, { day: "2026-11-10", balanceCents: 305000 });
-		const d = await investmentDetail(stores, acao.id);
+		const d = await investmentDetail(stores, acao.id, { today: TODAY });
 		expect(investmentDetailResponse.parse(d)).toEqual(d);
 		expect(d?.position).toMatchObject({ name: "EXEM3", code: "EXEM3", unitValue: "31", quantity: "100" });
 		expect(d?.movements.map((m) => [m.type, m.kind])).toEqual([
@@ -205,10 +205,10 @@ describe("detalhe", () => {
 			["BUY", "contribution"],
 		]);
 		expect(d?.snapshots).toEqual([{ day: "2026-11-10", balanceCents: 305000, investedCents: null }]);
-		const closed = await investmentDetail(stores, resgatado.id);
+		const closed = await investmentDetail(stores, resgatado.id, { today: TODAY });
 		expect(closed?.position).toMatchObject({ active: false, status: "TOTAL_WITHDRAWAL" });
 		expect(closed?.movements).toEqual([]);
-		expect(await investmentDetail(stores, "nada")).toBeNull();
+		expect(await investmentDetail(stores, "nada", { today: TODAY })).toBeNull();
 	});
 });
 
@@ -265,11 +265,11 @@ describe("revisão: encerrada e conexão removida", () => {
 			{ externalId: "z1", type: "BUY", date: "2026-01-10", amountCents: 100000 },
 			{ externalId: "z2", type: "SELL", date: "2026-09-30", amountCents: 105000 },
 		]);
-		const before = await investmentDetail(stores, resgatado.id);
+		const before = await investmentDetail(stores, resgatado.id, { today: TODAY });
 		expect(before?.position.yield).toMatchObject({ cents: null, basis: "unavailable" });
 		await stores.investments.markMovementsRead(resgatado.id, "2026-11-10");
 		await stores.investments.markMovementsRead(resgatado.id, "2026-11-11");
-		const after = await investmentDetail(stores, resgatado.id);
+		const after = await investmentDetail(stores, resgatado.id, { today: TODAY });
 		expect(investmentDetailResponse.parse(after)).toEqual(after);
 		expect(after?.position.yield).toMatchObject({ cents: 5000, estimated: true, basis: "movements" });
 	});
@@ -277,7 +277,7 @@ describe("revisão: encerrada e conexão removida", () => {
 	it("detalhe de posição de conexão removida: 200, inativa e 'Conexão removida'", async () => {
 		const { stores, acao } = await seed();
 		await stores.pluggyConnections.remove(ITEM_B);
-		const d = await investmentDetail(stores, acao.id);
+		const d = await investmentDetail(stores, acao.id, { today: TODAY });
 		expect(d?.position).toMatchObject({ active: false, institutionLabel: "Conexão removida" });
 		expect(d?.position.yield).toMatchObject({
 			cents: null,
