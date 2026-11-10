@@ -3,6 +3,7 @@ import { badReference, DataError, invalid, notFound } from "./errors.ts";
 import { fromDbDate, toDbDate } from "./local-date.ts";
 import type { Clock } from "./memory-state.ts";
 import {
+	ID_EXISTS_MESSAGE,
 	POSTING_DELETED_MESSAGE,
 	POSTING_EXISTS_MESSAGE,
 	POSTING_KIND_MESSAGE,
@@ -59,7 +60,7 @@ export function createPrismaRecurrenceStore(db: Db, now: Clock): RecurrenceStore
 					}),
 				);
 			} catch (e) {
-				throw translate(e, badReference);
+				throw translate(e, () => new DataError("duplicate", ID_EXISTS_MESSAGE));
 			}
 		},
 		async update(id, patch) {

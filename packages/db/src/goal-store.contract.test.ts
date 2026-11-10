@@ -8,6 +8,14 @@ describe.each(contractSuites())("GoalStore (%s)", (_name, make) => {
 		stores = await make();
 	});
 
+	it("recusa criar com um id que já existe (duplicate), sem mexer no original", async () => {
+		const first = await stores.goals.create({ id: "meta-fixa", name: "Viagem", targetCents: 800000 });
+		await expect(
+			stores.goals.create({ id: "meta-fixa", name: "Outra", targetCents: 1000 }),
+		).rejects.toMatchObject({ code: "duplicate" });
+		expect((await stores.goals.get(first.id))?.name).toBe("Viagem");
+	});
+
 	it("cria com padrões, lê e lista só as ativas, da mais antiga para a mais nova", async () => {
 		const a = await stores.goals.create({ name: "  Viagem para o Chile  ", targetCents: 800000 });
 		const b = await stores.goals.create({

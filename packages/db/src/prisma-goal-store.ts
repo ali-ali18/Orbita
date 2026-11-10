@@ -4,7 +4,8 @@ import { DataError, invalid, notFound } from "./errors.ts";
 import type { GoalContributionRecord, GoalRecord, GoalStore } from "./goal-store.ts";
 import { fromDbDate, toDbDate } from "./local-date.ts";
 import type { Clock } from "./memory-state.ts";
-import { GOAL_ARCHIVED_MESSAGE, GOAL_TRANSACTION_MESSAGE } from "./messages.ts";
+import { GOAL_ARCHIVED_MESSAGE, GOAL_TRANSACTION_MESSAGE, ID_EXISTS_MESSAGE } from "./messages.ts";
+import { translate } from "./prisma-errors.ts";
 import { checkReferences } from "./prisma-references.ts";
 import { applyPatch, cleanCents, cleanLocalDate, normalizeGoal } from "./rules.ts";
 
@@ -50,17 +51,21 @@ export function createPrismaGoalStore(db: Db, now: Clock): GoalStore {
 			const accountId = input.accountId ?? null;
 			await checkReferences(db, { accountIds: [accountId] });
 			const at = now();
-			const row = await db.goal.create({
-				data: {
-					...data,
-					...(input.id ? { id: input.id } : {}),
-					deadline: data.deadline === null ? null : toDbDate(data.deadline),
-					accountId,
-					createdAt: at,
-					updatedAt: at,
-				},
-			});
-			return toRecord(row);
+			try {
+				const row = await db.goal.create({
+					data: {
+						...data,
+						...(input.id ? { id: input.id } : {}),
+						deadline: data.deadline === null ? null : toDbDate(data.deadline),
+						accountId,
+						createdAt: at,
+						updatedAt: at,
+					},
+				});
+				return toRecord(row);
+			} catch (e) {
+				throw translate(e, () => new DataError("duplicate", ID_EXISTS_MESSAGE));
+			}
 		},
 		async update(id, patch) {
 			const current = toRecord(await needActive(id));
