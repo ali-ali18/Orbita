@@ -252,3 +252,42 @@ describe("evolução", () => {
 		expect(year.reason).toBeNull();
 	});
 });
+
+describe("revisão: encerrada e conexão removida", () => {
+	it("posição encerrada: ganho realizado estimado só depois de 2 leituras boas das movimentações; antes, null com motivo", async () => {
+		const { stores, resgatado } = await seed();
+		await stores.investments.upsertMovements(resgatado.id, [
+			{ externalId: "z1", type: "BUY", date: "2026-01-10", amountCents: 100000 },
+			{ externalId: "z2", type: "SELL", date: "2026-09-30", amountCents: 105000 },
+		]);
+		const before = await investmentDetail(stores, resgatado.id);
+		expect(before?.position.yield).toMatchObject({ cents: null, basis: "unavailable" });
+		await stores.investments.markMovementsRead(resgatado.id);
+		await stores.investments.markMovementsRead(resgatado.id);
+		const after = await investmentDetail(stores, resgatado.id);
+		expect(investmentDetailResponse.parse(after)).toEqual(after);
+		expect(after?.position.yield).toMatchObject({ cents: 5000, estimated: true, basis: "movements" });
+	});
+
+	it("detalhe de posição de conexão removida: 200, inativa e 'Conexão removida'", async () => {
+		const { stores, acao } = await seed();
+		await stores.pluggyConnections.remove(ITEM_B);
+		const d = await investmentDetail(stores, acao.id);
+		expect(d?.position).toMatchObject({ active: false, institutionLabel: "Conexão removida" });
+	});
+
+	it("evolução expõe retratos carregados e posições faltando", async () => {
+		const { stores, cdb, acao } = await seed();
+		await stores.investments.upsertSnapshot(acao.id, { day: "2026-11-03", balanceCents: 305000 });
+		await stores.investments.upsertSnapshot(cdb.id, { day: "2026-11-03", balanceCents: 1015000 });
+		await stores.investments.upsertSnapshot(cdb.id, { day: "2026-11-05", balanceCents: 1016000 });
+		const r = await investmentEvolutionSeries(stores, "1m", { today: TODAY });
+		expect(investmentEvolutionResponse.parse(r)).toEqual(r);
+		expect(r.points[1]).toMatchObject({
+			balanceCents: 1321000,
+			positions: 1,
+			carriedPositions: 1,
+			missingPositions: 0,
+		});
+	});
+});

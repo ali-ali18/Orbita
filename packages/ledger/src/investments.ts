@@ -44,6 +44,8 @@ import type {
 
 /** Meses de aportes/rendimento que o resumo devolve. */
 export const INVESTMENT_MONTHLY_MONTHS = 6;
+/** Leituras de movimentações depois do fechamento para confiar que estão completas (igual ao sync). */
+const INVESTMENT_CLOSED_READS_ENOUGH = 2;
 
 /** Nome que o app dá a conexão sem nome (mesma regra de `connectionName` no app). */
 export const UNNAMED_INSTITUTION = "Banco novo";
@@ -99,7 +101,12 @@ function toPositionInput(r: InvestmentRecord, labels: ReadonlyMap<string, string
 		currency: r.currency,
 		balanceCents: r.balanceCents,
 		investedCents: r.investedCents,
-		archived: r.archivedAt !== null,
+		// Conexão removida: a posição não é mais atualizada por ninguém, então não vale como ativa (o detalhe ainda abre).
+		archived: r.archivedAt !== null || (r.connectionId !== null && !labels.has(r.connectionId)),
+		purchaseDate: r.purchaseDate,
+		issueDate: r.issueDate,
+		// Encerrada com as movimentações relidas o bastante depois do fechamento: o resgate final não deve faltar.
+		movementsComplete: r.archivedAt !== null && r.movementsClosedReads >= INVESTMENT_CLOSED_READS_ENOUGH,
 		institutionKey: key,
 		institutionLabel:
 			r.connectionId === null ? UNNAMED_INSTITUTION : (labels.get(r.connectionId) ?? REMOVED_INSTITUTION),

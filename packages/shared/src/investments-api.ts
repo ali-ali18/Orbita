@@ -43,6 +43,10 @@ const bps = z.number().int();
  * - `basis: "movements"`: saldo − (compras − vendas) das movimentações. ESTIMADO (`estimated: true`): o histórico pode
  *   estar incompleto. A tela deve avisar ("estimado").
  * - `basis: "unavailable"`: `cents` é `null` e `reason` diz por quê.
+ * - Resgate parcial: `basis: "invested"` com `estimated: true`, e `reason` ("houve resgate parcial; valor aproximado")
+ *   vem PREENCHIDO junto com `cents`: mostre-o como nota.
+ * - Posição encerrada (`active: false`): nunca "−aplicado". `cents` é o ganho realizado (`basis: "movements"`,
+ *   `estimated: true`) quando as movimentações estão completas, senão `null` com motivo.
  */
 export const investmentYieldDto = z.object({
 	cents: cents.nullable(),
@@ -220,6 +224,8 @@ export type InvestmentSnapshotDto = z.infer<typeof investmentSnapshotDto>;
 /**
  * `GET /v1/investments/:id`: a posição (ativa ou não), as movimentações da mais recente para a mais antiga e os
  * retratos diários dela (do mais antigo ao mais novo; vazio até o primeiro sync que gravou saldo). 404 se não existe.
+ * Posição de uma conexão REMOVIDA também abre (200): `active: false` e `institutionLabel: "Conexão removida"`; ela não
+ * entra no resumo nem na evolução.
  */
 export const investmentDetailResponse = z.object({
 	position: investmentPositionDto,
@@ -239,8 +245,15 @@ export const investmentEvolutionPointDto = z.object({
 	investedCents: cents,
 	investedEstimated: z.boolean(),
 	investedComplete: z.boolean(),
-	/** Quantos retratos compõem o dia (queda brusca com menos posições = dia incompleto, não resgate). */
+	/** Quantos retratos DO DIA compõem o ponto. */
 	positions: z.number().int(),
+	/** Posições que não sincronizaram neste dia e entraram pelo último retrato (até 5 dias antes). */
+	carriedPositions: z.number().int(),
+	/**
+	 * Posições conhecidas cujo último retrato é velho demais: ficaram FORA da soma. `> 0` = o ponto subestima o
+	 * patrimônio (dia incompleto, não resgate): a tela deve marcá-lo ou não ligar a linha até ele.
+	 */
+	missingPositions: z.number().int(),
 });
 export type InvestmentEvolutionPointDto = z.infer<typeof investmentEvolutionPointDto>;
 
