@@ -1,4 +1,4 @@
-import { chart, colors, radius, spacing } from "@orbita/tokens";
+import { chart, radius, spacing } from "@orbita/tokens";
 import { useEffect, useRef } from "react";
 import { Pressable, ScrollView, type ScrollViewInstance, View } from "react-native";
 import { money, monthName } from "../../lib/format.ts";

@@ -13,34 +13,34 @@ Como o Órbita se parece e como manter isso consistente sem engessar. Os valores
 
 `import { colors } from "@orbita/tokens"`
 
-| Token           | Valor     | Use para                                                                             | Não use para                         |
-| --------------- | --------- | ------------------------------------------------------------------------------------ | ------------------------------------ |
-| `background`    | `#000000` | Fundo de tela                                                                        | Card                                 |
-| `surface`       | `#141414` | Card, barra de baixo, gaveta                                                         | Fundo de tela                        |
-| `surface2`      | `#1F1F1F` | Elemento dentro de card (ícone em círculo, botão secundário, chip)                   | Card                                 |
-| `surface3`      | `#2A2A2A` | Trilho de barra de progresso, avatar sem foto, chip selecionado secundário           | Texto                                |
-| `border`        | `#262626` | Divisória entre linhas, contorno de campo                                            | Destaque                             |
-| `text`          | `#FFFFFF` | Valores, títulos, texto principal                                                    | —                                    |
-| `textSecondary` | `#8F8F8F` | Rótulos, legendas, datas                                                             | Valor de dinheiro                    |
-| `textTertiary`  | `#5A5A5A` | Placeholder, chevron, desativado                                                     | Texto que precisa ser lido           |
-| `positive`      | `#34D17A` | **Valor de dinheiro que entra**: receita, estorno e pagamento de fatura; selo "Paga" | Texto corrido, ícone, fundo, gráfico |
-| `danger`        | `#FF6B6B` | Ação destrutiva no menu do widget ("Remover"), sempre com rótulo e ícone             | Valor de dinheiro, fundo             |
-| `accent` (tema) | `#FFFFFF` no tema Atual | Só **ação e seleção**: botão principal, botão +, chip/aba ativos, switch ligado, ponto de "não lido", barra selecionada de série única | Fundo grande, texto, valor de dinheiro, cor de categoria ou série |
-| `onAccent` (tema) | `#000000` no tema Atual | Texto e ícone sobre `accent` | — |
+| Token             | Valor                   | Use para                                                                                                                               | Não use para                                                      |
+| ----------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `background`      | `#000000`               | Fundo de tela                                                                                                                          | Card                                                              |
+| `surface`         | `#141414`               | Card, barra de baixo, gaveta                                                                                                           | Fundo de tela                                                     |
+| `surface2`        | `#1F1F1F`               | Elemento dentro de card (ícone em círculo, botão secundário, chip)                                                                     | Card                                                              |
+| `surface3`        | `#2A2A2A`               | Trilho de barra de progresso, avatar sem foto, chip selecionado secundário                                                             | Texto                                                             |
+| `border`          | `#262626`               | Divisória entre linhas, contorno de campo                                                                                              | Destaque                                                          |
+| `text`            | `#FFFFFF`               | Valores, títulos, texto principal                                                                                                      | —                                                                 |
+| `textSecondary`   | `#8F8F8F`               | Rótulos, legendas, datas                                                                                                               | Valor de dinheiro                                                 |
+| `textTertiary`    | `#5A5A5A`               | Placeholder, chevron, desativado                                                                                                       | Texto que precisa ser lido                                        |
+| `positive`        | `#34D17A`               | **Valor de dinheiro que entra**: receita, estorno e pagamento de fatura; selo "Paga"                                                   | Texto corrido, ícone, fundo, gráfico                              |
+| `danger`          | `#FF6B6B`               | Ação destrutiva no menu do widget ("Remover"), sempre com rótulo e ícone                                                               | Valor de dinheiro, fundo                                          |
+| `accent` (tema)   | `#FFFFFF` no tema Atual | Só **ação e seleção**: botão principal, botão +, chip/aba ativos, switch ligado, ponto de "não lido", barra selecionada de série única | Fundo grande, texto, valor de dinheiro, cor de categoria ou série |
+| `onAccent` (tema) | `#000000` no tema Atual | Texto e ícone sobre `accent`                                                                                                           | —                                                                 |
 
 ### Cor primária e temas
 
 `accent`/`onAccent` **não são tokens de `colors`**: vêm do tema que o dono escolhe em Configurações → Aparência → Tema (`accentThemes` em `@orbita/tokens`). O app lê só por `useAccent()` (ou `useTheme()`), de `lib/theme.tsx`; usar `colors.accent` ou `accentThemes` fora do provider quebra o teste de guarda (`lib/theme-model.test.ts`). A escolha vale na hora e fica **neste aparelho** (`orbita.accentTheme`, como "Esconder valores ao abrir"); a splash espera a leitura, então não pisca de branco para a cor.
 
-| Chave     | Nome       | `accent`  | `onAccent` | Observação                                                        |
-| --------- | ---------- | --------- | ---------- | ----------------------------------------------------------------- |
-| `atual`   | Atual      | `#FFFFFF` | `#000000`  | Padrão                                                            |
-| `volt`    | Verde volt | `#C2FF19` | `#000000`  |                                                                   |
-| `amarelo` | Amarelo    | `#FFC700` | `#000000`  |                                                                   |
-| `azul`    | Azul       | `#2F5BFF` | `#FFFFFF`  | 3,6:1 sobre `surface`: só elemento gráfico, nunca texto pequeno   |
-| `fucsia`  | Fúcsia     | `#FF2EE6` | `#000000`  |                                                                   |
-| `laranja` | Laranja    | `#FF7A1A` | `#000000`  | Branco sobre ele falha AA                                         |
-| `violeta` | Violeta    | `#7447FF` | `#FFFFFF`  | 3,6:1 sobre `surface`: só elemento gráfico, nunca texto pequeno   |
+| Chave     | Nome       | `accent`  | `onAccent` | Observação                                                      |
+| --------- | ---------- | --------- | ---------- | --------------------------------------------------------------- |
+| `atual`   | Atual      | `#FFFFFF` | `#000000`  | Padrão                                                          |
+| `volt`    | Verde volt | `#C2FF19` | `#000000`  |                                                                 |
+| `amarelo` | Amarelo    | `#FFC700` | `#000000`  |                                                                 |
+| `azul`    | Azul       | `#2F5BFF` | `#FFFFFF`  | 3,6:1 sobre `surface`: só elemento gráfico, nunca texto pequeno |
+| `fucsia`  | Fúcsia     | `#FF2EE6` | `#000000`  |                                                                 |
+| `laranja` | Laranja    | `#FF7A1A` | `#000000`  | Branco sobre ele falha AA                                       |
+| `violeta` | Violeta    | `#7447FF` | `#FFFFFF`  | 3,6:1 sobre `surface`: só elemento gráfico, nunca texto pequeno |
 
 Teste em `@orbita/tokens`: `onAccent` ≥ 4,5:1 sobre o `accent`; `accent` ≥ 3:1 sobre `background`, `surface` e `surface2`.
 
