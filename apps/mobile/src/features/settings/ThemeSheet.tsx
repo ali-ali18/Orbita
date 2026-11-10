@@ -1,8 +1,7 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import { View } from "react-native";
 import { useTheme } from "../../lib/theme.tsx";
-import { Button, Chip, Sheet, SheetGroup, SheetRow, Text } from "../../ui/index.ts";
-import { StaticSwitch } from "./SettingsRows.tsx";
+import { Sheet, SheetGroup, SheetRow } from "../../ui/index.ts";
 import { themeOptions } from "./theme-options.ts";
 
 /** Bolinha com a cor primária da opção; borda fina para o branco e o preto não sumirem no fundo. */
@@ -22,10 +21,7 @@ function Swatch({ color }: { color: string }) {
 	);
 }
 
-/**
- * Gaveta "Tema": a cor primária do app (botão principal, chip ativo, interruptor). Escolher troca na hora e fica
- * guardado neste aparelho. A prévia embaixo usa os mesmos componentes do app, então muda junto.
- */
+/** Gaveta "Tema": a cor primária do app. Escolher troca na hora e fica guardado neste aparelho. */
 export function ThemeSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
 	const { key, setTheme } = useTheme();
 	return (
@@ -43,27 +39,6 @@ export function ThemeSheet({ visible, onClose }: { visible: boolean; onClose: ()
 						/>
 					))}
 				</SheetGroup>
-				<Text variant="caption" tone="secondary" style={{ marginBottom: spacing.sm }}>
-					Prévia
-				</Text>
-				<View
-					accessibilityElementsHidden
-					importantForAccessibility="no-hide-descendants"
-					style={{
-						flexDirection: "row",
-						alignItems: "center",
-						gap: spacing.md,
-						backgroundColor: colors.surface2,
-						borderRadius: radius.group,
-						padding: spacing.lg,
-					}}
-				>
-					<View style={{ flex: 1 }}>
-						<Button compact label="Botão" onPress={() => {}} />
-					</View>
-					<Chip label="Ativo" active />
-					<StaticSwitch on />
-				</View>
 			</View>
 		</Sheet>
 	);
