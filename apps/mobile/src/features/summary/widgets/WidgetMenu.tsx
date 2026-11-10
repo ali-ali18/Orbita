@@ -11,7 +11,7 @@ const MENU_WIDTH = 264;
 const DISABLED_OPACITY = 0.35;
 
 /** Escurece tudo menos o retângulo do widget: quatro faixas em volta dele, sem receber toque. */
-function Dim({ hole }: { hole: Rect }) {
+export function Dim({ hole }: { hole: Rect }) {
 	const top = Math.max(0, Math.round(hole.y));
 	const bottom = Math.round(hole.y + hole.height);
 	const left = Math.max(0, Math.round(hole.x));

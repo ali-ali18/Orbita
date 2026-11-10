@@ -41,6 +41,14 @@ export interface PlacementInput {
 	margin: number;
 }
 
+/**
+ * Onde começa a parte da janela que o widget e o menu podem usar: a barra de status (ou a área segura, se maior) mais o
+ * que ficar fixo acima da rolagem (o header e as abas do Início). Sem isso o widget revelado ficaria sob o header.
+ */
+export function viewportTop(safeTop: number, statusBar: number, fixedAbove = 0): number {
+	return Math.max(safeTop, statusBar) + fixedAbove;
+}
+
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, Math.max(min, max)));
 
 /**
