@@ -53,9 +53,10 @@ describe("condições do investimento (PUT /v1/investments/:id/terms)", () => {
 		const pos = res.body.position;
 		expect(pos.terms).toEqual({
 			rate: { kind: "CDI_PERCENT", bps: 10200, source: "USER" },
-			// O banco vale primeiro: o valor aplicado continua o do banco, mesmo o dono tendo mandado outro.
-			invested: { cents: 1000000, source: "BANK" },
+			// O dono vence; o valor do banco vem ao lado em `bank`.
+			invested: { cents: 1000000, source: "USER" },
 			startDate: { date: "2026-11-02", source: "USER" },
+			bank: { rate: null, invested: 1000000, startDate: null },
 		});
 		expect(pos.missing).toEqual([]);
 		expect(pos.expected.grossCents).toBeGreaterThan(1000000);
@@ -97,6 +98,32 @@ describe("condições do investimento (PUT /v1/investments/:id/terms)", () => {
 		expect(res.status).toBe(409);
 		expect(res.body.error.code).toBe("investimento_encerrado");
 		expect(await stores.investmentTerms.get(closed.id)).toBeNull();
+	});
+
+	it("posição que não é renda fixa em reais: 409 com mensagem em pt-BR e nada gravado", async () => {
+		const { api, stores } = await seeded();
+		const mk = async (externalId: string, extra: Record<string, unknown>) =>
+			(
+				await stores.investments.upsertPosition({
+					source: "pluggy",
+					externalId,
+					status: "ACTIVE",
+					balanceCents: 100000,
+					...extra,
+				})
+			).record;
+		const acao = await mk("acao", { type: "EQUITY", subtype: "STOCK", name: "EXEM3", currency: "BRL" });
+		const fundo = await mk("fundo", { type: "MUTUAL_FUND", name: "Fundo X", currency: "BRL" });
+		const dolar = await mk("usd", { type: "FIXED_INCOME", subtype: "CDB", name: "CDB USD", currency: "USD" });
+		for (const p of [acao, fundo, dolar]) {
+			const res = await api.put(path(p.id), valid);
+			expect(res.status).toBe(409);
+			expect(res.body.error).toEqual({
+				code: "investimento_sem_taxa",
+				message: "Só investimentos de renda fixa em reais aceitam taxa, valor aplicado e data da aplicação.",
+			});
+			expect(await stores.investmentTerms.get(p.id)).toBeNull();
+		}
 	});
 
 	it.each([

@@ -276,7 +276,7 @@ export async function investmentsOverview(
 		activePositions: breakdown.activePositions,
 		withoutBalance: breakdown.withoutBalance,
 		foreignCurrency: breakdown.foreignCurrency,
-		missingTermsPositions: dtos.filter((d) => d.missing.length > 0).length,
+		missingTermsPositions: dtos.filter((d) => (d.missing?.length ?? 0) > 0).length,
 		closedPositions: records.length - active.length,
 		yield: {
 			total: {

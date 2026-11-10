@@ -1,4 +1,4 @@
-import { toLocalDate } from "@orbita/core";
+import { investmentClassOf, isBrlInvestment, toLocalDate } from "@orbita/core";
 import { investmentDetail, investmentEvolutionSeries, investmentsOverview } from "@orbita/ledger";
 import { idParam, investmentEvolutionQuery, investmentTermsBody } from "@orbita/shared";
 import { Hono } from "hono";
@@ -37,6 +37,15 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 						apiError(
 							"investimento_encerrado",
 							"Este investimento foi encerrado: não dá para informar a taxa.",
+						),
+						409,
+					);
+				}
+				if (investmentClassOf(record.type, record.subtype) !== "fixed_income" || !isBrlInvestment(record)) {
+					return c.json(
+						apiError(
+							"investimento_sem_taxa",
+							"Só investimentos de renda fixa em reais aceitam taxa, valor aplicado e data da aplicação.",
 						),
 						409,
 					);

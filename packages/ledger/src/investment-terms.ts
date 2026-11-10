@@ -25,19 +25,26 @@ import type {
  * cálculo. Ausente é `null`, nunca zero.
  */
 
-type TermsFields = Pick<
-	InvestmentPositionDto,
-	| "termsApplicable"
-	| "terms"
-	| "missing"
-	| "nameHint"
-	| "expected"
-	| "expectedUnavailable"
-	| "gapCents"
-	| "gapNetCents"
+type TermsFields = Required<
+	Pick<
+		InvestmentPositionDto,
+		| "termsApplicable"
+		| "terms"
+		| "missing"
+		| "nameHint"
+		| "expected"
+		| "expectedUnavailable"
+		| "gapCents"
+		| "gapNetCents"
+	>
 >;
 
-const EMPTY_TERMS: InvestmentTermsDto = { rate: null, invested: null, startDate: null };
+const EMPTY_TERMS: Required<InvestmentTermsDto> = {
+	rate: null,
+	invested: null,
+	startDate: null,
+	bank: { rate: null, invested: null, startDate: null },
+};
 
 export const notApplicableTerms = (): TermsFields => ({
 	termsApplicable: false,
@@ -62,52 +69,62 @@ function decimalToBps(text: string | null): number | null {
 
 /**
  * Taxa que o banco informou, só quando o formato é inequívoco: `rateType` com CDI e `rate` entre 50 e 300 (110 = 110%
- * do CDI; um número pequeno seria "CDI + spread", que não é % do CDI); IPCA com `fixedAnnualRate`; prefixado (sem
- * indexador) com `fixedAnnualRate`. Fora disso, ignora (o dono preenche).
+ * do CDI), SEM taxa fixa junto (CDI + spread não é % do CDI); IPCA com `fixedAnnualRate`; prefixado só com `rateType`
+ * explícito começando por "PRE" e `fixedAnnualRate`. `rateType` vazio ou outro indexador: ignora (o dono preenche).
  */
 export function bankRateOf(r: Pick<InvestmentRecord, "rate" | "rateType" | "fixedAnnualRate">) {
 	const type = (r.rateType ?? "").trim().toUpperCase();
 	const rate = decimalToBps(r.rate);
 	const fixed = decimalToBps(r.fixedAnnualRate);
 	let found: { kind: InvestmentRateKind; bps: number } | null = null;
-	if (type.includes("CDI") && rate !== null && rate >= 5_000 && rate <= 30_000) {
-		found = { kind: "CDI_PERCENT", bps: rate };
-	} else if (type.includes("IPCA") && fixed !== null && fixed > 0) {
-		found = { kind: "IPCA_PLUS", bps: fixed };
-	} else if ((type === "" || type.startsWith("PRE")) && fixed !== null && fixed > 0) {
+	if (type.includes("CDI")) {
+		if (rate !== null && rate >= 5_000 && rate <= 30_000 && !(fixed !== null && fixed > 0)) {
+			found = { kind: "CDI_PERCENT", bps: rate };
+		}
+	} else if (type.includes("IPCA")) {
+		if (fixed !== null && fixed > 0) found = { kind: "IPCA_PLUS", bps: fixed };
+	} else if (type.startsWith("PRE") && fixed !== null && fixed > 0) {
 		found = { kind: "PREFIXED", bps: fixed };
 	}
 	return found !== null && rateProblem(found.kind, found.bps) === null ? found : null;
 }
 
-/** As condições efetivas: banco primeiro, dono onde o banco não disse. */
+/**
+ * As condições efetivas: o que o DONO informou VENCE (`source: "USER"`); onde ele não disse, vale o do banco
+ * (`"BANK"`). O valor do banco vem sempre em `bank`, para a tela mostrar "o banco informa X". Data de início do banco
+ * é só `purchaseDate` (`issueDate` é a emissão do papel, não a aplicação).
+ */
 export function resolveTerms(
 	record: InvestmentRecord,
 	user: InvestmentTermsRecord | null,
 	today: LocalDate,
-): InvestmentTermsDto {
-	const bank = bankRateOf(record);
-	const rate = bank
-		? { kind: bank.kind, bps: bank.bps, source: "BANK" as const }
-		: user?.rateKind != null && user.rateBps !== null
-			? { kind: user.rateKind, bps: user.rateBps, source: "USER" as const }
-			: null;
+): Required<InvestmentTermsDto> {
+	const bankRate = bankRateOf(record);
 	const bankInvested =
 		record.investedCents !== null && record.investedCents > 0 ? record.investedCents : null;
-	const invested =
-		bankInvested !== null
-			? { cents: bankInvested, source: "BANK" as const }
-			: user?.investedCents != null
+	const bankStart = record.purchaseDate !== null && record.purchaseDate <= today ? record.purchaseDate : null;
+	const userRate =
+		user?.rateKind != null && user.rateBps !== null ? { kind: user.rateKind, bps: user.rateBps } : null;
+	return {
+		rate: userRate
+			? { ...userRate, source: "USER" as const }
+			: bankRate
+				? { ...bankRate, source: "BANK" as const }
+				: null,
+		invested:
+			user?.investedCents != null
 				? { cents: user.investedCents, source: "USER" as const }
-				: null;
-	const bankStart = [record.purchaseDate, record.issueDate].find((d) => d !== null && d <= today) ?? null;
-	const startDate =
-		bankStart !== null
-			? { date: bankStart, source: "BANK" as const }
-			: user?.startDate != null
+				: bankInvested !== null
+					? { cents: bankInvested, source: "BANK" as const }
+					: null,
+		startDate:
+			user?.startDate != null
 				? { date: user.startDate, source: "USER" as const }
-				: null;
-	return { rate, invested, startDate };
+				: bankStart !== null
+					? { date: bankStart, source: "BANK" as const }
+					: null,
+		bank: { rate: bankRate, invested: bankInvested, startDate: bankStart },
+	};
 }
 
 export function buildTermsFields(args: {
@@ -160,6 +177,7 @@ export function buildTermsFields(args: {
 			irCents: result.irCents,
 			asOf: result.asOf,
 			businessDays: result.businessDays,
+			missingWeekdays: result.missingWeekdays,
 			reason: result.netReason,
 			warnings: result.warnings,
 		},

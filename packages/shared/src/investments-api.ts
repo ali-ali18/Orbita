@@ -60,14 +60,25 @@ export const investmentYieldDto = z.object({
 export type InvestmentYieldDto = z.infer<typeof investmentYieldDto>;
 
 /**
- * Condições para calcular o rendimento ESPERADO. O que o banco informa vale sempre (`source: "BANK"`); o que o dono
- * informou só entra onde o banco não disse (`source: "USER"`, a tela mostra "informado por você"). Campo `null` = não se
+ * Condições para calcular o rendimento ESPERADO. O que o DONO informou vence (`source: "USER"`, a tela mostra "informado
+ * por você"); onde ele não disse vale o do banco (`source: "BANK"`). O valor do banco vem em `bank`. Campo `null` = não se
  * sabe (nunca zero). Taxa em CENTÉSIMOS de ponto percentual (102% do CDI = 10200, 13,5% a.a. = 1350, IPCA + 6,2% = 620).
  */
 export const investmentTermsDto = z.object({
 	rate: z.object({ kind: investmentRateKindSchema, bps: bps, source: z.enum(["BANK", "USER"]) }).nullable(),
 	invested: z.object({ cents: cents, source: z.enum(["BANK", "USER"]) }).nullable(),
 	startDate: z.object({ date: localDateSchema, source: z.enum(["BANK", "USER"]) }).nullable(),
+	/**
+	 * O que o BANCO informa, ao lado do valor efetivo (que é o do dono quando ele informou): a tela mostra "o banco informa
+	 * X". Ausente (servidor antigo) = o app trata como "o banco não informou nada".
+	 */
+	bank: z
+		.object({
+			rate: z.object({ kind: investmentRateKindSchema, bps: bps }).nullable(),
+			invested: cents.nullable(),
+			startDate: localDateSchema.nullable(),
+		})
+		.optional(),
 });
 export type InvestmentTermsDto = z.infer<typeof investmentTermsDto>;
 
@@ -98,6 +109,8 @@ export const investmentExpectedDto = z.object({
 	irCents: cents.nullable(),
 	asOf: localDateSchema,
 	businessDays: z.number().int(),
+	/** Dias de semana sem CDI entre dois dias publicados (feriado ou falha): o rendimento deles não entrou. */
+	missingWeekdays: z.number().int().optional(),
 	reason: z.string().nullable(),
 	warnings: z.array(z.string()),
 });
@@ -151,22 +164,23 @@ export const investmentPositionDto = z.object({
 	 * Só renda fixa ATIVA em reais tem taxa e rendimento esperado (`termsApplicable`). Nas outras, `terms` é tudo `null`,
 	 * `missing` vazio e o resto `null`.
 	 */
-	termsApplicable: z.boolean(),
-	terms: investmentTermsDto,
+	termsApplicable: z.boolean().optional(),
+	terms: investmentTermsDto.optional(),
 	/** O que falta para calcular o esperado (vazio = dá para calcular, salvo `expectedUnavailable`). */
-	missing: z.array(investmentMissingSchema),
+	missing: z.array(investmentMissingSchema).optional(),
 	/** Sugestão pelo nome, só quando falta a taxa e o nome traz uma inequívoca. */
-	nameHint: investmentNameHintDto.nullable(),
+	nameHint: investmentNameHintDto.nullable().optional(),
 	/** `null` quando falta dado (veja `missing`) ou o cálculo não se aplica (veja `expectedUnavailable`). */
-	expected: investmentExpectedDto.nullable(),
+	expected: investmentExpectedDto.nullable().optional(),
 	/** Por que `expected` é `null` mesmo sem `missing`: `ipca_unsupported` ou `cdi_unavailable`. */
 	expectedUnavailable: z
 		.object({ code: z.enum(["ipca_unsupported", "cdi_unavailable"]), message: z.string() })
-		.nullable(),
+		.nullable()
+		.optional(),
 	/** Saldo do banco − esperado BRUTO. `null` sem saldo ou sem esperado. Positivo = o banco informa mais que o esperado. */
-	gapCents: cents.nullable(),
+	gapCents: cents.nullable().optional(),
 	/** Saldo do banco − (aplicado + rendimento LÍQUIDO estimado). `null` se não há líquido. */
-	gapNetCents: cents.nullable(),
+	gapNetCents: cents.nullable().optional(),
 });
 export type InvestmentPositionDto = z.infer<typeof investmentPositionDto>;
 
@@ -243,7 +257,7 @@ export const investmentsOverviewResponse = z.object({
 	withoutBalance: z.number().int(),
 	foreignCurrency: z.number().int(),
 	/** Posições de renda fixa ativas a que falta taxa, valor aplicado ou data para calcular o esperado. */
-	missingTermsPositions: z.number().int(),
+	missingTermsPositions: z.number().int().optional(),
 	/** Resgatadas por inteiro ou sumidas da lista (não aparecem em `positions`). */
 	closedPositions: z.number().int(),
 	yield: z.object({

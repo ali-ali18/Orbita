@@ -74,6 +74,7 @@ describe("condições e rendimento esperado", () => {
 			rate: { kind: "CDI_PERCENT", bps: 10_000, source: "USER" },
 			invested: { cents: 1_000_000, source: "USER" },
 			startDate: { date: "2026-11-02", source: "USER" },
+			bank: { rate: null, invested: null, startDate: null },
 		});
 		expect(pos?.missing).toEqual([]);
 		// (1,0005)^10 sobre 10.000,00 = 10.050,11 (referência calculada à parte).
@@ -91,7 +92,7 @@ describe("condições e rendimento esperado", () => {
 		expect(pos?.gapNetCents).toBe(1_007_000 - (1_000_000 + 5_011 - 2_806 - 496));
 	});
 
-	it("o banco vale primeiro: o que o dono informou só preenche o que falta", async () => {
+	it("o dono vence o banco (source USER) e o valor do banco vem ao lado em `bank`", async () => {
 		const stores = fresh();
 		const p = await position(stores, {
 			investedCents: 2_000_000,
@@ -105,10 +106,35 @@ describe("condições e rendimento esperado", () => {
 			rateKind: "PREFIXED",
 			rateBps: 1_300,
 			investedCents: 5_000_000,
-			startDate: "2026-01-02",
+			startDate: "2026-10-01",
 		});
 		const pos = (await investmentDetail(stores, p.id, clock))?.position;
 		expect(pos?.terms).toEqual({
+			rate: { kind: "PREFIXED", bps: 1_300, source: "USER" },
+			invested: { cents: 5_000_000, source: "USER" },
+			startDate: { date: "2026-10-01", source: "USER" },
+			bank: {
+				rate: { kind: "CDI_PERCENT", bps: 11_000 },
+				invested: 2_000_000,
+				startDate: "2026-11-02",
+			},
+		});
+		// O cálculo usa o que o dono informou (R$ 50.000,00), não o do banco.
+		expect(pos?.expected?.grossCents).toBeGreaterThan(5_000_000);
+	});
+
+	it("sem o que o dono informou, vale o do banco (source BANK) e `bank` repete o valor", async () => {
+		const stores = fresh();
+		const p = await position(stores, {
+			investedCents: 2_000_000,
+			purchaseDate: "2026-11-02",
+			rate: "110",
+			rateType: "CDI",
+			balanceCents: 2_011_000,
+		});
+		await weekdaysCdi(stores, "2026-10-01", "2026-11-13", 50_000);
+		const pos = (await investmentDetail(stores, p.id, clock))?.position;
+		expect(pos?.terms).toMatchObject({
 			rate: { kind: "CDI_PERCENT", bps: 11_000, source: "BANK" },
 			invested: { cents: 2_000_000, source: "BANK" },
 			startDate: { date: "2026-11-02", source: "BANK" },
@@ -116,6 +142,21 @@ describe("condições e rendimento esperado", () => {
 		// 110% do CDI, 10 dias a 0,05%: referência calculada à parte.
 		expect(pos?.expected?.grossCents).toBe(2_011_027);
 		expect(pos?.gapCents).toBe(2_011_000 - 2_011_027);
+	});
+
+	it("issueDate (emissão do papel) NÃO é data de início: só purchaseDate vale como BANK", async () => {
+		const stores = fresh();
+		const p = await position(stores, {
+			investedCents: 1_000_000,
+			issueDate: "2026-01-10",
+			rate: "100",
+			rateType: "CDI",
+		});
+		const pos = (await investmentDetail(stores, p.id, clock))?.position;
+		expect(pos?.terms?.startDate).toBeNull();
+		expect(pos?.terms?.bank?.startDate).toBeNull();
+		expect(pos?.missing).toEqual(["startDate"]);
+		expect(pos?.expected).toBeNull();
 	});
 
 	it("sugestão pelo nome aparece mas NUNCA entra no cálculo", async () => {
@@ -139,7 +180,7 @@ describe("condições e rendimento esperado", () => {
 		await stores.investmentTerms.put(p.id, { rateKind: "CDI_PERCENT", rateBps: 10_200 });
 		const after = (await investmentDetail(stores, p.id, clock))?.position;
 		expect(after?.nameHint).toBeNull();
-		expect(after?.terms.rate).toEqual({ kind: "CDI_PERCENT", bps: 10_200, source: "USER" });
+		expect(after?.terms?.rate).toEqual({ kind: "CDI_PERCENT", bps: 10_200, source: "USER" });
 		expect(after?.expected).not.toBeNull();
 	});
 
@@ -155,7 +196,7 @@ describe("condições e rendimento esperado", () => {
 		let pos = (await investmentDetail(stores, p.id, clock))?.position;
 		expect(pos?.expected).toBeNull();
 		expect(pos?.expectedUnavailable).toMatchObject({ code: "ipca_unsupported" });
-		expect(pos?.terms.rate).toMatchObject({ kind: "IPCA_PLUS", bps: 620 });
+		expect(pos?.terms?.rate).toMatchObject({ kind: "IPCA_PLUS", bps: 620 });
 		await stores.investmentTerms.put(p.id, {
 			rateKind: "CDI_PERCENT",
 			rateBps: 10_000,
@@ -215,9 +256,18 @@ describe("bankRateOf: só o formato inequívoco", () => {
 			{ kind: "IPCA_PLUS", bps: 620 },
 		],
 		[
-			{ rate: null, rateType: null, fixedAnnualRate: "13.5" },
+			{ rate: null, rateType: "PREFIXADO", fixedAnnualRate: "13.5" },
 			{ kind: "PREFIXED", bps: 1_350 },
 		],
+		[
+			{ rate: null, rateType: "PRE", fixedAnnualRate: "13.5" },
+			{ kind: "PREFIXED", bps: 1_350 },
+		],
+		// CDI junto com taxa fixa é CDI + spread: descarta; sem indexador explícito não adivinha prefixado.
+		[{ rate: "100", rateType: "CDI", fixedAnnualRate: "2" }, null],
+		[{ rate: null, rateType: "CDI", fixedAnnualRate: "2" }, null],
+		[{ rate: null, rateType: null, fixedAnnualRate: "13.5" }, null],
+		[{ rate: null, rateType: "", fixedAnnualRate: "13.5" }, null],
 		// Não casa: spread sobre o CDI, taxa absurda, mais de 2 casas, indexador desconhecido.
 		[{ rate: "2", rateType: "CDI", fixedAnnualRate: null }, null],
 		[{ rate: "1100", rateType: "CDI", fixedAnnualRate: null }, null],
