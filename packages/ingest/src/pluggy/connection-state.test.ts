@@ -243,8 +243,14 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		const c = await t.stores.pluggyConnections.get(ITEM_ID);
 		expect(result.connections[0]?.retry).toBeUndefined();
 		expect(c?.lastStatus).toBe("ok");
-		expect(c?.lastError?.startsWith(PLUGGY_UNREAD_PRODUCTS_PREFIX)).toBe(true);
+		// O Órbita LÊ investimentos: nunca "produtos que ele ainda não lê" quando o que veio foram investimentos.
+		expect(c?.lastError?.startsWith(PLUGGY_UNREAD_PRODUCTS_PREFIX)).toBe(false);
+		expect(c?.lastError).toBe(
+			`${PLUGGY_ONLY_INVESTMENTS_PREFIX} Conta e cartão aparecem aqui se o banco enviar.`,
+		);
 		expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBe("unread_products");
+		// E os investimentos foram gravados mesmo sem nenhuma conta.
+		expect(await t.stores.investments.list({ connectionId: ITEM_ID })).toHaveLength(1);
 	});
 
 	it("sem conta e sem investimento continua 'ainda não enviou contas'; com conta, os investimentos não servem de pista do nome", async () => {

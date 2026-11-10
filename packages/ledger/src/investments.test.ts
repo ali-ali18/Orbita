@@ -5,7 +5,12 @@ import {
 	investmentsOverviewResponse,
 } from "@orbita/shared";
 import { describe, expect, it } from "vitest";
-import { investmentDetail, investmentEvolutionSeries, investmentsOverview } from "./investments.ts";
+import {
+	connectionInvestmentCounts,
+	investmentDetail,
+	investmentEvolutionSeries,
+	investmentsOverview,
+} from "./investments.ts";
 
 // Tudo fictício. "Hoje" é 15/11/2026.
 const TODAY = "2026-11-15";
@@ -292,6 +297,81 @@ describe("revisão: encerrada e conexão removida", () => {
 			positions: 1,
 			carriedPositions: 1,
 			missingPositions: 0,
+		});
+	});
+});
+
+describe("posições por conexão", () => {
+	it("conta ativas e encerradas de cada conexão; conexão sem posição não aparece", async () => {
+		const { stores } = await seed();
+		const counts = await connectionInvestmentCounts(stores);
+		expect(counts.get(ITEM_A)).toEqual({ active: 1, noBalance: 0, closed: 1, foreignCurrency: 0 });
+		expect(counts.get(ITEM_B)).toEqual({ active: 1, noBalance: 0, closed: 0, foreignCurrency: 0 });
+		expect(counts.size).toBe(2);
+	});
+
+	it('saldo zero ainda ativa no banco é "sem saldo" (não encerrada); saldo desconhecido conta como ativa; outra moeda à parte', async () => {
+		const stores = createMemoryStores({ now: () => NOW });
+		await stores.pluggyConnections.add({ id: ITEM_A, label: "Banco A" });
+		await stores.investments.upsertPosition({
+			source: "pluggy",
+			externalId: "zero",
+			connectionId: ITEM_A,
+			type: "FIXED_INCOME",
+			subtype: "CDB",
+			status: "ACTIVE",
+			balanceCents: 0,
+		});
+		await stores.investments.upsertPosition({
+			source: "pluggy",
+			externalId: "sem-saldo",
+			connectionId: ITEM_A,
+			type: "FIXED_INCOME",
+			subtype: "CDB",
+			status: "ACTIVE",
+			balanceCents: null,
+		});
+		await stores.investments.upsertPosition({
+			source: "pluggy",
+			externalId: "dolar",
+			connectionId: ITEM_A,
+			type: "FIXED_INCOME",
+			subtype: "CDB",
+			status: "ACTIVE",
+			currency: "USD",
+			balanceCents: 5000,
+		});
+		expect((await connectionInvestmentCounts(stores)).get(ITEM_A)).toEqual({
+			active: 1,
+			noBalance: 1,
+			closed: 0,
+			foreignCurrency: 1,
+		});
+	});
+});
+
+describe("conexão só com investimento encerrado", () => {
+	it("não entra no patrimônio nem nas instituições (certo: saldo zero), mas a conexão conta a posição encerrada", async () => {
+		const stores = createMemoryStores({ now: () => NOW });
+		await stores.pluggyConnections.add({ id: ITEM_A, label: "Banco A" });
+		await stores.investments.upsertPosition({
+			source: "pluggy",
+			externalId: "antigo",
+			connectionId: ITEM_A,
+			type: "FIXED_INCOME",
+			subtype: "CDB",
+			status: "TOTAL_WITHDRAWAL",
+			balanceCents: 0,
+		});
+		const r = await investmentsOverview(stores, { today: TODAY });
+		expect(r.totalCents).toBe(0);
+		expect(r.byInstitution).toEqual([]);
+		expect(r.closedPositions).toBe(1);
+		expect((await connectionInvestmentCounts(stores)).get(ITEM_A)).toEqual({
+			active: 0,
+			noBalance: 0,
+			closed: 1,
+			foreignCurrency: 0,
 		});
 	});
 });

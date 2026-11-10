@@ -18,6 +18,7 @@ import {
 	connectionName,
 	connectionStatusDetail,
 	connectionStatusLine,
+	connectionSummaryText,
 	disconnectedConnections,
 	formatAgo,
 	homeRefreshDecision,
@@ -57,6 +58,7 @@ const conn = (over: Partial<PluggyConnectionDto> = {}): PluggyConnectionDto => (
 	...over,
 });
 const ONE = { accounts: 1, cards: 0 };
+const ONE_EMPTY = { accounts: 0, cards: 0 };
 const status = (over: Partial<PluggyStatusResponse> = {}): PluggyStatusResponse => ({
 	keysConfigured: true,
 	sync: "idle",
@@ -151,8 +153,82 @@ describe("situação da conexão", () => {
 			lastError: `${PLUGGY_ONLY_INVESTMENTS_PREFIX} O Órbita tenta de novo sozinho.`,
 		});
 		expect(connectionStatusLine(c, NOW)).toBe("Só produtos que o Órbita ainda não lê");
-		expect(connectionStatusDetail(c)).toContain("só investimentos por enquanto");
+		expect(connectionStatusDetail(c)).toContain("Só investimentos por enquanto");
 		expect(connectionStatusDetail(c)).toContain("tenta de novo sozinho");
+	});
+	const inv = (
+		o: Partial<{ active: number; noBalance: number; closed: number; foreignCurrency: number }>,
+	) => ({
+		accounts: 0,
+		cards: 0,
+		investments: { active: 0, noBalance: 0, closed: 0, foreignCurrency: 0, ...o },
+	});
+	const only = (summary: PluggyConnectionDto["summary"], lastError: string | null = null) =>
+		conn({
+			lastStatus: "ok",
+			lastSyncAt: "2026-11-07T12:59:59.000Z",
+			lastError:
+				lastError ?? `${PLUGGY_ONLY_INVESTMENTS_PREFIX} Conta e cartão aparecem aqui se o banco enviar.`,
+			summary,
+		});
+	it("só investimentos que o Órbita lê: contagem e hora na lista, uma frase curta no detalhe", () => {
+		const c = only(inv({ active: 1 }));
+		expect(connectionStatusLine(c, NOW)).toBe("Sincronizado há 2 h");
+		expect(connectionCaption(c, NOW)).toBe("1 investimento · Sincronizado há 2 h");
+		expect(connectionStatusDetail(c)).toBe("Só investimentos por enquanto.");
+		// Conexão nova (ainda tenta) e servidor antigo sem texto: o mesmo estado.
+		expect(
+			connectionStatusDetail(
+				only(inv({ active: 2 }), `${PLUGGY_ONLY_INVESTMENTS_PREFIX} O Órbita tenta de novo sozinho.`),
+			),
+		).toBe("Só investimentos por enquanto.");
+		expect(connectionStatusLine({ ...c, lastError: null }, NOW)).toBe("Sincronizado há 2 h");
+	});
+	it("sem saldo (ativo, saldo zero) não é encerrado: serve para o investimento de hoje que o banco ainda não atualizou", () => {
+		const c = only(inv({ noBalance: 1 }));
+		expect(connectionCaption(c, NOW)).toBe("1 investimento sem saldo · Sincronizado há 2 h");
+		expect(connectionStatusDetail(c)).toBe("Sem saldo no momento. O banco atualiza 1 vez por dia.");
+		expect(`${connectionCaption(c, NOW)} ${connectionStatusDetail(c)}`).not.toMatch(/encerrad/);
+	});
+	it("só investimento encerrado diz que está encerrado", () => {
+		const c = only(inv({ closed: 1 }));
+		expect(connectionCaption(c, NOW)).toBe("1 investimento encerrado · Sincronizado há 2 h");
+		expect(connectionStatusDetail(c)).toBe("Investimento encerrado.");
+		expect(connectionCaption(only(inv({ closed: 2 })), NOW)).toBe(
+			"2 investimentos encerrados · Sincronizado há 2 h",
+		);
+		expect(connectionStatusDetail(only(inv({ closed: 2 })))).toBe("Investimentos encerrados.");
+	});
+	it("só outra moeda fica à parte do patrimônio", () => {
+		const c = only(inv({ foreignCurrency: 1 }));
+		expect(connectionCaption(c, NOW)).toBe("1 investimento em outra moeda · Sincronizado há 2 h");
+		expect(connectionStatusDetail(c)).toBe("Em outra moeda, fora do patrimônio.");
+	});
+	it("banco que mandou contas de tipo que não importa + investimentos: mantém 'produtos que não lê' e cita os lidos", () => {
+		const c = only(
+			inv({ active: 1 }),
+			`${PLUGGY_UNREAD_PRODUCTS_PREFIX} Mande o Diagnóstico da conexão se faltar algo.`,
+		);
+		expect(connectionStatusLine(c, NOW)).toBe("Produtos que o Órbita ainda não lê");
+		expect(connectionStatusDetail(c)).toBe(
+			"O banco enviou produtos que o Órbita não lê, além de 1 investimento que ele lê.",
+		);
+		expect(connectionCaption(c, NOW)).toBe("1 investimento · Produtos que o Órbita ainda não lê");
+		// Sem investimentos contados: o texto de sempre.
+		expect(connectionStatusLine({ ...c, summary: ONE_EMPTY }, NOW)).toBe(
+			"Só produtos que o Órbita ainda não lê",
+		);
+	});
+	it("contagem mistura conta, cartão e as quatro situações de investimento", () => {
+		expect(
+			connectionSummaryText({
+				accounts: 1,
+				cards: 1,
+				investments: { active: 2, noBalance: 1, closed: 1, foreignCurrency: 1 },
+			}),
+		).toBe("1 conta · 1 cartão · 2 investimentos · 1 sem saldo · 1 encerrado · 1 em outra moeda");
+		expect(connectionSummaryText(inv({}))).toBeNull();
+		expect(connectionSummaryText({ accounts: 2, cards: 0 })).toBe("2 contas");
 	});
 	it("item ainda atualizando no Pluggy", () => {
 		const c = conn({ lastStatus: "partial", lastError: `${PLUGGY_UPDATING_PREFIX} O Órbita tenta de novo.` });

@@ -38,6 +38,8 @@ export {
 	restoreBudgets,
 } from "./income-plan.ts";
 export {
+	type ConnectionInvestmentCounts,
+	connectionInvestmentCounts,
 	INVESTMENT_MONTHLY_MONTHS,
 	investmentDetail,
 	investmentEvolutionSeries,

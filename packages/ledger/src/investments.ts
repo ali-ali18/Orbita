@@ -11,6 +11,7 @@ import {
 	investmentMovementKind,
 	investmentSubtypeLabel,
 	isActiveInvestment,
+	isBrlInvestment,
 	type LocalDate,
 	monthlyInvestments,
 	monthOf,
@@ -56,6 +57,39 @@ const institutionLabel = (label: string | null | undefined): string => {
 	const text = label?.trim() ?? "";
 	return text === "" || /^meu\s*pluggy$/i.test(text) ? UNNAMED_INSTITUTION : text;
 };
+
+/**
+ * Posições de uma conexão em quatro situações que não se misturam: `active` (em reais, com saldo ou saldo ainda
+ * desconhecido: entra no patrimônio), `noBalance` (ainda ativa no banco, mas com saldo zero: não entra no patrimônio
+ * por enquanto, e NÃO é encerrada), `closed` (arquivada ou `TOTAL_WITHDRAWAL`) e `foreignCurrency` (ativa em outra moeda:
+ * fica fora da soma em reais).
+ */
+export interface ConnectionInvestmentCounts {
+	active: number;
+	noBalance: number;
+	closed: number;
+	foreignCurrency: number;
+}
+
+/**
+ * Quantas posições cada conexão trouxe, para a linha da conexão em Bancos. Conexão sem posição não aparece no mapa.
+ * Só conta; as regras são as do engine (`isActiveInvestment`, `isBrlInvestment`).
+ */
+export async function connectionInvestmentCounts(
+	stores: Stores,
+): Promise<Map<string, ConnectionInvestmentCounts>> {
+	const counts = new Map<string, ConnectionInvestmentCounts>();
+	for (const r of await stores.investments.list({ includeArchived: true })) {
+		if (r.connectionId === null) continue;
+		const entry = counts.get(r.connectionId) ?? { active: 0, noBalance: 0, closed: 0, foreignCurrency: 0 };
+		if (!isActiveInvestment({ archived: r.archivedAt !== null, status: r.status })) entry.closed++;
+		else if (!isBrlInvestment(r)) entry.foreignCurrency++;
+		else if (r.balanceCents !== null && r.balanceCents <= 0) entry.noBalance++;
+		else entry.active++;
+		counts.set(r.connectionId, entry);
+	}
+	return counts;
+}
 
 interface Loaded {
 	records: InvestmentRecord[];
