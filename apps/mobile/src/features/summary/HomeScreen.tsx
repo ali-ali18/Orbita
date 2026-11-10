@@ -5,7 +5,7 @@ import {
 	setWidgetSize,
 	setWidgetVisible,
 } from "@orbita/shared";
-import { colors, spacing } from "@orbita/tokens";
+import { colors, layout as sizes, spacing } from "@orbita/tokens";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useState } from "react";
@@ -53,9 +53,6 @@ import { useWidgetMenu } from "./widgets/use-widget-menu.ts";
 import { WidgetMenu } from "./widgets/WidgetMenu.tsx";
 import { addableWidgets } from "./widgets/widget-menu-model.ts";
 
-/** Faixa fixa do topo: mais baixa que a do Figma (100), porque ela não rola e as abas vêm logo abaixo. */
-const HEADER_HEIGHT = 64;
-
 export function HomeScreen() {
 	const { hidden, toggle } = usePrivacy();
 	const queryClient = useQueryClient();
@@ -67,7 +64,7 @@ export function HomeScreen() {
 	const layoutQ = useHomeLayout();
 	const saveLayout = useSaveHomeLayout();
 	const layout: HomeLayout | null = layoutQ.data ?? (layoutQ.isError ? defaultHomeLayout() : null);
-	const widgetMenu = useWidgetMenu(layout, bottomBarHeight);
+	const widgetMenu = useWidgetMenu(layout, bottomBarHeight, sizes.homeHeader + sizes.homeTabs);
 	const menuId = widgetMenu.menu?.model.id ?? null;
 	const [adding, setAdding] = useState(false);
 	const addable = layout ? addableWidgets(layout) : [];
@@ -137,7 +134,7 @@ export function HomeScreen() {
 			{/* Header e abas ficam parados; só o conteúdo de cada aba rola, e arrastar de lado troca de aba. */}
 			<View style={{ paddingHorizontal: spacing.lg }}>
 				<HomeHeader
-					height={HEADER_HEIGHT}
+					height={sizes.homeHeader}
 					initial={avatarInitial(displayName)}
 					hidden={hidden}
 					onToggleHidden={toggle}

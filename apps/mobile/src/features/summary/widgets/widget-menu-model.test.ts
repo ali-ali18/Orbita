@@ -11,6 +11,7 @@ import {
 	type MenuViewport,
 	placeWidgetMenu,
 	revealScroll,
+	viewportTop,
 	WIDGET_DESCRIPTIONS,
 	widgetMenuModel,
 } from "./widget-menu-model.ts";
@@ -185,5 +186,23 @@ describe("addableWidgets", () => {
 			expect(WIDGET_DESCRIPTIONS[id].length).toBeGreaterThan(0);
 			expect(WIDGET_DESCRIPTIONS[id].length).toBeLessThanOrEqual(40);
 		}
+	});
+});
+
+describe("topo da janela com header fixo", () => {
+	it("soma a faixa fixa (header e abas) à barra de status", () => {
+		expect(viewportTop(0, 56)).toBe(56);
+		expect(viewportTop(24, 56, 120)).toBe(176);
+		expect(viewportTop(80, 56, 120)).toBe(200);
+	});
+
+	it("o widget que está sob o header fixo é rolado para baixo dele", () => {
+		const fixed: MenuViewport = { ...viewport, top: viewportTop(0, 56, 120) };
+		const anchor = { x: 16, y: 100, width: 358, height: 120 };
+		const dy = revealScroll({ anchor, menuHeight: 200, viewport: fixed, bottomBar: 0, gap, margin });
+		// Rolar para cima (dy negativo) até o topo do widget ficar abaixo do header.
+		expect(anchor.y - dy).toBeGreaterThanOrEqual(fixed.top + margin);
+		const old = revealScroll({ anchor, menuHeight: 200, viewport, bottomBar: 0, gap, margin });
+		expect(anchor.y - old).toBeLessThan(fixed.top);
 	});
 });

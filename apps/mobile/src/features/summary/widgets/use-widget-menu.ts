@@ -9,7 +9,13 @@ import {
 	type View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { type MenuViewport, type Rect, revealScroll, widgetMenuModel } from "./widget-menu-model.ts";
+import {
+	type MenuViewport,
+	type Rect,
+	revealScroll,
+	viewportTop,
+	widgetMenuModel,
+} from "./widget-menu-model.ts";
 
 /** Distância entre o widget e o menu, e folga até as bordas da tela. */
 export const MENU_GAP = spacing.sm;
@@ -28,17 +34,17 @@ const sameRect = (a: Rect | null, b: Rect) =>
  * cada mudança de tamanho ou de ordem com o menu aberto) mede o widget com `measureInWindow`, rola a lista o
  * necessário para ele aparecer inteiro e mede de novo, então o menu acompanha o widget de verdade.
  */
-export function useWidgetMenu(layout: HomeLayout | null, bottomBar: number) {
+export function useWidgetMenu(layout: HomeLayout | null, bottomBar: number, fixedTop = 0) {
 	const insets = useSafeAreaInsets();
 	const window = useWindowDimensions();
 	const viewport: MenuViewport = useMemo(
 		() => ({
 			width: window.width,
 			height: window.height,
-			top: Math.max(insets.top, layoutTokens.statusBar),
+			top: viewportTop(insets.top, layoutTokens.statusBar, fixedTop),
 			bottom: Math.max(insets.bottom, layoutTokens.homeIndicator),
 		}),
-		[window.width, window.height, insets.top, insets.bottom],
+		[window.width, window.height, insets.top, insets.bottom, fixedTop],
 	);
 
 	const scrollRef = useRef<ScrollViewInstance>(null);
