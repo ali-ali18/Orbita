@@ -262,7 +262,7 @@ describe("rendimento do mês", () => {
 			month: "2026-11",
 			today: TODAY,
 		});
-		expect(r).toMatchObject({ cents: 5000, countedPositions: 1, baselineDay: "2026-10-31" });
+		expect(r).toMatchObject({ cents: 5000, countedPositions: 1, baselineDay: "2026-11-01" });
 	});
 
 	it("cobertura parcial: soma só quem tem ponto de partida e conta quem ficou de fora", () => {
@@ -416,14 +416,19 @@ describe("evolução", () => {
 				investedEstimated: true,
 				investedComplete: true,
 				positions: 2,
+				carriedPositions: 0,
+				missingPositions: 0,
 			},
 			{
 				day: "2026-11-07",
-				balanceCents: 1002000,
-				investedCents: 990000,
-				investedEstimated: false,
+				// A ação não sincronizou em 07/11: entra o retrato de 03/11 (4 dias antes).
+				balanceCents: 1212000,
+				investedCents: 1190000,
+				investedEstimated: true,
 				investedComplete: true,
 				positions: 1,
+				carriedPositions: 1,
+				missingPositions: 0,
 			},
 		]);
 	});
@@ -513,5 +518,142 @@ describe("patrimônio e quebras", () => {
 		expect(roundedDiv(1, 3)).toBe(0);
 		expect(roundedDiv(2, 3)).toBe(1);
 		expect(() => roundedDiv(1, 0)).toThrow(RangeError);
+	});
+});
+
+describe("revisão: números que não podem sair errados e exatos", () => {
+	it("resgate parcial: não vira perda falsa exata (aplicado − resgates, estimado, com motivo)", () => {
+		const movements = [mv("a", "BUY", "2026-01-10", 1000000), mv("a", "SELL", "2026-06-10", 500000)];
+		const y = positionYield(pos("a", { balanceCents: 520000, investedCents: 1000000 }), movements);
+		expect(y).toMatchObject({ cents: 20000, estimated: true, basis: "invested", basisCents: 500000 });
+		expect(y.reason).toContain("resgate parcial");
+		// Resgates maiores que o aplicado: não faz sentido, sem número.
+		const nonsense = positionYield(pos("a", { balanceCents: 1000, investedCents: 1000000 }), [
+			mv("a", "SELL", "2026-06-10", 1200000),
+		]);
+		expect(nonsense).toMatchObject({ cents: null, basis: "unavailable" });
+		// Sem resgate continua exato.
+		expect(positionYield(pos("a", { balanceCents: 1020000, investedCents: 1000000 }), []).estimated).toBe(
+			false,
+		);
+	});
+
+	it("valor de movimentação negativo na fonte: a magnitude vale, o sentido vem de BUY/SELL", () => {
+		const movements = [mv("a", "BUY", "2026-01-10", -1000000), mv("a", "SELL", "2026-06-10", -500000)];
+		const y = positionYield(pos("a", { balanceCents: 520000, investedCents: 1000000 }), movements);
+		expect(y.cents).toBe(20000);
+		const stock = positionYield(pos("s", { type: "EQUITY", balanceCents: 140000 }), [
+			mv("s", "BUY", "2026-01-10", 150000),
+			mv("s", "SELL", "2026-03-10", -30000),
+		]);
+		expect(stock.cents).toBe(20000);
+	});
+
+	it("posição encerrada: nunca mostra −aplicado exato; realizado só com movimentações completas, estimado", () => {
+		const closed = pos("z", {
+			status: "TOTAL_WITHDRAWAL",
+			archived: true,
+			balanceCents: 0,
+			investedCents: 100000,
+		});
+		const movements = [mv("z", "BUY", "2026-01-10", 100000), mv("z", "SELL", "2026-09-30", 105000)];
+		expect(positionYield({ ...closed, movementsComplete: true }, movements)).toMatchObject({
+			cents: 5000,
+			estimated: true,
+			basis: "movements",
+		});
+		const unknown = positionYield(closed, movements);
+		expect(unknown).toMatchObject({ cents: null, basis: "unavailable" });
+		expect(unknown.reason).toContain("encerrada");
+	});
+
+	it("mês: fechamento sem o SELL nas movimentações deixa a posição de fora (não é perda)", () => {
+		const r = monthYield({
+			positions: [pos("cdb", { status: "TOTAL_WITHDRAWAL", archived: true, balanceCents: 0 })],
+			movements: [],
+			snapshots: [snap("cdb", "2026-10-31", 1000000), snap("cdb", "2026-11-04", 0)],
+			month: "2026-11",
+			today: TODAY,
+		});
+		expect(r).toMatchObject({ cents: null, countedPositions: 0, missingPositions: 1 });
+		expect(r.reason).toContain("resgate");
+	});
+
+	it("mês: posição antiga com histórico de movimentações de só 1 ano não parte de zero sem evidência", () => {
+		const old = pos("acao", { type: "EQUITY", subtype: "STOCK", balanceCents: 500000 });
+		const base = {
+			positions: [old],
+			movements: [mv("acao", "BUY", "2026-11-03", 10000)],
+			snapshots: [snap("acao", "2026-11-12", 500000)],
+			month: "2026-11",
+			today: TODAY,
+		};
+		expect(monthYield(base)).toMatchObject({ cents: null, reason: NO_HISTORY_REASON });
+		// Evidência: data de compra no mês.
+		const bought = monthYield({ ...base, positions: [{ ...old, purchaseDate: "2026-11-03" }] });
+		expect(bought.cents).toBe(500000 - 10000);
+		// Data de compra antiga contradiz a abertura, mesmo com movimentação no mês.
+		expect(monthYield({ ...base, positions: [{ ...old, purchaseDate: "2020-01-05" }] }).cents).toBeNull();
+		// Sem data, saldo coerente com compras − vendas (±20%) também vale.
+		const coherent = monthYield({ ...base, positions: [{ ...old, balanceCents: 10200 }] });
+		expect(coherent.cents).toBe(200);
+	});
+
+	it("mês: aporte no último dia do mês (dia do retrato de partida) entra no período, sem inflar o rendimento", () => {
+		const r = monthYield({
+			positions: [pos("cdb", { balanceCents: 1060000 })],
+			movements: [mv("cdb", "BUY", "2026-10-31", 50000)],
+			snapshots: [snap("cdb", "2026-10-31", 1000000)],
+			month: "2026-11",
+			today: TODAY,
+		});
+		// O retrato de um dia vale como o saldo de ANTES das movimentações daquele dia.
+		expect(r.cents).toBe(10000);
+		// Movimentação de hoje ainda não está no saldo lido: não conta.
+		const today = monthYield({
+			positions: [pos("cdb", { balanceCents: 1010000 })],
+			movements: [mv("cdb", "BUY", TODAY, 50000)],
+			snapshots: [snap("cdb", "2026-10-31", 1000000)],
+			month: "2026-11",
+			today: TODAY,
+		});
+		expect(today.cents).toBe(10000);
+	});
+
+	it("evolução: dia em que uma posição não sincronizou carrega o último retrato (até 5 dias) e expõe quem faltou", () => {
+		const series = investmentEvolution({
+			positions: [pos("a"), pos("b")],
+			movements: [],
+			snapshots: [
+				snap("a", "2026-11-01", 1000, 900),
+				snap("b", "2026-11-01", 500, 400),
+				snap("a", "2026-11-04", 1100, 900),
+				snap("a", "2026-11-09", 1200, 900),
+			],
+			from: "2026-11-01",
+			to: TODAY,
+		});
+		expect(series[1]).toMatchObject({
+			day: "2026-11-04",
+			balanceCents: 1600,
+			positions: 1,
+			carriedPositions: 1,
+			missingPositions: 0,
+		});
+		// Dia 9: b está 8 dias defasada: fora da soma e contada.
+		expect(series[2]).toMatchObject({
+			day: "2026-11-09",
+			balanceCents: 1200,
+			carriedPositions: 0,
+			missingPositions: 1,
+		});
+		expect(series[0]).toMatchObject({ carriedPositions: 0, missingPositions: 0 });
+	});
+
+	it("saldo negativo: fora do total e dos grupos (total = soma dos grupos)", () => {
+		const b = portfolioBreakdown([pos("a", { balanceCents: 1000 }), pos("neg", { balanceCents: -300 })]);
+		expect(b.totalCents).toBe(1000);
+		expect(b.byClass.reduce((s, g) => s + g.balanceCents, 0)).toBe(b.totalCents);
+		expect(b.withoutBalance).toBe(1);
 	});
 });

@@ -27,6 +27,14 @@ export interface InvestmentPositionInput {
 	investedCents: Cents | null;
 	/** Arquivada (sumiu da lista ou foi resgatada por inteiro). */
 	archived: boolean;
+	/** Datas de compra e de emissão (AAAA-MM-DD): evidência de que a posição foi aberta num mês. */
+	purchaseDate?: LocalDate | null;
+	issueDate?: LocalDate | null;
+	/**
+	 * As movimentações desta posição foram lidas por inteiro DEPOIS de ela fechar (o resgate final não pode estar
+	 * faltando). Só com isso o ganho realizado de uma posição encerrada é estimado.
+	 */
+	movementsComplete?: boolean;
 	/** Chave e rótulo da instituição (a conexão), para agrupar. */
 	institutionKey: string;
 	institutionLabel: string;
@@ -155,9 +163,10 @@ interface Flow {
 function flowOf(m: InvestmentMovementInput): Flow | null {
 	const t = norm(m.type);
 	if (t !== "BUY" && t !== "SELL") return null;
-	const cents = m.amountCents ?? m.netAmountCents;
-	if (cents === null) return null;
-	return { kind: t === "BUY" ? "in" : "out", cents, day: m.date ?? m.tradeDate };
+	const raw = m.amountCents ?? m.netAmountCents;
+	if (raw === null) return null;
+	// Magnitude: o sentido vem só de BUY/SELL (algumas fontes mandam o SELL com valor negativo).
+	return { kind: t === "BUY" ? "in" : "out", cents: Math.abs(raw), day: m.date ?? m.tradeDate };
 }
 
 /** BUY = aporte, SELL = resgate; o resto não é fluxo (juros, imposto, transferência, amortização). */
@@ -212,31 +221,73 @@ export interface PositionYield {
 export const YIELD_REASONS = {
 	noBalance: "sem saldo informado",
 	noBasis: "sem valor aplicado e sem compras nas movimentações",
+	partialRedemption: "houve resgate parcial; valor aproximado",
+	redemptionOverInvested: "resgates maiores que o valor aplicado; sem como estimar",
+	closedRealized: "posição encerrada; ganho realizado estimado pelas movimentações",
+	closedUnknown: "posição encerrada: sem as movimentações completas para calcular o ganho",
 } as const;
 
+const unavailable = (reason: string): PositionYield => ({
+	cents: null,
+	estimated: false,
+	basis: "unavailable",
+	basisCents: null,
+	reason,
+});
+
 function yieldOf(p: InvestmentPositionInput, flows: readonly Flow[]): PositionYield {
-	if (p.balanceCents === null) {
-		return {
-			cents: null,
-			estimated: false,
-			basis: "unavailable",
-			basisCents: null,
-			reason: YIELD_REASONS.noBalance,
-		};
+	let bought = 0;
+	let sold = 0;
+	let hasBuy = false;
+	let hasSell = false;
+	for (const f of flows) {
+		if (f.kind === "in") {
+			bought += f.cents;
+			hasBuy = true;
+		} else {
+			sold += f.cents;
+			hasSell = true;
+		}
 	}
+	// Encerrada: `saldo − aplicado` seria "−aplicado" (o saldo é zero). O que existe é o ganho REALIZADO, e só as
+	// movimentações completas o dão (estimado: o histórico pode ter começado depois da compra).
+	if (!isActiveInvestment(p)) {
+		if (p.movementsComplete === true && hasBuy && hasSell) {
+			return {
+				cents: (p.balanceCents ?? 0) + sold - bought,
+				estimated: true,
+				basis: "movements",
+				basisCents: bought,
+				reason: YIELD_REASONS.closedRealized,
+			};
+		}
+		return unavailable(YIELD_REASONS.closedUnknown);
+	}
+	if (p.balanceCents === null) return unavailable(YIELD_REASONS.noBalance);
 	// `amountOriginal` zero ou negativo não é "aplicado" de verdade: trata como ausente.
 	if (p.investedCents !== null && p.investedCents > 0) {
+		if (!hasSell) {
+			return {
+				cents: p.balanceCents - p.investedCents,
+				estimated: false,
+				basis: "invested",
+				basisCents: p.investedCents,
+				reason: null,
+			};
+		}
+		// Resgate parcial: o saldo já não carrega o que saiu, então `saldo − aplicado` seria perda falsa. Tira do
+		// aplicado o que foi resgatado (aproximação: o banco pode já ter reduzido o `amountOriginal`).
+		if (sold >= p.investedCents) return unavailable(YIELD_REASONS.redemptionOverInvested);
 		return {
-			cents: p.balanceCents - p.investedCents,
-			estimated: false,
+			cents: p.balanceCents - (p.investedCents - sold),
+			estimated: true,
 			basis: "invested",
-			basisCents: p.investedCents,
-			reason: null,
+			basisCents: p.investedCents - sold,
+			reason: YIELD_REASONS.partialRedemption,
 		};
 	}
-	if (flows.some((f) => f.kind === "in")) {
-		let net = 0;
-		for (const f of flows) net += f.kind === "in" ? f.cents : -f.cents;
+	if (hasBuy) {
+		const net = bought - sold;
 		return {
 			cents: p.balanceCents - net,
 			estimated: true,
@@ -245,13 +296,7 @@ function yieldOf(p: InvestmentPositionInput, flows: readonly Flow[]): PositionYi
 			reason: null,
 		};
 	}
-	return {
-		cents: null,
-		estimated: false,
-		basis: "unavailable",
-		basisCents: null,
-		reason: YIELD_REASONS.noBasis,
-	};
+	return unavailable(YIELD_REASONS.noBasis);
 }
 
 /** Rendimento de uma posição (ativa ou não): ver `YieldBasis`. */
@@ -389,13 +434,25 @@ export interface PeriodYield {
 }
 
 export const NO_HISTORY_REASON = "sem histórico ainda";
+export const CLOSE_NOT_READ_REASON = "resgate ainda não lido nas movimentações";
+
+/** Quanto o saldo pode destoar de compras − vendas (20%) para valer como "posição aberta neste período". */
+const OPENING_COHERENCE_FACTOR = 5;
 
 /**
  * Rendimento de um mês (`month` = "AAAA-MM"). Para o mês corrente o ponto de chegada é o saldo de agora; para mês
  * passado, o retrato do fim do mês. O ponto de partida é o retrato do fim do mês anterior (`SNAPSHOT_TOLERANCE_DAYS`).
- * Uma posição aberta no próprio mês (primeira movimentação no mês, nenhum retrato antes) parte de zero. Posição sem
- * ponto de partida NÃO entra (não se inventa histórico); sem nenhuma posição incluída o resultado é `null`.
- * Rendimento = saldo final − saldo inicial − (compras − vendas) das datas depois do ponto de partida até o fim.
+ *
+ * - Um retrato de um dia vale como o saldo de ANTES das movimentações daquele dia (o Meu Pluggy atualiza a cada 24 h e
+ *   o sync roda cedo): entram na conta as movimentações de `[dia do retrato de partida, dia do retrato de chegada)`.
+ *   Assim os meses se encaixam sem contar uma movimentação duas vezes ou nenhuma. Para o mês corrente, "hoje" não entra.
+ * - Posição aberta no próprio mês parte de zero, mas só com EVIDÊNCIA: `purchaseDate` no mês (ou, sem ela,
+ *   `issueDate` no mês, ou saldo coerente com compras − vendas em ±20%). O histórico de movimentações pode ser só dos
+ *   últimos meses, e "primeira movimentação no mês" sozinha erraria numa posição antiga.
+ * - Posição sem ponto de partida NÃO entra (não se inventa histórico). Posição cujo saldo foi a zero sem nenhum SELL no
+ *   período também não entra: o resgate pode não ter sido lido ainda, e contar o saldo que sumiu como perda seria falso.
+ * - Sem nenhuma posição incluída o resultado é `null` com o motivo.
+ * Rendimento = saldo final − saldo inicial − (compras − vendas) do período.
  */
 export function monthYield(input: {
 	positions: readonly InvestmentPositionInput[];
@@ -411,10 +468,12 @@ export function monthYield(input: {
 	const endDay = live ? today : clampDayInMonth(month, 31);
 	const flows = flowsByPosition(movements);
 	const snaps = sortedSnapshots(snapshots);
+	const inPeriod = (d: LocalDate | null | undefined) => d != null && d > prevEnd && d <= endDay;
 
 	let cents = 0;
 	let counted = 0;
 	let missing = 0;
+	let missingNoHistory = 0;
 	let baselineDay: LocalDate | null = null;
 	for (const p of positions) {
 		if (!isBrlInvestment(p)) continue;
@@ -426,29 +485,31 @@ export function monthYield(input: {
 			null,
 		);
 
+		// Ponto de chegada. Só "resgatou tudo" (TOTAL_WITHDRAWAL) garante saldo zero: posição que SUMIU da lista (arquivada
+		// com outra situação) tem saldo desconhecido, e dizer zero viraria uma perda inventada.
+		let end: Cents | null;
+		let endBound: LocalDate = endDay;
+		if (live) {
+			const closed = norm(p.status) === INVESTMENT_CLOSED_STATUS;
+			end = isActiveInvestment(p) ? p.balanceCents : closed ? 0 : null;
+			endBound = today;
+		} else {
+			const s = snapshotAt(own, endDay);
+			end = s ? s.balanceCents : null;
+			if (s) endBound = s.day;
+		}
+
 		// Ponto de partida.
 		let start: { day: LocalDate; cents: Cents } | null = null;
 		const base = snapshotAt(own, prevEnd);
 		if (base) start = { day: base.day, cents: base.balanceCents };
-		else if (
-			!own?.some((s) => s.day <= prevEnd) &&
-			firstFlowDay !== null &&
-			firstFlowDay > prevEnd &&
-			firstFlowDay <= endDay
-		) {
-			// Posição aberta neste mês: parte de zero.
-			start = { day: prevEnd, cents: 0 };
-		}
-
-		// Ponto de chegada. Só "resgatou tudo" (TOTAL_WITHDRAWAL) garante saldo zero: posição que SUMIU da lista (arquivada
-		// com outra situação) tem saldo desconhecido, e dizer zero viraria uma perda inventada.
-		let end: Cents | null;
-		if (live) {
-			const closed = norm(p.status) === INVESTMENT_CLOSED_STATUS;
-			end = isActiveInvestment(p) ? p.balanceCents : closed ? 0 : null;
-		} else {
-			const s = snapshotAt(own, endDay);
-			end = s ? s.balanceCents : null;
+		else if (!own?.some((s) => s.day <= prevEnd) && firstFlowDay !== null && inPeriod(firstFlowDay)) {
+			let net = 0;
+			for (const f of dated) if (f.day <= endDay) net += f.kind === "in" ? f.cents : -f.cents;
+			const coherent = end !== null && net > 0 && Math.abs(end - net) * OPENING_COHERENCE_FACTOR <= net;
+			const opened = p.purchaseDate ? inPeriod(p.purchaseDate) : inPeriod(p.issueDate) || coherent;
+			// Posição aberta neste período: parte de zero.
+			if (opened) start = { day: monthStart, cents: 0 };
 		}
 
 		// Posição que ainda não existia no fim do período não conta (nem como "faltando").
@@ -462,11 +523,20 @@ export function monthYield(input: {
 				dated.some((f) => f.day > prevEnd && f.day <= endDay);
 			if (!isActiveInvestment(p) && start === null && !touched) continue;
 			missing++;
+			missingNoHistory++;
 			continue;
 		}
 		let net = 0;
+		let sells = 0;
 		for (const f of dated) {
-			if (f.day > start.day && f.day <= endDay) net += f.kind === "in" ? f.cents : -f.cents;
+			if (f.day >= start.day && f.day < endBound) {
+				net += f.kind === "in" ? f.cents : -f.cents;
+				if (f.kind === "out") sells++;
+			}
+		}
+		if (end === 0 && start.cents > 0 && sells === 0) {
+			missing++; // o saldo sumiu sem o resgate nas movimentações
+			continue;
 		}
 		cents += end - start.cents - net;
 		counted++;
@@ -479,7 +549,8 @@ export function monthYield(input: {
 			countedPositions: 0,
 			missingPositions: missing,
 			baselineDay: null,
-			reason: missing > 0 ? NO_HISTORY_REASON : "sem posições",
+			reason:
+				missing === 0 ? "sem posições" : missingNoHistory > 0 ? NO_HISTORY_REASON : CLOSE_NOT_READ_REASON,
 		};
 	}
 	return { month, cents, countedPositions: counted, missingPositions: missing, baselineDay, reason: null };
@@ -554,7 +625,10 @@ export function monthlyInvestments(input: {
 
 export interface EvolutionPoint {
 	day: LocalDate;
-	/** Soma dos saldos dos retratos DAQUELE dia. */
+	/**
+	 * Soma dos saldos do dia: o retrato daquele dia e, para a posição que não sincronizou, o último retrato dela (até
+	 * `SNAPSHOT_TOLERANCE_DAYS` dias antes), para o gráfico não serrilhar.
+	 */
 	balanceCents: Cents;
 	/**
 	 * Soma do aplicado das posições do dia: o do retrato quando veio; senão (ação) compras − vendas até o dia, e aí
@@ -563,13 +637,18 @@ export interface EvolutionPoint {
 	investedCents: Cents;
 	investedEstimated: boolean;
 	investedComplete: boolean;
-	/** Quantos retratos compõem o dia. */
+	/** Quantos retratos DO DIA compõem o ponto. */
 	positions: number;
+	/** Posições com saldo que entraram pelo retrato de um dia anterior (não sincronizaram neste dia). */
+	carriedPositions: number;
+	/** Posições conhecidas cujo último retrato é velho demais: ficaram FORA da soma (o ponto subestima o patrimônio). */
+	missingPositions: number;
 }
 
 /**
  * Série dos dias com retrato entre `from` e `to` (inclusive). NÃO preenche dias faltantes: um dia sem sync simplesmente
- * não aparece. Retrato de posição desconhecida (conexão removida) é ignorado.
+ * não aparece. Num dia que aparece, a posição sem retrato dele carrega o último (ver `EvolutionPoint`). Retrato de
+ * posição desconhecida (conexão removida) é ignorado.
  */
 export function investmentEvolution(input: {
 	positions: readonly InvestmentPositionInput[];
@@ -581,25 +660,34 @@ export function investmentEvolution(input: {
 	const { positions, movements, snapshots, from, to } = input;
 	const known = new Set(positions.filter(isBrlInvestment).map((p) => p.id));
 	const flows = flowsByPosition(movements);
-	const byDay = groupBy(
-		snapshots.filter((s) => known.has(s.investmentId) && s.day >= from && s.day <= to),
-		(s) => s.day,
-	);
+	const snaps = sortedSnapshots(snapshots.filter((s) => known.has(s.investmentId)));
+	const days = new Set<LocalDate>();
+	for (const list of snaps.values()) for (const s of list) if (s.day >= from && s.day <= to) days.add(s.day);
 	const points: EvolutionPoint[] = [];
-	for (const day of [...byDay.keys()].sort()) {
+	for (const day of [...days].sort()) {
 		let balance = 0;
 		let invested = 0;
 		let estimated = false;
 		let complete = true;
-		const list = byDay.get(day) ?? [];
-		for (const s of list) {
+		let actual = 0;
+		let carried = 0;
+		let missing = 0;
+		for (const [id, list] of snaps) {
+			const exact = list.find((s) => s.day === day);
+			const s = exact ?? snapshotAt(list, day);
+			if (!s) {
+				if (list.some((x) => x.day <= day)) missing++;
+				continue;
+			}
+			if (exact) actual++;
+			else if (s.balanceCents !== 0) carried++;
 			balance += s.balanceCents;
 			if (s.balanceCents === 0) continue; // posição vazia: nada aplicado
 			if (s.investedCents !== null && s.investedCents > 0) {
 				invested += s.investedCents;
 				continue;
 			}
-			const own = (flows.get(s.investmentId) ?? []).filter((f) => f.day !== null && f.day <= day);
+			const own = (flows.get(id) ?? []).filter((f) => f.day !== null && f.day <= day);
 			if (own.some((f) => f.kind === "in")) {
 				for (const f of own) invested += f.kind === "in" ? f.cents : -f.cents;
 				estimated = true;
@@ -613,7 +701,9 @@ export function investmentEvolution(input: {
 			investedCents: invested,
 			investedEstimated: estimated,
 			investedComplete: complete,
-			positions: list.length,
+			positions: actual,
+			carriedPositions: carried,
+			missingPositions: missing,
 		});
 	}
 	return points;
@@ -691,7 +781,8 @@ function groups(items: readonly { key: string; label: string; cents: Cents }[]):
 export function portfolioBreakdown(positions: readonly InvestmentPositionInput[]): PortfolioBreakdown {
 	const active = positions.filter(isActiveInvestment);
 	const brl = active.filter(isBrlInvestment);
-	const withBalance = brl.filter((p) => p.balanceCents !== null);
+	// Saldo negativo não existe em investimento: dado ruim, fica fora do total E dos grupos (que só somam saldo positivo).
+	const withBalance = brl.filter((p) => p.balanceCents !== null && p.balanceCents >= 0);
 	const classes = groups(
 		withBalance.map((p) => {
 			const cls = investmentClassOf(p.type, p.subtype);
