@@ -8,6 +8,8 @@ import {
 	pluggyRetryJobId,
 	processSyncJob,
 	retryAttemptOf,
+	retryConnectionIdsOf,
+	schedulePluggyRetries,
 } from "./sincronizacao.ts";
 
 // Pluggy falso, no formato da API.
@@ -100,8 +102,9 @@ describe("processSyncJob", () => {
 });
 
 describe("nova tentativa quando uma conexão espera o banco", () => {
-	const conn = (retry?: SyncPluggyResult["connections"][number]["retry"]) => ({
-		id: ITEM,
+	const OTHER = "223e4567-e89b-42d3-a456-426614174001";
+	const conn = (retry?: SyncPluggyResult["connections"][number]["retry"], id = ITEM) => ({
+		id,
 		status: "partial" as const,
 		error: null,
 		accounts: 0,
@@ -118,48 +121,138 @@ describe("nova tentativa quando uma conexão espera o banco", () => {
 	});
 
 	it("nada esperando: não agenda", () => {
-		expect(planPluggyRetry(result(conn()), 0, now())).toBeNull();
-		expect(planPluggyRetry({ status: "no_keys", connections: [] }, 0, now())).toBeNull();
+		expect(planPluggyRetry(result(conn()), 0, now())).toEqual([]);
+		expect(planPluggyRetry({ status: "no_keys", connections: [] }, 0, now())).toEqual([]);
 	});
 
-	it("espera crescente: 2, 5, 15, 30 e 60 minutos", () => {
-		const waiting = result(conn(), conn({ reason: "updating" }));
-		const delays = PLUGGY_RETRY_DELAYS_MS.map((_, attempt) => planPluggyRetry(waiting, attempt, now()));
-		expect(delays.map((d) => d?.delayMs)).toEqual([2, 5, 15, 30, 60].map((m) => m * 60_000));
-		expect(delays.map((d) => d?.attempt)).toEqual([1, 2, 3, 4, 5]);
+	it("espera crescente: 2, 5, 15, 30 e 60 minutos, só para a conexão que espera", () => {
+		const waiting = result(conn(undefined, OTHER), conn({ reason: "updating" }));
+		const plans = PLUGGY_RETRY_DELAYS_MS.map((_, attempt) => planPluggyRetry(waiting, attempt, now()));
+		expect(plans.map((p) => p[0]?.delayMs)).toEqual([2, 5, 15, 30, 60].map((m) => m * 60_000));
+		expect(plans.map((p) => p[0]?.attempt)).toEqual([1, 2, 3, 4, 5]);
+		expect(plans.every((p) => p.length === 1 && p[0]?.connectionId === ITEM)).toBe(true);
 	});
 
-	it("depois das esperas: mais uma só, logo após a atualização que o Pluggy anunciou", () => {
+	it("uma tentativa por conexão que espera, cada uma com o seu id", () => {
+		const waiting = result(conn({ reason: "updating" }), conn({ reason: "no_accounts" }, OTHER));
+		expect(planPluggyRetry(waiting, 0, now()).map((p) => p.connectionId)).toEqual([ITEM, OTHER]);
+	});
+
+	it("depois das esperas: mais uma só, logo após a atualização que o Pluggy anunciou para a própria conexão", () => {
 		const last = PLUGGY_RETRY_DELAYS_MS.length;
 		const at = "2026-11-08T08:00:00.000Z"; // 23 h depois de `now`
 		const waiting = result(
 			conn({ reason: "no_accounts", notBefore: at }),
-			conn({ reason: "no_accounts", notBefore: "2026-11-09T08:00:00.000Z" }),
+			conn({ reason: "no_accounts", notBefore: "2026-11-09T08:00:00.000Z" }, OTHER),
 		);
-		expect(planPluggyRetry(waiting, last, now())).toEqual({
-			attempt: last + 1,
-			delayMs: 23 * 3_600_000 + PLUGGY_RETRY_AFTER_UPDATE_MS,
-		});
+		expect(planPluggyRetry(waiting, last, now())).toEqual([
+			{ connectionId: ITEM, attempt: last + 1, delayMs: 23 * 3_600_000 + PLUGGY_RETRY_AFTER_UPDATE_MS },
+			{ connectionId: OTHER, attempt: last + 1, delayMs: 47 * 3_600_000 + PLUGGY_RETRY_AFTER_UPDATE_MS },
+		]);
 		// Sem data anunciada, ou com ela no passado, para: o job diário cobre.
-		expect(planPluggyRetry(result(conn({ reason: "no_accounts" })), last, now())).toBeNull();
+		expect(planPluggyRetry(result(conn({ reason: "no_accounts" })), last, now())).toEqual([]);
 		expect(
 			planPluggyRetry(
 				result(conn({ reason: "updating", notBefore: "2026-11-07T08:00:00.000Z" })),
 				last,
 				now(),
 			),
-		).toBeNull();
+		).toEqual([]);
 		// Nunca passa disso: a cadeia tem fim.
-		expect(planPluggyRetry(waiting, last + 1, now())).toBeNull();
-		expect(planPluggyRetry(waiting, -1, now())).toBeNull();
-		expect(planPluggyRetry(waiting, 1.5, now())).toBeNull();
+		expect(planPluggyRetry(waiting, last + 1, now())).toEqual([]);
+		expect(planPluggyRetry(waiting, -1, now())).toEqual([]);
+		expect(planPluggyRetry(waiting, 1.5, now())).toEqual([]);
 	});
 
-	it("o número da tentativa vem do job; o diário e o do app valem zero", () => {
+	it("o número da tentativa e as conexões vêm do job; o diário e o do app valem zero e todas", () => {
 		expect(retryAttemptOf(PLUGGY_RETRY_JOB, { attempt: 3 })).toBe(3);
 		expect(retryAttemptOf(PLUGGY_RETRY_JOB, { attempt: "3" })).toBe(0);
 		expect(retryAttemptOf(PLUGGY_RETRY_JOB, null)).toBe(0);
 		expect(retryAttemptOf(PLUGGY_MANUAL_JOB, { attempt: 3 })).toBe(0);
-		expect(pluggyRetryJobId(2)).toBe(`${PLUGGY_RETRY_JOB}-2`);
+		expect(pluggyRetryJobId(ITEM, 2)).toBe(`${PLUGGY_RETRY_JOB}-${ITEM}-2`);
+		expect(retryConnectionIdsOf(PLUGGY_RETRY_JOB, { connectionIds: [ITEM] })).toEqual([ITEM]);
+		expect(retryConnectionIdsOf(PLUGGY_RETRY_JOB, { connectionIds: [ITEM, 7] })).toEqual([]);
+		expect(retryConnectionIdsOf(PLUGGY_RETRY_JOB, { attempt: 1 })).toBeNull();
+		expect(retryConnectionIdsOf(PLUGGY_MANUAL_JOB, { connectionIds: [ITEM] })).toBeNull();
+	});
+
+	describe("a nova tentativa sincroniza só as conexões que esperam", () => {
+		it("o job de nova tentativa chama o Pluggy só para as conexões da lista", async () => {
+			const stores = createMemoryStores({ now });
+			await stores.pluggyConnections.add({ id: ITEM });
+			await stores.pluggyConnections.add({ id: OTHER });
+			const calls: string[] = [];
+			const res = await processSyncJob(
+				PLUGGY_RETRY_JOB,
+				{ stores, readSecret: async (n) => secrets[n], fetch: fakeFetch(calls), now },
+				{ attempt: 1, connectionIds: [OTHER] },
+			);
+			expect(res.connections.map((c) => c.id)).toEqual([OTHER]);
+			expect(calls.filter((c) => c === `/items/${ITEM}`)).toHaveLength(0);
+			expect(calls).toContain(`/items/${OTHER}`);
+		});
+
+		it("o diário e o do app continuam sincronizando todas", async () => {
+			const stores = createMemoryStores({ now });
+			await stores.pluggyConnections.add({ id: ITEM });
+			await stores.pluggyConnections.add({ id: OTHER });
+			const res = await processSyncJob(
+				PLUGGY_DAILY_JOB,
+				{ stores, readSecret: async (n) => secrets[n], fetch: fakeFetch([]), now },
+				{ connectionIds: [OTHER] },
+			);
+			expect(res.connections).toHaveLength(2);
+		});
+	});
+
+	describe("agendamento", () => {
+		const fakeQueue = (existing: string[] = []) => {
+			const jobs = new Set(existing);
+			const added: { name: string; data: unknown; opts: Record<string, unknown> }[] = [];
+			return {
+				added,
+				queue: {
+					getJob: async (id: string) => (jobs.has(id) ? { id } : undefined),
+					add: async (name: string, data: unknown, opts: { jobId: string } & Record<string, unknown>) => {
+						jobs.add(opts.jobId);
+						added.push({ name, data, opts });
+					},
+				},
+			};
+		};
+
+		it("agenda um job por conexão que espera, com a lista e o id determinístico", async () => {
+			const { queue, added } = fakeQueue();
+			const waiting = result(conn({ reason: "updating" }), conn({ reason: "no_accounts" }, OTHER));
+			expect(await schedulePluggyRetries(queue, waiting, 0, now())).toBe(2);
+			expect(added.map((a) => a.data)).toEqual([
+				{ attempt: 1, connectionIds: [ITEM] },
+				{ attempt: 1, connectionIds: [OTHER] },
+			]);
+			expect(added.map((a) => a.opts.jobId)).toEqual([pluggyRetryJobId(ITEM, 1), pluggyRetryJobId(OTHER, 1)]);
+		});
+
+		it("não começa outra cadeia se já há uma pendente para a mesma conexão, em qualquer tentativa", async () => {
+			const { queue, added } = fakeQueue([pluggyRetryJobId(ITEM, 3)]);
+			const waiting = result(conn({ reason: "updating" }), conn({ reason: "updating" }, OTHER));
+			expect(await schedulePluggyRetries(queue, waiting, 0, now())).toBe(1);
+			expect(added.map((a) => (a.data as { connectionIds: string[] }).connectionIds)).toEqual([[OTHER]]);
+		});
+
+		it("dentro da própria cadeia, a tentativa em curso não conta como pendente", async () => {
+			const { queue, added } = fakeQueue([pluggyRetryJobId(ITEM, 2)]);
+			expect(await schedulePluggyRetries(queue, result(conn({ reason: "updating" })), 2, now())).toBe(1);
+			expect(added[0]?.data).toEqual({ attempt: 3, connectionIds: [ITEM] });
+		});
+
+		it("falha ao agendar não lança", async () => {
+			const queue = {
+				getJob: async () => undefined,
+				add: async () => {
+					throw new Error("redis fora");
+				},
+			};
+			expect(await schedulePluggyRetries(queue, result(conn({ reason: "updating" })), 0, now())).toBe(0);
+		});
 	});
 });

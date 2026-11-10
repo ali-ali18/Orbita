@@ -207,6 +207,17 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		});
 	});
 
+	it("autorização vencida não pede nova tentativa, nem com o item atualizando: só o dono resolve", async () => {
+		const t = setup({
+			...empty,
+			item: { connector: MEU, status: "UPDATING", consentExpiresAt: "2026-11-01T00:00:00.000Z" },
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		const result = await t.run();
+		expect(result.connections[0]).toMatchObject({ status: "error", error: PLUGGY_RECONNECT_MESSAGE });
+		expect(result.connections[0]?.retry).toBeUndefined();
+	});
+
 	it("conexão que já tinha contas e veio vazia desta vez mantém a contagem gravada", async () => {
 		const t = setup({
 			item: { connector: MEU },

@@ -213,10 +213,20 @@ const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().t
  *   da Pluggy em docs/pluggy.md ("Pendentes, apagados e recriados").
  * - Nunca lança por causa de uma conexão: o erro vira o `lastError` (já sanitizado) daquela conexão.
  */
-export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult> {
+export async function syncPluggy(
+	deps: SyncPluggyDeps,
+	/**
+	 * `connectionIds`: sincroniza só estas conexões (a nova tentativa das que esperam o banco); ausente = todas.
+	 * Lista que não casa com nenhuma conexão cadastrada dá `no_connections`.
+	 */
+	options: { connectionIds?: readonly string[] } = {},
+): Promise<SyncPluggyResult> {
 	const { stores, now } = deps;
 	const log = deps.log ?? (() => {});
-	const connections = await stores.pluggyConnections.list();
+	const only = options.connectionIds
+		? new Set(options.connectionIds.map((id) => id.trim().toLowerCase()))
+		: null;
+	const connections = (await stores.pluggyConnections.list()).filter((c) => only === null || only.has(c.id));
 	if (connections.length === 0) return { status: "no_connections", connections: [] };
 
 	let clientId: string | null;
@@ -479,6 +489,8 @@ async function syncConnection(
 			// atualização (docs.pluggy.ai/docs/guides/meu-pluggy-personal-use). Só o dono renova, entrando de novo.
 			result.status = "error";
 			result.error = PLUGGY_RECONNECT_MESSAGE;
+			// Nova tentativa não resolve (o item pode estar `UPDATING` aqui): só o dono renova a autorização.
+			delete result.retry;
 			return result;
 		}
 		// Faturas de cada cartão, antes de ligar: elas dão o fechamento e o vencimento quando o `creditData` não traz.
@@ -1220,7 +1232,7 @@ export function syncWindowStart(
 	const overlap = addDays(toLocalDate(lastSyncAt), -OVERLAP_DAYS);
 	// Teto: a janela cresce quando a última sincronização boa é antiga, mas nunca passa dos 6 meses iniciais.
 	const start = [routine, overlap].sort()[0] ?? routine;
-	return start < full ? full : start;
+	return [start, full].sort().at(-1) ?? full;
 }
 
 const bump = (counts: ConnectionSyncResult["skipped"], key: SkipReason | "archived_account") => {
