@@ -40,6 +40,7 @@ import {
 	findKnownBank,
 	hasMeuPluggyPrefix,
 	isLegacyRawName,
+	isMeuPluggyConnector,
 	isWeakCardName,
 } from "./bank-name.ts";
 import {
@@ -50,7 +51,7 @@ import {
 } from "./classify.ts";
 import { createPluggyClient, type PluggyClient, type PluggyFetch } from "./client.ts";
 import { inferClosingRule } from "./closing-rule.ts";
-import { chooseConnectionLabel } from "./connection-label.ts";
+import { chooseConnectionLabel, issuerHints } from "./connection-label.ts";
 import {
 	isPaymentNote,
 	type OwnTransferLeg,
@@ -557,15 +558,25 @@ async function syncConnection(
 			delete result.retry;
 			return result;
 		}
-		// Sem nenhuma linha em /accounts: o que sobra de pista (nome e estado) são os investimentos. Só aqui se lê
-		// /investments (uma chamada que nunca lança); com conta, ele nem é pedido.
+		// Sem nenhuma linha em /accounts de uma conexão que NUNCA teve conta nem cartão: o que sobra de pista (nome e
+		// estado) são os investimentos. Só aqui se lê /investments (nunca lança); conexão que já teve conta e veio vazia
+		// por falha passageira segue "ainda não enviou contas" (partial).
 		let investmentsSeen = 0;
 		let investmentIssuers: (string | null | undefined)[] = [];
-		if (pluggyAccounts.length === 0 && accountsRead.dropped === 0) {
+		if (
+			pluggyAccounts.length === 0 &&
+			accountsRead.dropped === 0 &&
+			connection.accountCount + connection.cardCount === 0
+		) {
 			const read = await readInvestments(client, connection.id);
 			if (read.outcome === "ok") {
 				investmentsSeen = read.rows.length;
-				investmentIssuers = read.rows.map((r) => r.issuer);
+				// O emissor só dá nome no MeuPluggy (no conector que é o banco o nome já vem do conector).
+				if (isMeuPluggyConnector(item.connector?.name)) {
+					investmentIssuers = issuerHints(read.rows, read.dropped);
+				}
+			} else if (read.outcome === "error") {
+				result.notes.push("Não consegui ler os investimentos desta vez.");
 			}
 		}
 		// O nome vem só do que já foi lido, antes de bills, ligação das contas e lançamentos: o que falhar depois não o

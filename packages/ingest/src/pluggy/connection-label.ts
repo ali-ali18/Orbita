@@ -8,7 +8,7 @@ import {
 	isWeakCardName,
 	rawBankName,
 } from "./bank-name.ts";
-import type { PluggyAccount } from "./schemas.ts";
+import type { PluggyAccount, PluggyInvestment } from "./schemas.ts";
 
 /*
  * Nome automático da conexão: o nome curto do banco ("Santander", "Nubank", "C6 Bank"). No conector "MeuPluggy" o
@@ -102,6 +102,35 @@ export function labelFromIssuers(issuers: readonly (string | null | undefined)[]
 }
 
 /**
+ * Os emissores que podem dar nome à conexão, ou `[]`. `issuer` é quem EMITE o produto, não quem guarda a posição (uma
+ * corretora guarda CDB de outros bancos; `institution` só vem no conector B3). Por isso só vale com: leitura sem linha
+ * descartada, toda posição de renda fixa (`FIXED_INCOME`: ação e fundo têm emissor que não é o banco da conexão) e
+ * `institution.name`, se vier, no mesmo banco do emissor. Quem chama ainda exige conector MeuPluggy e conexão que nunca
+ * teve conta nem cartão.
+ */
+export function issuerHints(
+	rows: readonly PluggyInvestment[],
+	dropped: number,
+): (string | null | undefined)[] {
+	if (dropped > 0 || rows.length === 0) return [];
+	if (!rows.every((r) => r.type === "FIXED_INCOME")) return [];
+	const issuers = rows.map((r) => r.issuer);
+	const bank = labelFromIssuers(issuers);
+	if (bank === null) return [];
+	for (const r of rows) {
+		const holder = r.institution?.name;
+		if (holder && bankDisplayName(findKnownBank(holder) ?? "") !== bank) return [];
+	}
+	return issuers;
+}
+
+/** O rótulo é exatamente o nome de exibição de um banco conhecido ("C6 Bank", "Santander")? */
+const isKnownBankLabel = (label: string): boolean => {
+	const bank = findKnownBank(label);
+	return bank !== null && bankDisplayName(bank) === label;
+};
+
+/**
  * O nome gravado é um dos que a própria sincronização já deu (e pode ser refeito)? As versões antigas juntavam o nome
  * das contas ("Inter, GOLD", "Nu Pagamentos S.A. - Ins…, Gold", "Conta, Cartão +2"). Vale quando CADA pedaço é: um nome
  * cortado com "…" (só o rótulo antigo cortava assim), só bandeira/nível de cartão ("Gold"), ou igual ao nome de uma
@@ -150,6 +179,9 @@ export function labelIsReplaceable(
 	if (label.length === 0) return true;
 	if (isMeuPluggyConnector(label)) return true;
 	if (connectorName && plain(label) === plain(connectorName)) return true;
+	// Nome provisório: o do emissor dos investimentos (ex.: "C6 Bank") vale enquanto não há contas; com contas, o nome
+	// derivado delas o substitui (o do dono nunca, `editedByOwner` já saiu acima).
+	if (accounts.length > 0 && isKnownBankLabel(label)) return true;
 	return isAutoLabel(label, accounts);
 }
 
