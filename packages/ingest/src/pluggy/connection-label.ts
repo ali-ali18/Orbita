@@ -1,17 +1,24 @@
 import { PLUGGY_LABEL_MAX } from "@orbita/shared";
-import { cleanBankName, isMeuPluggyConnector } from "./bank-name.ts";
+import {
+	bankByTransferNumber,
+	bankDisplayName,
+	cleanBankName,
+	findKnownBank,
+	isMeuPluggyConnector,
+	isWeakCardName,
+	rawBankName,
+} from "./bank-name.ts";
 import type { PluggyAccount } from "./schemas.ts";
 
 /*
- * Nome automático da conexão. No conector "MeuPluggy" o dono escolhe o banco dentro do widget e o Pluggy não
- * manda o nome da instituição no item nem na conta; todas as conexões chegam como "MeuPluggy". O que sobra de
- * pista é o nome das contas da própria conexão ("Conta Corrente Inter", "Mastercard Black"…).
+ * Nome automático da conexão: o nome curto do banco ("Santander", "Nubank", "C6 Bank"). No conector "MeuPluggy" o
+ * item não diz o banco (`connector.name` é "MeuPluggy" em todos); a pista está nas contas: o banco citado no nome
+ * ("BANCO INTER", "Nu Pagamentos S.A. - Instituição de Pagamento") ou o COMPE do `bankData.transferNumber`.
+ * Sem conta nenhuma não há pista: o nome fica como está e o app mostra a situação da conexão.
  */
 
-/** Nomes que aparecem no rótulo: mais que isso vira " +N". */
-const SHOWN_NAMES = 2;
-/** Cada nome cabe em 25 letras: 25 + ", " + 25 + " +99" = 56, dentro das 60 do rótulo. */
-const NAME_MAX = 25;
+/** Tamanho de cada nome no rótulo antigo ("Conta, Cartão +N"): 24 letras e "…". Só serve para reconhecê-lo. */
+const LEGACY_NAME_MAX = 25;
 
 const clean = (v: string) =>
 	v
@@ -26,50 +33,105 @@ const plain = (v: string) =>
 		.toLowerCase()
 		.replace(/[^a-z0-9]/g, "");
 
-/** `marketingName` ou `name` da conta, saneado e limitado; `null` se não sobra nada. */
-function accountLabel(account: PluggyAccount): string | null {
-	const text = cleanBankName(account.marketingName ?? "") || cleanBankName(account.name);
-	if (text.length === 0) return null;
-	return text.length > NAME_MAX ? `${text.slice(0, NAME_MAX - 1).trimEnd()}…` : text;
+/** Nome que só diz o tipo da conta ("Conta Corrente", "Cartão de Crédito"), não o banco. */
+const isGenericName = (name: string) =>
+	/\b(conta|corrente|poupanca|pagamento|cartao|credito)\b/.test(
+		name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(),
+	);
+
+const namesOf = (a: PluggyAccount): string[] =>
+	[a.marketingName, a.name].flatMap((n) => (n ? [cleanBankName(n)] : [])).filter((n) => n.length > 0);
+
+const cut = (name: string) =>
+	name.length > PLUGGY_LABEL_MAX ? `${name.slice(0, PLUGGY_LABEL_MAX - 1).trimEnd()}…` : name;
+
+/** Contas BANK primeiro, depois CREDIT, depois o resto (investimento…): a conta diz o banco melhor que o cartão. */
+function ordered(accounts: readonly PluggyAccount[]): PluggyAccount[] {
+	return [
+		...accounts.filter((a) => a.type === "BANK"),
+		...accounts.filter((a) => a.type === "CREDIT"),
+		...accounts.filter((a) => a.type !== "BANK" && a.type !== "CREDIT"),
+	];
 }
 
 /**
- * O nome pode ser trocado pela sincronização? Só se o dono não renomeou e o nome atual é vazio ou o do conector
- * MeuPluggy: nome digitado ou sugerido por outra fonte nunca é sobrescrito.
+ * O nome da conexão pelos dados do Pluggy, sempre o mesmo para os mesmos dados. Na ordem:
+ * 1. o conector, quando ele é o banco (não é o "MeuPluggy");
+ * 2. o banco conhecido citado no nome de alguma conta ("BANCO INTER" → "Inter");
+ * 3. o banco pelo COMPE do `transferNumber` de alguma conta ("336/…" → "C6 Bank");
+ * 4. banco que o Órbita não conhece: o nome da conta que não é só o tipo ("Banco Exemplo S.A."), senão o do cartão
+ *    que não é só bandeira, senão o primeiro nome que houver.
+ * `null` sem pista nenhuma (conexão sem contas no MeuPluggy).
+ */
+export function labelFromAccounts(input: {
+	connectorName: string | null | undefined;
+	accounts: readonly PluggyAccount[];
+}): string | null {
+	const connector = input.connectorName?.trim() ?? "";
+	if (connector !== "" && !isMeuPluggyConnector(connector)) {
+		const named = cleanBankName(connector);
+		if (named !== "") return cut(bankDisplayName(findKnownBank(named) ?? named));
+	}
+	const accounts = ordered(input.accounts);
+	for (const a of accounts) {
+		const bank = findKnownBank(a.marketingName) ?? findKnownBank(a.name);
+		if (bank) return bankDisplayName(bank);
+	}
+	for (const a of accounts) {
+		const bank = bankByTransferNumber(a.bankData?.transferNumber);
+		if (bank) return bankDisplayName(bank);
+	}
+	const names = accounts.flatMap((a) => namesOf(a).map((name) => ({ type: a.type, name })));
+	const pick =
+		names.find((n) => n.type === "BANK" && !isGenericName(n.name)) ??
+		names.find((n) => n.type === "CREDIT" && !isGenericName(n.name) && !isWeakCardName(n.name)) ??
+		names[0];
+	return pick ? cut(pick.name) : null;
+}
+
+/**
+ * O nome gravado é um dos que a própria sincronização já deu (e pode ser refeito)? As versões antigas juntavam o nome
+ * das contas ("Inter, GOLD", "Nu Pagamentos S.A. - Ins…, Gold", "Conta, Cartão +2"). Vale quando CADA pedaço é: um nome
+ * cortado com "…" (só o rótulo antigo cortava assim), só bandeira/nível de cartão ("Gold"), ou igual ao nome de uma
+ * conta da conexão. Nome que o dono digitou antes de existir a marca `labelEditedByOwner` não cai aqui, a menos que
+ * seja exatamente o nome de uma conta.
+ */
+export function isAutoLabel(current: string, accounts: readonly PluggyAccount[]): boolean {
+	const label = clean(current).replace(/\s\+\d+$/, "");
+	if (label === "") return true;
+	const known = new Set<string>();
+	for (const a of accounts) {
+		for (const n of [a.marketingName, a.name]) {
+			if (!n) continue;
+			known.add(plain(cleanBankName(n)));
+			known.add(plain(rawBankName(n)));
+		}
+	}
+	known.delete("");
+	return label.split(",").every((piece) => {
+		const part = piece.trim();
+		if (part === "") return false;
+		if (/(…|\.{3})$/u.test(part)) return part.length <= LEGACY_NAME_MAX + 2;
+		return isWeakCardName(part) || known.has(plain(part));
+	});
+}
+
+/**
+ * O nome pode ser trocado pela sincronização? Nunca o que o dono deu. Fora isso: vazio, o do conector ("MeuPluggy",
+ * ou o nome cru do banco quando o conector é o banco) e os que a sincronização mesma gerou (`isAutoLabel`).
  */
 export function labelIsReplaceable(
 	current: string | null,
 	connectorName: string | null | undefined,
 	editedByOwner: boolean,
+	accounts: readonly PluggyAccount[] = [],
 ): boolean {
 	if (editedByOwner) return false;
 	const label = clean(current ?? "");
 	if (label.length === 0) return true;
-	// Só o "MeuPluggy" esconde o banco; o nome de um conector de verdade ("Nubank") já diz o que a conexão é.
-	return isMeuPluggyConnector(connectorName) && plain(label) === plain(connectorName ?? "");
-}
-
-/**
- * Nome a partir das contas da conexão: contas BANK primeiro, depois CREDIT, sem repetir (ignora caixa e
- * acento), até 2 nomes e " +N" para o resto. `null` se nenhuma conta tem nome.
- */
-export function labelFromAccounts(accounts: readonly PluggyAccount[]): string | null {
-	const ordered = [
-		...accounts.filter((a) => a.type === "BANK"),
-		...accounts.filter((a) => a.type === "CREDIT"),
-	];
-	const seen = new Set<string>();
-	const names: string[] = [];
-	for (const account of ordered) {
-		const name = accountLabel(account);
-		if (name === null || seen.has(plain(name))) continue;
-		seen.add(plain(name));
-		names.push(name);
-	}
-	if (names.length === 0) return null;
-	const shown = names.slice(0, SHOWN_NAMES).join(", ");
-	const rest = names.length - SHOWN_NAMES;
-	return (rest > 0 ? `${shown} +${rest}` : shown).slice(0, PLUGGY_LABEL_MAX);
+	if (isMeuPluggyConnector(label)) return true;
+	if (connectorName && plain(label) === plain(connectorName)) return true;
+	return isAutoLabel(label, accounts);
 }
 
 /** Decisão completa: o nome novo, ou `null` para deixar como está. */
@@ -79,7 +141,11 @@ export function chooseConnectionLabel(input: {
 	editedByOwner: boolean;
 	accounts: readonly PluggyAccount[];
 }): string | null {
-	if (!labelIsReplaceable(input.current, input.connectorName, input.editedByOwner)) return null;
-	const next = labelFromAccounts(input.accounts);
-	return next !== null && next !== input.current ? next : null;
+	if (!labelIsReplaceable(input.current, input.connectorName, input.editedByOwner, input.accounts)) {
+		return null;
+	}
+	const next = labelFromAccounts(input);
+	// Sem pista do banco, o nome do conector "MeuPluggy" não é nome: fica como está (o app mostra a situação).
+	if (next === null || isMeuPluggyConnector(next)) return null;
+	return next !== input.current ? next : null;
 }

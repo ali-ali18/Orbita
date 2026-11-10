@@ -1,4 +1,5 @@
 import { createMemoryStores, type Stores } from "@orbita/db";
+import { PLUGGY_UPDATING_PREFIX, pluggyWaitingFor } from "@orbita/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	API_KEY,
@@ -694,10 +695,18 @@ describe("syncPluggy", () => {
 				await t2.stores.pluggyConnections.add({ id: ITEM_ID });
 				const result = await t2.run();
 				expect(result.status).toBe("partial");
-				expect(result.connections[0]?.notes).toContain("O banco não atualizou os dados no Pluggy ainda.");
 				const [c] = await t2.stores.pluggyConnections.list();
 				expect(c).toMatchObject({ lastStatus: "partial", lastSyncAt: null });
-				expect(c?.lastError).toContain("banco não atualizou");
+				if (status === "UPDATING") {
+					// Em andamento: o app mostra "Atualizando no banco…" e o worker tenta de novo sozinho.
+					expect(c?.lastError?.startsWith(PLUGGY_UPDATING_PREFIX)).toBe(true);
+					expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBe("updating");
+					expect(result.connections[0]?.retry?.reason).toBe("updating");
+				} else {
+					expect(result.connections[0]?.notes).toContain("O banco não atualizou os dados no Pluggy ainda.");
+					expect(c?.lastError).toContain("banco não atualizou");
+					expect(result.connections[0]?.retry).toBeUndefined();
+				}
 				expect((await everything(t2.stores)).length).toBeGreaterThan(0);
 			},
 		);
@@ -1063,9 +1072,11 @@ describe("syncPluggy", () => {
 			const logs: string[] = [];
 			const result = await syncPluggy({ ...t2.deps(), log: (l) => logs.push(l) });
 			expect(result.status).toBe("ok");
-			expect(result.connections[0]?.notes).toContain(
-				"2 lançamento(s) vieram fora do formato e foram descartados.",
+			// O motivo diz o campo e o problema, nunca o valor.
+			const note = result.connections[0]?.notes.find((n) =>
+				n.startsWith("2 lançamento(s) vieram fora do formato"),
 			);
+			expect(note).toMatch(/amount: /);
 			expect((await everything(t2.stores)).map((r) => r.externalId)).toEqual(["bom"]);
 			expect(JSON.stringify([logs, result])).not.toContain("texto do banco");
 		});
@@ -1087,7 +1098,7 @@ describe("syncPluggy", () => {
 			await t2.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
 			await t2.run();
 			expect(await t2.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({
-				label: "Santander, Mercado Pago",
+				label: "Santander",
 				labelEditedByOwner: false,
 				accountCount: 1,
 				cardCount: 1,

@@ -36,6 +36,25 @@ export function needsReconnect(c: {
 	return c.lastStatus === "error" && (c.lastError?.startsWith(PLUGGY_RECONNECT_PREFIX) ?? false);
 }
 
+/**
+ * Começo do `lastError` de uma conexão que ainda espera o banco (`lastStatus` "partial"; o app reconhece pelo começo
+ * da frase, como em `PLUGGY_RECONNECT_PREFIX`). "Atualizando": o item do Pluggy está `UPDATING`. "Sem contas": o item
+ * respondeu, mas `GET /accounts` não trouxe conta nem cartão.
+ */
+export const PLUGGY_UPDATING_PREFIX = "O banco ainda está atualizando os dados no Pluggy.";
+export const PLUGGY_NO_ACCOUNTS_PREFIX = "Conectado, mas o banco ainda não enviou contas.";
+
+/** O que a conexão espera do banco, pelo que a última sincronização gravou; `null` se não espera nada. */
+export function pluggyWaitingFor(c: {
+	lastStatus: PluggySyncStatus | null;
+	lastError: string | null;
+}): "updating" | "no_accounts" | null {
+	if (c.lastStatus !== "partial") return null;
+	if (c.lastError?.startsWith(PLUGGY_UPDATING_PREFIX)) return "updating";
+	if (c.lastError?.startsWith(PLUGGY_NO_ACCOUNTS_PREFIX)) return "no_accounts";
+	return null;
+}
+
 /** Sem caractere de controle (quebra de linha, tabulação, etc.): o nome vai para uma linha só. */
 const noControlChars = (v: string) => !/[\p{Cc}\p{Cf}]/u.test(v);
 
