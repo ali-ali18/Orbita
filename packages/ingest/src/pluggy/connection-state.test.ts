@@ -2,7 +2,9 @@ import { createMemoryStores } from "@orbita/db";
 import {
 	formatPluggyDiagnostics,
 	PLUGGY_NO_ACCOUNTS_PREFIX,
+	PLUGGY_NO_DATA_PREFIX,
 	PLUGGY_RECONNECT_MESSAGE,
+	PLUGGY_UPDATING_PREFIX,
 	pluggyWaitingFor,
 } from "@orbita/shared";
 import { describe, expect, it } from "vitest";
@@ -46,16 +48,21 @@ const c6Card = { ...cardAccount, name: "Mastercard Black", marketingName: null }
 function setup(initial: FakePluggyOptions = {}) {
 	let options = initial;
 	let clock = NOW;
+	const seen: { url: URL }[] = [];
 	const stores = createMemoryStores({ now: () => clock });
 	const deps = (): SyncPluggyDeps => ({
 		stores,
 		readSecret: async (name) => SECRETS[name] ?? null,
 		// Um Pluggy falso novo a cada pedido: as opções podem mudar entre uma rodada e outra.
-		fetch: (url, init) => fakePluggy(options).fetch(url, init),
+		fetch: (url, init) => {
+			const fake = fakePluggy(options);
+			return fake.fetch(url, init).finally(() => seen.push(...fake.requests));
+		},
 		now: () => clock,
 	});
 	return {
 		stores,
+		fakeRequests: async () => seen,
 		run: () => syncPluggy(deps()),
 		set: (next: FakePluggyOptions) => {
 			options = next;
@@ -148,6 +155,25 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		expect((await t.stores.cards.list())[0]).toMatchObject({ bankCode: "31872495", name: "C6 Bank" });
 	});
 
+	it("conexão gravada 'ok' com zero contas pela versão antiga conta como nova: busca os 6 meses quando as contas chegam", async () => {
+		const t = setup({
+			item: { connector: MEU },
+			accounts: [c6Account, c6Card],
+			transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: [] },
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+		// O que a versão antiga gravava: ok, janela avançada e historyFrom preenchido, sem nenhuma conta.
+		await t.stores.pluggyConnections.recordSync(ITEM_ID, {
+			status: "ok",
+			syncedAt: new Date("2026-11-10T09:00:00Z"),
+			historyFrom: "2026-05-13",
+			counts: { accounts: 0, cards: 0 },
+		});
+		await t.run();
+		const froms = (await t.fakeRequests()).filter((r) => r.url.pathname === "/v2/transactions");
+		expect(froms.map((r) => r.url.searchParams.get("dateFrom"))).toEqual(["2026-05-13", "2026-05-13"]);
+	});
+
 	it("conexão antiga e vazia não fica pedindo nova tentativa para sempre", async () => {
 		const t = setup(empty);
 		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
@@ -170,6 +196,53 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		);
 	});
 
+	it("só produtos que o Órbita não lê: texto próprio, sem 'ainda não enviou contas' e sem nova tentativa", async () => {
+		const t = setup({
+			...empty,
+			accounts: [{ id: "inv-1", type: "INVESTMENT", subtype: "FUND", name: "Fundo Exemplo" }],
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		const result = await t.run();
+		expect(result.connections[0]?.retry).toBeUndefined();
+		const c = await t.stores.pluggyConnections.get(ITEM_ID);
+		expect(c?.lastStatus).toBe("partial");
+		expect(c?.lastError).toContain("O banco só enviou produtos que o Órbita ainda não lê");
+		expect(c?.lastError?.startsWith(PLUGGY_NO_ACCOUNTS_PREFIX)).toBe(false);
+		expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBeNull();
+	});
+
+	it("o motivo principal aparece primeiro e os outros viram ' · e mais N avisos'", async () => {
+		const only = setup({
+			item: { connector: MEU, status: "UPDATING" },
+			accounts: [bankAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [] },
+		});
+		await only.stores.pluggyConnections.add({ id: ITEM_ID });
+		await only.run();
+		const alone = (await only.stores.pluggyConnections.get(ITEM_ID))?.lastError;
+		expect(alone?.startsWith(PLUGGY_UPDATING_PREFIX)).toBe(true);
+		expect(alone).not.toContain("e mais");
+
+		const one = setup({
+			item: { connector: MEU, status: "UPDATING" },
+			accounts: [bankAccount, { type: "CREDIT", name: "Cartão sem id" }],
+			transactions: { [BANK_ACCOUNT_ID]: [] },
+		});
+		await one.stores.pluggyConnections.add({ id: ITEM_ID });
+		await one.run();
+		const oneError = (await one.stores.pluggyConnections.get(ITEM_ID))?.lastError;
+		expect(oneError?.startsWith(PLUGGY_UPDATING_PREFIX)).toBe(true);
+		expect(oneError).toContain(" · e mais 1 aviso");
+		expect(oneError).not.toContain("1 avisos");
+
+		const two = setup({ item: { connector: MEU, status: "UPDATING" }, accounts: [{ type: "CREDIT" }] });
+		await two.stores.pluggyConnections.add({ id: ITEM_ID });
+		await two.run();
+		const twoError = (await two.stores.pluggyConnections.get(ITEM_ID))?.lastError;
+		expect(twoError?.startsWith(PLUGGY_UPDATING_PREFIX)).toBe(true);
+		expect(twoError).toContain(" · e mais 2 avisos");
+	});
+
 	it("lista vazia com a autorização vencida é pedido de reconexão (a doc: 'reads stop')", async () => {
 		const t = setup({
 			...empty,
@@ -181,6 +254,17 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 			lastStatus: "error",
 			lastError: PLUGGY_RECONNECT_MESSAGE,
 		});
+	});
+
+	it("autorização vencida não pede nova tentativa, nem com o item atualizando: só o dono resolve", async () => {
+		const t = setup({
+			...empty,
+			item: { connector: MEU, status: "UPDATING", consentExpiresAt: "2026-11-01T00:00:00.000Z" },
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		const result = await t.run();
+		expect(result.connections[0]).toMatchObject({ status: "error", error: PLUGGY_RECONNECT_MESSAGE });
+		expect(result.connections[0]?.retry).toBeUndefined();
 	});
 
 	it("conexão que já tinha contas e veio vazia desta vez mantém a contagem gravada", async () => {
@@ -359,6 +443,162 @@ describe("conta em formato inesperado", () => {
 			result.connections[0]?.notes.some((n) => /^1 fatura\(s\) vieram fora do formato .*id: /.test(n)),
 		).toBe(true);
 		expect(result.connections[0]?.bankNumbers?.bills).toBe(1);
+	});
+});
+
+describe("conexão partial que não se resolve sozinha", () => {
+	const withBadRow: FakePluggyOptions = {
+		item: { connector: MEU },
+		accounts: [bankAccount, { type: "CREDIT", name: "Cartão sem id" }],
+		transactions: { [BANK_ACCOUNT_ID]: [tx("a", { amount: -5 })] },
+	};
+	const froms = async (t: ReturnType<typeof setup>) =>
+		(await t.fakeRequests())
+			.filter((r) => r.url.pathname === "/v2/transactions")
+			.map((r) => r.url.searchParams.get("dateFrom"));
+
+	it("só linha recusada por formato: continua partial, mas a janela avança", async () => {
+		const t = setup(withBadRow);
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		expect(await t.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({
+			lastStatus: "partial",
+			lastSyncAt: NOW,
+			historyFrom: "2026-05-13",
+			accountCount: 1,
+		});
+		t.setNow(new Date("2026-11-13T09:00:00Z"));
+		await t.run();
+		// Rotina (4 meses), não os 6 meses de novo.
+		expect((await froms(t)).at(-1)).toBe("2026-07-14");
+	});
+
+	it("outro motivo junto (conta que não sincronizou) não avança a janela", async () => {
+		const t = setup({ ...withBadRow, item: { connector: MEU, status: "OUTDATED" } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		expect(await t.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({
+			lastStatus: "partial",
+			lastSyncAt: null,
+		});
+	});
+
+	it("a janela nunca passa de 6 meses, mesmo com a última sincronização boa muito antiga", async () => {
+		const t = setup({
+			item: { connector: MEU },
+			accounts: [bankAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [] },
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.stores.pluggyConnections.recordSync(ITEM_ID, {
+			status: "ok",
+			syncedAt: new Date("2026-01-02T09:00:00Z"),
+			historyFrom: "2025-07-01",
+			counts: { accounts: 1, cards: 0 },
+		});
+		await t.run();
+		expect(await froms(t)).toEqual(["2026-05-13"]);
+	});
+});
+
+describe("espelho do MeuPluggy ainda vazio (conta sem lançamento nenhum)", () => {
+	const froms = async (t: ReturnType<typeof setup>) =>
+		(await t.fakeRequests())
+			.filter((r) => r.url.pathname === "/v2/transactions")
+			.map((r) => r.url.searchParams.get("dateFrom"));
+	const noTx = { [BANK_ACCOUNT_ID]: [] };
+
+	it("1 conta e 0 lançamentos no primeiro sync: quando os lançamentos chegam, busca os 6 meses", async () => {
+		const t = setup({ item: { connector: MEU }, accounts: [bankAccount], transactions: noTx });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		t.set({
+			item: { connector: MEU },
+			accounts: [bankAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [tx("antigo", { amount: -10, date: "2026-06-01T00:00:00.000Z" })] },
+		});
+		t.setNow(new Date("2026-11-13T09:00:00Z"));
+		await t.run();
+		expect((await froms(t)).at(-1)).toBe("2026-05-14");
+		const all = await t.stores.transactions.listRecent({ limit: 50 });
+		expect(all.map((r) => r.externalId)).toContain("antigo");
+	});
+
+	it("conexão com lançamentos importados segue a janela de rotina", async () => {
+		const t = setup({
+			item: { connector: MEU },
+			accounts: [bankAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [tx("a", { amount: -5 })] },
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		t.setNow(new Date("2026-11-13T09:00:00Z"));
+		await t.run();
+		expect((await froms(t)).at(-1)).toBe("2026-07-14");
+	});
+
+	it("conta com lançamentos só antigos (fora dos 45 dias do Diagnóstico) é legítima: ok, sem espera", async () => {
+		const t = setup({
+			item: {
+				connector: MEU,
+				lastUpdatedAt: "2026-11-12T08:59:00.000Z",
+				consentExpiresAt: "2027-11-12T08:59:25.000Z",
+			},
+			accounts: [bankAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [tx("julho", { amount: -5, date: "2026-07-10T00:00:00.000Z" })] },
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		const result = await t.run();
+		expect(result.connections[0]).toMatchObject({ status: "ok" });
+		expect(result.connections[0]?.retry).toBeUndefined();
+	});
+
+	it("conexão com mais de 3 dias e conta sem movimento não fica esperando nem pede nova tentativa", async () => {
+		const t = setup({
+			item: {
+				connector: MEU,
+				lastUpdatedAt: "2026-11-12T08:59:00.000Z",
+				consentExpiresAt: "2027-11-12T08:59:25.000Z",
+			},
+			accounts: [bankAccount],
+			transactions: noTx,
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		t.setNow(new Date("2026-11-20T09:00:00Z"));
+		const result = await t.run();
+		expect(result.connections[0]).toMatchObject({ status: "ok" });
+		expect(result.connections[0]?.retry).toBeUndefined();
+	});
+
+	it("item atualizado ANTES da autorização e nada importado: espera o banco, sem avançar a janela", async () => {
+		const t = setup({
+			item: {
+				connector: MEU,
+				lastUpdatedAt: "2026-11-12T08:59:00.000Z",
+				consentExpiresAt: "2027-11-12T08:59:25.000Z",
+			},
+			accounts: [bankAccount],
+			transactions: noTx,
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		const result = await t.run();
+		const c = await t.stores.pluggyConnections.get(ITEM_ID);
+		expect(c).toMatchObject({ lastStatus: "partial", lastSyncAt: null, accountCount: 1 });
+		expect(c?.lastError?.startsWith(PLUGGY_NO_DATA_PREFIX)).toBe(true);
+		expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBe("no_data");
+		expect(result.connections[0]?.retry?.reason).toBe("no_data");
+		// Item atualizado depois da autorização, mesmo sem lançamento: é conta vazia de verdade, termina ok.
+		t.set({
+			item: {
+				connector: MEU,
+				lastUpdatedAt: "2026-11-13T08:59:00.000Z",
+				consentExpiresAt: "2027-11-12T08:59:25.000Z",
+			},
+			accounts: [bankAccount],
+			transactions: noTx,
+		});
+		await t.run();
+		expect((await t.stores.pluggyConnections.get(ITEM_ID))?.lastStatus).toBe("ok");
 	});
 });
 

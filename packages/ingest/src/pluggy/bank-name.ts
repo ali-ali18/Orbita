@@ -94,7 +94,12 @@ const BANK_WORDS: ReadonlyArray<readonly [name: string, match: RegExp]> = [
 	["Mercado Pago", /\bmercado pago\b/],
 	["Itaú", /\bitau\b/],
 	["Bradesco", /\bbradesco\b/],
-	["Banco do Brasil", /\b(banco do brasil|bb|ourocard)\b/],
+	// "bb" sozinho no meio de um nome ("Tem BB Seguros") não é o banco: precisa de conta/cartão ao lado. O COMPE 001
+	// do `transferNumber` (`bankByTransferNumber`) também diz.
+	[
+		"Banco do Brasil",
+		/\b(banco do brasil|ourocard)\b|\bbb (conta|cartao|credito|corrente|poupanca)\b|\b(conta|cartao|credito|corrente|poupanca) bb\b/,
+	],
 	["Caixa", /\bcaixa( economica)?\b/],
 	["C6", /\b(c6|c6bank)\b/],
 	["BTG", /\bbtg\b/],

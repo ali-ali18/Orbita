@@ -23,6 +23,7 @@ import {
 } from "@orbita/db";
 import {
 	PLUGGY_NO_ACCOUNTS_PREFIX,
+	PLUGGY_NO_DATA_PREFIX,
 	PLUGGY_RECONNECT_MESSAGE,
 	PLUGGY_UPDATING_PREFIX,
 	type PluggySyncStatus,
@@ -62,6 +63,7 @@ import {
 	type BillPayment,
 	type BillTotal,
 	isEstimatedCardDates,
+	isGeneratedAccountName,
 	type MappedAccount,
 	type MappedTransaction,
 	mapPluggyAccount,
@@ -175,7 +177,14 @@ export interface ConnectionSyncResult {
 	 * A conexão ainda espera o banco e vale tentar de novo sem o dono pedir: o item está `UPDATING`, ou a conexão é
 	 * nova e ainda não trouxe conta. `notBefore`: quando o Pluggy diz que atualiza o item (`nextAutoSyncAt`).
 	 */
-	retry?: { reason: "updating" | "no_accounts"; notBefore?: string };
+	retry?: { reason: "updating" | "no_accounts" | "no_data"; notBefore?: string };
+	/** O dia de onde a janela desta rodada buscou (vai para `historyFrom` se terminar `ok`). Uso interno do sync. */
+	windowFrom?: string;
+	/**
+	 * `partial` cujo único motivo é conta recusada por formato, com todas as aceitas sincronizadas: repetir a janela
+	 * não ajuda, então ela avança como numa rodada `ok` (a conta recusada continua avisada a cada rodada).
+	 */
+	windowDone?: boolean;
 	/** Avisos que não são erro (conta ignorada, por exemplo). Sem segredo. */
 	notes: string[];
 }
@@ -207,10 +216,20 @@ const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().t
  *   da Pluggy em docs/pluggy.md ("Pendentes, apagados e recriados").
  * - Nunca lança por causa de uma conexão: o erro vira o `lastError` (já sanitizado) daquela conexão.
  */
-export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult> {
+export async function syncPluggy(
+	deps: SyncPluggyDeps,
+	/**
+	 * `connectionIds`: sincroniza só estas conexões (a nova tentativa das que esperam o banco); ausente = todas.
+	 * Lista que não casa com nenhuma conexão cadastrada dá `no_connections`.
+	 */
+	options: { connectionIds?: readonly string[] } = {},
+): Promise<SyncPluggyResult> {
 	const { stores, now } = deps;
 	const log = deps.log ?? (() => {});
-	const connections = await stores.pluggyConnections.list();
+	const only = options.connectionIds
+		? new Set(options.connectionIds.map((id) => id.trim().toLowerCase()))
+		: null;
+	const connections = (await stores.pluggyConnections.list()).filter((c) => only === null || only.has(c.id));
 	if (connections.length === 0) return { status: "no_connections", connections: [] };
 
 	let clientId: string | null;
@@ -244,7 +263,13 @@ export async function syncPluggy(deps: SyncPluggyDeps): Promise<SyncPluggyResult
 		const guard = createRelinkGuard(client, connection, connections);
 		const result = await syncConnection(deps, client, connection, startedAt, lookups, shared, guard);
 		results.push(
-			await finish(deps, connection, result, startedAt, syncWindowStart(toLocalDate(startedAt), connection)),
+			await finish(
+				deps,
+				connection,
+				result,
+				startedAt,
+				result.windowFrom ?? syncWindowStart(toLocalDate(startedAt), connection),
+			),
 		);
 		log(
 			`pluggy: ${result.status} contas=${result.accounts} novos=${result.created} existentes=${result.existing}`,
@@ -388,8 +413,12 @@ async function finish(
 	await deps.stores.pluggyConnections.recordSync(connection.id, {
 		status: result.status,
 		error: result.error,
-		...(result.status === "ok" && startedAt
-			? { syncedAt: startedAt, ...(from ? { historyFrom: from } : {}) }
+		...((result.status === "ok" || (result.status === "partial" && result.windowDone)) && startedAt
+			? {
+					syncedAt: startedAt,
+					...(from ? { historyFrom: from } : {}),
+					...(result.status === "partial" ? { windowDone: true } : {}),
+				}
 			: {}),
 		...(result.counts ? { counts: result.counts } : {}),
 		...(typeof result.isOpenFinance === "boolean" ? { isOpenFinance: result.isOpenFinance } : {}),
@@ -409,11 +438,15 @@ async function syncConnection(
 	const result = blank(connection.id, "ok", null);
 	// Motivos para a conexão terminar `partial`: não avança `lastSyncAt`, então a próxima rodada refaz a janela.
 	const partial: string[] = [];
+	// Dos motivos acima, os que são só linha recusada por formato (repetir a janela não os resolve).
+	const formatOnly = new Set<string>();
 	// Começo do `lastError` que o app reconhece ("Atualizando no banco…", "ainda não enviou contas").
 	let lead: string | null = null;
+	// O motivo em `partial` que o `lead` já diz; os outros viram " · e mais N avisos" no `lastError`.
+	let leadReason: string | null = null;
 	try {
 		const today = toLocalDate(startedAt);
-		const from = syncWindowStart(today, connection);
+		let from = syncWindowStart(today, connection);
 
 		const item = await client.item(connection.id);
 		// `connector.isOpenFinance` (docs.pluggy.ai/reference/items-retrieve): onde `providerId`, `billId`,
@@ -431,7 +464,8 @@ async function syncConnection(
 		if (item.status === "UPDATING") {
 			// Em andamento ("An update process is in progress and will be updated soon": docs.pluggy.ai, Item lifecycle).
 			result.notes.push("O banco ainda está atualizando os dados no Pluggy.");
-			partial.push("o banco ainda está atualizando os dados no Pluggy");
+			leadReason = "o banco ainda está atualizando os dados no Pluggy";
+			partial.push(leadReason);
 			lead = PLUGGY_UPDATING_PREFIX;
 			result.retry = { reason: "updating", ...(notBefore ? { notBefore } : {}) };
 		} else if (item.status !== "UPDATED") {
@@ -447,7 +481,16 @@ async function syncConnection(
 			result.notes.push(
 				`${accountsRead.dropped} conta(s) vieram do Pluggy fora do formato e não foram importadas (${accountsRead.problems.join("; ") || "sem detalhe"}). Mande o Diagnóstico da conexão para corrigir.`,
 			);
-			partial.push(`${accountsRead.dropped} conta(s) vieram fora do formato`);
+			const reason = `${accountsRead.dropped} conta(s) vieram fora do formato`;
+			partial.push(reason);
+			formatOnly.add(reason);
+		}
+		// Campo opcional que veio com tipo errado ou comprido demais não recusa a conta, mas não passa em silêncio.
+		const fieldProblems = new Set(pluggyAccounts.flatMap((a) => a.fieldProblems ?? []));
+		if (fieldProblems.size > 0) {
+			result.notes.push(
+				`Alguns campos das contas vieram fora do formato e foram ignorados ou cortados (${[...fieldProblems].slice(0, 6).join("; ")}). Mande o Diagnóstico da conexão se algo ficou errado.`,
+			);
 		}
 		if (
 			pluggyAccounts.length === 0 &&
@@ -458,6 +501,8 @@ async function syncConnection(
 			// atualização (docs.pluggy.ai/docs/guides/meu-pluggy-personal-use). Só o dono renova, entrando de novo.
 			result.status = "error";
 			result.error = PLUGGY_RECONNECT_MESSAGE;
+			// Nova tentativa não resolve (o item pode estar `UPDATING` aqui): só o dono renova a autorização.
+			delete result.retry;
 			return result;
 		}
 		// Faturas de cada cartão, antes de ligar: elas dão o fechamento e o vencimento quando o `creditData` não traz.
@@ -496,6 +541,11 @@ async function syncConnection(
 			bankName,
 			guard,
 		);
+		// Conexão que ainda não importou lançamento nem fatura nenhum (o espelho do MeuPluggy pode entregar a conta antes
+		// dos dados) é nova: a janela é a inicial, mesmo que uma rodada anterior tenha terminado `ok` e gasto `historyFrom`.
+		const imported = await hasImportedData(deps, linked);
+		from = syncWindowStart(today, connection, imported);
+		result.windowFrom = from;
 		if (deferredCards > 0) partial.push(`${deferredCards} cartão(ões) esperam as faturas para ter as datas`);
 		if (deferredRelink > 0) {
 			partial.push(`${deferredRelink} conta(s) esperam a conferência das outras conexões`);
@@ -514,12 +564,21 @@ async function syncConnection(
 				result.notes.push("O Pluggy não devolveu nenhuma conta para esta conexão.");
 			}
 			for (const note of productWarnings(item.statusDetail)) result.notes.push(note);
-			partial.push("o banco ainda não enviou contas");
-			lead ??= PLUGGY_NO_ACCOUNTS_PREFIX;
-			// Conexão nova: o item do MeuPluggy espelha o item original e recebe o dado na atualização seguinte dele.
-			const isNew = startedAt.getTime() - connection.createdAt.getTime() < NEW_CONNECTION_MS;
-			if (isNew && !result.retry)
-				result.retry = { reason: "no_accounts", ...(notBefore ? { notBefore } : {}) };
+			if (ignored > 0) {
+				// O banco enviou linhas, mas todas de produto que o Órbita não lê (investimento…): esperar não muda isso, então
+				// sem "ainda não enviou contas" e sem nova tentativa.
+				partial.push("o banco só enviou produtos que o Órbita ainda não lê");
+			} else {
+				partial.push("o banco ainda não enviou contas");
+				if (lead === null) {
+					lead = PLUGGY_NO_ACCOUNTS_PREFIX;
+					leadReason = "o banco ainda não enviou contas";
+				}
+				// Conexão nova: o item do MeuPluggy espelha o item original e recebe o dado na atualização seguinte dele.
+				const isNew = startedAt.getTime() - connection.createdAt.getTime() < NEW_CONNECTION_MS;
+				if (isNew && !result.retry)
+					result.retry = { reason: "no_accounts", ...(notBefore ? { notBefore } : {}) };
+			}
 		}
 		// Sem conta agora, mas a conexão já teve: as contas continuam no Órbita, a contagem gravada fica.
 		if (!(empty && connection.accountCount + connection.cardCount > 0)) {
@@ -641,6 +700,31 @@ async function syncConnection(
 			result.notes.push(
 				`${dropped} lançamento(s) vieram fora do formato e foram descartados${droppedWhy.size ? ` (${[...droppedWhy].slice(0, 6).join("; ")})` : ""}.`,
 			);
+
+		// Espelho do MeuPluggy ainda vazio: veio conta, mas nenhum lançamento nem fatura (agora e antes), e o item foi
+		// atualizado ANTES do começo da autorização (`consentExpiresAt` menos 1 ano: a autorização do MeuPluggy dura um
+		// ano). O Meu Pluggy só preenche o espelho na atualização seguinte do item original: espera, não é "Sincronizado".
+		// INFERÊNCIA do padrão visto em produção (docs/pluggy.md); sem os dois horários o sinal não vale.
+		const fetchedAny =
+			fetched.some((f) => f.txs.length > 0) || [...billsOf.values()].some((b) => b.bills.length > 0);
+		if (
+			// Só nos primeiros dias da conexão: conta sem movimento de verdade não fica "esperando o banco" para sempre.
+			startedAt.getTime() - connection.createdAt.getTime() < NEW_CONNECTION_MS &&
+			linked.length > 0 &&
+			!imported &&
+			!fetchedAny &&
+			failedAccounts === 0 &&
+			item.status === "UPDATED" &&
+			mirrorNotFilled(item.lastUpdatedAt, item.consentExpiresAt)
+		) {
+			result.notes.push(
+				"O banco entregou a conta, mas ainda não os lançamentos (o Pluggy ainda não preencheu).",
+			);
+			partial.push("o banco ainda não enviou lançamentos");
+			lead ??= PLUGGY_NO_DATA_PREFIX;
+			if (lead === PLUGGY_NO_DATA_PREFIX) leadReason = "o banco ainda não enviou lançamentos";
+			if (!result.retry) result.retry = { reason: "no_data", ...(notBefore ? { notBefore } : {}) };
+		}
 
 		// Fatura ABERTA de cada cartão (o banco não a manda em `/bills`): a soma das compras PENDING, que a doc define como
 		// "ainda não incluídas numa fatura fechada". O dono costuma pagar antes de a fatura fechar (o Mercado Pago aceita
@@ -814,9 +898,13 @@ async function syncConnection(
 		if (result.failed > 0) partial.push(`${result.failed} lançamento(s) não puderam ser gravados`);
 		if (partial.length > 0) {
 			result.status = "partial";
+			result.windowDone = partial.every((reason) => formatOnly.has(reason));
+			const others = partial.filter((reason) => reason !== leadReason).length;
 			result.error =
 				lead !== null
-					? `${lead} O Órbita tenta de novo sozinho; você também pode tocar em Sincronizar agora mais tarde.`
+					? `${lead} O Órbita tenta de novo sozinho; você também pode tocar em Sincronizar agora mais tarde.${
+							others > 0 ? ` · e mais ${others} ${others === 1 ? "aviso" : "avisos"}` : ""
+						}`
 					: `${capitalize(partial.join("; "))}. Na próxima sincronização o Órbita tenta de novo.`;
 		}
 		return result;
@@ -825,6 +913,34 @@ async function syncConnection(
 		result.error = safeErrorMessage(e);
 		return result;
 	}
+}
+
+/** Há lançamento ou fatura do Pluggy gravado em alguma das contas/cartões ligados desta conexão? */
+async function hasImportedData(deps: SyncPluggyDeps, linked: readonly Linked[]): Promise<boolean> {
+	const accountIds = linked.flatMap((l) => (l.account ? [l.account.id] : []));
+	const cardIds = linked.flatMap((l) => (l.card ? [l.card.id] : []));
+	if (accountIds.length + cardIds.length === 0) return false;
+	const found = await deps.stores.transactions.countMatching({
+		sources: [PLUGGY_SOURCE],
+		...(accountIds.length > 0 ? { accountIds } : {}),
+		...(cardIds.length > 0 ? { cardIds } : {}),
+	});
+	if (found > 0) return true;
+	for (const cardId of cardIds) if ((await deps.stores.bills.listByCard(cardId)).length > 0) return true;
+	return false;
+}
+
+/** O item foi atualizado antes de a autorização começar (`consentExpiresAt` menos 1 ano)? Sem as duas datas, `false`. */
+function mirrorNotFilled(
+	lastUpdatedAt: string | null | undefined,
+	consentExpiresAt: string | null | undefined,
+): boolean {
+	const updated = lastUpdatedAt ? Date.parse(lastUpdatedAt) : Number.NaN;
+	const expires = consentExpiresAt ? Date.parse(consentExpiresAt) : Number.NaN;
+	if (!Number.isFinite(updated) || !Number.isFinite(expires)) return false;
+	const start = new Date(expires);
+	start.setUTCFullYear(start.getUTCFullYear() - 1);
+	return updated < start.getTime();
 }
 
 /** Conexão "nova" para tentar de novo sozinha quando ainda não trouxe contas: 3 dias. */
@@ -1074,6 +1190,7 @@ async function linkAccounts(
 				account.archivedAt === null &&
 				account.name !== mapped.input.name &&
 				(hasMeuPluggyPrefix(account.name) ||
+					isGeneratedAccountName(account.name) ||
 					isLegacyRawName(account.name, pa.marketingName?.trim() || pa.name))
 			) {
 				// Importada antes da limpeza do nome ("MeuPluggy Inter"): o prefixo é a marca de que o dono ainda não
@@ -1147,6 +1264,7 @@ async function linkAccounts(
 			card.archivedAt === null &&
 			card.name !== mapped.input.name &&
 			(hasMeuPluggyPrefix(card.name) ||
+				isGeneratedAccountName(card.name) ||
 				isLegacyRawName(card.name, pa.marketingName?.trim() || pa.name) ||
 				(isWeakCardName(card.name) && !isWeakCardName(mapped.input.name)))
 		) {
@@ -1179,18 +1297,27 @@ async function linkAccounts(
 /**
  * O começo da janela. Conexão nova (sem sincronização boa) ou que nunca buscou os 6 meses (`historyFrom` ausente ou
  * mais recente que hoje − 183 dias, como as criadas quando o histórico era de 4 meses): desde hoje − 183 dias, uma vez
- * (a rodada boa registra `historyFrom`). Depois: no mínimo 4 meses, ou mais se a última sincronização boa for anterior.
+ * (a rodada boa registra `historyFrom`). Depois: no mínimo 4 meses, ou mais se a última sincronização boa for anterior,
+ * limitado aos 6 meses (uma conexão `partial` permanente não pode fazer a janela crescer sem teto).
  */
 export function syncWindowStart(
 	today: string,
-	connection: Pick<PluggyConnectionRecord, "lastSyncAt" | "historyFrom">,
+	connection: Pick<PluggyConnectionRecord, "lastSyncAt" | "historyFrom" | "accountCount" | "cardCount">,
+	/** Já há lançamento ou fatura do Pluggy importado nas contas desta conexão? `false` = ainda é a primeira busca. */
+	imported = true,
 ): string {
 	const full = addDays(today, -FIRST_SYNC_DAYS);
 	const { lastSyncAt, historyFrom } = connection;
-	if (lastSyncAt === null || historyFrom === null || historyFrom > full) return full;
+	// Sem conta nem cartão a conexão ainda não buscou nada: a versão antiga gravava "ok" com zero contas e já avançava
+	// `lastSyncAt` e `historyFrom`. Quando as contas chegam, é a primeira busca de verdade.
+	const neverHadAccounts = connection.accountCount + connection.cardCount === 0;
+	if (lastSyncAt === null || historyFrom === null || historyFrom > full || neverHadAccounts || !imported)
+		return full;
 	const routine = addDays(today, -ROUTINE_SYNC_DAYS);
 	const overlap = addDays(toLocalDate(lastSyncAt), -OVERLAP_DAYS);
-	return [routine, overlap].sort()[0] ?? routine;
+	// Teto: a janela cresce quando a última sincronização boa é antiga, mas nunca passa dos 6 meses iniciais.
+	const start = [routine, overlap].sort()[0] ?? routine;
+	return [start, full].sort().at(-1) ?? full;
 }
 
 const bump = (counts: ConnectionSyncResult["skipped"], key: SkipReason | "archived_account") => {

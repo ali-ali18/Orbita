@@ -113,6 +113,17 @@ describe("isAutoLabel", () => {
 		).toBe(true);
 		expect(isAutoLabel("", [])).toBe(true);
 	});
+	it("apelido de um pedaço só, que é bandeira/nível ou nome de conta, é do dono", () => {
+		for (const nickname of ["Gold", "Black", "Platinum", "Meu C6", "BANCO INTER", "Conta Inter"]) {
+			expect(isAutoLabel(nickname, inter)).toBe(false);
+			expect(isAutoLabel(nickname, [])).toBe(false);
+		}
+		// O formato exato do rótulo antigo continua valendo: pedaços ligados por ", ", "…" de corte ou " +N".
+		expect(isAutoLabel("Inter, GOLD", inter)).toBe(true);
+		expect(isAutoLabel("Nu Pagamentos S.A. - Ins…, Gold", [])).toBe(true);
+		expect(isAutoLabel("Banco Santander Pessoa F…", [])).toBe(true);
+		expect(isAutoLabel("Gold, Black +1", [])).toBe(true);
+	});
 	it("não confunde com nome que o dono digitou", () => {
 		expect(isAutoLabel("Minha conta", inter)).toBe(false);
 		expect(isAutoLabel("Inter do casal", inter)).toBe(false);

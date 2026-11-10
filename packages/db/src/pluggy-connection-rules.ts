@@ -36,7 +36,10 @@ export function normalizeSyncResult(result: PluggySyncResult) {
 	return {
 		status: result.status,
 		error,
-		syncedAt: result.status === "ok" ? (result.syncedAt ?? null) : null,
+		syncedAt:
+			result.status === "ok" || (result.status === "partial" && result.windowDone === true)
+				? (result.syncedAt ?? null)
+				: null,
 		counts: result.counts ? normalizeCounts(result.counts) : null,
 	};
 }

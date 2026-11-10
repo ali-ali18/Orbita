@@ -127,6 +127,34 @@ describe.each(contractSuites())("PluggyConnectionStore (%s)", (_name, make) => {
 		expect(noKeys).toMatchObject({ lastStatus: "no_keys", lastError: null, lastSyncAt: at });
 	});
 
+	it("partial só avança lastSyncAt (e historyFrom) quando a rodada diz que a janela está feita", async () => {
+		await stores.pluggyConnections.add({ id: ITEM });
+		const at = new Date("2026-11-07T09:00:00Z");
+		await stores.pluggyConnections.recordSync(ITEM, {
+			status: "partial",
+			error: "x",
+			syncedAt: at,
+			historyFrom: "2026-05-08",
+		});
+		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ lastSyncAt: null, historyFrom: null });
+		const done = await stores.pluggyConnections.recordSync(ITEM, {
+			status: "partial",
+			error: "x",
+			syncedAt: at,
+			historyFrom: "2026-05-08",
+			windowDone: true,
+		});
+		expect(done).toMatchObject({ lastStatus: "partial", lastSyncAt: at, historyFrom: "2026-05-08" });
+		// windowDone não vale para erro.
+		const err = await stores.pluggyConnections.recordSync(ITEM, {
+			status: "error",
+			error: "x",
+			syncedAt: new Date("2026-11-09T09:00:00Z"),
+			windowDone: true,
+		});
+		expect(err).toMatchObject({ lastSyncAt: at });
+	});
+
 	it("historyFrom guarda o dia mais antigo já buscado, só com sincronização ok, e nunca encurta", async () => {
 		await stores.pluggyConnections.add({ id: ITEM });
 		expect(await stores.pluggyConnections.get(ITEM)).toMatchObject({ historyFrom: null });

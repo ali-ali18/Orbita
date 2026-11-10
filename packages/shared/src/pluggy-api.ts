@@ -43,15 +43,18 @@ export function needsReconnect(c: {
  */
 export const PLUGGY_UPDATING_PREFIX = "O banco ainda está atualizando os dados no Pluggy.";
 export const PLUGGY_NO_ACCOUNTS_PREFIX = "Conectado, mas o banco ainda não enviou contas.";
+/** Veio conta, mas nenhum lançamento nem fatura, e o item foi atualizado antes da autorização (espelho ainda vazio). */
+export const PLUGGY_NO_DATA_PREFIX = "Conectado, mas o banco ainda não enviou lançamentos.";
 
 /** O que a conexão espera do banco, pelo que a última sincronização gravou; `null` se não espera nada. */
 export function pluggyWaitingFor(c: {
 	lastStatus: PluggySyncStatus | null;
 	lastError: string | null;
-}): "updating" | "no_accounts" | null {
+}): "updating" | "no_accounts" | "no_data" | null {
 	if (c.lastStatus !== "partial") return null;
 	if (c.lastError?.startsWith(PLUGGY_UPDATING_PREFIX)) return "updating";
 	if (c.lastError?.startsWith(PLUGGY_NO_ACCOUNTS_PREFIX)) return "no_accounts";
+	if (c.lastError?.startsWith(PLUGGY_NO_DATA_PREFIX)) return "no_data";
 	return null;
 }
 

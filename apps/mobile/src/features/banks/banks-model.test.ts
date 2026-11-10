@@ -1,5 +1,6 @@
 import {
 	PLUGGY_NO_ACCOUNTS_PREFIX,
+	PLUGGY_NO_DATA_PREFIX,
 	PLUGGY_UPDATING_PREFIX,
 	type PluggyConnectionDto,
 	type PluggyStatusResponse,
@@ -122,6 +123,15 @@ describe("situação da conexão", () => {
 		expect(connectionStatusDetail(waiting)).toContain("tenta de novo sozinho");
 		// Quem já tem contas e veio vazio desta vez: a situação comum de "em parte".
 		expect(connectionStatusLine({ ...waiting, summary: ONE }, NOW)).toBe("Sincronizou em parte");
+	});
+	it("conta já veio, lançamentos ainda não (espelho vazio): espera, não 'Sincronizado'", () => {
+		const c = conn({
+			lastStatus: "partial",
+			lastError: `${PLUGGY_NO_DATA_PREFIX} O Órbita tenta de novo sozinho.`,
+			summary: ONE,
+		});
+		expect(connectionStatusLine(c, NOW)).toBe("Conectado, mas o banco ainda não enviou lançamentos");
+		expect(connectionStatusDetail(c)).toContain("6 meses");
 	});
 	it("item ainda atualizando no Pluggy", () => {
 		const c = conn({ lastStatus: "partial", lastError: `${PLUGGY_UPDATING_PREFIX} O Órbita tenta de novo.` });
@@ -304,6 +314,11 @@ describe("cor do banco", () => {
 		expect(bankColorByName("Banco Inter")).toBe(banks.inter);
 		expect(bankColorByName("Mercado Pago")).toBe(banks.mercadoPago);
 		expect(bankColorByName("Banco Qualquer")).toBe(banks.generic);
+		// C6 em qualquer grafia do banco (a mesma lista do servidor: "C6", "C6 Bank", "C6Bank", "Banco C6").
+		for (const name of ["C6", "C6 Bank", "C6Bank", "c6bank", "Banco C6 S.A.", "C6 Carbon"]) {
+			expect(bankColorByName(name), name).toBe(banks.c6);
+		}
+		expect(bankColorByName("Bobo C60")).toBe(banks.generic);
 	});
 });
 
