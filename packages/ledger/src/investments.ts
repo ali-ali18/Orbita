@@ -1,4 +1,5 @@
 import {
+	addDays,
 	EVOLUTION_RANGE_MONTHS,
 	type EvolutionRange,
 	evolutionRangeStart,
@@ -37,6 +38,7 @@ import type {
 	InvestmentsOverviewResponse,
 	InvestmentYieldDto,
 } from "@orbita/shared";
+import { buildTermsFields, notApplicableTerms, resolveTerms } from "./investment-terms.ts";
 
 /*
  * Leitura de Investimentos: junta as stores com o engine (`@orbita/core`) e devolve os DTOs de `@orbita/shared`
@@ -116,6 +118,28 @@ function toPositionInput(r: InvestmentRecord, labels: ReadonlyMap<string, string
 	};
 }
 
+/**
+ * Condições, sugestões e rendimento esperado de cada posição. Lê o que o dono informou e o CDI (só o trecho que as datas
+ * de aplicação pedem) uma vez para todas as posições.
+ */
+async function termsContext(stores: Stores, records: readonly InvestmentRecord[], today: LocalDate) {
+	const user = new Map((await stores.investmentTerms.list()).map((t) => [t.investmentId, t]));
+	const starts = records.flatMap((r) => {
+		const d = resolveTerms(r, user.get(r.id) ?? null, today).startDate?.date;
+		return d === undefined ? [] : [d];
+	});
+	const earliest = starts.reduce<LocalDate | null>((min, d) => (min === null || d < min ? d : min), null);
+	const cdi =
+		earliest === null
+			? []
+			: (await stores.cdiRates.list({ from: addDays(earliest, -10), to: today })).map((c) => ({
+					day: c.day,
+					rateE8: c.rateE8,
+				}));
+	return (record: InvestmentRecord, input: InvestmentPositionInput) =>
+		buildTermsFields({ record, input, user: user.get(record.id) ?? null, cdi, today });
+}
+
 const toMovementInput = (m: InvestmentMovementRecord): InvestmentMovementInput => ({
 	investmentId: m.investmentId,
 	type: m.type,
@@ -149,6 +173,7 @@ export function toInvestmentPositionDto(
 	record: InvestmentRecord,
 	input: InvestmentPositionInput,
 	movements: readonly InvestmentMovementInput[],
+	terms: ReturnType<typeof notApplicableTerms> = notApplicableTerms(),
 ): InvestmentPositionDto {
 	const cls = investmentClassOf(record.type, record.subtype);
 	return {
@@ -183,6 +208,7 @@ export function toInvestmentPositionDto(
 		issuer: record.issuer,
 		syncedAt: record.syncedAt.toISOString(),
 		archivedAt: record.archivedAt?.toISOString() ?? null,
+		...terms,
 	};
 }
 
@@ -210,6 +236,7 @@ export async function investmentsOverview(
 	const movementInputs = movements.map(toMovementInput);
 	const snapshotInputs = snapshots.map(toSnapshotInput);
 	const byId = new Map(positions.map((p) => [p.id, p]));
+	const termsOf = await termsContext(stores, records, today);
 	const movementsOf = new Map<string, InvestmentMovementInput[]>();
 	for (const m of movementInputs) {
 		const list = movementsOf.get(m.investmentId);
@@ -229,9 +256,10 @@ export async function investmentsOverview(
 
 	const active = records.filter((r) => isActiveInvestment(byId.get(r.id) as InvestmentPositionInput));
 	const dtos = active
-		.map((r) =>
-			toInvestmentPositionDto(r, byId.get(r.id) as InvestmentPositionInput, movementsOf.get(r.id) ?? []),
-		)
+		.map((r) => {
+			const input = byId.get(r.id) as InvestmentPositionInput;
+			return toInvestmentPositionDto(r, input, movementsOf.get(r.id) ?? [], termsOf(r, input));
+		})
 		.sort(
 			(a, b) => (b.balanceCents ?? -1) - (a.balanceCents ?? -1) || (a.name ?? "").localeCompare(b.name ?? ""),
 		);
@@ -248,6 +276,7 @@ export async function investmentsOverview(
 		activePositions: breakdown.activePositions,
 		withoutBalance: breakdown.withoutBalance,
 		foreignCurrency: breakdown.foreignCurrency,
+		missingTermsPositions: dtos.filter((d) => d.missing.length > 0).length,
 		closedPositions: records.length - active.length,
 		yield: {
 			total: {
@@ -282,13 +311,18 @@ export async function investmentsOverview(
 }
 
 /** `GET /v1/investments/:id`: a posição (também a encerrada), as movimentações e os retratos dela. `null` se não existe. */
-export async function investmentDetail(stores: Stores, id: string): Promise<InvestmentDetailResponse | null> {
+export async function investmentDetail(
+	stores: Stores,
+	id: string,
+	clock: { today: LocalDate },
+): Promise<InvestmentDetailResponse | null> {
 	const record = await stores.investments.get(id);
 	if (!record) return null;
 	const { positions, movements, snapshots } = await load(stores, id);
 	const input = positions[0] as InvestmentPositionInput;
+	const termsOf = await termsContext(stores, [record], clock.today);
 	return {
-		position: toInvestmentPositionDto(record, input, movements.map(toMovementInput)),
+		position: toInvestmentPositionDto(record, input, movements.map(toMovementInput), termsOf(record, input)),
 		movements: movements.map(toInvestmentMovementDto),
 		snapshots: snapshots.map((s) => ({
 			day: s.day,
