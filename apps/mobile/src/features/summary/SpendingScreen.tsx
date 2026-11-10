@@ -7,6 +7,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { money, monthName } from "../../lib/format.ts";
 import { toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
+import { useAccent } from "../../lib/theme.tsx";
 import { Card, ErrorState, LineChart, Skeleton, Text } from "../../ui/index.ts";
 import { BleedRow } from "../card/parts.tsx";
 import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
@@ -42,6 +43,7 @@ function Legend({ color, label, dashed }: { color: string; label: string; dashed
  * do mês anterior e os 3 estabelecimentos que mais pesaram. O mês vem do servidor (`GET /v1/summary/:mês/daily`).
  */
 export function SpendingScreen({ month: initialMonth }: { month?: string }) {
+	const { accent } = useAccent();
 	const router = useRouter();
 	const clock = useClock();
 	const { hidden } = usePrivacy();
@@ -72,7 +74,7 @@ export function SpendingScreen({ month: initialMonth }: { month?: string }) {
 									paddingHorizontal: 14,
 									paddingVertical: spacing.sm,
 									borderRadius: radius.pill,
-									backgroundColor: active ? colors.accent : colors.surface,
+									backgroundColor: active ? accent : colors.surface,
 									borderWidth: active ? 0 : 1,
 									borderColor: colors.border,
 								}}

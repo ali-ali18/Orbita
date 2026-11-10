@@ -1,5 +1,6 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
+import { useAccent } from "../../lib/theme.tsx";
 import { Icon, Text } from "../../ui/index.ts";
 import {
 	type Checklist as ChecklistData,
@@ -12,20 +13,21 @@ import {
 const CIRCLE = 24;
 
 function Mark({ done }: { done: boolean }) {
+	const { accent, onAccent } = useAccent();
 	return (
 		<View
 			style={{
 				width: CIRCLE,
 				height: CIRCLE,
 				borderRadius: radius.pill,
-				backgroundColor: done ? colors.accent : "transparent",
+				backgroundColor: done ? accent : "transparent",
 				borderWidth: done ? 0 : 2,
 				borderColor: colors.textTertiary,
 				alignItems: "center",
 				justifyContent: "center",
 			}}
 		>
-			{done ? <Icon name="check" size={14} color={colors.onAccent} /> : null}
+			{done ? <Icon name="check" size={14} color={onAccent} /> : null}
 		</View>
 	);
 }

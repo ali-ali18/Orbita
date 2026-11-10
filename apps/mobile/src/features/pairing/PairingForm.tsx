@@ -7,6 +7,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "rea
 import { ApiError, claimPairing } from "../../lib/api.ts";
 import { useSession } from "../../lib/session.tsx";
 import { getItem, KEYS } from "../../lib/storage.ts";
+import { useAccent } from "../../lib/theme.tsx";
 import { Button, familyByWeight, Screen, Text } from "../../ui/index.ts";
 import { ProgressHeader } from "../onboarding/parts.tsx";
 import { CodeInput } from "./CodeInput.tsx";
@@ -43,6 +44,7 @@ export function PairingForm({
 	/** Prévia: não tenta conectar. */
 	preview?: boolean;
 }) {
+	const { accent } = useAccent();
 	const router = useRouter();
 	const { signIn, notice, clearNotice } = useSession();
 	const [serverText, setServerText] = useState("");
@@ -128,7 +130,7 @@ export function PairingForm({
 								borderRadius: radius.inner,
 								backgroundColor: colors.surface,
 								borderWidth: 1,
-								borderColor: serverFocused ? colors.accent : colors.border,
+								borderColor: serverFocused ? accent : colors.border,
 								paddingHorizontal: spacing.lg,
 								color: colors.text,
 								fontFamily: familyByWeight[400],

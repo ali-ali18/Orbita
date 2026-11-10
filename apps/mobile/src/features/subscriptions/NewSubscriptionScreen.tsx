@@ -5,6 +5,7 @@ import { KeyboardAvoidingView, Pressable, ScrollView, type TextInput, View } fro
 import { ApiError } from "../../lib/api.ts";
 import { useClock } from "../../lib/clock.tsx";
 import { combineLoadables, errorMessage, toLoadable } from "../../lib/loadable.ts";
+import { useAccent } from "../../lib/theme.tsx";
 import {
 	BankLogo,
 	Button,
@@ -67,6 +68,7 @@ function ServiceChip({
 	selected: boolean;
 	onPress: () => void;
 }) {
+	const { accent } = useAccent();
 	return (
 		<Pressable
 			accessibilityRole="button"
@@ -79,7 +81,7 @@ function ServiceChip({
 				style={{
 					borderRadius: radius.pill,
 					borderWidth: 3,
-					borderColor: selected ? colors.accent : colors.background,
+					borderColor: selected ? accent : colors.background,
 				}}
 			>
 				<LetterAvatar letter={letter ?? initialOf(name)} size={56 - 6} color={colors.surface3} />

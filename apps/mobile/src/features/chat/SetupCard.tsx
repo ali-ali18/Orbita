@@ -3,6 +3,7 @@ import { colors, radius, spacing } from "@orbita/tokens";
 import { type ReactNode, useState } from "react";
 import { Pressable, View } from "react-native";
 import { brandOf } from "../../lib/brands.ts";
+import { useAccent } from "../../lib/theme.tsx";
 import { Button, Icon, StoreDisc, Text } from "../../ui/index.ts";
 import { useCategories } from "../summary/queries.ts";
 import { categoryIcon } from "../summary/transaction-model.ts";
@@ -36,13 +37,14 @@ import {
 const BOX = 24;
 
 function Box({ checked, disabled }: { checked: boolean; disabled: boolean }) {
+	const { accent, onAccent } = useAccent();
 	return (
 		<View
 			style={{
 				width: BOX,
 				height: BOX,
 				borderRadius: radius.sm,
-				backgroundColor: checked ? colors.accent : "transparent",
+				backgroundColor: checked ? accent : "transparent",
 				borderWidth: checked ? 0 : 2,
 				borderColor: colors.textTertiary,
 				opacity: disabled ? 0.5 : 1,
@@ -50,7 +52,7 @@ function Box({ checked, disabled }: { checked: boolean; disabled: boolean }) {
 				justifyContent: "center",
 			}}
 		>
-			{checked ? <Icon name="check" size={14} color={colors.onAccent} /> : null}
+			{checked ? <Icon name="check" size={14} color={onAccent} /> : null}
 		</View>
 	);
 }

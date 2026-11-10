@@ -1,5 +1,6 @@
 import { colors, layout, radius } from "@orbita/tokens";
 import { Pressable } from "react-native";
+import { useAccent } from "../lib/theme.tsx";
 import { Icon, type IconName } from "./icons.tsx";
 
 /**
@@ -22,13 +23,14 @@ export function IconButton({
 	onPress?: () => void;
 	size?: number;
 	iconSize?: number;
-	/** Branco com ícone preto (ação principal). */
+	/** Cor primária do tema com o ícone `onAccent` (ação principal). */
 	filled?: boolean;
 	/** Contorno de 1 em `border` (botões da barra de baixo). */
 	bordered?: boolean;
 	background?: string;
 	disabled?: boolean;
 }) {
+	const { accent, onAccent } = useAccent();
 	const slop = Math.max(0, (layout.touchTarget - size) / 2);
 	return (
 		<Pressable
@@ -45,13 +47,13 @@ export function IconButton({
 				alignItems: "center",
 				justifyContent: "center",
 				flexShrink: 0,
-				backgroundColor: filled ? colors.accent : background,
+				backgroundColor: filled ? accent : background,
 				borderWidth: bordered ? 1 : 0,
 				borderColor: colors.border,
 				opacity: pressed ? 0.8 : 1,
 			})}
 		>
-			<Icon name={icon} size={iconSize} color={filled ? colors.onAccent : colors.text} />
+			<Icon name={icon} size={iconSize} color={filled ? onAccent : colors.text} />
 		</Pressable>
 	);
 }

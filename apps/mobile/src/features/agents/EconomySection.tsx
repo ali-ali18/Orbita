@@ -5,6 +5,7 @@ import { Pressable, View } from "react-native";
 import { useClock } from "../../lib/clock.tsx";
 import { toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
+import { useAccent } from "../../lib/theme.tsx";
 import { Button, Chip, ConfirmDialog, ErrorState, Skeleton, Text } from "../../ui/index.ts";
 import {
 	ACTIVITY_EMPTY,
@@ -57,6 +58,7 @@ function AutonomyPicker({
 	saving: boolean;
 	onPick: (next: Autonomy) => void;
 }) {
+	const { accent } = useAccent();
 	return (
 		<View style={{ gap: spacing.sm }}>
 			<Legend title="Autonomia" />
@@ -93,7 +95,7 @@ function AutonomyPicker({
 									height: 22,
 									borderRadius: radius.pill,
 									borderWidth: 2,
-									borderColor: selected ? colors.accent : colors.textTertiary,
+									borderColor: selected ? accent : colors.textTertiary,
 									alignItems: "center",
 									justifyContent: "center",
 								}}
@@ -104,7 +106,7 @@ function AutonomyPicker({
 											width: 10,
 											height: 10,
 											borderRadius: radius.pill,
-											backgroundColor: colors.accent,
+											backgroundColor: accent,
 										}}
 									/>
 								) : null}

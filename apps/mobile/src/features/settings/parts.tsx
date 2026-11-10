@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { type ReactNode, useRef, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { errorMessage } from "../../lib/loadable.ts";
+import { useAccent } from "../../lib/theme.tsx";
 import { Button, Icon, IconButton, type IconName, Screen, Sheet, Text, TextField } from "../../ui/index.ts";
 import type { ParsedName } from "./profile-model.ts";
 
@@ -225,6 +226,7 @@ export function ChoiceRow({
 	onPress?: () => void;
 	last?: boolean;
 }) {
+	const { accent } = useAccent();
 	const enabled = onPress !== undefined;
 	return (
 		<Pressable
@@ -251,7 +253,7 @@ export function ChoiceRow({
 					height: spacing.xl,
 					borderRadius: radius.pill,
 					borderWidth: 2,
-					borderColor: selected ? colors.accent : colors.textSecondary,
+					borderColor: selected ? accent : colors.textSecondary,
 					alignItems: "center",
 					justifyContent: "center",
 				}}
@@ -262,7 +264,7 @@ export function ChoiceRow({
 							width: spacing.md,
 							height: spacing.md,
 							borderRadius: radius.pill,
-							backgroundColor: colors.accent,
+							backgroundColor: accent,
 						}}
 					/>
 				) : null}

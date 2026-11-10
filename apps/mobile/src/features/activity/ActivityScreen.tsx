@@ -6,6 +6,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { money } from "../../lib/format.ts";
 import { errorMessage } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
+import { useAccent } from "../../lib/theme.tsx";
 import {
 	BottomBar,
 	Button,
@@ -346,6 +347,7 @@ export function ActivityScreen() {
 
 /** Botão "Filtros" da fila de chips (Figma 51:933): ícone + rótulo; com filtros ativos mostra o número deles. */
 function FilterButton({ count, onPress }: { count: number; onPress: () => void }) {
+	const { accent } = useAccent();
 	const active = count > 0;
 	return (
 		<Pressable
@@ -364,7 +366,7 @@ function FilterButton({ count, onPress }: { count: number; onPress: () => void }
 					borderRadius: radius.pill,
 					backgroundColor: colors.surface,
 					borderWidth: 1,
-					borderColor: active ? colors.accent : colors.border,
+					borderColor: active ? accent : colors.border,
 				}}
 			>
 				<Icon name="ajustes" size={16} />
@@ -376,7 +378,7 @@ function FilterButton({ count, onPress }: { count: number; onPress: () => void }
 							height: 20,
 							paddingHorizontal: 6,
 							borderRadius: radius.pill,
-							backgroundColor: colors.accent,
+							backgroundColor: accent,
 							alignItems: "center",
 							justifyContent: "center",
 						}}

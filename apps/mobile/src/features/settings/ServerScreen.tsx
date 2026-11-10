@@ -60,7 +60,7 @@ function StatusCard() {
 						width: spacing.sm,
 						height: spacing.sm,
 						borderRadius: radius.pill,
-						backgroundColor: failed || !q.data ? colors.textTertiary : colors.accent,
+						backgroundColor: failed || !q.data ? colors.textTertiary : colors.text,
 					}}
 				/>
 				<Text variant="bodyStrong" accessibilityLiveRegion="polite">

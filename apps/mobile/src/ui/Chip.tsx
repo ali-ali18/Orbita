@@ -1,8 +1,9 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
+import { useAccent } from "../lib/theme.tsx";
 import { Text } from "./Text.tsx";
 
-/** Selo/filtro em pílula. `active` = chip ativo (branco). Sem `onPress` é só um selo. */
+/** Selo/filtro em pílula. `active` = chip ativo (cor primária do tema). Sem `onPress` é só um selo. */
 export function Chip({
 	label,
 	active = false,
@@ -12,13 +13,14 @@ export function Chip({
 	active?: boolean;
 	onPress?: () => void;
 }) {
+	const { accent } = useAccent();
 	const body = (
 		<View
 			style={{
 				paddingHorizontal: spacing.md,
 				paddingVertical: spacing.sm,
 				borderRadius: radius.pill,
-				backgroundColor: active ? colors.accent : colors.surface2,
+				backgroundColor: active ? accent : colors.surface2,
 			}}
 		>
 			<Text variant="micro" tone={active ? "onAccent" : "secondary"}>

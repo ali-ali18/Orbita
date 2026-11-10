@@ -2,6 +2,7 @@ import { chart, colors, radius, spacing } from "@orbita/tokens";
 import { useEffect, useRef } from "react";
 import { Pressable, ScrollView, type ScrollViewInstance, View } from "react-native";
 import { money, monthName } from "../../lib/format.ts";
+import { useAccent } from "../../lib/theme.tsx";
 import { Text } from "../../ui/index.ts";
 import { monthAbbrev } from "./card-model.ts";
 import { barLabel, type HistoryBar } from "./invoices-model.ts";
@@ -27,6 +28,7 @@ export function InvoiceHistoryChart({
 	onSelect: (month: string) => void;
 	hidden: boolean;
 }) {
+	const { accent } = useAccent();
 	const ref = useRef<ScrollViewInstance>(null);
 	const selected = bars.find((b) => b.month === month);
 	const index = bars.findIndex((b) => b.month === month);
@@ -87,7 +89,7 @@ export function InvoiceHistoryChart({
 									width: "100%",
 									height,
 									borderRadius: radius.sm,
-									backgroundColor: active ? colors.accent : chart.other,
+									backgroundColor: active ? accent : chart.other,
 									opacity: active ? 1 : 0.55,
 								}}
 							/>
