@@ -336,6 +336,30 @@ describe("dados de antes do vínculo (sem connectionId)", () => {
 		expect(await w.stores.accounts.list()).toHaveLength(2);
 	});
 
+	const ITEM_C = "7c7c7c7c-1111-4222-8333-444455557777";
+	it("conexão que nunca teve conta (só investimento) não bloqueia: a legada some em duas rodadas", async () => {
+		const w = await legacy();
+		await w.stores.pluggyConnections.add({ id: ITEM_C, label: "C6" });
+		const options: FakePluggyOptions = {
+			otherItems: { [ITEM_B]: { accounts: [accountB] }, [ITEM_C]: { accounts: [] } },
+		};
+		await w.run(options);
+		expect(await w.stores.accounts.list()).toHaveLength(2);
+		await w.run(options);
+		expect(await names(w.stores)).toEqual(["Conta Poupança Azul"]);
+	});
+
+	it("o mesmo, mas a conexão sem contas já teve conta antes: bloqueia e nada legado é arquivado", async () => {
+		const w = await legacy();
+		await w.stores.pluggyConnections.add({ id: ITEM_C, label: "C6" });
+		await w.stores.pluggyConnections.recordSync(ITEM_C, { status: "ok", counts: { accounts: 1, cards: 0 } });
+		const options: FakePluggyOptions = {
+			otherItems: { [ITEM_B]: { accounts: [accountB] }, [ITEM_C]: { accounts: [] } },
+		};
+		for (let i = 0; i < 4; i++) await w.run(options);
+		expect((await w.stores.accounts.list()).map((a) => a.externalId)).toContain("removida-na-pluggy");
+	});
+
 	// Nenhuma destas rodadas prova que a conta legada sumiu: nada legado pode ser arquivado, por mais rodadas que haja.
 	const badRounds: Array<[string, FakePluggyOptions]> = [
 		[
@@ -369,6 +393,8 @@ describe("dados de antes do vínculo (sem connectionId)", () => {
 	it.each(badRounds)("%s: nada legado é arquivado", async (_name, options) => {
 		const w = await legacy();
 		await w.stores.pluggyConnections.add({ id: ITEM_ID });
+		// A conexão já teve conta: se agora vem vazia, pode ser falha passageira, então bloqueia.
+		await w.stores.pluggyConnections.recordSync(ITEM_ID, { status: "ok", counts: { accounts: 1, cards: 0 } });
 		for (let i = 0; i < 4; i++) await w.run(options);
 		const live = (await w.stores.accounts.list()).map((a) => a.externalId);
 		expect(live).toContain("removida-na-pluggy");

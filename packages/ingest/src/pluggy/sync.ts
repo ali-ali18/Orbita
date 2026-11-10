@@ -711,11 +711,19 @@ async function syncConnection(
 			guard,
 			connection.id,
 		);
-		result.readComplete =
-			item.status === "UPDATED" &&
+		// Conexão que nunca teve conta nem cartão (e nenhum aponta para ela) não pode ser dona de conta legada: não bloqueia
+		// a varredura. Erro de rede ou de login já a tira daqui (o status vira `error` e `syncPluggy` a trata como incompleta).
+		const neverOwned =
+			connection.accountCount + connection.cardCount === 0 &&
+			pluggyAccounts.length === 0 &&
 			accountsRead.dropped === 0 &&
-			pluggyAccounts.length > 0 &&
-			deferredCards + deferredRelink === 0;
+			!(await ownsAnyData(deps, connection.id));
+		result.readComplete =
+			neverOwned ||
+			(item.status === "UPDATED" &&
+				accountsRead.dropped === 0 &&
+				pluggyAccounts.length > 0 &&
+				deferredCards + deferredRelink === 0);
 		// Conexão que ainda não importou lançamento nem fatura nenhum (o espelho do MeuPluggy pode entregar a conta antes
 		// dos dados) é nova: a janela é a inicial, mesmo que uma rodada anterior tenha terminado `ok` e gasto `historyFrom`.
 		const imported = await hasImportedData(deps, linked);
@@ -1316,6 +1324,18 @@ async function retireOldConnections(
 	} catch {
 		result.notes.push("Não deu para arquivar a conexão antiga agora.");
 	}
+}
+
+/** Alguma conta ou cartão (vivo ou arquivado por remoção) já foi ligado a esta conexão. */
+async function ownsAnyData(deps: SyncPluggyDeps, connectionId: string): Promise<boolean> {
+	const { accounts, cards } = deps.stores;
+	const all = [
+		...(await accounts.list()),
+		...(await accounts.listRemovedByConnection()),
+		...(await cards.list()),
+		...(await cards.listRemovedByConnection()),
+	];
+	return all.some((x) => x.connectionId === connectionId);
 }
 
 /** Acha ou cria a conta/cartão do Órbita de cada conta do Pluggy. */
