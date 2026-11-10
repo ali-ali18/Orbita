@@ -25,6 +25,7 @@ import {
 	PLUGGY_FIRST_SYNC_DAYS,
 	PLUGGY_NO_ACCOUNTS_PREFIX,
 	PLUGGY_NO_DATA_PREFIX,
+	PLUGGY_ONLY_INVESTMENTS_PREFIX,
 	PLUGGY_RECONNECT_MESSAGE,
 	PLUGGY_UNREAD_PRODUCTS_PREFIX,
 	PLUGGY_UPDATING_PREFIX,
@@ -59,6 +60,7 @@ import {
 } from "./cross.ts";
 import { adoptEarlyEntry, POSSIBLE_DUPLICATE_NOTE } from "./early.ts";
 import { PluggyError, safeErrorMessage } from "./errors.ts";
+import { readInvestments } from "./investments.ts";
 import {
 	assignBillPayments,
 	type BillInfo,
@@ -492,6 +494,8 @@ async function syncConnection(
 	// O motivo em `partial` que o `lead` já diz; os outros viram " · e mais N avisos" no `lastError`.
 	let leadReason: string | null = null;
 	let unreadProducts = false;
+	// Só investimentos por enquanto, numa conexão nova: o `lastError` diz isso e o app mostra o mesmo estado.
+	let onlyInvestmentsWaiting = false;
 	try {
 		const today = toLocalDate(startedAt);
 		let from = syncWindowStart(today, connection);
@@ -553,6 +557,24 @@ async function syncConnection(
 			delete result.retry;
 			return result;
 		}
+		// Sem nenhuma linha em /accounts: o que sobra de pista (nome e estado) são os investimentos. Só aqui se lê
+		// /investments (uma chamada que nunca lança); com conta, ele nem é pedido.
+		let investmentsSeen = 0;
+		let investmentIssuers: (string | null | undefined)[] = [];
+		if (pluggyAccounts.length === 0 && accountsRead.dropped === 0) {
+			const read = await readInvestments(client, connection.id);
+			if (read.outcome === "ok") {
+				investmentsSeen = read.rows.length;
+				investmentIssuers = read.rows.map((r) => r.issuer);
+			}
+		}
+		// O nome vem só do que já foi lido, antes de bills, ligação das contas e lançamentos: o que falhar depois não o
+		// impede de ser refeito. Falhar aqui nunca derruba a sincronização (sem detalhe: pode vir do banco).
+		try {
+			await suggestLabel(deps, connection, item.connector?.name, pluggyAccounts, investmentIssuers);
+		} catch {
+			result.notes.push("Não deu para sugerir o nome da conexão agora.");
+		}
 		// Faturas de cada cartão, antes de ligar: elas dão o fechamento e o vencimento quando o `creditData` não traz.
 		// Conector sem faturas (404/403) vale como "sem faturas". Falha de verdade impede classificar os débitos e
 		// créditos que poderiam ser pagamento (o upsert nunca corrige depois): ficam de fora e a conexão fica `partial`.
@@ -609,10 +631,24 @@ async function syncConnection(
 					`O Pluggy devolveu ${ignored} conta(s), mas nenhuma é conta ou cartão que o Órbita importa.`,
 				);
 			} else if (accountsRead.dropped === 0) {
-				result.notes.push("O Pluggy não devolveu nenhuma conta para esta conexão.");
+				result.notes.push(
+					investmentsSeen > 0
+						? "O Pluggy não devolveu conta nem cartão, só investimentos."
+						: "O Pluggy não devolveu nenhuma conta para esta conexão.",
+				);
 			}
 			for (const note of productWarnings(item.statusDetail)) result.notes.push(note);
-			if (ignored > 0) {
+			if (ignored === 0 && investmentsSeen > 0) {
+				// /accounts vazio, mas há posições em /investments: o banco só enviou produto que o Órbita não lê. Não é
+				// "ainda não enviou contas". No MeuPluggy o espelho pode estar sendo preenchido: enquanto a conexão é nova,
+				// tenta de novo, com o texto honesto.
+				unreadProducts = true;
+				const isNew = startedAt.getTime() - connection.createdAt.getTime() < NEW_CONNECTION_MS;
+				if (isNew) {
+					onlyInvestmentsWaiting = true;
+					if (!result.retry) result.retry = { reason: "no_accounts", ...(notBefore ? { notBefore } : {}) };
+				}
+			} else if (ignored > 0) {
 				// O banco enviou linhas, mas todas de produto que o Órbita não lê (investimento…): esperar não muda isso, então
 				// sem "ainda não enviou contas", sem nova tentativa e sem falha: é informação (a conexão termina `ok`).
 				unreadProducts = true;
@@ -634,12 +670,6 @@ async function syncConnection(
 				accounts: linked.filter((l) => l.account !== null && l.account.archivedAt === null).length,
 				cards: linked.filter((l) => l.card !== null && l.card.archivedAt === null).length,
 			};
-		}
-		try {
-			await suggestLabel(deps, connection, item.connector?.name, pluggyAccounts);
-		} catch {
-			// O nome é só conforto: falhar aqui não pode derrubar a sincronização. Sem detalhe (pode vir do banco).
-			result.notes.push("Não deu para sugerir o nome da conexão agora.");
 		}
 		const liveCards = linked.filter((l) => l.card !== null && l.card.archivedAt === null);
 
@@ -955,7 +985,9 @@ async function syncConnection(
 						}`
 					: `${capitalize(partial.join("; "))}. Na próxima sincronização o Órbita tenta de novo.`;
 		} else if (unreadProducts) {
-			result.error = `${PLUGGY_UNREAD_PRODUCTS_PREFIX} Mande o Diagnóstico da conexão se faltar algo.`;
+			result.error = onlyInvestmentsWaiting
+				? `${PLUGGY_ONLY_INVESTMENTS_PREFIX} O Órbita tenta de novo sozinho; quando vier conta ou cartão, aparecem aqui.`
+				: `${PLUGGY_UNREAD_PRODUCTS_PREFIX} Mande o Diagnóstico da conexão se faltar algo.`;
 		}
 		return result;
 	} catch (e) {
@@ -1054,6 +1086,7 @@ async function suggestLabel(
 	connection: PluggyConnectionRecord,
 	connectorName: string | null | undefined,
 	pluggyAccounts: readonly PluggyAccount[],
+	investmentIssuers: readonly (string | null | undefined)[] = [],
 ): Promise<void> {
 	// Relê a conexão: o dono pode ter renomeado desde o início da rodada.
 	const current = (await deps.stores.pluggyConnections.get(connection.id)) ?? connection;
@@ -1062,6 +1095,7 @@ async function suggestLabel(
 		connectorName,
 		editedByOwner: current.labelEditedByOwner,
 		accounts: pluggyAccounts,
+		investmentIssuers,
 	});
 	if (label !== null) await deps.stores.pluggyConnections.setAutoLabel(connection.id, label);
 }

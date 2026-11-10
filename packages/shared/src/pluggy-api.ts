@@ -51,6 +51,11 @@ export const PLUGGY_UPDATING_PREFIX = "O banco ainda está atualizando os dados 
 export const PLUGGY_NO_ACCOUNTS_PREFIX = "Conectado, mas o banco ainda não enviou contas.";
 /** Só veio produto que o Órbita não lê (investimento): informação, não falha (`lastStatus` "ok"). */
 export const PLUGGY_UNREAD_PRODUCTS_PREFIX = "O banco só enviou produtos que o Órbita ainda não lê.";
+/**
+ * `GET /accounts` veio vazio, mas `GET /investments` trouxe posições, e a conexão ainda é nova (o espelho do MeuPluggy
+ * pode estar sendo preenchido): `lastStatus` "ok", mesmo estado "produtos que o Órbita não lê", e o servidor tenta de novo.
+ */
+export const PLUGGY_ONLY_INVESTMENTS_PREFIX = "O banco enviou só investimentos por enquanto.";
 /** Veio conta, mas nenhum lançamento nem fatura, e o item foi atualizado antes da autorização (espelho ainda vazio). */
 export const PLUGGY_NO_DATA_PREFIX = "Conectado, mas o banco ainda não enviou lançamentos.";
 
@@ -59,7 +64,11 @@ export function pluggyWaitingFor(c: {
 	lastStatus: PluggySyncStatus | null;
 	lastError: string | null;
 }): "updating" | "no_accounts" | "no_data" | "unread_products" | null {
-	if (c.lastStatus === "ok" && c.lastError?.startsWith(PLUGGY_UNREAD_PRODUCTS_PREFIX))
+	if (
+		c.lastStatus === "ok" &&
+		(c.lastError?.startsWith(PLUGGY_UNREAD_PRODUCTS_PREFIX) ||
+			c.lastError?.startsWith(PLUGGY_ONLY_INVESTMENTS_PREFIX))
+	)
 		return "unread_products";
 	if (c.lastStatus !== "partial") return null;
 	if (c.lastError?.startsWith(PLUGGY_UPDATING_PREFIX)) return "updating";

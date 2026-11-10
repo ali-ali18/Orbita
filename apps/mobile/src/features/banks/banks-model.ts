@@ -2,6 +2,7 @@ import { toLocalDate } from "@orbita/core";
 import {
 	needsReconnect,
 	PLUGGY_LABEL_MAX,
+	PLUGGY_ONLY_INVESTMENTS_PREFIX,
 	type PluggyConnectionDto,
 	type PluggyStatusResponse,
 	pluggyConnectionCreateBody,
@@ -116,6 +117,9 @@ export function connectionStatusDetail(c: PluggyConnectionDto): string | null {
 	const waiting = waitingKind(c);
 	if (waiting === "updating") {
 		return "O Pluggy ainda está buscando os dados neste banco. O Órbita tenta de novo sozinho em alguns minutos.";
+	}
+	if (waiting === "unread_products" && c.lastError?.startsWith(PLUGGY_ONLY_INVESTMENTS_PREFIX)) {
+		return "O banco enviou só investimentos por enquanto. Pode ser que ele ainda esteja preenchendo o resto: o Órbita tenta de novo sozinho, e conta ou cartão aparecem aqui quando vierem.";
 	}
 	if (waiting === "unread_products") {
 		return "O banco só enviou produtos que o Órbita ainda não lê (investimentos, por exemplo). Não é erro: quando ele enviar conta ou cartão, aparecem aqui.";
