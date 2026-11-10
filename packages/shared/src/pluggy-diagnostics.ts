@@ -81,8 +81,25 @@ export interface DiagAccount {
 		level: string | null;
 	} | null;
 	link: DiagLink | null;
-	/** Só em conta de cartão. `bills.error` preenchido = `/bills` falhou (a lista fica vazia). */
-	bills: { error: DiagError | null; list: DiagBill[] } | null;
+	/**
+	 * O que o mapeamento do Órbita faz com esta conta: "conta", "cartão" ou "descartada: motivo". Ausente em servidor
+	 * antigo.
+	 */
+	mapping?: string | undefined;
+	/** NOMES (nunca valores) dos campos que vieram preenchidos e o Órbita não lê. */
+	otherFields?: string[] | undefined;
+	/** Campos que o Órbita lê e vieram com tipo errado ou longos demais: "campo: invalid_type" / "campo: truncated". Nunca o valor. */
+	fieldProblems?: string[] | undefined;
+	/**
+	 * Só em conta de cartão. `bills.error` preenchido = `/bills` falhou (a lista fica vazia). `dropped`/`problems`:
+	 * faturas recusadas por formato e o motivo (campo e problema).
+	 */
+	bills: {
+		error: DiagError | null;
+		list: DiagBill[];
+		dropped?: number | undefined;
+		problems?: string[] | undefined;
+	} | null;
 	transactions: {
 		error: DiagError | null;
 		windowDays: number;
@@ -90,6 +107,8 @@ export interface DiagAccount {
 		pending: number;
 		other: number;
 		dropped: number;
+		/** Motivo dos lançamentos recusados por formato: campo e problema ("date: invalid_type"), nunca o valor. */
+		problems?: string[] | undefined;
 		/** Cartão: soma (compras menos créditos) dos PENDING, em R$ já formatado; `null` fora de cartão. */
 		pendingTotal: string | null;
 		recent: DiagTransaction[];
@@ -200,6 +219,34 @@ export interface DiagConnection {
 	/** Por produto do item. */
 	products: { name: string; isUpdated: boolean | null; lastUpdatedAt: string | null; warnings: string[] }[];
 	itemError: { code: string | null; message: string | null } | null;
+	/** Quando o item foi criado no Pluggy. Estes campos novos faltam em servidor antigo (por isso opcionais). */
+	createdAt?: string | null | undefined;
+	/** Produtos pedidos para o item (`products`); `null` = o item não informa. */
+	requestedProducts?: string[] | null | undefined;
+	/**
+	 * Contas que `GET /accounts` devolveu (cruas, antes de qualquer filtro do Órbita), quantas o mapeamento aceita e
+	 * quantas estão de fato ligadas a uma conta ou cartão do Órbita. `null` = as contas não puderam ser lidas.
+	 */
+	accountsRaw?: number | null | undefined;
+	accountsMappable?: number | null | undefined;
+	accountsImported?: number | null | undefined;
+	/**
+	 * Contas que a Pluggy mandou e o Órbita RECUSOU por formato (não entram em `accounts`), e o motivo: campo e
+	 * problema ("id: invalid_type"), nunca o valor. Separa "a Pluggy devolveu zero" de "devolveu N e recusamos N".
+	 */
+	accountsRejected?: number | null | undefined;
+	accountProblems?: string[] | undefined;
+	/** O que a última sincronização do Órbita gravou desta conexão. */
+	lastSync?:
+		| {
+				status: string | null;
+				error: string | null;
+				at: string | null;
+				accounts: number;
+				cards: number;
+		  }
+		| null
+		| undefined;
 	/** Falha ao ler o item ou as contas (a conexão inteira). */
 	error: DiagError | null;
 	accounts: DiagAccount[];
@@ -232,6 +279,13 @@ export function formatDiagConnectionHead(c: DiagConnection): string {
 	out.push(
 		`Conector: Open Finance ${show(c.connectorIsOpenFinance)} · tipo ${show(c.connectorType)} · próxima sync ${show(c.nextAutoSyncAt)} · consentimento até ${show(c.consentExpiresAt)}`,
 	);
+	if (c.createdAt !== undefined || c.requestedProducts !== undefined) {
+		out.push(
+			`Item criado em ${show(c.createdAt)} · produtos pedidos: ${c.requestedProducts?.length ? c.requestedProducts.join(", ") : "—"}`,
+		);
+	}
+	if (c.products.length === 0 && c.status !== null)
+		out.push("  statusDetail: o item não trouxe detalhe por produto");
 	for (const p of c.products) {
 		out.push(
 			`  produto ${p.name}: atualizado ${show(p.isUpdated)} · em ${show(p.lastUpdatedAt)}${p.warnings.length ? ` · avisos: ${p.warnings.join(" | ")}` : ""}`,
@@ -239,6 +293,32 @@ export function formatDiagConnectionHead(c: DiagConnection): string {
 	}
 	if (c.itemError) out.push(`Erro do item: ${show(c.itemError.code)} · ${show(c.itemError.message)}`);
 	if (c.error) out.push(errorLine(c.error));
+	if (c.accountsRaw !== undefined) {
+		out.push(
+			c.accountsRaw === null
+				? "Contas: não foi possível ler GET /accounts"
+				: `Contas: ${c.accountsRaw} vieram da Pluggy (cruas) · ${show(c.accountsRejected ?? 0)} recusadas por formato · ${show(c.accountsMappable)} o Órbita importa · ${show(c.accountsImported)} ligadas no Órbita`,
+		);
+		if (c.accountsRejected) {
+			out.push(
+				`  recusadas por formato (campo: problema): ${c.accountProblems?.join(" | ") || "sem detalhe"}`,
+			);
+		}
+		if (c.accountsRaw === 0) {
+			out.push(
+				"  A Pluggy respondeu GET /accounts sem nenhuma conta para este item: não há o que importar ainda.",
+			);
+		}
+		for (const a of c.accounts) {
+			if (a.mapping?.startsWith("descartada"))
+				out.push(`  conta ${a.idStart}… ${a.type}/${show(a.subtype)}: ${a.mapping}`);
+		}
+	}
+	if (c.lastSync) {
+		out.push(
+			`Última sincronização do Órbita: ${show(c.lastSync.status)} · ok em ${show(c.lastSync.at)} · ${c.lastSync.accounts} conta(s) · ${c.lastSync.cards} cartão(ões)${c.lastSync.error ? ` · ${c.lastSync.error}` : ""}`,
+		);
+	}
 	return out.join("\n");
 }
 
@@ -253,13 +333,21 @@ export function formatDiagAccount(a: DiagAccount): string {
 			`Crédito: limite ${show(k.creditLimit)} · disponível ${show(k.availableCreditLimit)} · fecha ${show(k.balanceCloseDate)} · vence ${show(k.balanceDueDate)} · mínimo ${show(k.minimumPayment)} · ${show(k.brand)} ${show(k.level)}`,
 		);
 	}
+	if (a.mapping !== undefined) out.push(`Mapeamento do Órbita: ${a.mapping}`);
+	if (a.otherFields?.length) out.push(`Outros campos preenchidos: ${a.otherFields.join(", ")}`);
+	if (a.fieldProblems?.length)
+		out.push(`Campos fora do formato (campo: problema): ${a.fieldProblems.join(" | ")}`);
 	out.push(
 		a.link
 			? `Ligada no Órbita a: ${a.link.kind === "card" ? "cartão" : "conta"} "${a.link.name}" (${a.link.id})${a.link.archived ? " [arquivado]" : ""}`
 			: "Ligada no Órbita a: não ligada",
 	);
 	if (a.bills) {
-		out.push(a.bills.error ? `Faturas: ${errorLine(a.bills.error)}` : `Faturas: ${a.bills.list.length}`);
+		out.push(
+			a.bills.error
+				? `Faturas: ${errorLine(a.bills.error)}`
+				: `Faturas: ${a.bills.list.length}${a.bills.dropped ? ` · ${a.bills.dropped} fora do formato (${a.bills.problems?.join(" | ") || "sem detalhe"})` : ""}`,
+		);
 		for (const b of a.bills.list) {
 			out.push(
 				`  fatura vence ${show(b.dueDate)} · fecha ${show(b.closingDate)} · total ${show(b.totalAmount)} · mínimo ${show(b.minimumPaymentAmount)}`,
@@ -271,7 +359,7 @@ export function formatDiagAccount(a: DiagAccount): string {
 	if (t.error) out.push(`Lançamentos: ${errorLine(t.error)}`);
 	else {
 		out.push(
-			`Lançamentos (${t.windowDays} dias): ${t.posted} POSTED · ${t.pending} PENDING${t.pendingTotal ? ` (total PENDING ${t.pendingTotal})` : ""}${t.other ? ` · ${t.other} outros` : ""}${t.dropped ? ` · ${t.dropped} fora do formato` : ""}`,
+			`Lançamentos (${t.windowDays} dias): ${t.posted} POSTED · ${t.pending} PENDING${t.pendingTotal ? ` (total PENDING ${t.pendingTotal})` : ""}${t.other ? ` · ${t.other} outros` : ""}${t.dropped ? ` · ${t.dropped} fora do formato${t.problems?.length ? ` (${t.problems.join(" | ")})` : ""}` : ""}`,
 		);
 	}
 	for (const x of t.recent) {

@@ -6,11 +6,13 @@ import { Button, Sheet, Text, TextField } from "../../ui/index.ts";
 import {
 	ADD_HINT,
 	connectionName,
+	connectionStatusDetail,
 	PLUGGY_LABEL_MAX,
 	PLUGGY_URL,
 	REIMPORT_TITLE,
 	REIMPORT_WARNING,
 	reimportErrorMessage,
+	UNNAMED_CONNECTION,
 } from "./banks-model.ts";
 import {
 	addFormReducer,
@@ -221,12 +223,15 @@ function ConnectionDetail({
 	const [message, setMessage] = useState<string | null>(null);
 	const locked = useRef(false);
 	const name = connectionName(connection);
-	const [labelText, setLabelText] = useState(connection.label ?? "");
+	const statusDetail = connectionStatusDetail(connection);
+	// "MeuPluggy" é o nome do conector, não um nome dado à conexão: o campo abre vazio para o dono escrever o banco.
+	const currentLabel = name === UNNAMED_CONNECTION ? "" : (connection.label ?? "");
+	const [labelText, setLabelText] = useState(currentLabel);
 	const [saving, setSaving] = useState(false);
 	const [saveMessage, setSaveMessage] = useState<string | null>(null);
 	const saveLocked = useRef(false);
 
-	const nameChanged = labelText.trim() !== "" && labelText.trim() !== (connection.label ?? "");
+	const nameChanged = labelText.trim() !== "" && labelText.trim() !== currentLabel;
 
 	const saveName = async () => {
 		if (saveLocked.current || !nameChanged) return;
@@ -283,6 +288,11 @@ function ConnectionDetail({
 	return (
 		<View style={{ gap: spacing.md, paddingVertical: spacing.md }}>
 			<Text variant="body">{statusLine}</Text>
+			{statusDetail ? (
+				<Text variant="caption" tone="secondary">
+					{statusDetail}
+				</Text>
+			) : null}
 			<Text variant="caption" tone="secondary" selectable>
 				{`ID da conexão: ${connection.id}`}
 			</Text>

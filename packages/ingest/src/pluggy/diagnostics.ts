@@ -20,7 +20,9 @@ import {
 	readInvestmentTransactions,
 	toInvestmentPosition,
 } from "./investments.ts";
+import { mapPluggyAccount } from "./mapping.ts";
 import {
+	accountFields,
 	investmentSchema,
 	type PluggyAccount,
 	type PluggyInvestment,
@@ -144,7 +146,44 @@ export interface DiagnoseDeps {
 	deadlineMs?: number;
 }
 
-async function diagnoseAccount(deps: DiagnoseDeps, a: PluggyAccount): Promise<DiagAccount> {
+/** O que o mapeamento do sync faz com a conta (a MESMA função do sync): "conta", "cartão" ou "descartada: motivo". */
+function mappingOf(a: PluggyAccount, connectorName: string | null | undefined): string {
+	try {
+		const mapped = mapPluggyAccount(a, connectorName);
+		if (mapped.kind === "ignored") return `descartada: ${safeText(mapped.reason, 100) ?? "sem motivo"}`;
+		return mapped.kind === "card" ? "cartão" : "conta";
+	} catch {
+		return "descartada: o mapeamento falhou";
+	}
+}
+
+const KNOWN_ACCOUNT_FIELDS = new Set([
+	...Object.keys(accountFields.shape),
+	"numberLast4",
+	"fieldProblems",
+	"itemId",
+]);
+
+/** Nomes (só nomes) dos campos preenchidos que o Órbita não lê: mostra o que mais o banco manda. */
+function otherAccountFields(a: PluggyAccount): string[] {
+	return Object.entries(a as unknown as Record<string, unknown>)
+		.filter(([k, v]) => !KNOWN_ACCOUNT_FIELDS.has(k) && v !== null && v !== undefined)
+		.map(([k]) => k)
+		.filter((k) => /^[A-Za-z0-9_]{1,40}$/.test(k))
+		.sort()
+		.slice(0, 30);
+}
+
+/** Só `campo: código` (letras, números, `_`, `.`, `[]`): nunca o valor. */
+function safeProblems(problems: readonly string[] | undefined): string[] {
+	return (problems ?? [])
+		.filter((p) => /^[A-Za-z0-9_.[\]]{1,60}: (invalid_type|truncated)$/.test(p))
+		.slice(0, 20);
+}
+
+type AccountDeps = DiagnoseDeps & { connectorName?: string | null };
+
+async function diagnoseAccount(deps: AccountDeps, a: PluggyAccount): Promise<DiagAccount> {
 	const { client, now } = deps;
 	const to = now();
 	const from = new Date(to.getTime() - DIAGNOSTIC_WINDOW_DAYS * 86_400_000);
@@ -154,9 +193,19 @@ async function diagnoseAccount(deps: DiagnoseDeps, a: PluggyAccount): Promise<Di
 	const [bills, txs, link] = await Promise.all([
 		isCredit
 			? client
-					.bills(a.id)
-					.then((list) => ({ error: null, list: list.map(toDiagBill) }))
-					.catch((e: unknown) => ({ error: toDiagError(e), list: [] as DiagBill[] }))
+					.billsRead(a.id)
+					.then((r) => ({
+						error: null,
+						list: r.rows.map(toDiagBill),
+						dropped: r.dropped,
+						problems: r.problems,
+					}))
+					.catch((e: unknown) => ({
+						error: toDiagError(e),
+						list: [] as DiagBill[],
+						dropped: 0,
+						problems: [] as string[],
+					}))
 			: Promise.resolve(null),
 		client
 			.transactions({ accountId: a.id, from: day(from), to: day(to) })
@@ -165,6 +214,7 @@ async function diagnoseAccount(deps: DiagnoseDeps, a: PluggyAccount): Promise<Di
 				error: toDiagError(e),
 				transactions: [] as PluggyTransaction[],
 				dropped: 0,
+				problems: [] as string[],
 			})),
 		deps.linkOf(a).catch(() => null),
 	]);
@@ -183,7 +233,7 @@ async function diagnoseAccount(deps: DiagnoseDeps, a: PluggyAccount): Promise<Di
 		subtype: safeText(a.subtype, 60),
 		name: safeText(a.name) ?? "?",
 		marketingName: safeText(a.marketingName),
-		numberLast4: lastDigits(a.number, 4),
+		numberLast4: a.numberLast4 ? `•••${a.numberLast4}` : lastDigits(a.number, 4),
 		balance: money(a.balance),
 		currencyCode: safeText(a.currencyCode, 10),
 		credit: c
@@ -198,6 +248,9 @@ async function diagnoseAccount(deps: DiagnoseDeps, a: PluggyAccount): Promise<Di
 				}
 			: null,
 		link,
+		mapping: mappingOf(a, deps.connectorName),
+		otherFields: otherAccountFields(a),
+		fieldProblems: safeProblems(a.fieldProblems),
 		bills,
 		transactions: {
 			error: txs.error,
@@ -206,6 +259,7 @@ async function diagnoseAccount(deps: DiagnoseDeps, a: PluggyAccount): Promise<Di
 			pending,
 			other: txs.transactions.length - posted - pending,
 			dropped: txs.dropped,
+			problems: txs.problems,
 			pendingTotal: isCredit ? pendingTotal(txs.transactions) : null,
 			recent,
 		},
@@ -426,7 +480,15 @@ async function diagnoseInvestments(deps: DiagnoseDeps, item: PluggyItem): Promis
  */
 export async function diagnoseConnection(
 	deps: DiagnoseDeps,
-	connection: { id: string; label: string | null },
+	connection: {
+		id: string;
+		label: string | null;
+		lastStatus?: string | null;
+		lastError?: string | null;
+		lastSyncAt?: Date | null;
+		accountCount?: number;
+		cardCount?: number;
+	},
 ): Promise<DiagConnection> {
 	const base: DiagConnection = {
 		label: safeText(connection.label, 60),
@@ -441,16 +503,39 @@ export async function diagnoseConnection(
 		consentExpiresAt: null,
 		products: [],
 		itemError: null,
+		createdAt: null,
+		requestedProducts: null,
+		accountsRaw: null,
+		accountsMappable: null,
+		accountsImported: null,
+		accountsRejected: null,
+		accountProblems: [],
+		lastSync:
+			connection.lastStatus === undefined
+				? null
+				: {
+						status: connection.lastStatus,
+						error: safeText(connection.lastError, 300),
+						at: connection.lastSyncAt?.toISOString() ?? null,
+						accounts: connection.accountCount ?? 0,
+						cards: connection.cardCount ?? 0,
+					},
 		error: null,
 		accounts: [],
 		investments: null,
 	};
+	let connectorName: string | null = null;
 	let investments: Promise<DiagInvestments | null>;
 	try {
 		const item = await deps.client.item(connection.id);
 		// Em paralelo com as contas; nunca rejeita (qualquer surpresa vira "não consultado").
 		investments = diagnoseInvestments(deps, item).catch(() => null);
 		base.connectorName = safeText(item.connector?.name);
+		connectorName = item.connector?.name ?? null;
+		base.createdAt = item.createdAt ?? null;
+		base.requestedProducts = item.products
+			? item.products.slice(0, 30).map((p) => safeText(p, 60) ?? "?")
+			: null;
 		base.status = safeText(item.status, 60);
 		base.executionStatus = safeText(item.executionStatus, 60);
 		base.lastUpdatedAt = item.lastUpdatedAt ?? null;
@@ -478,16 +563,20 @@ export async function diagnoseConnection(
 	}
 	let accounts: PluggyAccount[];
 	try {
-		accounts = await deps.client.accounts(connection.id);
+		const read = await deps.client.accountsRead(connection.id);
+		accounts = read.rows;
+		base.accountsRejected = read.dropped;
+		base.accountProblems = read.problems;
 	} catch (e) {
 		base.error = toDiagError(e);
 		base.investments = await investments;
 		return base;
 	}
 	const ms = deps.deadlineMs ?? DIAGNOSTIC_ACCOUNT_DEADLINE_MS;
+	base.accountsRaw = accounts.length + (base.accountsRejected ?? 0);
 	base.accounts = await Promise.all(
 		accounts.map((a) =>
-			withDeadline(diagnoseAccount(deps, a), ms).catch(
+			withDeadline(diagnoseAccount({ ...deps, connectorName }, a), ms).catch(
 				(e: unknown): DiagAccount => ({
 					idStart: a.id.slice(0, 8),
 					type: safeText(a.type, 40) ?? "?",
@@ -499,6 +588,7 @@ export async function diagnoseConnection(
 					currencyCode: null,
 					credit: null,
 					link: null,
+					mapping: mappingOf(a, connectorName),
 					bills: null,
 					transactions: {
 						error: toDiagError(e),
@@ -514,6 +604,8 @@ export async function diagnoseConnection(
 			),
 		),
 	);
+	base.accountsMappable = base.accounts.filter((a) => !a.mapping?.startsWith("descartada")).length;
+	base.accountsImported = base.accounts.filter((a) => a.link !== null).length;
 	base.investments = await investments;
 	return base;
 }

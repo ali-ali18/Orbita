@@ -63,14 +63,17 @@ const renamed = (account: object, id: string, itemId: string) => ({ ...account, 
 
 function world() {
 	const stores = createMemoryStores({ now: () => NOW });
-	const run = (options: FakePluggyOptions) => {
+	const run = (options: FakePluggyOptions, sync: { connectionIds?: readonly string[] } = {}) => {
 		const fake = fakePluggy({ bills: { ...bills(CARD_ACCOUNT_ID), ...bills(NEW_CARD) }, ...options });
-		return syncPluggy({
-			stores,
-			readSecret: async (n) => SECRETS[n] ?? null,
-			fetch: fake.fetch,
-			now: () => NOW,
-		});
+		return syncPluggy(
+			{
+				stores,
+				readSecret: async (n) => SECRETS[n] ?? null,
+				fetch: fake.fetch,
+				now: () => NOW,
+			},
+			sync,
+		);
 	};
 	return { stores, run };
 }
@@ -198,6 +201,33 @@ describe("item novo do mesmo banco (reconexão fora do modo de atualização)", 
 		expect((await w.stores.pluggyConnections.list()).map((c) => c.id).sort()).toEqual(
 			[ITEM_ID, NEW_ITEM].sort(),
 		);
+	});
+
+	it("nova tentativa só da conexão nova: a conta mantida pela outra conexão viva não é roubada", async () => {
+		const w = world();
+		await importOld(w);
+		await w.stores.pluggyConnections.add({ id: NEW_ITEM });
+		const result = await w.run(reconnected({ item: { status: "UPDATED" } }), { connectionIds: [NEW_ITEM] });
+		expect(result.connections.map((c) => c.id)).toEqual([NEW_ITEM]);
+		expect(result.connections[0]?.relinkedAccounts).toBeUndefined();
+		const accounts = await w.stores.accounts.list();
+		expect(accounts).toHaveLength(2);
+		expect(accounts.map((a) => a.externalId).sort()).toEqual([BANK_ACCOUNT_ID, NEW_BANK].sort());
+		expect(await w.stores.cards.list()).toHaveLength(2);
+		// O sync completo seguinte fica igual: nada migrou nem duplicou.
+		const afterRetry = (await all(w.stores)).length;
+		await w.run(reconnected({ item: { status: "UPDATED" } }));
+		expect(await w.stores.accounts.list()).toHaveLength(2);
+		expect((await all(w.stores)).length).toBe(afterRetry);
+	});
+
+	it("o mesmo retry, com a conexão antiga parada, ainda religa (a conferência vê as outras)", async () => {
+		const w = world();
+		await importOld(w);
+		await w.stores.pluggyConnections.add({ id: NEW_ITEM });
+		const result = await w.run(reconnected(), { connectionIds: [NEW_ITEM] });
+		expect(result.connections[0]?.relinkedAccounts).toBe(2);
+		expect(await w.stores.accounts.list()).toHaveLength(1);
 	});
 
 	it("não consegue conferir a outra conexão: espera a próxima rodada em vez de duplicar", async () => {

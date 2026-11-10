@@ -18,7 +18,13 @@ import {
 	cleanPairingCodes,
 	MAINTENANCE_QUEUE,
 } from "./maintenance.ts";
-import { PLUGGY_DAILY_PATTERN, PLUGGY_DAILY_TIME_ZONE, processSyncJob } from "./sincronizacao.ts";
+import {
+	PLUGGY_DAILY_PATTERN,
+	PLUGGY_DAILY_TIME_ZONE,
+	processSyncJob,
+	retryAttemptOf,
+	schedulePluggyRetries,
+} from "./sincronizacao.ts";
 
 const env = loadEnv();
 const db = createDb(env.DATABASE_URL);
@@ -59,14 +65,25 @@ await syncQueue.upsertJobScheduler(
 );
 const syncWorker = new Worker(
 	PLUGGY_SYNC_QUEUE,
-	(job) =>
-		processSyncJob(job.name, {
-			stores,
-			readSecret: (name) => vault.read(name),
-			fetch: (url, init) => fetch(url, init),
-			now: () => new Date(),
-			log: (line) => console.log(line),
-		}),
+	async (job) => {
+		const result = await processSyncJob(
+			job.name,
+			{
+				stores,
+				readSecret: (name) => vault.read(name),
+				fetch: (url, init) => fetch(url, init),
+				now: () => new Date(),
+				log: (line) => console.log(line),
+			},
+			job.data,
+		);
+		// Conexão que ainda espera o banco (item atualizando, ou nova e sem contas): tenta de novo sozinha, com espera
+		// crescente, fim certo e uma cadeia só por conexão. Falhar em agendar não derruba a sincronização que rodou.
+		await schedulePluggyRetries(syncQueue, result, retryAttemptOf(job.name, job.data), new Date(), (line) =>
+			console.log(line),
+		);
+		return result;
+	},
 	{ connection, concurrency: 1 },
 );
 // O resultado traz só contagens e mensagens já sanitizadas.

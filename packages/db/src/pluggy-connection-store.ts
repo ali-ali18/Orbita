@@ -34,8 +34,13 @@ export interface PluggyConnectionInput {
 export interface PluggySyncResult {
 	status: PluggySyncStatus;
 	error?: string | null;
-	/** Só quando a sincronização terminou "ok": avança a janela da próxima. */
+	/** Só quando a sincronização terminou "ok" (ou "partial" com `windowDone`): avança a janela da próxima. */
 	syncedAt?: Date;
+	/**
+	 * `partial` cujo único motivo é linha recusada por formato, com todas as contas aceitas sincronizadas: repetir a
+	 * mesma janela não resolve nada, então `syncedAt` e `historyFrom` valem também nesta situação. Ignorado fora do `partial`.
+	 */
+	windowDone?: boolean;
 	/** Com `syncedAt`: de que dia a janela buscou. Guarda o mais antigo já visto (nunca "encurta" o histórico). */
 	historyFrom?: string;
 	/** Quantas contas e cartões a sincronização ligou à conexão. Ausente (erro antes de ligar) = não mexe. */

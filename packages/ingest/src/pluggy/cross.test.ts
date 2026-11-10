@@ -108,7 +108,11 @@ function run(
 		fetch: fake.fetch,
 		now: () => NOW,
 	};
-	return { stores: s, sync: async () => syncPluggy(deps), api: API_KEY };
+	return {
+		stores: s,
+		sync: async (options?: { connectionIds?: readonly string[] }) => syncPluggy(deps, options),
+		api: API_KEY,
+	};
 }
 
 async function setup(
@@ -316,6 +320,22 @@ describe("sincronização com várias conexões: pagamento de fatura", () => {
 		const again = await t.sync();
 		expect(again.connections.every((c) => (c.reclassified ?? 0) === 0)).toBe(true);
 		expect((await rows(t.stores))["p-1"]?.kind).toBe("card_payment");
+	});
+
+	it("nova tentativa só da conexão do banco: o pagamento liga ao cartão da conexão que não está na lista", async () => {
+		const bills = { [mpCard.id]: [bill("b1", day("10"), 148.38)] };
+		const first = await setup({}, bills);
+		await first.sync();
+		// Agora o pagamento aparece na conta Inter e só essa conexão é sincronizada (a do cartão fica de fora).
+		const retry = run({ [BANK_ACCOUNT_ID]: [pay] }, bills, first.stores);
+		const result = await retry.sync({ connectionIds: [ITEM_ID] });
+		expect(result.connections.map((c) => c.id)).toEqual([ITEM_ID]);
+		const [card] = (await first.stores.cards.list()).filter((c) => c.last4 === "7777");
+		expect((await rows(first.stores))["p-1"]).toMatchObject({
+			kind: "card_payment",
+			cardId: card?.id,
+			note: null,
+		});
 	});
 
 	it("o valor que faltava pagar também vale, e o vencimento longe demais não", async () => {

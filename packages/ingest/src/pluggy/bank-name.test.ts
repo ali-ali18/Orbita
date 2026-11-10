@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+	bankByTransferNumber,
+	bankDisplayName,
 	bankIspb,
 	cardDisplayName,
 	cleanBankName,
@@ -76,6 +78,62 @@ describe("banco e nome de cartão", () => {
 		expect(findKnownBank("Mastercard Black")).toBeNull();
 		expect(findKnownBank("Interessante")).toBeNull();
 		expect(findKnownBank(null)).toBeNull();
+	});
+
+	it("os bancos da lista de notificações são reconhecidos pelo nome e têm ISPB (o logo no app)", () => {
+		for (const [raw, bank] of [
+			["C6 Bank", "C6"],
+			["C6BANK", "C6"],
+			["Banco C6 S.A.", "C6"],
+			["C6 Carbon Mastercard", "C6"],
+			["Itaú Unibanco S.A.", "Itaú"],
+			["Conta Corrente Itau", "Itaú"],
+			["Banco Bradesco S.A.", "Bradesco"],
+			["Banco do Brasil S.A.", "Banco do Brasil"],
+			["Ourocard Visa", "Banco do Brasil"],
+			["Conta BB", "Banco do Brasil"],
+			["Caixa Econômica Federal", "Caixa"],
+			["PicPay Card", "PicPay"],
+		] as const) {
+			expect(findKnownBank(raw), raw).toBe(bank);
+			expect(bankIspb(bank), bank).toMatch(/^\d{8}$/);
+		}
+		expect(findKnownBank("Bbq da firma")).toBeNull();
+		// "BB" solto no meio de outro nome não é o Banco do Brasil; com conta/cartão ao lado, sim.
+		expect(findKnownBank("Tem BB Seguros")).toBeNull();
+		expect(findKnownBank("Seguros BB Previdencia")).toBeNull();
+		expect(findKnownBank("BB Cartão Gold")).toBe("Banco do Brasil");
+		expect(findKnownBank("Cartão BB")).toBe("Banco do Brasil");
+		expect(findKnownBank("BB Conta Corrente")).toBe("Banco do Brasil");
+		expect(findKnownBank("Caixinha")).toBeNull();
+	});
+
+	it("bankByTransferNumber: o COMPE do 'COMPE/Agência/Conta'", () => {
+		expect(bankByTransferNumber("336/0001/12345-0")).toBe("C6");
+		expect(bankByTransferNumber("033 / 1234 / 56789-0")).toBe("Santander");
+		expect(bankByTransferNumber("1/1234/5678-9")).toBe("Banco do Brasil");
+		expect(bankByTransferNumber("260/0001/1234567-8")).toBe("Nubank");
+		expect(bankByTransferNumber("999/0001/1-0")).toBeNull();
+		expect(bankByTransferNumber("0001/12345-0")).toBeNull();
+		expect(bankByTransferNumber("abc/0001/1-0")).toBeNull();
+		expect(bankByTransferNumber(null)).toBeNull();
+	});
+
+	it("bankDisplayName: o nome para o dono", () => {
+		expect(bankDisplayName("C6")).toBe("C6 Bank");
+		expect(bankDisplayName("Nubank")).toBe("Nubank");
+		expect(cardDisplayName("Mastercard Black", "C6")).toBe("C6 Bank");
+		expect(cardDisplayName("C6 Carbon", "C6")).toBe("C6 Carbon");
+	});
+
+	it("detectBankName usa o COMPE quando nenhum nome diz o banco", () => {
+		expect(
+			detectBankName({
+				connectorName: "MeuPluggy",
+				accountNames: ["Conta Corrente", "Mastercard Black"],
+				transferNumbers: [null, "336/0001/12345-0"],
+			}),
+		).toBe("C6");
 	});
 
 	it("isWeakCardName: letra solta ou só bandeira/nível", () => {

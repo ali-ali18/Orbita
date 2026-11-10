@@ -6,6 +6,7 @@ import {
 	type PluggyStatusResponse,
 	pluggyConnectionCreateBody,
 	pluggyLabelSchema,
+	pluggyWaitingFor,
 } from "@orbita/shared";
 import { banks } from "@orbita/tokens";
 import { ApiError } from "../../lib/api.ts";
@@ -41,8 +42,37 @@ export function formatAgo(iso: string, now: Date): string | null {
 	return `há ${Math.floor(diff / DAY)} d`;
 }
 
-export const connectionName = (c: Pick<PluggyConnectionDto, "label">): string =>
-	c.label?.trim() || "Conexão sem nome";
+export const UNNAMED_CONNECTION = "Banco novo";
+
+/**
+ * Nome da conexão. "MeuPluggy" é o nome do conector, igual em todas (não diz o banco): enquanto o servidor não
+ * descobre o banco pelas contas, a conexão aparece como "Banco novo" e a legenda diz o que falta.
+ */
+export function connectionName(c: Pick<PluggyConnectionDto, "label">): string {
+	const label = c.label?.trim() ?? "";
+	return label === "" || /^meu\s*pluggy$/i.test(label) ? UNNAMED_CONNECTION : label;
+}
+
+export const UPDATING_LINE = "Atualizando no banco…";
+export const NO_ACCOUNTS_LINE = "Conectado, mas o banco ainda não enviou contas";
+export const UNREAD_PRODUCTS_LINE = "Só produtos que o Órbita ainda não lê";
+export const NO_DATA_LINE = "Conectado, mas o banco ainda não enviou lançamentos";
+
+/**
+ * A conexão espera o banco? "updating": o item do Pluggy ainda atualiza. "no_accounts": sem conta nem cartão, seja
+ * porque o servidor avisou, seja porque gravou "ok" com a lista vazia (servidor antigo): "Sincronizado" aí engana.
+ * Quem já tem contas e veio vazio desta vez não entra: cai em "Sincronizou em parte".
+ */
+function waitingKind(
+	c: PluggyConnectionDto,
+): "updating" | "no_accounts" | "no_data" | "unread_products" | null {
+	const waiting = pluggyWaitingFor(c);
+	if (waiting === "unread_products") return "unread_products";
+	if (waiting === "updating") return "updating";
+	if (waiting === "no_data") return "no_data";
+	const empty = c.summary.accounts + c.summary.cards === 0;
+	return empty && (waiting === "no_accounts" || c.lastStatus === "ok") ? "no_accounts" : null;
+}
 
 /** "Sincronizado agora" / "Sincronizado há 2 h". */
 function syncedAt(iso: string | null, now: Date): string | null {
@@ -60,6 +90,11 @@ export function connectionStatusLine(c: PluggyConnectionDto, now: Date): string 
 	const ago = c.lastSyncAt ? formatAgo(c.lastSyncAt, now) : null;
 	const lastOk = ago ? ` · último ok ${ago}` : "";
 	if (needsReconnect(c)) return `Desconectado${lastOk}`;
+	const waiting = waitingKind(c);
+	if (waiting === "updating") return UPDATING_LINE;
+	if (waiting === "no_accounts") return NO_ACCOUNTS_LINE;
+	if (waiting === "no_data") return NO_DATA_LINE;
+	if (waiting === "unread_products") return UNREAD_PRODUCTS_LINE;
 	switch (c.lastStatus) {
 		case "ok":
 			return good ?? "Sincronizado";
@@ -74,6 +109,24 @@ export function connectionStatusLine(c: PluggyConnectionDto, now: Date): string 
 		case null:
 			return "Nunca sincronizou";
 	}
+}
+
+/** Explicação da situação "esperando o banco", para a gaveta da conexão; `null` nas outras situações. */
+export function connectionStatusDetail(c: PluggyConnectionDto): string | null {
+	const waiting = waitingKind(c);
+	if (waiting === "updating") {
+		return "O Pluggy ainda está buscando os dados neste banco. O Órbita tenta de novo sozinho em alguns minutos.";
+	}
+	if (waiting === "unread_products") {
+		return "O banco só enviou produtos que o Órbita ainda não lê (investimentos, por exemplo). Não é erro: quando ele enviar conta ou cartão, aparecem aqui.";
+	}
+	if (waiting === "no_data") {
+		return "O Pluggy já entregou a conta, mas ainda não os lançamentos deste banco. O Órbita tenta de novo sozinho e busca os 6 meses quando eles chegarem.";
+	}
+	if (waiting === "no_accounts") {
+		return "O Pluggy confirma a conexão, mas ainda não entregou nenhuma conta nem cartão deste banco. O Órbita tenta de novo sozinho; se amanhã continuar assim, confira no Meu Pluggy se o banco aparece atualizado por lá.";
+	}
+	return null;
 }
 
 /** "1 conta", "2 contas · 1 cartão"; `null` se a conexão ainda não trouxe nada. */
@@ -100,9 +153,25 @@ export function parseRenameInput(text: string): ValidatedLabel {
 	return { ok: true, label: parsed.data };
 }
 
+/**
+ * Quando a única coisa que falta é o banco de uma conexão nova: "Sincronizado agora · 1 conexão esperando o banco".
+ * As demais contam pela sincronização boa mais antiga. `null` se alguma conexão está sem sincronizar por outro motivo.
+ */
+function waitingCaption(connections: readonly PluggyConnectionDto[], now: Date): string | null {
+	const pending = connections.filter((c) => c.lastSyncAt === null);
+	const synced = connections.flatMap((c) => (c.lastSyncAt === null ? [] : [c.lastSyncAt]));
+	if (pending.length === 0 || synced.length === 0 || pending.some((c) => waitingKind(c) === null))
+		return null;
+	const good = syncedAt([...synced].sort()[0] ?? null, now);
+	if (good === null) return null;
+	return `${good} · ${pending.length === 1 ? "1 conexão esperando" : `${pending.length} conexões esperando`} o banco`;
+}
+
 /** Título e legenda do cartão de sincronização do topo. */
 export function syncCardText(
-	status: Pick<PluggyStatusResponse, "sync" | "lastSyncAt">,
+	status: Pick<PluggyStatusResponse, "sync" | "lastSyncAt"> & {
+		connections?: readonly PluggyConnectionDto[];
+	},
 	now: Date,
 	slow = false,
 ): { title: string; caption: string } {
@@ -125,7 +194,10 @@ export function syncCardText(
 		case "idle":
 			return {
 				title: "Última sincronização",
-				caption: syncedAt(status.lastSyncAt, now) ?? "Alguma conexão ainda não sincronizou.",
+				caption:
+					syncedAt(status.lastSyncAt, now) ??
+					waitingCaption(status.connections ?? [], now) ??
+					"Alguma conexão ainda não sincronizou.",
 			};
 	}
 }
@@ -226,7 +298,7 @@ export function bankColorByName(name: string): string {
 	if (n.includes("bradesco")) return banks.bradesco;
 	if (n.includes("itau")) return banks.itau;
 	if (n.includes("inter")) return banks.inter;
-	if (n.includes("c6")) return banks.c6;
+	if (/\bc6(\s?bank)?\b/.test(n)) return banks.c6;
 	return banks.generic;
 }
 
