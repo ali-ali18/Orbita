@@ -1,4 +1,4 @@
-import { type HighlightLevel, spacing } from "@orbita/tokens";
+import { spacing } from "@orbita/tokens";
 import { ScrollView, View } from "react-native";
 import type { CategoriesView, InvoiceView, MonthSummary } from "../../lib/api.ts";
 import type { Loadable } from "../../lib/loadable.ts";
@@ -138,11 +138,8 @@ const invoice = {
 	],
 } as InvoiceView;
 
-/**
- * Início com o gasto separado por categoria, do jeito que a tela real desenha. `highlight` troca a intensidade da
- * borda de destaque do card principal (`/previa?tela=inicio&destaque=strong`), para comparar as duas.
- */
-export function HomePreview({ highlight }: { highlight?: HighlightLevel }) {
+/** Início com o gasto separado por categoria, do jeito que a tela real desenha. */
+export function HomePreview() {
 	return (
 		<Screen fadeTop>
 			<ScrollView
@@ -155,7 +152,7 @@ export function HomePreview({ highlight }: { highlight?: HighlightLevel }) {
 						novembro · faltam 22 dias
 					</Text>
 				</View>
-				<HeroCard state={homeState} hidden={false} {...(highlight ? { highlight } : {})} />
+				<HeroCard state={homeState} hidden={false} />
 				<CategoriesCard state={homeState} hidden={false} onPress={noop} />
 			</ScrollView>
 		</Screen>

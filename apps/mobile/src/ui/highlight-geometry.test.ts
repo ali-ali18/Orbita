@@ -2,7 +2,7 @@ import { highlight, radius } from "@orbita/tokens";
 import { describe, expect, it } from "vitest";
 import { highlightGeometry, highlightOpacityAt, highlightPosition } from "./highlight-geometry.ts";
 
-const spec = highlight.subtle;
+const spec = highlight;
 const wide = { width: 358, height: 200, radius: radius.card, ...spec };
 
 describe("highlightGeometry", () => {

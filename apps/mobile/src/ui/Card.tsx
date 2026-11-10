@@ -1,4 +1,4 @@
-import { colors, type HighlightLevel, radius, spacing } from "@orbita/tokens";
+import { colors, radius, spacing } from "@orbita/tokens";
 import { type ReactNode, useState } from "react";
 import { type LayoutChangeEvent, Pressable, type StyleProp, View, type ViewStyle } from "react-native";
 import { CardHighlight } from "./CardHighlight.tsx";
@@ -20,9 +20,9 @@ export function Card({
 	label?: string;
 	/**
 	 * Card de destaque: borda de brilho e luz de canto, neutras (não seguem o tema). No máximo um por tela visível, nunca em item
-	 * de lista (styleguide, "Card de destaque"). `true` usa a intensidade padrão.
+	 * de lista (styleguide, "Card de destaque").
 	 */
-	highlight?: boolean | HighlightLevel;
+	highlight?: boolean;
 }) {
 	const onLongPress = useWidgetLongPress();
 	// O desenho precisa do tamanho em px; até a primeira medida o card aparece sem o brilho.
@@ -33,14 +33,7 @@ export function Card({
 				setSize((prev) => (prev?.width === width && prev.height === height ? prev : { width, height }));
 			}
 		: undefined;
-	const shine =
-		highlight && size ? (
-			<CardHighlight
-				width={size.width}
-				height={size.height}
-				{...(highlight === true ? {} : { level: highlight })}
-			/>
-		) : null;
+	const shine = highlight && size ? <CardHighlight width={size.width} height={size.height} /> : null;
 	const box = {
 		backgroundColor: colors.surface,
 		borderRadius: radius.card,

@@ -1,4 +1,4 @@
-import { colors, type HighlightLevel, highlight, radius } from "@orbita/tokens";
+import { colors, highlight, radius } from "@orbita/tokens";
 import { useId } from "react";
 import { View } from "react-native";
 import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from "react-native-svg";
@@ -13,19 +13,11 @@ import { highlightGeometry } from "./highlight-geometry.ts";
  * Estático por enquanto. Para animar depois: a geometria é uma função pura (`highlightGeometry`), então basta trocar
  * `LinearGradient` por uma versão animada do Reanimated e girar `x1/y1/x2/y2` (ou deslizar as paradas).
  */
-export function CardHighlight({
-	width,
-	height,
-	level = highlight.default,
-}: {
-	width: number;
-	height: number;
-	level?: HighlightLevel;
-}) {
+export function CardHighlight({ width, height }: { width: number; height: number }) {
 	const tint = colors.text;
 	// Vários SVGs na mesma página (web) dividem os ids: cada card precisa dos seus.
 	const id = useId().replace(/[^a-zA-Z0-9]/g, "");
-	const g = highlightGeometry({ width, height, radius: radius.card, ...highlight[level] });
+	const g = highlightGeometry({ width, height, radius: radius.card, ...highlight });
 	if (!g) return null;
 	const stroke = `hl-stroke-${id}`;
 	const glow = `hl-glow-${id}`;
@@ -59,7 +51,7 @@ export function CardHighlight({
 					</RadialGradient>
 				</Defs>
 				<Rect x={0} y={0} width={width} height={height} rx={radius.card} fill={`url(#${glow})`} />
-				<Rect {...g.rect} fill="none" stroke={`url(#${stroke})`} strokeWidth={highlight[level].strokeWidth} />
+				<Rect {...g.rect} fill="none" stroke={`url(#${stroke})`} strokeWidth={highlight.strokeWidth} />
 			</Svg>
 		</View>
 	);

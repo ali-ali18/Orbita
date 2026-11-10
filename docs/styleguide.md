@@ -52,16 +52,16 @@ Teste em `@orbita/tokens`: `onAccent` ≥ 4,5:1 sobre o `accent`; `accent` ≥ 3
 
 O card "herói" da tela ganha uma **borda de brilho**: forte no canto de cima à esquerda, some ao longo das duas arestas, fica sem borda no meio e reaparece, mais fraca, no canto de baixo à direita. Junto vem uma **luz suave** saindo do mesmo canto de cima. As duas são **sempre neutras**: o branco de `colors.text` em opacidades decrescentes (o "prata"), em qualquer tema. O destaque **não segue o tema** e não é uso da cor primária (o componente não chama `useAccent()`). Os demais cards continuam sem borda.
 
-| Token (`highlight.subtle` / `.strong`) | Sutil | Marcante | O que é                                                                       |
-| -------------------------------------- | ----- | -------- | ----------------------------------------------------------------------------- |
-| `strokeWidth`                          | 1     | 1,5      | Espessura do traço                                                            |
-| `nearOpacity`                          | 0,9   | 1        | Opacidade da borda no canto iluminado                                         |
-| `farOpacity`                           | 0,5   | 0,8      | Opacidade da borda no canto oposto                                            |
-| `fadeAt`                               | 0,3   | 0,42     | Onde a borda some (0 = canto iluminado, 0,5 = os outros cantos, 1 = o oposto) |
-| `glowOpacity`                          | 0,06  | 0,085    | Opacidade da luz no canto                                                     |
-| `glowRadius`                           | 0,8   | 1,1      | Raio da luz, em larguras do card                                              |
+| Token (`highlight.…`) | Valor | O que é                                                                       |
+| --------------------- | ----- | ----------------------------------------------------------------------------- |
+| `strokeWidth`         | 0,75  | Espessura do traço: um fio, mais fino que 1                                   |
+| `nearOpacity`         | 0,5   | Opacidade da borda no canto iluminado                                         |
+| `farOpacity`          | 0,22  | Opacidade da borda no canto oposto                                            |
+| `fadeAt`              | 0,28  | Onde a borda some (0 = canto iluminado, 0,5 = os outros cantos, 1 = o oposto) |
+| `glowOpacity`         | 0,045 | Opacidade da luz no canto                                                     |
+| `glowRadius`          | 0,8   | Raio da luz, em larguras do card                                              |
 
-`highlight.default` é `subtle`: é o que `<Card highlight>` usa. `highlight="strong"` existe para comparar; não use sem combinar antes.
+Há **um nível só**, de propósito delicado: uma borda prata que quase se confunde com o card e só "acende" no canto. Não existe versão mais forte; se parecer fraco, a resposta não é subir a opacidade (o teste dos tokens segura o canto em 0,6 e a luz em 0,05).
 
 Regras:
 

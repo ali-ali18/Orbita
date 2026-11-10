@@ -6,33 +6,21 @@
  * reaparece no canto de baixo à direita. A luz é um brilho radial ancorado no mesmo canto de cima.
  *
  * Posições (`fadeAt`) vão de 0 (canto iluminado) a 1 (canto oposto), medidas na diagonal: os outros dois cantos
- * ficam em 0,5. Com `fadeAt` 0,3 a borda some a 60% de cada aresta. Opacidades vão de 0 a 1.
+ * ficam em 0,5. Com `fadeAt` 0,28 a borda some a 56% de cada aresta. Opacidades vão de 0 a 1.
+ *
+ * Um nível só, delicado: uma borda prata que quase se confunde com o card e só "acende" no canto.
  */
 export const highlight = {
-	/** Intensidade usada quando a tela só pede `highlight`. */
-	default: "subtle",
-	subtle: {
-		/** Espessura do traço da borda, em px. */
-		strokeWidth: 1,
-		/** Opacidade da borda no canto iluminado. */
-		nearOpacity: 0.9,
-		/** Opacidade da borda no canto oposto (mais fraca: a luz vem do outro lado). */
-		farOpacity: 0.5,
-		/** Onde a borda acaba de sumir (e, espelhado, onde recomeça: `1 - fadeAt`). */
-		fadeAt: 0.3,
-		/** Opacidade da luz no canto iluminado. Baixa: o texto do card precisa manter o contraste. */
-		glowOpacity: 0.06,
-		/** Raio da luz, em múltiplos da largura do card. */
-		glowRadius: 0.8,
-	},
-	strong: {
-		strokeWidth: 1.5,
-		nearOpacity: 1,
-		farOpacity: 0.8,
-		fadeAt: 0.42,
-		glowOpacity: 0.085,
-		glowRadius: 1.1,
-	},
+	/** Espessura do traço da borda, em px: mais fino que 1, quase um fio. */
+	strokeWidth: 0.75,
+	/** Opacidade da borda no canto iluminado. */
+	nearOpacity: 0.5,
+	/** Opacidade da borda no canto oposto (mais fraca: a luz vem do outro lado). */
+	farOpacity: 0.22,
+	/** Onde a borda acaba de sumir (e, espelhado, onde recomeça: `1 - fadeAt`). */
+	fadeAt: 0.28,
+	/** Opacidade da luz no canto iluminado. Baixa: o texto do card precisa manter o contraste. */
+	glowOpacity: 0.045,
+	/** Raio da luz, em múltiplos da largura do card. */
+	glowRadius: 0.8,
 } as const;
-
-export type HighlightLevel = Exclude<keyof typeof highlight, "default">;

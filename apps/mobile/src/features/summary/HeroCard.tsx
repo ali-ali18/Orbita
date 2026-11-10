@@ -1,4 +1,4 @@
-import { type HighlightLevel, spacing } from "@orbita/tokens";
+import { spacing } from "@orbita/tokens";
 import { useRouter } from "expo-router";
 import { Pressable, View } from "react-native";
 import type { CategoriesView, MonthSummary } from "../../lib/api.ts";
@@ -39,7 +39,7 @@ function Shell({
 	children,
 }: {
 	title?: string;
-	highlight?: boolean | HighlightLevel;
+	highlight?: boolean;
 	children: React.ReactNode;
 }) {
 	return (
@@ -56,18 +56,15 @@ export function HeroCard({
 	state,
 	hidden,
 	compact = false,
-	highlight = true,
 }: {
 	state: Loadable<[MonthSummary, CategoriesView]>;
 	hidden: boolean;
 	/** 2x4: o número e uma linha de apoio, sem a barra e o "Gasto". */
 	compact?: boolean;
-	/** Intensidade da borda de destaque. Só a prévia troca; o Início usa a padrão. */
-	highlight?: true | HighlightLevel;
 }) {
 	if (state.phase === "loading") {
 		return (
-			<Shell highlight={highlight}>
+			<Shell>
 				<View accessibilityLabel="Carregando" style={{ marginTop: spacing.md, gap: spacing.md }}>
 					<Skeleton width="70%" height={46} />
 					<Skeleton width="80%" height={18} />
@@ -96,7 +93,7 @@ export function HeroCard({
 
 	if (!total || !safe) {
 		return (
-			<Shell highlight={highlight}>
+			<Shell>
 				<Text variant="body" tone="secondary" style={{ marginTop: spacing.md }}>
 					Ainda não há orçamento para este mês. Defina um limite para ver quanto ainda dá pra gastar.
 				</Text>
@@ -132,7 +129,7 @@ export function HeroCard({
 			: `≈ ${masked(safe.perDayCents)} por dia · orçamento de ${masked(hero.limitCents)}`;
 	if (compact) {
 		return (
-			<Shell title={title} highlight={highlight}>
+			<Shell title={title}>
 				<Text
 					variant="numberHero"
 					style={{ marginTop: spacing.xs }}
@@ -150,7 +147,7 @@ export function HeroCard({
 	}
 
 	return (
-		<Shell title={title} highlight={highlight}>
+		<Shell title={title}>
 			<Text
 				variant="numberHero"
 				style={{ marginTop: spacing.xs }}
