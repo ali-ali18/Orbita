@@ -1,6 +1,11 @@
 import { highlight, radius } from "@orbita/tokens";
 import { describe, expect, it } from "vitest";
-import { highlightGeometry, highlightOpacityAt, highlightPosition } from "./highlight-geometry.ts";
+import {
+	highlightApplies,
+	highlightGeometry,
+	highlightOpacityAt,
+	highlightPosition,
+} from "./highlight-geometry.ts";
 
 const spec = highlight;
 const wide = { width: 358, height: 200, radius: radius.card, ...spec };
@@ -72,5 +77,23 @@ describe("highlightGeometry", () => {
 	it("a luz nasce no canto iluminado e o raio acompanha a largura", () => {
 		const g = highlightGeometry(wide);
 		expect(g?.glow).toEqual({ cx: 0, cy: 0, r: 286.4, opacity: spec.glowOpacity });
+	});
+});
+
+describe("highlightApplies", () => {
+	const ratio = highlight.minWidthRatio;
+
+	it("card de largura cheia recebe (tela de 390 com margem de 16)", () => {
+		expect(highlightApplies(358, 390, ratio)).toBe(true);
+	});
+
+	it("widget 2x2 e par lado a lado não recebem", () => {
+		expect(highlightApplies(173, 390, ratio)).toBe(false);
+		expect(highlightApplies(160, 360, ratio)).toBe(false);
+	});
+
+	it("sem medida não recebe", () => {
+		expect(highlightApplies(0, 390, ratio)).toBe(false);
+		expect(highlightApplies(358, 0, ratio)).toBe(false);
 	});
 });

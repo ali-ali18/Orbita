@@ -77,6 +77,15 @@ export function highlightGeometry(input: HighlightInput): HighlightGeometry | nu
 	};
 }
 
+/**
+ * O card recebe o destaque? Só o de largura cheia: a largura dele precisa alcançar `minRatio` da largura da tela.
+ * Dois cards lado a lado (widget 2x2) ficam abaixo disso. Sem medida ainda, não.
+ */
+export function highlightApplies(cardWidth: number, screenWidth: number, minRatio: number): boolean {
+	if (!(cardWidth > 0) || !(screenWidth > 0)) return false;
+	return cardWidth >= screenWidth * minRatio;
+}
+
 /** Posição (0 a 1) de um ponto do card na linha do gradiente. Serve ao teste e a quem for animar a borda. */
 export function highlightPosition(point: { x: number; y: number }, line: HighlightGeometry["line"]): number {
 	const vx = line.x2 - line.x1;

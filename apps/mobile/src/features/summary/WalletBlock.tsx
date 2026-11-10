@@ -105,7 +105,7 @@ export function WalletBlock({
 	}
 	if (overview.phase === "error") {
 		return (
-			<Card>
+			<Card highlight={false}>
 				<ErrorState message={overview.message} onRetry={overview.retry} />
 			</Card>
 		);

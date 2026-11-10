@@ -38,6 +38,11 @@ describe("highlight", () => {
 		expect(highlight.glowOpacity).toBeLessThanOrEqual(0.05);
 	});
 
+	it("card de meia largura fica de fora e o de largura cheia entra", () => {
+		expect(highlight.minWidthRatio).toBeGreaterThan(0.5);
+		expect(highlight.minWidthRatio).toBeLessThan(0.9);
+	});
+
 	// Pior caso: o ponto mais claro da luz (o canto). A luz é o branco de `colors.text`, igual em todos os temas.
 	it("o texto do card mantém AA (4,5:1) sobre a luz", () => {
 		const lit = over(colors.text, colors.surface, highlight.glowOpacity);

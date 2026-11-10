@@ -2,7 +2,7 @@ import { colors, radius, spacing } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
 import type { InvoicesOverviewView } from "../../lib/api.ts";
 import { money } from "../../lib/format.ts";
-import { BankLogo, Text } from "../../ui/index.ts";
+import { BankLogo, CardHighlight, Text } from "../../ui/index.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { bandLook } from "../summary/wallet-model.ts";
 import { cardLabel, cardSpokenName, usagePercent } from "./card-model.ts";
@@ -41,6 +41,7 @@ export function InvoiceOverviewCard({
 				opacity: pressed ? 0.8 : 1,
 			})}
 		>
+			<CardHighlight radius={radius.block} />
 			<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
 				<BankLogo {...bankBadge(line.card)} size={44} />
 				<View style={{ flex: 1, gap: 2 }}>

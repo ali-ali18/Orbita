@@ -32,7 +32,7 @@ function SpentLine({ month, cents, hidden }: { month: string; cents: number; hid
 	);
 }
 
-/** O card herói do Início: o único com a borda de destaque na tela. No erro fica sem ela. */
+/** O card herói do Início. No erro fica sem a borda de destaque. */
 function Shell({
 	title = TITLE,
 	highlight = true,

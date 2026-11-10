@@ -30,7 +30,7 @@ export function LoadableCard<T>({
 	children: (data: T) => ReactNode;
 }) {
 	return (
-		<Card {...(onPress ? { onPress, label: title } : {})}>
+		<Card highlight={state.phase !== "error"} {...(onPress ? { onPress, label: title } : {})}>
 			<CardHeader title={title} chevron={chevron} action={action} onAction={onAction} />
 			<View style={{ marginTop: state.phase === "loading" || state.phase === "error" ? spacing.md : gap }}>
 				{state.phase === "loading" ? (

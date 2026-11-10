@@ -23,4 +23,9 @@ export const highlight = {
 	glowOpacity: 0.045,
 	/** Raio da luz, em múltiplos da largura do card. */
 	glowRadius: 0.8,
+	/**
+	 * Só card de largura cheia recebe: a largura dele tem de ser pelo menos esta fração da largura da tela. Card de
+	 * meia largura (widget 2x2, par lado a lado) fica abaixo e não recebe.
+	 */
+	minWidthRatio: 0.6,
 } as const;

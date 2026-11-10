@@ -48,9 +48,9 @@ Teste em `@orbita/tokens`: `onAccent` ≥ 4,5:1 sobre o `accent`; `accent` ≥ 3
 
 ### Card de destaque
 
-`<Card highlight>` · `import { highlight } from "@orbita/tokens"`
+`Card` (ligado por padrão) · `CardHighlight` · `import { highlight } from "@orbita/tokens"`
 
-O card "herói" da tela ganha uma **borda de brilho**: forte no canto de cima à esquerda, some ao longo das duas arestas, fica sem borda no meio e reaparece, mais fraca, no canto de baixo à direita. Junto vem uma **luz suave** saindo do mesmo canto de cima. As duas são **sempre neutras**: o branco de `colors.text` em opacidades decrescentes (o "prata"), em qualquer tema. O destaque **não segue o tema** e não é uso da cor primária (o componente não chama `useAccent()`). Os demais cards continuam sem borda.
+Todo **card de largura cheia** tem uma **borda de brilho**: acesa no canto de cima à esquerda, some ao longo das duas arestas, fica sem borda no meio e reaparece, mais fraca, no canto de baixo à direita. Junto vem uma **luz suave** saindo do mesmo canto de cima. As duas são **sempre neutras**: o branco de `colors.text` em opacidades decrescentes (o "prata"), em qualquer tema. O destaque **não segue o tema** e não é uso da cor primária (o componente não chama `useAccent()`).
 
 | Token (`highlight.…`) | Valor | O que é                                                                       |
 | --------------------- | ----- | ----------------------------------------------------------------------------- |
@@ -60,18 +60,26 @@ O card "herói" da tela ganha uma **borda de brilho**: forte no canto de cima à
 | `fadeAt`              | 0,28  | Onde a borda some (0 = canto iluminado, 0,5 = os outros cantos, 1 = o oposto) |
 | `glowOpacity`         | 0,045 | Opacidade da luz no canto                                                     |
 | `glowRadius`          | 0,8   | Raio da luz, em larguras do card                                              |
+| `minWidthRatio`       | 0,6   | Largura mínima do card, como fração da tela, para receber                     |
 
-Há **um nível só**, de propósito delicado: uma borda prata que quase se confunde com o card e só "acende" no canto. Não existe versão mais forte; se parecer fraco, a resposta não é subir a opacidade (o teste dos tokens segura o canto em 0,6 e a luz em 0,05).
+Há **um nível só**, de propósito delicado: como vários cards da mesma tela acendem juntos, a borda quase se confunde com o card e só aparece no canto. Não existe versão mais forte (o teste dos tokens segura o canto em 0,6 e a luz em 0,05).
 
-Regras:
+Quem recebe:
 
-- **No máximo um por tela visível**, e só no card que resume a tela (o número principal). Se a tela não tem um card assim (o total é texto solto), fica sem destaque: não se cria card só para brilhar.
-- **Nunca em item de lista repetida**, widget 2x2 nem gaveta. Destaque em todo card deixa de ser destaque.
-- É decoração: não carrega informação, não recebe toque e é invisível para o leitor de tela. Estado de erro do card fica sem ela.
-- **O texto mantém o contraste.** A luz clareia o fundo do card; por isso `glowOpacity` tem teto. Teste em `@orbita/tokens`: `text`, `textSecondary` e `positive` continuam em 4,5:1 sobre o ponto mais claro da luz. Subir a opacidade exige passar nesse teste.
+- **Recebe:** card de conteúdo de largura cheia. No Início, os widgets 2x4 e 4x4; nas outras telas, os cards de conteúdo (cada fatura e "O que entrou nela", Limites, cada conta em Saldo em conta, os achados do Economia, Metas, Relatório, Gasto do mês).
+- **Não recebe:** card de meia largura (widget 2x2, dois cards lado a lado), linha de lista dentro de um card, chip, gaveta (`Sheet`) e `SheetGroup`, bloco de formulário ou de Configurações (linhas de ajuste), estado de erro ou vazio.
+
+Como funciona, para não virar prop espalhada:
+
+- O `Card` já desenha o destaque (`highlight` vem ligado). A regra de largura é **medida**: o card só acende se ocupar pelo menos `minWidthRatio` da largura da tela, então o 2x2 fica sem, sozinho, sem ninguém passar nada.
+- Estado de erro ou vazio passa `highlight={false}`.
+- Bloco de conteúdo que não é `Card` (raio `block` ou `inner`) põe `<CardHighlight radius={…} />` como primeiro filho. Linha de lista, gaveta e bloco de ajuste simplesmente não põem.
+- Um SVG por card. Lista longa (Atividades, lançamentos da fatura, registro do agente) é feita de linhas, não de cards, e não ganha SVG nenhum.
+- É decoração: não carrega informação, não recebe toque e é invisível para o leitor de tela.
+- **O texto mantém o contraste.** A luz clareia o fundo do card; por isso `glowOpacity` tem teto. Teste em `@orbita/tokens`: `text`, `textSecondary` e `positive` continuam em 4,5:1 sobre o ponto mais claro da luz.
 - Estático por enquanto. Se ganhar movimento, respeita "reduzir movimento" (fica parado).
 
-Onde está hoje: Início ("Dá pra gastar até o fim do mês"), Cartão › Faturas com um cartão escolhido ("O que entrou nela") e agente Economia ("Dá para cortar até…"). O desenho é SVG (`ui/CardHighlight.tsx`), com a geometria em função pura (`ui/highlight-geometry.ts`).
+O desenho é SVG (`ui/CardHighlight.tsx`), com a geometria e a regra de largura em funções puras (`ui/highlight-geometry.ts`).
 
 **Conflitos conhecidos** (não travam a escolha; só vale saber): laranja parece a marca do Inter e a categoria Delivery; amarelo parece o Mercado Pago; volt parece o verde de valor positivo (`positive`); violeta fica perto da categoria Moradia (`#7C5CFF`) e da marca Nubank. Como a primária só aparece em ação e seleção, e nunca em gráfico, a confusão é de leitura rápida, não de significado.
 
@@ -120,7 +128,7 @@ Cada card do Início é um widget com tamanho `2x2` (quadrado de meia largura, 2
 
 ### Economia (tela do agente)
 
-A tela do agente Economia segue "Menos texto": o seletor **Autonomia** (duas opções em rádio; a segunda pede confirmação), **Onde cortar** (um número no topo, "Dá para cortar até R$ X por mês", no [card de destaque](#card-de-destaque) da tela, e cartões `surface` com título, valor por mês, uma linha de texto, a confiança em `Chip` e no máximo uma ação de um toque mais "Ignorar", `compact`; só os 4 primeiros, o resto em "Ver todos") e **O que fiz sozinho** (o quê, por quê, quantos lançamentos de evidência e **Desfazer**; o desfeito troca o botão pela nota). O achado que não soma no total leva uma linha curta dizendo isso. Valores seguem o olho fechado. Lógica em `features/agents/economy-model.ts`.
+A tela do agente Economia segue "Menos texto": o seletor **Autonomia** (duas opções em rádio; a segunda pede confirmação), **Onde cortar** (um número no topo, "Dá para cortar até R$ X por mês", e cartões `surface` com título, valor por mês, uma linha de texto, a confiança em `Chip` e no máximo uma ação de um toque mais "Ignorar", `compact`; só os 4 primeiros, o resto em "Ver todos") e **O que fiz sozinho** (o quê, por quê, quantos lançamentos de evidência e **Desfazer**; o desfeito troca o botão pela nota). O achado que não soma no total leva uma linha curta dizendo isso. Valores seguem o olho fechado. Lógica em `features/agents/economy-model.ts`.
 
 ### Bancos
 
