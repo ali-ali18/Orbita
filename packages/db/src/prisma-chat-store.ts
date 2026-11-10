@@ -11,7 +11,7 @@ import type { Db } from "./client.ts";
 import { notFound } from "./errors.ts";
 import { Prisma } from "./generated/prisma/client.ts";
 import type { Clock } from "./memory-state.ts";
-import { isForeignKeyViolation, isUniqueViolation } from "./prisma-errors.ts";
+import { isForeignKeyViolation } from "./prisma-errors.ts";
 
 const asObject = (value: unknown): Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value)
@@ -69,8 +69,6 @@ const toProposal = (row: {
 	createdAt: row.createdAt,
 	resolvedAt: row.resolvedAt,
 });
-
-const APPEND_ATTEMPTS = 5;
 
 export function createPrismaChatStore(db: Db, now: Clock): ChatStore {
 	return {
@@ -133,31 +131,25 @@ export function createPrismaChatStore(db: Db, now: Clock): ChatStore {
 		async appendMessage(conversationId, message) {
 			const clean = cleanChatMessage(message);
 			const cards = [...(message.cards ?? [])] as Prisma.InputJsonValue[];
-			// `seq` = último + 1. Duas gravações simultâneas disputam a unicidade (conversa, seq): quem perde repete.
-			for (let attempt = 1; ; attempt += 1) {
-				try {
-					return await db.$transaction(async (tx) => {
-						const conversation = await tx.chatConversation.findUnique({
-							where: { id: conversationId },
-							select: { id: true },
-						});
-						if (!conversation) throw notFound("Conversa");
-						const last = await tx.chatMessage.aggregate({
-							where: { conversationId },
-							_max: { seq: true },
-						});
-						const at = now();
-						const row = await tx.chatMessage.create({
-							data: { conversationId, seq: (last._max.seq ?? 0) + 1, ...clean, cards, createdAt: at },
-						});
-						await tx.chatConversation.update({ where: { id: conversationId }, data: { updatedAt: at } });
-						return toMessage(row);
-					});
-				} catch (error) {
-					if (isUniqueViolation(error) && attempt < APPEND_ATTEMPTS) continue;
-					throw error;
-				}
-			}
+			// `seq` = último + 1, calculado com a linha da conversa travada: o UPDATE no começo da transação
+			// pega o bloqueio da linha e quem chega depois espera o commit (READ COMMITTED relê o máximo já
+			// gravado). Assim as gravações da mesma conversa são serializadas, sem coluna nova nem tentativas.
+			return await db.$transaction(async (tx) => {
+				const at = now();
+				const locked = await tx.chatConversation.updateMany({
+					where: { id: conversationId },
+					data: { updatedAt: at },
+				});
+				if (locked.count === 0) throw notFound("Conversa");
+				const last = await tx.chatMessage.aggregate({
+					where: { conversationId },
+					_max: { seq: true },
+				});
+				const row = await tx.chatMessage.create({
+					data: { conversationId, seq: (last._max.seq ?? 0) + 1, ...clean, cards, createdAt: at },
+				});
+				return toMessage(row);
+			});
 		},
 		async listMessages(conversationId, options = {}) {
 			const n = options.lastN;
