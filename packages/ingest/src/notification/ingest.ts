@@ -22,8 +22,10 @@ import {
 	pickCategoryRule,
 } from "@orbita/shared";
 import { bankIspb, findKnownBank } from "../pluggy/bank-name.ts";
-import { EARLY_WINDOW_DAYS } from "../pluggy/early.ts";
+import { EARLY_WINDOW_DAYS, nameSimilarity } from "../pluggy/early.ts";
+import { UNCERTAIN_TARGET_NOTE, UNVERIFIED_BANK_NOTE } from "./notes.ts";
 import { type ParsedNotification, parseNotification } from "./parse.ts";
+import { sameBankCardIds } from "./same-bank.ts";
 
 /*
  * Da notificação lida no aparelho ao lançamento. Mesmo caminho para a notificação que acabou de chegar e para a que
@@ -37,10 +39,7 @@ import { type ParsedNotification, parseNotification } from "./parse.ts";
 
 export const NOTIFICATION_SOURCE = "notification" as const;
 
-export const UNCERTAIN_TARGET_NOTE =
-	"Pago a um estabelecimento sem dizer se foi no saldo ou no cartão do Mercado Pago. Confira a conta e o cartão para não ficar duplicado.";
-export const UNVERIFIED_BANK_NOTE =
-	"Lido da notificação de um banco cujo formato ainda não foi conferido. Confira o valor e o estabelecimento.";
+export { UNCERTAIN_TARGET_NOTE, UNVERIFIED_BANK_NOTE };
 
 export interface NotificationDeps {
 	stores: Pick<
@@ -230,6 +229,8 @@ async function build(
 async function alreadyInBank(
 	transactions: NotificationDeps["stores"]["transactions"],
 	input: UpsertByExternalInput,
+	/** Alvo incerto (saldo ou cartão?): também procura nos cartões do mesmo banco (mesmo valor, tipo e janela). */
+	otherCardIds: readonly string[] = [],
 ): Promise<boolean> {
 	const target = input.cardId
 		? { cardId: input.cardId }
@@ -237,6 +238,26 @@ async function alreadyInBank(
 			? { accountId: input.accountId }
 			: null;
 	if (target === null) return false;
+	const window = {
+		from: addDays(input.date, -EARLY_WINDOW_DAYS),
+		to: addDays(input.date, EARLY_WINDOW_DAYS),
+	};
+	for (const cardId of otherCardIds) {
+		const onCard = await transactions.listByTarget({ cardId }, window);
+		if (
+			onCard.some(
+				(t) =>
+					t.source === "pluggy" &&
+					t.kind === input.kind &&
+					t.amountCents === input.amountCents &&
+					t.installmentNumber === null &&
+					// Mesmo critério de `replaceUncertainNotification`: mesmo dia, ou nome igual/contido.
+					(t.date === input.date || nameSimilarity(t.merchantName ?? t.description, input.description) >= 1),
+			)
+		) {
+			return true;
+		}
+	}
 	const rows = await transactions.listByTarget(target, {
 		from: addDays(input.date, -EARLY_WINDOW_DAYS),
 		to: addDays(input.date, EARLY_WINDOW_DAYS),
@@ -287,7 +308,14 @@ async function process(
 	if ("missing" in built) return toInbox("target");
 	if (!(await transactions.findByExternal(NOTIFICATION_SOURCE, n.key))) {
 		if (await repostedRecently(transactions, n.key)) return "duplicate";
-		if (await alreadyInBank(transactions, built.input)) return "duplicate";
+		const otherCards =
+			result.data.uncertainTarget && built.input.accountId
+				? await sameBankCardIds(
+						deps.stores,
+						(await deps.stores.accounts.get(built.input.accountId))?.bankCode ?? null,
+					)
+				: [];
+		if (await alreadyInBank(transactions, built.input, otherCards)) return "duplicate";
 	}
 	const saved = await transactions.upsertByExternal(NOTIFICATION_SOURCE, n.key, built.input);
 	// Apagado pelo dono antes: não recria. Já existia: é repetição.

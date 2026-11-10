@@ -13,8 +13,8 @@ import java.util.concurrent.Executors
  * `FlushJobService` tenta de novo quando houver rede.
  *
  * Um item ruim nunca prende a fila: o servidor responde por item; lote recusado por formato (400) é reenviado item a
- * item e só o recusado sai; erro de servidor (5xx) ou "error" de um item conta uma tentativa, e depois de
- * `MAX_ATTEMPTS` o item é descartado. Falta de rede não conta tentativa.
+ * item e só o recusado sai; só o resultado "error" DO ITEM conta tentativa (depois de `MAX_ATTEMPTS`, sai). Queda do
+ * servidor (5xx), falta de rede e limite de pedidos não contam: o item espera e sai por idade (`MAX_AGE_DAYS`).
  */
 internal object Sender {
   private val executor = Executors.newSingleThreadExecutor()
@@ -41,6 +41,7 @@ internal object Sender {
     val store = NotificationStore.get(context)
     val config = store.config() ?: return true
     if (store.authFailed) return true
+    store.dropExpired(System.currentTimeMillis())
     while (true) {
       val batch = store.peek(NotificationPolicy.BATCH_MAX)
       if (batch.isEmpty()) return true
@@ -49,6 +50,11 @@ internal object Sender {
       when {
         code in 200..299 -> {
           val results = parseResults(reply.body, batch.size)
+          if (results == null) {
+            // 2xx que não dá para ler (proxy, página de erro): não prova que o servidor guardou nada. Tenta de novo.
+            store.lastError = "Resposta do servidor ilegível."
+            return false
+          }
           val sent = batch.filterIndexed { i, _ -> results[i] != "error" }
           val failed = batch.filterIndexed { i, _ -> results[i] == "error" }
           store.remove(sent)
@@ -78,8 +84,7 @@ internal object Sender {
           return true
         }
         code >= 500 -> {
-          // Servidor com problema: conta a tentativa (e descarta o item que insiste em falhar depois de várias).
-          store.bumpAttempts(batch)
+          // Servidor com problema: não conta tentativa (uma queda não pode descartar a fila); o prazo é por idade.
           store.lastError = "Servidor com problema (HTTP $code)."
           return false
         }
@@ -111,7 +116,6 @@ internal object Sender {
           return true
         }
         else -> {
-          if (code >= 500) store.bumpAttempts(listOf(item))
           store.lastError = if (code < 0) "Sem conexão com o servidor." else "Servidor com problema (HTTP $code)."
           return false
         }
@@ -120,12 +124,12 @@ internal object Sender {
     return true
   }
 
-  /** Resultado de cada item; se a resposta não dá para ler, trata todos como entregues (o servidor aceitou o lote). */
-  private fun parseResults(body: String, size: Int): List<String> = try {
+  /** Resultado de cada item, ou `null` se a resposta não é o que o servidor manda (então nada é dado como entregue). */
+  private fun parseResults(body: String, size: Int): List<String>? = try {
     val array = JSONObject(body).getJSONArray("results")
-    List(size) { i -> if (i < array.length()) array.getString(i) else "created" }
+    if (array.length() != size) null else List(size) { i -> array.getString(i) }
   } catch (e: Exception) {
-    List(size) { "created" }
+    null
   }
 
   private fun post(config: CaptureConfig, batch: List<QueuedNotification>): Reply {

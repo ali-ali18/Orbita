@@ -404,9 +404,9 @@ describe("notificação e depois Open Finance: um lançamento só", () => {
 		pluggy_client_id: CLIENT_ID,
 		pluggy_client_secret: CLIENT_SECRET,
 	};
-	const sync = (cardTxs: Record<string, unknown>[]) => {
+	const sync = (cardTxs: Record<string, unknown>[], bankTxs: Record<string, unknown>[] = []) => {
 		const fake = fakePluggy({
-			transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: cardTxs },
+			transactions: { [BANK_ACCOUNT_ID]: bankTxs, [CARD_ACCOUNT_ID]: cardTxs },
 			bills: {
 				[CARD_ACCOUNT_ID]: [
 					{ id: "bill-nov", dueDate: "2026-11-17T00:00:00.000Z", totalAmount: 130, payments: [] },
@@ -571,7 +571,7 @@ describe("notificação e depois Open Finance: um lançamento só", () => {
 		expect((await stores.transactions.listPending()).map((t) => t.amountCents)).toContain(7770);
 	});
 
-	it("não mexe no que o dono já mexeu, no que já tem nota nem no que o banco adotou", async () => {
+	it("não mexe no que o dono já mexeu", async () => {
 		const deps = { stores, now: () => clock };
 		await ingestNotification(
 			deps,
@@ -582,5 +582,211 @@ describe("notificação e depois Open Finance: um lançamento só", () => {
 		clock = new Date(NOW.getTime() + 8 * DAY);
 		await sync([anchor]);
 		expect((await stores.transactions.get(row?.id as string))?.status).toBe("confirmed");
+	});
+
+	it("sinalizada aos 6 dias e adotada no dia 7: volta a confirmada, sem a nota de 'não confirmou'", async () => {
+		const deps = { stores, now: () => clock };
+		await ingestNotification(
+			deps,
+			item("Compra de R$ 89,90 APROVADA em LIVRARIA CULTURA para o cartão com final 4321"),
+		);
+		clock = new Date(NOW.getTime() + 6 * DAY);
+		await sync([anchor]);
+		const flagged = (await liveLivraria())[0];
+		expect(flagged).toMatchObject({ status: "pending", note: UNCONFIRMED_NOTE, source: "notification" });
+		// Dia 7: o banco finalmente traz a compra e adota a linha.
+		clock = new Date(NOW.getTime() + 7 * DAY);
+		await sync([anchor, posted]);
+		const rows = await liveLivraria();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			id: flagged?.id,
+			source: "pluggy",
+			status: "confirmed",
+			note: null,
+			bankPending: false,
+		});
+		expect(await stores.transactions.listPending()).toEqual([]);
+	});
+
+	it("entrou em Para revisar por 'confirmar antes': sinalizada e adotada, continua em Para revisar (sem a nota)", async () => {
+		await stores.preferences.update({ notificationAskFirst: true });
+		const deps = { stores, now: () => clock };
+		await ingestNotification(
+			deps,
+			item("Compra de R$ 89,90 APROVADA em LIVRARIA CULTURA para o cartão com final 4321"),
+		);
+		clock = new Date(NOW.getTime() + 6 * DAY);
+		await sync([anchor]);
+		const flagged = (await liveLivraria())[0];
+		expect(flagged).toMatchObject({ status: "pending" });
+		expect(flagged?.note).not.toBeNull();
+		clock = new Date(NOW.getTime() + 7 * DAY);
+		await sync([anchor, posted]);
+		const rows = await liveLivraria();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({ id: flagged?.id, source: "pluggy", status: "pending", note: null });
+	});
+
+	it("o que o dono revisou antes de o banco adotar mantém a escolha dele", async () => {
+		const deps = { stores, now: () => clock };
+		await ingestNotification(
+			deps,
+			item("Compra de R$ 89,90 APROVADA em LIVRARIA CULTURA para o cartão com final 4321"),
+		);
+		clock = new Date(NOW.getTime() + 6 * DAY);
+		await sync([anchor]);
+		const flagged = (await liveLivraria())[0];
+		await stores.transactions.update(flagged?.id as string, { note: "minha nota", editedByOwner: true });
+		clock = new Date(NOW.getTime() + 7 * DAY);
+		await sync([anchor, posted]);
+		expect((await liveLivraria())[0]).toMatchObject({ note: "minha nota", status: "pending" });
+	});
+
+	describe("'Você pagou' sem dizer se foi no saldo ou no cartão", () => {
+		const PAGOU = "Você pagou R$ 42,10 a LOJA EXEMPLO";
+		const bankDate = "2026-11-09T00:00:00.000Z";
+		const onCard = tx("k-1", {
+			description: "Loja Exemplo",
+			amount: 42.1,
+			date: bankDate,
+			status: "POSTED",
+			creditCardMetadata: { billId: "bill-nov" },
+		});
+		const onAccount = tx("b-1", {
+			description: "Loja Exemplo",
+			amount: -42.1,
+			type: "DEBIT",
+			date: bankDate,
+		});
+		const rows = async () =>
+			(await stores.transactions.listRecent({ limit: 100 })).filter((t) => t.amountCents === 4210);
+		const counted = async () =>
+			(await stores.transactions.listByBudgetMonth("2026-11")).filter((t) => t.amountCents === 4210);
+
+		it("o banco traz no cartão: a linha da notificação na conta sai e fica 1 lançamento contado", async () => {
+			const deps = { stores, now: () => clock };
+			expect(await ingestNotification(deps, item(PAGOU))).toBe("created");
+			expect((await rows())[0]).toMatchObject({ status: "pending", source: "notification" });
+			clock = new Date(NOW.getTime() + DAY);
+			await sync([anchor, onCard]);
+			const after = await rows();
+			expect(after).toHaveLength(1);
+			expect(after[0]).toMatchObject({ source: "pluggy", externalId: "k-1", status: "confirmed" });
+			expect(after[0]?.cardId).not.toBeNull();
+			expect(await counted()).toHaveLength(1);
+			// Rodada repetida: continua um só.
+			await sync([anchor, onCard]);
+			expect(await rows()).toHaveLength(1);
+		});
+
+		it("o banco traz na conta: adoção normal, 1 lançamento", async () => {
+			const deps = { stores, now: () => clock };
+			await ingestNotification(deps, item(PAGOU));
+			clock = new Date(NOW.getTime() + DAY);
+			await sync([anchor], [onAccount]);
+			const after = await rows();
+			expect(after).toHaveLength(1);
+			expect(after[0]).toMatchObject({ source: "pluggy", externalId: "b-1" });
+		});
+
+		it("o banco já trouxe no cartão e a notificação chega depois: não cria outra", async () => {
+			clock = new Date(NOW.getTime() + DAY);
+			await sync([anchor, onCard]);
+			const deps = { stores, now: () => clock };
+			expect(await ingestNotification(deps, item(PAGOU))).toBe("duplicate");
+			expect(await rows()).toHaveLength(1);
+		});
+
+		const card = (id: string, description: string, date: string) =>
+			tx(id, {
+				description,
+				amount: 42.1,
+				date,
+				status: "POSTED",
+				creditCardMetadata: { billId: "bill-nov" },
+			});
+
+		it("compra sem relação (outro nome, outro dia) no cartão do mesmo banco não apaga a linha da notificação", async () => {
+			const deps = { stores, now: () => clock };
+			await ingestNotification(deps, item(PAGOU));
+			clock = new Date(NOW.getTime() + 2 * DAY);
+			await sync([anchor, card("k-2", "Posto Qualquer", "2026-11-11T00:00:00.000Z")]);
+			expect(await rows()).toHaveLength(2);
+			expect((await rows()).find((r) => r.source === "notification")).toMatchObject({ status: "pending" });
+		});
+
+		it("mesmo nome em outro dia: o banco prevalece e a linha da notificação sai", async () => {
+			const deps = { stores, now: () => clock };
+			await ingestNotification(deps, item(PAGOU));
+			clock = new Date(NOW.getTime() + 2 * DAY);
+			await sync([anchor, card("k-3", "Loja Exemplo", "2026-11-11T00:00:00.000Z")]);
+			expect(await rows()).toHaveLength(1);
+			expect((await rows())[0]).toMatchObject({ source: "pluggy", externalId: "k-3" });
+		});
+
+		it("mesmo dia com nome diferente: o banco prevalece e a linha da notificação sai", async () => {
+			const deps = { stores, now: () => clock };
+			await ingestNotification(deps, item(PAGOU));
+			clock = new Date(NOW.getTime() + DAY);
+			await sync([anchor, card("k-4", "Posto Qualquer", bankDate)]);
+			expect(await rows()).toHaveLength(1);
+			expect((await rows())[0]).toMatchObject({ source: "pluggy", externalId: "k-4" });
+		});
+
+		it("notificação tardia: só é suprimida se o cartão do banco tem o mesmo nome ou o mesmo dia", async () => {
+			clock = new Date(NOW.getTime() + 2 * DAY);
+			await sync([anchor, card("k-5", "Posto Qualquer", "2026-11-11T00:00:00.000Z")]);
+			const deps = { stores, now: () => clock };
+			// Outro nome e outro dia: é outra compra.
+			expect(await ingestNotification(deps, item(PAGOU))).toBe("created");
+			expect(await rows()).toHaveLength(2);
+		});
+
+		it("notificação tardia com mesmo nome em outro dia, ou outro nome no mesmo dia: duplicata", async () => {
+			clock = new Date(NOW.getTime() + 2 * DAY);
+			await sync([anchor, card("k-6", "Loja Exemplo", "2026-11-11T00:00:00.000Z")]);
+			const deps = { stores, now: () => clock };
+			expect(await ingestNotification(deps, item(PAGOU))).toBe("duplicate");
+			expect(await rows()).toHaveLength(1);
+		});
+
+		it("o dono já confirmou a linha da notificação: não some sozinha", async () => {
+			const deps = { stores, now: () => clock };
+			await ingestNotification(deps, item(PAGOU));
+			const row = (await rows())[0];
+			await stores.transactions.update(row?.id as string, { note: "é essa mesmo", editedByOwner: true });
+			clock = new Date(NOW.getTime() + DAY);
+			await sync([anchor, onCard]);
+			expect(await rows()).toHaveLength(2);
+		});
+	});
+
+	it("duas notificações de mesmo valor e lojas diferentes: o banco adota a de nome parecido, não a mais antiga", async () => {
+		const deps = { stores, now: () => clock };
+		await ingestNotification(
+			deps,
+			item("Compra de R$ 10,00 APROVADA em FARMACIA CENTRAL para o cartão com final 4321"),
+		);
+		await ingestNotification(
+			deps,
+			item("Compra de R$ 10,00 APROVADA em PADARIA DO ZE para o cartão com final 4321", {
+				postedAt: POSTED + 10 * 60_000,
+			}),
+		);
+		clock = new Date(NOW.getTime() + DAY);
+		const bank = tx("t-1", {
+			description: "Padaria do Ze",
+			amount: 10,
+			date: "2026-11-09T00:00:00.000Z",
+			status: "POSTED",
+			creditCardMetadata: { billId: "bill-nov" },
+		});
+		await sync([anchor, bank]);
+		const rows = (await stores.transactions.listRecent({ limit: 100 })).filter((t) => t.amountCents === 1000);
+		expect(rows).toHaveLength(2);
+		const adopted = rows.find((r) => r.source === "pluggy");
+		expect(adopted?.merchantName).toMatch(/PADARIA/);
+		expect(rows.find((r) => r.source === "notification")?.merchantName).toMatch(/FARMACIA/);
 	});
 });

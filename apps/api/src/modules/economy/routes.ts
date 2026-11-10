@@ -54,7 +54,10 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 		.get("/v1/agent-activity", validate("query", activityQuery), async (c) => {
 			const agent = await needEconomyAgent(stores);
 			const rows = await stores.agentActivity.list({ agentId: agent.id, limit: c.req.valid("query").limit });
-			return c.json({ activities: rows.map(toActivityDto) } satisfies ActivityListResponse);
+			// `retry` é só o contador entre tentativas: não aparece para o dono.
+			return c.json({
+				activities: rows.filter((a) => a.status !== "retry").map(toActivityDto),
+			} satisfies ActivityListResponse);
 		})
 		.post("/v1/agent-activity/:id/undo", validate("param", idParam), async (c) => {
 			try {

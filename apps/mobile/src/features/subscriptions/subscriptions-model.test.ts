@@ -41,7 +41,7 @@ const MONTH = "2026-11";
 describe("lista e total", () => {
 	const list = [
 		rec({ id: "a", name: "Google One", amountCents: 9699, dayOfMonth: 12 }),
-		rec({ id: "b", name: "Vivo", amountCents: 6151, dayOfMonth: 4 }),
+		rec({ id: "b", name: "Vivo", amountCents: 4210, dayOfMonth: 4 }),
 		rec({
 			id: "salario",
 			name: "Salário",
