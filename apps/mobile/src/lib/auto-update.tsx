@@ -1,23 +1,24 @@
-import Constants from "expo-constants";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { AppState } from "react-native";
 import { useSession } from "./session.tsx";
-import { createUpdateChecker } from "./updates.ts";
-import { nativeUpdatesPort } from "./updates-native.ts";
+import { appUpdateChecker } from "./updates-native.ts";
 
-/** Sem interface: ao abrir e ao voltar ao primeiro plano, baixa a atualização OTA para a próxima abertura. */
+/**
+ * Sem interface. Ao abrir e ao voltar ao primeiro plano, confere e baixa a atualização OTA. A atualização
+ * baixada entra em uso quando o app VOLTA do segundo plano (o JavaScript reinicia na primeira tela), ou no
+ * próximo início a frio: no Android, "abrir o app de novo" quase nunca é um início a frio, e sem isto a
+ * atualização ficava baixada sem nunca aparecer. Nunca reinicia com o app em uso na tela.
+ */
 export function AutoUpdate() {
 	const { baseUrl } = useSession();
-	const checker = useRef(
-		createUpdateChecker(nativeUpdatesPort, {
-			otaUpdateUrl: String(Constants.expoConfig?.extra?.otaUpdateUrl ?? "") || null,
-		}),
-	);
 
 	useEffect(() => {
-		void checker.current.run(baseUrl);
-		const sub = AppState.addEventListener("change", (s) => {
-			if (s === "active") void checker.current.run(baseUrl);
+		void appUpdateChecker.run(baseUrl);
+		const sub = AppState.addEventListener("change", (state) => {
+			if (state !== "active") return;
+			void appUpdateChecker.applyPending().then((reloading) => {
+				if (!reloading) void appUpdateChecker.run(baseUrl);
+			});
 		});
 		return () => sub.remove();
 	}, [baseUrl]);
