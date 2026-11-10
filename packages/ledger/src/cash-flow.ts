@@ -9,7 +9,9 @@ import type { CashFlowResponse } from "@orbita/shared";
  * dos dois lados (só somada em `ignoredTransferCents`). Pendente conta: o dinheiro já saiu ou entrou.
  */
 export async function cashFlow(stores: Stores, month: MonthKey): Promise<CashFlowResponse> {
-	const accounts = (await stores.accounts.list()).filter((a) => a.archivedAt === null);
+	// Conta arquivada porque a conexão saiu é histórico real: os lançamentos dela seguem contando no caixa do mês.
+	// Só o SALDO dela sai (balances.ts).
+	const accounts = [...(await stores.accounts.list()), ...(await stores.accounts.listRemovedByConnection())];
 	const range = { from: `${month}-01`, to: clampDayInMonth(month, 31) };
 	const rows = new Map<string, TransactionRecord>();
 	for (const account of accounts) {

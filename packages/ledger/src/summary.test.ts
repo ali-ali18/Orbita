@@ -3,7 +3,13 @@ import { PAYMENT_REVIEW_NOTE } from "@orbita/ingest";
 import { describe, expect, it } from "vitest";
 import { createAgentReader } from "./agent-reader.ts";
 import { invoicesOverview, monthState } from "./invoices-overview.ts";
-import { cardInvoice, countsAsSpending, loadSpendingMonth, monthSummary } from "./summary.ts";
+import {
+	cardInvoice,
+	countsAsSpending,
+	loadSpendingMonth,
+	monthSummary,
+	spendingBreakdown,
+} from "./summary.ts";
 
 const NOW = new Date("2026-11-12T15:00:00Z");
 const TODAY = "2026-11-12";
@@ -405,5 +411,33 @@ describe("fatura antiga sem pagamento registrado é histórico, não cobrança",
 		expect(monthState(["history", "paid"])).toBe("paid");
 		expect(monthState(["history", "history"])).toBe("history");
 		expect(monthState(["closed", "history"])).toBe("closed");
+	});
+});
+
+describe("conexão removida: contas e cartões arquivados continuam no histórico do mês", () => {
+	it("a lista por cartão inclui o cartão arquivado por conexão removida e bate com os totais", async () => {
+		const { stores } = await seed();
+		const card = await stores.cards.create({
+			name: "Cartão antigo",
+			closingDay: 10,
+			dueDay: 17,
+			source: "pluggy",
+			externalId: "c1",
+		});
+		await stores.cards.linkConnection(card.id, "gone");
+		await stores.transactions.create({
+			date: "2026-11-05",
+			cardId: card.id,
+			invoiceMonth: "2026-11",
+			kind: "expense",
+			amountCents: 7_000,
+			description: "Livraria",
+		});
+		await stores.cards.archiveByConnection("gone");
+		const month = await spendingBreakdown(stores, "2026-11", TODAY);
+		const total = month.cards.reduce((sum, c) => sum + c.subtotalCents, 0);
+		expect(month.cards.map((c) => c.cardId)).toEqual([card.id]);
+		expect(total).toBe(7_000);
+		expect(month.branches.find((b) => b.branch === "card")?.subtotalCents).toBe(7_000);
 	});
 });

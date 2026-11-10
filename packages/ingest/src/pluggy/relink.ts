@@ -57,7 +57,9 @@ export function pickRelinkAccount(
 		(a) =>
 			a.kind === wanted.kind &&
 			(a.bankCode ?? null) === (wanted.bankCode ?? null) &&
-			plain(a.name) === plain(wanted.name),
+			plain(a.name) === plain(wanted.name) &&
+			// Arquivada por remoção só volta com banco conhecido e igual: nome genérico ("Conta corrente") não basta.
+			(a.archivedAt === null || a.bankCode !== null),
 	);
 	return found.length === 1 ? (found[0] ?? null) : null;
 }
@@ -76,6 +78,8 @@ export function pickRelinkCard(
 	const last4 = wanted.last4 ?? null;
 	const found = stale(cards, currentIds).filter((c) => {
 		if ((c.bankCode ?? null) !== (wanted.bankCode ?? null)) return false;
+		// Arquivado por remoção: banco igual e conhecido, ou os mesmos 4 dígitos; nome sozinho não basta.
+		if (c.archivedAt !== null && c.bankCode === null && (last4 === null || c.last4 !== last4)) return false;
 		return last4 !== null ? c.last4 === last4 : c.last4 === null && plain(c.name) === plain(wanted.name);
 	});
 	return found.length === 1 ? (found[0] ?? null) : null;
