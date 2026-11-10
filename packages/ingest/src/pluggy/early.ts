@@ -1,5 +1,6 @@
 import { addDays, type LocalDate } from "@orbita/core";
 import type { TransactionRecord, TransactionStore, UpsertByExternalInput } from "@orbita/db";
+import { UNCONFIRMED_NOTE } from "../notification/reconcile.ts";
 import type { MappedTransaction } from "./mapping.ts";
 
 /*
@@ -37,7 +38,7 @@ const apart = (a: LocalDate, b: LocalDate) =>
  * Um só mais próximo na data: adota (`adoptExternal`). Empate no mais próximo: `ambiguous`. Nenhum: `none`.
  */
 export async function adoptEarlyEntry(
-	transactions: Pick<TransactionStore, "listByTarget" | "adoptExternal" | "existsByExternal">,
+	transactions: Pick<TransactionStore, "listByTarget" | "adoptExternal" | "existsByExternal" | "update">,
 	source: "pluggy",
 	mapped: Upsert,
 ): Promise<EarlyOutcome> {
@@ -88,7 +89,20 @@ export async function adoptEarlyEntry(
 		merchantName: input.merchantName ?? null,
 	});
 	// Perdeu a corrida (apagado ou adotado por outra rodada agora): segue como sem candidato, o upsert grava normal.
-	return adopted ? { outcome: "adopted", transaction: adopted } : { outcome: "none" };
+	if (!adopted) return { outcome: "none" };
+	return { outcome: "adopted", transaction: await clearUnconfirmed(transactions, adopted) };
+}
+
+/**
+ * Uma notificação que o banco "não confirmou" (ver `flagUnconfirmedNotifications`) e que agora o banco trouxe: a
+ * dúvida acabou. Volta a confirmada e sem a nota, a menos que o dono já tenha mexido nela.
+ */
+export async function clearUnconfirmed(
+	transactions: Pick<TransactionStore, "update">,
+	t: TransactionRecord,
+): Promise<TransactionRecord> {
+	if (t.note !== UNCONFIRMED_NOTE || t.editedByOwner) return t;
+	return transactions.update(t.id, { status: "confirmed", note: null });
 }
 
 const parcelOfNote = (note: string | null | undefined) => {

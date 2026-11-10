@@ -571,7 +571,7 @@ describe("notificação e depois Open Finance: um lançamento só", () => {
 		expect((await stores.transactions.listPending()).map((t) => t.amountCents)).toContain(7770);
 	});
 
-	it("não mexe no que o dono já mexeu, no que já tem nota nem no que o banco adotou", async () => {
+	it("não mexe no que o dono já mexeu", async () => {
 		const deps = { stores, now: () => clock };
 		await ingestNotification(
 			deps,
@@ -582,5 +582,45 @@ describe("notificação e depois Open Finance: um lançamento só", () => {
 		clock = new Date(NOW.getTime() + 8 * DAY);
 		await sync([anchor]);
 		expect((await stores.transactions.get(row?.id as string))?.status).toBe("confirmed");
+	});
+
+	it("sinalizada aos 6 dias e adotada no dia 7: volta a confirmada, sem a nota de 'não confirmou'", async () => {
+		const deps = { stores, now: () => clock };
+		await ingestNotification(
+			deps,
+			item("Compra de R$ 89,90 APROVADA em LIVRARIA CULTURA para o cartão com final 4321"),
+		);
+		clock = new Date(NOW.getTime() + 6 * DAY);
+		await sync([anchor]);
+		const flagged = (await liveLivraria())[0];
+		expect(flagged).toMatchObject({ status: "pending", note: UNCONFIRMED_NOTE, source: "notification" });
+		// Dia 7: o banco finalmente traz a compra e adota a linha.
+		clock = new Date(NOW.getTime() + 7 * DAY);
+		await sync([anchor, posted]);
+		const rows = await liveLivraria();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			id: flagged?.id,
+			source: "pluggy",
+			status: "confirmed",
+			note: null,
+			bankPending: false,
+		});
+		expect(await stores.transactions.listPending()).toEqual([]);
+	});
+
+	it("o que o dono revisou antes de o banco adotar mantém a escolha dele", async () => {
+		const deps = { stores, now: () => clock };
+		await ingestNotification(
+			deps,
+			item("Compra de R$ 89,90 APROVADA em LIVRARIA CULTURA para o cartão com final 4321"),
+		);
+		clock = new Date(NOW.getTime() + 6 * DAY);
+		await sync([anchor]);
+		const flagged = (await liveLivraria())[0];
+		await stores.transactions.update(flagged?.id as string, { note: "minha nota", editedByOwner: true });
+		clock = new Date(NOW.getTime() + 7 * DAY);
+		await sync([anchor, posted]);
+		expect((await liveLivraria())[0]).toMatchObject({ note: "minha nota", status: "pending" });
 	});
 });
