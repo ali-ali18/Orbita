@@ -160,6 +160,12 @@ function flowOf(m: InvestmentMovementInput): Flow | null {
 	return { kind: t === "BUY" ? "in" : "out", cents, day: m.date ?? m.tradeDate };
 }
 
+/** BUY = aporte, SELL = resgate; o resto não é fluxo (juros, imposto, transferência, amortização). */
+export function investmentMovementKind(type: string | null): "contribution" | "withdrawal" | "other" {
+	const t = norm(type);
+	return t === "BUY" ? "contribution" : t === "SELL" ? "withdrawal" : "other";
+}
+
 function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {
 	const map = new Map<string, T[]>();
 	for (const item of items) {
