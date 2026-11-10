@@ -85,6 +85,53 @@ jobs:
           test -s "$RUNNER_TEMP/ota/android/manifest.json"
           test -s "$RUNNER_TEMP/ota/android/manifest.signature"
           test "$(ls "$RUNNER_TEMP/ota/assets" | wc -l)" -gt 1
+      # O APK (app-android.yml) e a atualização (release.yml) calculam o runtimeVersion em workflows diferentes,
+      # com variáveis diferentes (versionCode e sufixo do commit). Se o valor dependesse delas, nenhuma atualização
+      # chegaria a nenhum APK. Aqui os dois cálculos rodam lado a lado e o CI falha se divergirem.
+      - name: runtimeVersion igual no APK e no Release
+        id: runtime
+        env:
+          ORBITA_PUBLIC_URL: https://ci.exemplo.dev
+        run: |
+          apk="$(ORBITA_VERSION_CODE=1999 ORBITA_VERSION_SUFFIX=+aaaaaaa node packages/ota/src/cli.ts runtime-version)"
+          release="$(ORBITA_VERSION_SUFFIX=+bbbbbbb node packages/ota/src/cli.ts runtime-version)"
+          exportado="$(cat "$RUNNER_TEMP/ota-work/runtime-version.txt")"
+          echo "runtimeVersion com as variáveis do APK:     $apk"
+          echo "runtimeVersion com as variáveis do Release: $release"
+          echo "runtimeVersion da atualização exportada:    $exportado"
+          if [ "$apk" != "$release" ] || [ "$apk" != "$exportado" ]; then
+            echo "::error::O runtimeVersion do APK ($apk) e o da atualização OTA ($release / $exportado) divergem: ele não pode depender do versionCode, do sufixo da versão nem do commit. Com isso nenhuma atualização chegaria ao app. Veja docs/servidor.md, \"Atualizar o app sem APK\"."
+            exit 1
+          fi
+          echo "valor=$apk" >> "$GITHUB_OUTPUT"
+      # Só avisa (não falha): PR que mexe em algo nativo muda o runtimeVersion, e quem está com o APK antigo só
+      # recebe este JavaScript depois de instalar o APK novo.
+      - name: Baixar a base do PR
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-do-pr
+          persist-credentials: false
+      - name: Este PR exige APK novo?
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          ORBITA_PUBLIC_URL: https://ci.exemplo.dev
+          DO_PR: ${{ steps.runtime.outputs.valor }}
+        run: |
+          # Mesmo certificado de teste e mesmo endereço nos dois lados: só o que é do código entra na comparação.
+          mkdir -p base-do-pr/apps/mobile/certs
+          cp apps/mobile/certs/ota-certificate.pem base-do-pr/apps/mobile/certs/ota-certificate.pem
+          (cd base-do-pr && pnpm install --frozen-lockfile)
+          da_base="$(node base-do-pr/packages/ota/src/cli.ts runtime-version)"
+          echo "runtimeVersion da base: $da_base"
+          echo "runtimeVersion do PR:   $DO_PR"
+          if [ "$da_base" = "$DO_PR" ]; then
+            echo "::notice title=Chega por OTA::O runtimeVersion é o mesmo da base: este PR chega ao app por atualização OTA, sem APK novo."
+          else
+            echo "::warning title=Este PR exige APK novo::O runtimeVersion mudou em relação à base (algo nativo mudou: dependência nativa, plugin, permissão, versão do Expo/React Native, certificado ou endereço das atualizações). Quem estiver com o APK antigo NÃO recebe este JavaScript por OTA: é preciso instalar o APK novo depois do merge."
+          fi
 
   docker:
     name: Imagem Docker (sem publicar)

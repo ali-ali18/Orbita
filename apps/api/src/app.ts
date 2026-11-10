@@ -124,6 +124,7 @@ export function createApp(deps: AppDeps) {
 				...finance,
 				vault: deps.vault,
 				version: deps.version,
+				ota: deps.ota,
 				chatModels: deps.chatModels ?? DEFAULT_CHAT_MODEL_CONFIG,
 			}),
 		)

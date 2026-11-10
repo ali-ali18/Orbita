@@ -64,14 +64,15 @@ Use o backup agendado do Dokploy para o Postgres (destino S3). Guarde num bucket
 
 ## Atualizar o app sem APK
 
-Mudou só o JavaScript do app (telas, textos, regras)? Não precisa instalar APK novo. O servidor Órbita, o mesmo que o app pareou, entrega a atualização; o app baixa e aplica na **próxima vez que for aberto**. Sem EAS e sem terceiros.
+Mudou só o JavaScript do app (telas, textos, regras)? Não precisa instalar APK novo. O servidor Órbita, o mesmo que o app pareou, entrega a atualização; o app baixa em segundo plano e aplica **quando você volta ao app depois de pelo menos 1 minuto fora** (ou no próximo início a frio). Sem EAS e sem terceiros.
 
 ### Como funciona
 
 1. A cada release (`release.yml`, depois do CI verde na `main`) o GitHub Actions exporta o JS do app (`expo export --platform android`), monta o **manifesto** (id, hashes SHA-256 dos arquivos, `runtimeVersion`) e o **assina** com a chave privada (segredo `OTA_SIGNING_KEY`).
 2. O resultado vai para dentro da imagem Docker, em `/app/ota`. Nada é gerado nem assinado no servidor. Cada publicação recebe um `id` novo (mesmo que o conteúdo volte a ser igual ao de uma versão antiga, para o celular trocar a versão defeituosa pela revertida) e o bundle tem como `key` o seu próprio hash (para o celular nunca reaproveitar o arquivo de uma publicação anterior).
-3. O APK é construído já apontando para `${ORBITA_PUBLIC_URL}/updates/manifest` (o endereço fica fixo no APK). O app, em cada abertura e ao voltar do segundo plano (no máximo a cada 15 minutos), pergunta a esse endereço **só se o servidor pareado for o mesmo host** de `ORBITA_PUBLIC_URL`; pareado com outro servidor, ou sem servidor, ele não checa nada. Se o `runtimeVersion` combina e há atualização nova, ele baixa os arquivos de `/updates/assets/...`.
-4. Antes de usar qualquer coisa, o app confere a **assinatura do manifesto** contra o certificado público embutido no APK (`apps/mobile/certs/ota-certificate.pem`) e o hash de cada arquivo contra o manifesto. Assinatura inválida: a atualização é descartada.
+3. O APK é construído já apontando para `${ORBITA_PUBLIC_URL}/updates/manifest` (o endereço fica fixo no APK). O app, em cada abertura e ao voltar do segundo plano (no máximo a cada 15 minutos), pergunta a esse endereço **só se o servidor pareado for o mesmo host** de `ORBITA_PUBLIC_URL`; pareado com outro servidor, ou sem servidor, ele não checa nada. Se o `runtimeVersion` combina e há atualização nova, ele baixa os arquivos de `/updates/assets/...`. Uma checagem que falha (servidor reiniciando no redeploy, sem rede) é repetida depois de 1 minuto, não de 15.
+4. A atualização baixada entra em uso quando o JavaScript reinicia: o app faz isso sozinho **ao voltar depois de pelo menos 1 minuto fora** (volta para a primeira tela já na versão nova). Numa volta rápida, como ir ao app do banco no meio de um lançamento, nada reinicia e o rascunho fica; a atualização continua pendente até uma volta mais longa. Em qualquer **início a frio** ela entra direto, sem nada disso: o `expo-updates` abre sempre a atualização mais nova (`createdAt`) que já está baixada e é do mesmo `runtimeVersion`. Ele nunca reinicia com você usando a tela; o botão **Reiniciar o app para aplicar** do Diagnóstico aplica na hora.
+5. Antes de usar qualquer coisa, o app confere a **assinatura do manifesto** contra o certificado público embutido no APK (`apps/mobile/certs/ota-certificate.pem`) e o hash de cada arquivo contra o manifesto. Assinatura inválida: a atualização é descartada.
 
 Por isso as rotas `/updates/*` não têm login: o código é aberto e a integridade vem da assinatura. **Quem invadir o servidor não consegue fazer o app rodar código dele**: sem a chave privada (que só existe no GitHub), o app recusa. O que a pessoa consegue é só deixar de entregar atualizações (ou entregar uma antiga, veja "Riscos").
 
@@ -115,7 +116,30 @@ O app só aceita atualização do mesmo **`runtimeVersion`** do APK instalado. E
 
 Exemplo: o **desbloqueio por biometria** (`expo-local-authentication` + permissão `USE_BIOMETRIC`) é nativo. Quem não instalar o APK novo continua no app anterior, sem o interruptor, mesmo com OTA publicada. Ao gerar o APK, avise nas notas da versão: "Desbloquear com digital: precisa instalar o APK novo".
 
-Você não precisa lembrar disso: o CI calcula o `runtimeVersion` do APK e da atualização com o mesmo comando (`node packages/ota/src/cli.ts runtime-version`), e um APK antigo com runtime diferente simplesmente não recebe o JS novo (continua funcionando com o que tem). Para ver o valor: abra o log do passo "Fixar o runtimeVersion do OTA" em `app-android.yml` e do passo de exportação em `release.yml`.
+Você não precisa lembrar disso: o CI calcula o `runtimeVersion` do APK e da atualização com o mesmo comando (`node packages/ota/src/cli.ts runtime-version`), e um APK antigo com runtime diferente simplesmente não recebe o JS novo (continua funcionando com o que tem). Três conferências automáticas:
+
+- **CI, job "Atualização OTA (chave de teste)":** calcula o `runtimeVersion` com as variáveis do APK (`ORBITA_VERSION_CODE`, sufixo do commit) e com as do Release e **falha** se os valores divergirem (ele não pode depender de versão nem de commit).
+- **CI, em pull request:** compara o `runtimeVersion` do PR com o da base e escreve um aviso: "Chega por OTA" ou **"Este PR exige APK novo"**. É só aviso, não falha.
+- **`app-android.yml`, "Conferir o runtimeVersion dentro do APK":** lê `assets/fingerprint` de dentro do APK pronto e **não publica** se for diferente do valor calculado para a atualização.
+
+Para ver o valor: o log do passo "Fixar o runtimeVersion do OTA" em `app-android.yml`, a linha "runtimeVersion da atualização OTA" do `release.yml`, as notas do release do APK e, no celular, _Configurações → Servidor e chaves → Atualização do app_.
+
+### A atualização não chegou?
+
+Abra _Configurações → Servidor e chaves → Atualização do app_ (é o bloco do topo do Diagnóstico; também entra no "Copiar como texto"). Ele mostra:
+
+| Linha                                  | O que dizer dela                                                                                                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **APK instalado**                      | versão e código do APK (o código é `1000 + número do build`).                                                                                                      |
+| **JavaScript em uso**                  | versão com o commit (`0.1.0+abc1234`) e se é "o que veio no APK" ou "baixado do servidor". É aqui que se vê se a atualização entrou.                               |
+| **runtimeVersion do APK**              | tem de ser igual ao do "Servidor oferece". Diferente: aquele APK não recebe a atualização, instale o APK novo.                                                     |
+| **Endereço no APK / Servidor pareado** | só o host. "DIFERENTE do APK" = pareado por outro endereço (IP, porta, outro domínio): o app não confere atualização. Pareie pelo endereço de `ORBITA_PUBLIC_URL`. |
+| **Servidor oferece**                   | o que a imagem em execução tem em `/app/ota` (`GET /v1/server`, campo `ota`). "nenhuma atualização" = imagem sem OTA ou redeploy que não pegou a imagem nova.      |
+| **Última checagem**                    | hora e resultado (`nenhuma atualização nova`, `atualização baixada`, `falhou: …`). Erros recentes do atualizador nativo aparecem embaixo.                          |
+
+**Procurar atualização agora** confere na hora, sem esperar os 15 minutos. Se baixar, aparece **Reiniciar o app para aplicar**.
+
+**O caso de 10/11/2026 (documentado para não repetir a investigação).** Um APK do commit `90428ca` não mostrou o JS do commit `5536324`, só de JavaScript. O que a evidência mostrou: o `runtimeVersion` era **o mesmo** nos dois lados (`2740e9eb…`, no log dos dois workflows e no arquivo `assets/fingerprint` de dentro do APK publicado), o certificado dentro do APK era o do repositório, e o servidor, rodando localmente com uma atualização gerada pelo mesmo comando, respondeu `200` com o manifesto assinado ao pedido que o `expo-updates` faz. Ou seja: a impressão digital **não** muda a cada commit (`version`, `versionCode` e código JS ficam de fora). O defeito encontrado estava no app (reproduzido em teste; o aparelho e o servidor em produção não puderam ser inspecionados na investigação, e é para isso que o bloco acima existe): a atualização baixada só entrava em uso num **início a frio** do processo, e no Android "abrir o app de novo" quase sempre só traz o processo de volta; além disso, uma checagem que falhasse (o servidor reiniciando no redeploy) deixava o app 15 minutos sem tentar de novo, e não havia como ver nada disso na tela. Instalar um APK mata o processo, por isso "só chegava com APK". Corrigido: aplica ao voltar depois de 1 minuto fora, tenta de novo em 1 minuto depois de erro, e o Diagnóstico mostra cada etapa.
 
 ### Riscos e como o app se protege
 

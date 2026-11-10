@@ -240,9 +240,14 @@ export function ServerScreen() {
 					<SettingsRow info title="Aparelho" value={device?.name ?? "—"} />
 					<SettingsRow
 						info
-						last
 						title="Conectado desde"
 						value={device ? formatPairedSince(device.pairedAt, year) : "—"}
+					/>
+					<SettingsRow
+						last
+						title="Atualização do app"
+						caption="Versão em uso, o que o servidor oferece e procurar atualização agora"
+						onPress={() => router.push("/configuracoes/diagnostico-pluggy")}
 					/>
 				</SettingsSection>
 
