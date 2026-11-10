@@ -48,6 +48,7 @@ export {
 	type CategoryStore,
 	DEFAULT_CATEGORIES,
 } from "./category-store.ts";
+export type { CdiRateFilter, CdiRateRecord, CdiRateRow, CdiRateStore } from "./cdi-rate-store.ts";
 export { deriveChatTitle } from "./chat-rules.ts";
 export {
 	CHAT_TEXT_MAX,
@@ -98,6 +99,11 @@ export type {
 	InvestmentSnapshotRecord,
 	InvestmentStore,
 } from "./investment-store.ts";
+export type {
+	InvestmentTermsInput,
+	InvestmentTermsRecord,
+	InvestmentTermsStore,
+} from "./investment-terms-store.ts";
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
 export {

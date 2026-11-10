@@ -66,7 +66,7 @@ export function investmentTermsBody(today: string) {
 				.refine((d) => d >= MIN_APPLICATION_DATE, "A data da aplicação é antiga demais.")
 				.nullish(),
 		})
-		.strict("Campo desconhecido no pedido.")
+		.strict()
 		.superRefine((v, ctx) => {
 			const problem = rateProblem(v.rateKind ?? null, v.rateBps ?? null);
 			if (problem !== null) ctx.addIssue({ code: "custom", message: problem, path: ["rateBps"] });
