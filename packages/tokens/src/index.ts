@@ -1,3 +1,10 @@
+export {
+	type AccentThemeKey,
+	accentThemeKeys,
+	accentThemes,
+	defaultAccentTheme,
+	isAccentThemeKey,
+} from "./accent.ts";
 export { type AgentVisualKey, agents } from "./agents.ts";
 export { banks } from "./banks.ts";
 export { type BrandDisc, type BrandDiscId, brandDiscs } from "./brands.ts";

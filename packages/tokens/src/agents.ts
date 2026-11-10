@@ -7,7 +7,7 @@ import { colors } from "./colors.ts";
  * A Órbita é branca, como o avatar dela. Agente criado pelo dono usa `custom`.
  */
 export const agents = {
-	orbita: { color: colors.accent, tint: colors.surface },
+	orbita: { color: colors.text, tint: colors.surface },
 	vigia: { color: chart.orange, tint: "#1E0C05" },
 	fechamento: { color: chart.blue, tint: "#081320" },
 	metas: { color: chart.yellow, tint: "#1C1300" },
