@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { HOME_TABS, offsetOfPage, pageFromOffset, resolvePage } from "./home-tabs-model.ts";
+import {
+	HOME_TABS,
+	offsetOfPage,
+	pageFromOffset,
+	resolvePage,
+	tabsFade,
+	tabsTouchable,
+} from "./home-tabs-model.ts";
 
 describe("abas do Início", () => {
 	it("Contas vem primeiro e Investimentos depois", () => {
@@ -32,5 +39,25 @@ describe("abas do Início", () => {
 		expect(resolvePage(390, 390, 2, 1)).toEqual({ page: 1, target: null });
 		// Sem destino pendente, o arrasto manda.
 		expect(resolvePage(100, 390, 2, null)).toEqual({ page: 0, target: null });
+	});
+
+	it("as abas somem linearmente com a rolagem e voltam ao subir", () => {
+		expect(tabsFade(0, 56)).toBe(1);
+		expect(tabsFade(14, 56)).toBeCloseTo(0.75, 5);
+		expect(tabsFade(28, 56)).toBe(0.5);
+		expect(tabsFade(56, 56)).toBe(0);
+		expect(tabsFade(400, 56)).toBe(0);
+	});
+
+	it("rolagem elástica do topo (negativa) mantém opacidade 1; altura zero some", () => {
+		expect(tabsFade(-30, 56)).toBe(1);
+		expect(tabsFade(10, 0)).toBe(0);
+	});
+
+	it("quase invisível não recebe toque", () => {
+		expect(tabsTouchable(1)).toBe(true);
+		expect(tabsTouchable(0.1)).toBe(true);
+		expect(tabsTouchable(0.09)).toBe(false);
+		expect(tabsTouchable(0)).toBe(false);
 	});
 });

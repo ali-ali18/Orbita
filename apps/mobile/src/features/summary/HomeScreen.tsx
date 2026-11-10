@@ -43,7 +43,7 @@ import { isUnreachableQuery } from "../server/server-model.ts";
 import { useProfile } from "../settings/preferences-queries.ts";
 import { avatarInitial, greetWithName } from "../settings/profile-model.ts";
 import { HomeHeader } from "./HomeHeader.tsx";
-import { HomePager, HomeTabsBar, useHomePager } from "./HomePager.tsx";
+import { HomePager, HomeTabsBar, HomeTabsFade, useHomePager, useTabsFade } from "./HomePager.tsx";
 import { useHomeLayout, useSaveHomeLayout } from "./layout-queries.ts";
 import {
 	useAccountBalances,
@@ -69,6 +69,7 @@ export function HomeScreen() {
 	const [refreshing, setRefreshing] = useState(false);
 	const bottomBarHeight = useBottomBarHeight();
 	const pager = useHomePager();
+	const tabsFade = useTabsFade(pager.page);
 	// A base do header fixo: o conteúdo começa abaixo dele (e do degradê) e o menu do widget usa como topo útil.
 	const headerBottom = sizes.homeHeader + sizes.homeTabs;
 	const contentTop = headerBottom + TOP_FADE;
@@ -146,7 +147,10 @@ export function HomeScreen() {
 			<HomePager pager={pager}>
 				<ScrollView
 					ref={widgetMenu.scrollRef}
-					onScroll={widgetMenu.onScroll}
+					onScroll={(event) => {
+						widgetMenu.onScroll(event);
+						tabsFade.report(0, event.nativeEvent.contentOffset.y);
+					}}
 					scrollEventThrottle={16}
 					contentContainerStyle={{
 						paddingTop: contentTop,
@@ -257,7 +261,11 @@ export function HomeScreen() {
 						</>
 					)}
 				</ScrollView>
-				<InvestmentsTab topPadding={contentTop} bottomPadding={bottomBarHeight + spacing.lg} />
+				<InvestmentsTab
+					onScrollY={(y) => tabsFade.report(1, y)}
+					topPadding={contentTop}
+					bottomPadding={bottomBarHeight + spacing.lg}
+				/>
 			</HomePager>
 			{/* Um bloco só: avatar, olho e abas. Fica sobre as páginas (o conteúdo rola por baixo) e o degradê na base
 			    faz o que passa por baixo sumir suave, sem corte seco. */}
@@ -272,7 +280,9 @@ export function HomeScreen() {
 							onAvatarPress={() => router.push("/configuracoes")}
 						/>
 					</View>
-					<HomeTabsBar pager={pager} />
+					<HomeTabsFade fade={tabsFade}>
+						<HomeTabsBar pager={pager} />
+					</HomeTabsFade>
 				</View>
 				<FadeEdge style={{ height: TOP_FADE }} />
 			</View>

@@ -35,3 +35,20 @@ export function resolvePage(
 	if (target === null) return { page: near, target: null };
 	return near === target ? { page: target, target: null } : { page: target, target };
 }
+
+/** Abaixo disso as abas estão praticamente invisíveis e não recebem toque. */
+export const TABS_TOUCH_MIN_OPACITY = 0.1;
+
+/**
+ * Opacidade das abas pela rolagem vertical da página à vista: 1 no topo, cai linearmente até 0 ao rolar a altura das
+ * abas e fica em 0 depois; a rolagem elástica do topo (negativa) mantém 1. Volta linearmente ao subir.
+ */
+export function tabsFade(scrollY: number, tabsHeight: number): number {
+	if (tabsHeight <= 0) return 0;
+	return Math.min(1, Math.max(0, 1 - scrollY / tabsHeight));
+}
+
+/** Só recebe toque enquanto estiver visível o bastante. */
+export function tabsTouchable(opacity: number): boolean {
+	return opacity >= TABS_TOUCH_MIN_OPACITY;
+}
