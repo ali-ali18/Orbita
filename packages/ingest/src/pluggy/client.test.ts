@@ -158,6 +158,31 @@ describe("createPluggyClient", () => {
 		expect(pages).toEqual(["1", "2"]);
 	});
 
+	it("conta e fatura fora do formato são recusadas uma a uma, contadas, com o campo e sem o valor", async () => {
+		const fake = fakePluggy({
+			accounts: [
+				{ id: BANK_ACCOUNT_ID, type: "BANK", name: null, subtype: 7, campoNovo: "x" },
+				{ type: "CREDIT", name: "segredo do banco" },
+				"nem objeto é",
+			] as never,
+			bills: { [CARD_ACCOUNT_ID]: [{ id: "b-1" }, { id: 12 }] },
+		});
+		const client = make(fake.fetch);
+		const read = await client.accountsRead(ITEM_ID);
+		expect(read.rows).toHaveLength(1);
+		// Tolerante: o que não é texto vira null (ou "" no nome); o campo que o Órbita não lê passa.
+		expect(read.rows[0]).toMatchObject({ id: BANK_ACCOUNT_ID, type: "BANK", name: "", subtype: null });
+		expect(read.dropped).toBe(2);
+		expect(read.problems.some((p) => p.startsWith("id: "))).toBe(true);
+		expect(JSON.stringify(read.problems)).not.toContain("segredo");
+		expect(await client.accounts(ITEM_ID)).toHaveLength(1);
+
+		const bills = await client.billsRead(CARD_ACCOUNT_ID);
+		expect(bills.rows.map((b) => b.id)).toEqual(["b-1"]);
+		expect(bills.dropped).toBe(1);
+		expect(bills.problems).toEqual(["id: invalid_type"]);
+	});
+
 	it("manda nonExpiring:false e renova a apiKey perto do exp do JWT", async () => {
 		const start = new Date("2026-11-07T09:00:00Z");
 		const exp = Math.floor(start.getTime() / 1000) + 10 * 60; // vence em 10 min

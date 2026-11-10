@@ -37,10 +37,35 @@ export interface PluggyClientOptions {
 	maxBytes?: number;
 }
 
-/** Lançamentos válidos e quantas linhas vieram fora do formato (descartadas uma a uma, sem derrubar a página). */
+/**
+ * Lançamentos válidos e quantas linhas vieram fora do formato (descartadas uma a uma, sem derrubar a página).
+ * `problems`: o motivo de cada tipo de descarte, só o nome do campo e o problema ("date: invalid_type"), nunca o valor.
+ */
 export interface PluggyTransactionsResult {
 	transactions: PluggyTransaction[];
 	dropped: number;
+	problems: string[];
+}
+
+/** Contas (ou faturas) válidas, quantas linhas foram recusadas e por quê (campo e problema, nunca o valor). */
+export interface PluggyRowsResult<T> {
+	rows: T[];
+	dropped: number;
+	problems: string[];
+}
+
+/** Motivos distintos guardados por leitura. */
+const MAX_PROBLEMS = 12;
+
+/** "campo.subcampo: problema" de uma linha recusada. Só nomes de campo simples e o código do Zod: nenhum valor. */
+function rowProblems(error: z.ZodError): string[] {
+	return error.issues.slice(0, 5).map((issue) => {
+		const path = issue.path
+			.map((part) => (typeof part === "number" ? "[]" : String(part)))
+			.filter((part) => /^[A-Za-z0-9_[\]]{1,40}$/.test(part))
+			.join(".");
+		return `${path || "(linha)"}: ${issue.code}`;
+	});
 }
 
 /** Posições de investimento válidas e quantas linhas vieram fora do formato (descartadas uma a uma). */
@@ -65,8 +90,15 @@ export interface PluggyClient {
 	item(itemId: string): Promise<PluggyItem>;
 	/** `GET /accounts?itemId=`: todas as páginas. */
 	accounts(itemId: string): Promise<PluggyAccount[]>;
+	/**
+	 * O mesmo `GET /accounts`, com o que foi recusado: cada conta é validada sozinha (uma conta fora do formato não
+	 * derruba as outras nem a página) e a recusada é contada, com o motivo.
+	 */
+	accountsRead(itemId: string): Promise<PluggyRowsResult<PluggyAccount>>;
 	/** `GET /bills?accountId=` (cartão): todas as páginas. Quem não é Open Finance pode não ter faturas. */
 	bills(accountId: string): Promise<PluggyBill[]>;
+	/** O mesmo `GET /bills`, com as faturas recusadas contadas e o motivo. */
+	billsRead(accountId: string): Promise<PluggyRowsResult<PluggyBill>>;
 	/** `GET /categories`: a árvore de categorias do Pluggy (todas as páginas). Não depende da conexão. */
 	categories(): Promise<PluggyCategory[]>;
 	/**
@@ -252,9 +284,10 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 		path: string,
 		params: Record<string, string>,
 		item: S,
-	): Promise<{ rows: z.infer<S>[]; dropped: number }> {
+	): Promise<PluggyRowsResult<z.infer<S>>> {
 		const rows: z.infer<S>[] = [];
 		let dropped = 0;
+		const problems = new Set<string>();
 		const schema = page(z.unknown());
 		for (let n = 1; n <= MAX_PAGES; n++) {
 			const query = new URLSearchParams({ ...params, page: String(n), pageSize: String(PAGE_SIZE) });
@@ -262,9 +295,14 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 			for (const raw of body.results) {
 				const row = item.safeParse(raw);
 				if (row.success) rows.push(row.data);
-				else dropped += 1;
+				else {
+					dropped += 1;
+					for (const problem of rowProblems(row.error))
+						if (problems.size < MAX_PROBLEMS) problems.add(problem);
+				}
 			}
-			if (n >= body.totalPages || body.results.length === 0) return { rows, dropped };
+			if (n >= body.totalPages || body.results.length === 0)
+				return { rows, dropped, problems: [...problems] };
 		}
 		throw pluggyError("too_large");
 	}
@@ -278,9 +316,10 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 		path: string,
 		params: Record<string, string>,
 		item: S,
-	): Promise<{ rows: z.infer<S>[]; dropped: number }> {
+	): Promise<PluggyRowsResult<z.infer<S>>> {
 		const rows: z.infer<S>[] = [];
 		let dropped = 0;
+		const problems = new Set<string>();
 		const schema = cursorPage(z.unknown());
 		let after: string | null = null;
 		for (let n = 1; n <= MAX_CURSOR_PAGES; n++) {
@@ -289,9 +328,13 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 			for (const raw of body.results) {
 				const row = item.safeParse(raw);
 				if (row.success) rows.push(row.data);
-				else dropped += 1;
+				else {
+					dropped += 1;
+					for (const problem of rowProblems(row.error))
+						if (problems.size < MAX_PROBLEMS) problems.add(problem);
+				}
 			}
-			if (body.next === null || body.results.length === 0) return { rows, dropped };
+			if (body.next === null || body.results.length === 0) return { rows, dropped, problems: [...problems] };
 			let next: string | null = null;
 			try {
 				next = new URL(body.next, PLUGGY_BASE_URL).searchParams.get("after");
@@ -328,22 +371,28 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 			return parse(itemResponse, await get(`/items/${needUuid(itemId)}`));
 		},
 		async accounts(itemId) {
-			return allPages("/accounts", { itemId: needUuid(itemId) }, accountSchema);
+			return (await allPagesLenient("/accounts", { itemId: needUuid(itemId) }, accountSchema)).rows;
+		},
+		accountsRead(itemId) {
+			return allPagesLenient("/accounts", { itemId: needUuid(itemId) }, accountSchema);
 		},
 		async bills(accountId) {
-			return allPages("/bills", { accountId: needSafeId(accountId) }, billSchema);
+			return (await allPagesLenient("/bills", { accountId: needSafeId(accountId) }, billSchema)).rows;
+		},
+		billsRead(accountId) {
+			return allPagesLenient("/bills", { accountId: needSafeId(accountId) }, billSchema);
 		},
 		async categories() {
 			return allPages("/categories", {}, categorySchema);
 		},
 		async transactions({ accountId, from, to }) {
 			if (!DATE.test(from) || !DATE.test(to)) throw new RangeError("datas devem ser AAAA-MM-DD");
-			const { rows, dropped } = await allCursorPages(
+			const { rows, dropped, problems } = await allCursorPages(
 				"/v2/transactions",
 				{ accountId: needSafeId(accountId), dateFrom: from, dateTo: to },
 				transactionSchema,
 			);
-			return { transactions: rows, dropped };
+			return { transactions: rows, dropped, problems };
 		},
 		async investments(itemId) {
 			const { rows, dropped } = await allPagesLenient(

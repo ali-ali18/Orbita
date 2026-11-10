@@ -38,7 +38,7 @@ const KNOWN_BANKS: ReadonlyArray<readonly [name: string, match: RegExp]> = [
 	["Bradesco", /^(banco )?bradesco$/],
 	["Banco do Brasil", /^(banco do brasil|bb)$/],
 	["Caixa", /^(caixa|caixa economica federal)$/],
-	["C6", /^(banco )?c6( bank)?$/],
+	["C6", /^(banco )?(c6( bank)?|c6bank)$/],
 	["BTG", /^(banco )?btg( pactual)?$/],
 	["PicPay", /^(picpay|pic pay)$/],
 ];
@@ -94,9 +94,9 @@ const BANK_WORDS: ReadonlyArray<readonly [name: string, match: RegExp]> = [
 	["Mercado Pago", /\bmercado pago\b/],
 	["Itaú", /\bitau\b/],
 	["Bradesco", /\bbradesco\b/],
-	["Banco do Brasil", /\bbanco do brasil\b/],
+	["Banco do Brasil", /\b(banco do brasil|bb|ourocard)\b/],
 	["Caixa", /\bcaixa( economica)?\b/],
-	["C6", /\bc6\b/],
+	["C6", /\b(c6|c6bank)\b/],
 	["BTG", /\bbtg\b/],
 	["PicPay", /\b(picpay|pic pay)\b/],
 ];
@@ -130,6 +130,39 @@ const ISPB_BY_BANK: Readonly<Record<string, string>> = {
 	BTG: "30306294",
 	PicPay: "22896431",
 };
+
+/**
+ * Código COMPE dos bancos que o Órbita conhece. O Pluggy manda o COMPE no começo de `bankData.transferNumber`
+ * ("COMPE / Agência / Conta": docs.pluggy.ai/docs/accounts).
+ */
+const BANK_BY_COMPE: Readonly<Record<string, string>> = {
+	"001": "Banco do Brasil",
+	"033": "Santander",
+	"077": "Inter",
+	"104": "Caixa",
+	"208": "BTG",
+	"237": "Bradesco",
+	"260": "Nubank",
+	"323": "Mercado Pago",
+	"336": "C6",
+	"341": "Itaú",
+	"380": "PicPay",
+};
+
+/**
+ * Banco pelo COMPE do `transferNumber` ("336/0001/12345-0" → "C6"). Só vale com os três trechos (o `number` da conta,
+ * "agência/conta", tem dois); `null` se não é um banco conhecido.
+ */
+export function bankByTransferNumber(transferNumber: string | null | undefined): string | null {
+	const parts = (transferNumber ?? "").split("/").map((p) => p.trim());
+	if (parts.length < 3 || !/^\d{1,3}$/.test(parts[0] ?? "")) return null;
+	return BANK_BY_COMPE[(parts[0] ?? "").padStart(3, "0")] ?? null;
+}
+
+/** Nome do banco como aparece para o dono: o nome curto, menos onde ele sozinho fica estranho ("C6" → "C6 Bank"). */
+export function bankDisplayName(bank: string): string {
+	return bank === "C6" ? "C6 Bank" : bank;
+}
 
 /** O ISPB do banco pelo nome curto ("Santander" → "90400888"); `null` se não for um banco conhecido. */
 export function bankIspb(bank: string | null | undefined): string | null {
@@ -187,6 +220,8 @@ export function isWeakCardName(name: string | null | undefined): boolean {
 export function detectBankName(input: {
 	connectorName?: string | null | undefined;
 	accountNames: readonly (string | null | undefined)[];
+	/** `bankData.transferNumber` das contas: o COMPE diz o banco quando nenhum nome diz. */
+	transferNumbers?: readonly (string | null | undefined)[];
 	connectionLabel?: string | null | undefined;
 }): string | null {
 	if (input.connectorName && !isMeuPluggyConnector(input.connectorName)) {
@@ -195,6 +230,10 @@ export function detectBankName(input: {
 	}
 	for (const name of input.accountNames) {
 		const bank = findKnownBank(name);
+		if (bank) return bank;
+	}
+	for (const number of input.transferNumbers ?? []) {
+		const bank = bankByTransferNumber(number);
 		if (bank) return bank;
 	}
 	const label = cleanBankName(
@@ -216,7 +255,7 @@ export function detectBankName(input: {
 /** Nome do cartão: o banco quando o nome do cartão é fraco; "Banco Nome" quando o nome não cita o banco. */
 export function cardDisplayName(own: string, bank: string | null): string {
 	if (bank === null) return own;
-	if (isWeakCardName(own)) return bank;
+	if (isWeakCardName(own)) return bankDisplayName(bank);
 	return key(own).includes(key(bank)) ? own : `${bank} ${own}`;
 }
 

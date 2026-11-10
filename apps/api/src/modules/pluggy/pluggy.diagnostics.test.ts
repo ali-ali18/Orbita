@@ -239,6 +239,11 @@ describe("GET /v1/pluggy/diagnostics", () => {
 			link: null,
 		});
 		expect(b.bills).toBeNull();
+		// Contas cruas × importadas, e o que o mapeamento faz com cada uma.
+		expect(conn).toMatchObject({ accountsRaw: 2, accountsRejected: 0, accountsMappable: 2 });
+		expect(conn.lastSync).toMatchObject({ accounts: expect.any(Number), cards: expect.any(Number) });
+		expect(b.mapping).toBe("conta");
+		expect(c.mapping).toBe("cartão");
 		expect(b.transactions).toMatchObject({ posted: 1, pending: 0, windowDays: 45 });
 		expect(c).toMatchObject({
 			type: "CREDIT",
@@ -256,6 +261,8 @@ describe("GET /v1/pluggy/diagnostics", () => {
 		});
 		expect(c.bills).toEqual({
 			error: null,
+			dropped: 0,
+			problems: [],
 			list: [
 				{
 					dueDate: "2026-11-17",

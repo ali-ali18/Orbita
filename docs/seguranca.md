@@ -90,6 +90,7 @@ O app aceita atualizações de JavaScript do próprio servidor, o que é uma via
 - Client ID e Client Secret ficam só no cofre (AES-GCM, AAD = nome). O worker os abre com `vault.read`; nenhuma rota devolve valor, nem parte dele. A `apiKey` do Pluggy (2 h) vive só na memória do processo.
 - O cliente fala só com `https://api.pluggy.ai` (host fixo no código), sem seguir redirecionamento, com timeout (20 s) e limite de 5 MB por resposta. Os IDs que entram no caminho da URL são validados (UUID / `[A-Za-z0-9_-]`).
 - Toda resposta do Pluggy passa por Zod. Formato inesperado vira erro claro; o texto do erro vem de uma lista fixa em pt-BR e **nunca** cita o corpo da resposta, a URL, a chave ou o segredo. É isso que vai para `lastError` e para o app.
+- Linha (conta, fatura, lançamento) fora do formato é recusada sozinha e contada; o motivo que vai para a nota da sincronização e para o Diagnóstico é só o **nome do campo e o código do problema** ("id: invalid_type"), nunca o valor. O motivo de um item que não atualizou sai de uma lista fixa pelo código do `executionStatus`; o texto livre do Pluggy (`error.message`, `warnings[].message`) não entra em `lastError`.
 - Nome, descrição e categoria que vêm do banco são **dados**, nunca instrução (mesma regra das notificações).
 - A tela só vê estado (`ok`, `partial`, `error`, `no_keys`), datas e a mensagem sanitizada.
 

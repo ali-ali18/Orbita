@@ -1,6 +1,6 @@
 import { createAnthropicModelClient } from "@orbita/agents";
 import { createDb, createPrismaStores, createSecretVault } from "@orbita/db";
-import { PLUGGY_DAILY_JOB, PLUGGY_SYNC_QUEUE } from "@orbita/ingest";
+import { PLUGGY_DAILY_JOB, PLUGGY_RETRY_JOB, PLUGGY_SYNC_QUEUE } from "@orbita/ingest";
 import { deriveKey } from "@orbita/security";
 import { Queue, Worker } from "bullmq";
 import {
@@ -18,7 +18,14 @@ import {
 	cleanPairingCodes,
 	MAINTENANCE_QUEUE,
 } from "./maintenance.ts";
-import { PLUGGY_DAILY_PATTERN, PLUGGY_DAILY_TIME_ZONE, processSyncJob } from "./sincronizacao.ts";
+import {
+	PLUGGY_DAILY_PATTERN,
+	PLUGGY_DAILY_TIME_ZONE,
+	planPluggyRetry,
+	pluggyRetryJobId,
+	processSyncJob,
+	retryAttemptOf,
+} from "./sincronizacao.ts";
 
 const env = loadEnv();
 const db = createDb(env.DATABASE_URL);
@@ -59,14 +66,36 @@ await syncQueue.upsertJobScheduler(
 );
 const syncWorker = new Worker(
 	PLUGGY_SYNC_QUEUE,
-	(job) =>
-		processSyncJob(job.name, {
+	async (job) => {
+		const result = await processSyncJob(job.name, {
 			stores,
 			readSecret: (name) => vault.read(name),
 			fetch: (url, init) => fetch(url, init),
 			now: () => new Date(),
 			log: (line) => console.log(line),
-		}),
+		});
+		// Conexão que ainda espera o banco (item atualizando, ou nova e sem contas): tenta de novo sozinho, com espera
+		// crescente e fim certo. Falhar em agendar não derruba a sincronização que acabou de rodar.
+		const retry = planPluggyRetry(result, retryAttemptOf(job.name, job.data), new Date());
+		if (retry) {
+			try {
+				await syncQueue.add(
+					PLUGGY_RETRY_JOB,
+					{ attempt: retry.attempt },
+					{
+						jobId: pluggyRetryJobId(retry.attempt),
+						delay: retry.delayMs,
+						removeOnComplete: true,
+						removeOnFail: true,
+					},
+				);
+				console.log(`pluggy: nova tentativa ${retry.attempt} em ${Math.round(retry.delayMs / 60_000)} min`);
+			} catch {
+				console.error("pluggy: não deu para agendar a nova tentativa");
+			}
+		}
+		return result;
+	},
 	{ connection, concurrency: 1 },
 );
 // O resultado traz só contagens e mensagens já sanitizadas.

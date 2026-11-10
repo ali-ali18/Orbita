@@ -45,6 +45,7 @@ export {
 	PLUGGY_DAILY_JOB,
 	PLUGGY_MANUAL_JOB,
 	PLUGGY_MANUAL_JOB_ID,
+	PLUGGY_RETRY_JOB,
 	PLUGGY_SYNC_QUEUE,
 	type SyncPluggyDeps,
 	type SyncPluggyResult,
