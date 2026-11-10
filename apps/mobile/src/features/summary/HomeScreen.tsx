@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useClock } from "../../lib/clock.tsx";
 import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
@@ -35,7 +36,7 @@ import { useProfile } from "../settings/preferences-queries.ts";
 import { avatarInitial, greetWithName } from "../settings/profile-model.ts";
 import { HomeHeader } from "./HomeHeader.tsx";
 import {
-	HomeHeaderBackdrop,
+	HomeHeaderFade,
 	HomePager,
 	HomeTabsBar,
 	HomeTabsFade,
@@ -67,6 +68,7 @@ export function HomeScreen() {
 	const [refreshing, setRefreshing] = useState(false);
 	const bottomBarHeight = useBottomBarHeight();
 	const pager = useHomePager();
+	const insets = useSafeAreaInsets();
 	const tabsFade = useTabsFade(pager.page);
 	// A base do header fixo: o conteúdo começa abaixo dele (e do degradê) e o menu do widget usa como topo útil.
 	const headerBottom = sizes.homeHeader + sizes.homeTabs;
@@ -271,14 +273,8 @@ export function HomeScreen() {
 				pointerEvents="box-none"
 				style={{ position: "absolute", top: 0, left: 0, right: 0, height: headerBottom }}
 			>
-				<HomeHeaderBackdrop fade={tabsFade} />
-				<View
-					style={{
-						height: sizes.homeHeader,
-						paddingHorizontal: spacing.lg,
-						backgroundColor: colors.background,
-					}}
-				>
+				<HomeHeaderFade safeTop={Math.max(insets.top, sizes.statusBar)} />
+				<View style={{ height: sizes.homeHeader, paddingHorizontal: spacing.lg }}>
 					<HomeHeader
 						height={sizes.homeHeader}
 						initial={avatarInitial(displayName)}
