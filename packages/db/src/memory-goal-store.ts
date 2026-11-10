@@ -23,7 +23,7 @@ export function createMemoryGoalStore(state: MemoryState): GoalStore {
 			assertRefs(state, { accountIds: [accountId] });
 			const now = state.now();
 			const record: GoalRecord = {
-				id: randomUUID(),
+				id: input.id ?? randomUUID(),
 				...data,
 				accountId,
 				archivedAt: null,

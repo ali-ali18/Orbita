@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { SavingsReading } from "@orbita/agents";
 import type { SavingsInput } from "@orbita/core";
 import {
@@ -20,7 +21,13 @@ import {
 	type UncategorizedCandidate,
 	type WatchedSpend,
 } from "@orbita/core";
-import { type ActivityRecord, type AgentRecord, DataError, type Stores } from "@orbita/db";
+import {
+	ACTIVITY_MAX_ATTEMPTS,
+	type ActivityRecord,
+	type AgentRecord,
+	DataError,
+	type Stores,
+} from "@orbita/db";
 import { pickCategoryRule } from "@orbita/shared";
 import { loadSetupAnalysis } from "../setup.ts";
 import { economySettings, loadSavingsInput } from "./savings.ts";
@@ -221,7 +228,8 @@ async function prepare(stores: Stores, action: PlannedAction): Promise<Applied> 
 			// O retrato do que será criado: o Desfazer só mexe se continuar assim (o dono pode renomear, trocar valor ou dia).
 			return {
 				undo: {
-					recurrenceId: null,
+					// O id nasce aqui e vai para o registro ANTES de criar: só o que tem este id é do agente.
+					recurrenceId: randomUUID(),
 					name: p.name.slice(0, 60),
 					amountCents: p.amountCents,
 					dayOfMonth: p.dayOfMonth,
@@ -247,7 +255,7 @@ async function prepare(stores: Stores, action: PlannedAction): Promise<Applied> 
 		case "create_savings_goal": {
 			if ((await stores.goals.list()).some((g) => g.name === action.payload.name)) return null;
 			return {
-				undo: { goalId: null, name: action.payload.name, targetCents: action.payload.targetCents },
+				undo: { goalId: randomUUID(), name: action.payload.name, targetCents: action.payload.targetCents },
 			};
 		}
 	}
@@ -269,6 +277,7 @@ async function execute(stores: Stores, action: PlannedAction, undo: UndoData): P
 				if (!category || category.archivedAt !== null) categoryId = null;
 			}
 			const created = await stores.recurrences.create({
+				...(str(undo.recurrenceId) ? { id: str(undo.recurrenceId) as string } : {}),
 				kind: "expense",
 				name: p.name.slice(0, 60),
 				amountCents: p.amountCents,
@@ -288,6 +297,7 @@ async function execute(stores: Stores, action: PlannedAction, undo: UndoData): P
 			return undo;
 		case "create_savings_goal": {
 			const created = await stores.goals.create({
+				...(str(undo.goalId) ? { id: str(undo.goalId) as string } : {}),
 				name: action.payload.name,
 				targetCents: action.payload.targetCents,
 			});
@@ -306,12 +316,25 @@ async function settleApplying(stores: Stores, agent: AgentRecord): Promise<void>
 	);
 	for (const a of stuck) {
 		const undo = await detectApplied(stores, a.kind, a.undo);
-		if (undo === null) await stores.agentActivity.release(a.id);
-		else await stores.agentActivity.finish(a.id, undo);
+		if (undo !== null) {
+			await stores.agentActivity.finish(a.id, undo);
+			continue;
+		}
+		// Comprovadamente não gravou: tenta de novo, no máximo ACTIVITY_MAX_ATTEMPTS vezes; depois fica `failed`.
+		const attempts = Number(a.undo.attempts ?? 0) + 1;
+		const next = { ...a.undo, attempts };
+		if (attempts >= ACTIVITY_MAX_ATTEMPTS) await stores.agentActivity.markFailed(a.id, next);
+		else await stores.agentActivity.markRetry(a.id, next);
 	}
 }
 
-/** O estado atual mostra que a ação gravou? Devolve o `undo` completo, ou `null` se não gravou. */
+/**
+ * O estado atual mostra que a ação gravou? Devolve o `undo` completo, ou `null` se não gravou.
+ *
+ * Assinatura e meta só valem pelo ID gerado na reserva (nunca por nome, valor ou dia iguais: o dono pode ter criado a
+ * mesma coisa). Categoria, limite e situação não têm id criado pelo agente: se o estado já é o desejado, não há como
+ * provar que foi o agente, então a atividade conclui com `unverified` e o Desfazer não mexe em nada.
+ */
 async function detectApplied(
 	stores: Stores,
 	kind: AutonomousActionKind,
@@ -320,32 +343,23 @@ async function detectApplied(
 	switch (kind) {
 		case "categorize_transaction": {
 			const t = await stores.transactions.get(str(undo.transactionId) ?? "");
-			return t && t.categoryId === str(undo.categoryId) ? undo : null;
+			return t && t.categoryId === str(undo.categoryId) ? { ...undo, unverified: true } : null;
 		}
 		case "register_subscription": {
-			const found = (await stores.recurrences.list()).find(
-				(r) =>
-					r.id === str(undo.recurrenceId) ||
-					(r.name === undo.name &&
-						r.amountCents === undo.amountCents &&
-						r.dayOfMonth === undo.dayOfMonth &&
-						r.startDate === undo.startDate),
-			);
-			return found ? { ...undo, recurrenceId: found.id } : null;
+			const found = await stores.recurrences.get(str(undo.recurrenceId) ?? "");
+			return found ? undo : null;
 		}
 		case "set_budget_limit": {
 			const current = (await stores.budgets.list()).find((b) => b.scope === str(undo.scope));
-			return current && current.limitCents === undo.limitCents ? undo : null;
+			return current && current.limitCents === undo.limitCents ? { ...undo, unverified: true } : null;
 		}
 		case "flag_duplicate": {
 			const t = await stores.transactions.get(str(undo.transactionId) ?? "");
-			return t && t.status === "pending" && !t.editedByOwner ? undo : null;
+			return t && t.status === "pending" && !t.editedByOwner ? { ...undo, unverified: true } : null;
 		}
 		case "create_savings_goal": {
-			const found = (await stores.goals.list()).find(
-				(g) => g.id === str(undo.goalId) || (g.name === undo.name && g.targetCents === undo.targetCents),
-			);
-			return found ? { ...undo, goalId: found.id } : null;
+			const found = await stores.goals.get(str(undo.goalId) ?? "");
+			return found ? undo : null;
 		}
 	}
 }
@@ -416,6 +430,8 @@ const str = (value: unknown): string | null => (typeof value === "string" ? valu
 
 /** Devolve o estado anterior e, se não deu para mexer (o dono já tinha mudado), o motivo em uma frase. */
 async function revert(stores: Stores, kind: AutonomousActionKind, undo: UndoData): Promise<string | null> {
+	// Concluída por dedução depois de uma falha: não dá para provar que foi o agente, então nada é desfeito.
+	if (undo.unverified === true) return "Não tenho certeza de que fui eu; deixei como está.";
 	switch (kind) {
 		case "categorize_transaction": {
 			const id = str(undo.transactionId);
@@ -493,9 +509,10 @@ export interface UndoResult {
 export async function undoActivity(stores: Stores, id: string): Promise<UndoResult> {
 	const found = await stores.agentActivity.get(id);
 	if (!found) throw new DataError("not_found", "Atividade não encontrada.");
-	if (found.status === "applying") {
+	if (found.status === "applying" || found.status === "retry") {
 		throw new DataError("invalid", "Esta ação ainda está em andamento. Tente de novo em instantes.");
 	}
+	if (found.status === "failed") throw new DataError("invalid", "Esta ação não chegou a ser feita.");
 	const marked = await stores.agentActivity.markUndone(id);
 	if (!marked) throw new DataError("duplicate", "Esta atividade já foi desfeita.");
 	try {

@@ -53,7 +53,16 @@ export function createMemoryAgentActivityStore(state: MemoryState): AgentActivit
 			if (!state.agents.has(agentId)) throw notFound("Agente", "o");
 			const draft = cleanActivityDraft(raw);
 			for (const a of state.agentActivities.values()) {
-				if (a.agentId === agentId && a.dedupeKey === draft.dedupeKey) return null;
+				if (a.agentId !== agentId || a.dedupeKey !== draft.dedupeKey) continue;
+				if (a.status !== "retry") return null;
+				const next: ActivityRecord = {
+					...a,
+					...draft,
+					undo: { ...draft.undo, attempts: a.undo.attempts ?? 0 },
+					status: "applying",
+				};
+				state.agentActivities.set(a.id, next);
+				return copy(next);
 			}
 			const record: ActivityRecord = {
 				id: randomUUID(),
@@ -69,7 +78,8 @@ export function createMemoryAgentActivityStore(state: MemoryState): AgentActivit
 		},
 		async finish(id, undo) {
 			const current = state.agentActivities.get(id);
-			if (!current || current.status !== "applying") return null;
+			if (!current) return null;
+			if (current.status !== "applying") return null;
 			const next: ActivityRecord = { ...current, status: "done", undo: structuredClone(undo) };
 			state.agentActivities.set(id, next);
 			return copy(next);
@@ -91,7 +101,9 @@ export function createMemoryAgentActivityStore(state: MemoryState): AgentActivit
 		},
 		async keys(agentId) {
 			return new Set(
-				[...state.agentActivities.values()].filter((a) => a.agentId === agentId).map((a) => a.dedupeKey),
+				[...state.agentActivities.values()]
+					.filter((a) => a.agentId === agentId && a.status !== "retry")
+					.map((a) => a.dedupeKey),
 			);
 		},
 		async markUndone(id, note) {
@@ -104,6 +116,22 @@ export function createMemoryAgentActivityStore(state: MemoryState): AgentActivit
 				undoneAt: state.now(),
 				undoNote: cleanUndoNote(note),
 			};
+			state.agentActivities.set(id, next);
+			return copy(next);
+		},
+		async markRetry(id, undo) {
+			const current = state.agentActivities.get(id);
+			if (!current) return null;
+			if (current.status !== "applying") return null;
+			const next: ActivityRecord = { ...current, status: "retry", undo: structuredClone(undo) };
+			state.agentActivities.set(id, next);
+			return copy(next);
+		},
+		async markFailed(id, undo) {
+			const current = state.agentActivities.get(id);
+			if (!current) return null;
+			if (current.status !== "applying") return null;
+			const next: ActivityRecord = { ...current, status: "failed", undo: structuredClone(undo) };
 			state.agentActivities.set(id, next);
 			return copy(next);
 		},

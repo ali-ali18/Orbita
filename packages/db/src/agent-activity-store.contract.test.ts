@@ -124,6 +124,28 @@ describe.each(contractSuites())("AgentActivityStore (%s)", (_name, make) => {
 		expect(await stores.agentActivity.setUndoNote("nao-existe", "x")).toBeNull();
 	});
 
+	it("retry: volta a applying na próxima reserva mantendo o contador, e não conta como chave usada", async () => {
+		const rec = (await stores.agentActivity.reserve(agentId, draft())) as { id: string };
+		expect((await stores.agentActivity.markRetry(rec.id, { attempts: 1 }))?.status).toBe("retry");
+		expect(await stores.agentActivity.markRetry(rec.id, {})).toBeNull();
+		expect((await stores.agentActivity.keys(agentId)).has("categorize:tx-1")).toBe(false);
+		// Não se desfaz nem se conclui enquanto está em retry.
+		expect(await stores.agentActivity.markUndone(rec.id)).toBeNull();
+		expect(await stores.agentActivity.finish(rec.id, {})).toBeNull();
+		const again = await stores.agentActivity.reserve(agentId, draft());
+		expect(again).toMatchObject({ id: rec.id, status: "applying" });
+		expect(again?.undo.attempts).toBe(1);
+		expect(await stores.agentActivity.list()).toHaveLength(1);
+	});
+
+	it("failed: fica no registro, conta como chave usada e nunca volta a ser reservada", async () => {
+		const rec = (await stores.agentActivity.reserve(agentId, draft())) as { id: string };
+		expect((await stores.agentActivity.markFailed(rec.id, { attempts: 3 }))?.status).toBe("failed");
+		expect((await stores.agentActivity.keys(agentId)).has("categorize:tx-1")).toBe(true);
+		expect(await stores.agentActivity.reserve(agentId, draft())).toBeNull();
+		expect(await stores.agentActivity.markUndone(rec.id)).toBeNull();
+	});
+
 	it("recusa agente inexistente, tipo desconhecido e texto vazio ou grande demais", async () => {
 		await expect(stores.agentActivity.reserve("nao-existe", draft())).rejects.toMatchObject({
 			code: "not_found",

@@ -25,6 +25,8 @@ export interface RecurrenceRecord extends RecurrenceData {
 }
 
 export interface RecurrenceInput {
+	/** Id escolhido por quem cria (para reconhecer o próprio registro depois de uma falha); padrão: gerado. */
+	id?: string;
 	kind: RecurrenceKindValue;
 	name: string;
 	amountCents: number;

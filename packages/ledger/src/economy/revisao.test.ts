@@ -14,7 +14,7 @@ const now = () => NOW;
 
 type Seed = Awaited<ReturnType<typeof seed>>;
 
-async function seed(options: { padaria?: boolean; netflix?: boolean; goal?: boolean } = {}) {
+async function seed(options: { padaria?: boolean; netflix?: boolean; goal?: boolean; lazer?: boolean } = {}) {
 	const stores = createMemoryStores({ now });
 	const account = await stores.accounts.create({ name: "Conta", kind: "checking" });
 	await stores.categories.ensureDefaults();
@@ -54,6 +54,11 @@ async function seed(options: { padaria?: boolean; netflix?: boolean; goal?: bool
 			await add(`${m}-10`, 4490, "NETFLIX.COM", "assinaturas");
 	}
 	if (options.goal) await add("2026-11-01", 20000, "JUROS DE MORA", "outros");
+	if (options.lazer) {
+		for (const [i, m] of ["2026-08", "2026-09", "2026-10"].entries())
+			await add(`${m}-1${i}`, 30000, `Cinema ${i}`, "lazer");
+		await add("2026-11-03", 45000, "Show", "lazer");
+	}
 	return { stores, add, cat, account, padaria: padaria as NonNullable<typeof padaria> };
 }
 
@@ -122,7 +127,7 @@ describe("achado 4: o registro nunca fica sem Desfazer", () => {
 		expect((await s.stores.transactions.get(s.padaria.id))?.categoryId).toBe(s.cat("mercado"));
 	});
 
-	it("a gravação FEZ efeito e o passo final falha: o registro fica com o Desfazer válido e a próxima passada o conclui", async () => {
+	it("a gravação FEZ efeito e o passo final falha: o registro fica e a próxima passada o conclui (sem provar autoria, o Desfazer não mexe)", async () => {
 		const s = await seed({ padaria: true });
 		const broken: Stores = failing(s.stores, "agentActivity", "finish");
 		const first = await run(broken);
@@ -137,9 +142,11 @@ describe("achado 4: o registro nunca fica sem Desfazer", () => {
 		expect(second.applied).toEqual([]);
 		const [done] = await s.stores.agentActivity.list();
 		expect(done?.status).toBe("done");
+		// Categoria não tem id criado pelo agente: não dá para provar que foi ele, então o Desfazer não mexe.
+		expect(done?.undo.unverified).toBe(true);
 		const undone = await undoActivity(s.stores, done?.id as string);
-		expect(undone.reverted).toBe(true);
-		expect((await s.stores.transactions.get(s.padaria.id))?.categoryId).toBeNull();
+		expect(undone.reverted).toBe(false);
+		expect((await s.stores.transactions.get(s.padaria.id))?.categoryId).toBe(s.cat("mercado"));
 	});
 
 	it("assinatura criada e o passo final falha: a passada seguinte reencontra a assinatura pelo retrato e o Desfazer a arquiva", async () => {
@@ -286,5 +293,82 @@ describe("achado 6: duplicata autônoma só no clássico dobro", () => {
 		expect((await flagged(s)).length).toBe(1);
 		expect((await s.stores.transactions.get(mine.id))?.status).toBe("pending");
 		expect((await s.stores.transactions.get(bank.id))?.status).toBe("confirmed");
+	});
+});
+
+describe("segunda revisão: o que o dono fez não vira ação do agente por coincidência", () => {
+	const kinds = async (s: Seed, kind: string) =>
+		(await s.stores.agentActivity.list()).filter((a) => a.kind === kind);
+
+	it("limite: o agente ficou `applying` sem gravar, o dono criou o MESMO limite; o Desfazer não remove o do dono", async () => {
+		const s = await seed({ lazer: true });
+		await run(failing(s.stores, "budgets", "set"));
+		expect((await kinds(s, "set_budget_limit")).map((a) => a.status)).toEqual(["applying"]);
+		// O dono toca "Criar limite" no mesmo achado: grava exatamente o limite sugerido.
+		await s.stores.budgets.set(s.cat("lazer"), 30000);
+		await run(s.stores);
+		for (const a of await kinds(s, "set_budget_limit")) {
+			if (a.status === "done") await undoActivity(s.stores, a.id);
+		}
+		expect((await s.stores.budgets.list()).find((b) => b.scope === s.cat("lazer"))?.limitCents).toBe(30000);
+	});
+
+	it("assinatura: o dono criou uma igual (nome, valor, dia e início); o Desfazer não arquiva a do dono", async () => {
+		const s = await seed({ netflix: true });
+		await run(failing(s.stores, "recurrences", "create"));
+		const mine = await s.stores.recurrences.create({
+			kind: "expense",
+			name: "Netflix",
+			amountCents: 4490,
+			dayOfMonth: 10,
+			startDate: "2026-11-01",
+			accountId: s.account.id,
+		});
+		await run(s.stores);
+		for (const a of await kinds(s, "register_subscription")) {
+			if (a.status === "done") await undoActivity(s.stores, a.id);
+		}
+		expect((await s.stores.recurrences.get(mine.id))?.archivedAt).toBeNull();
+		expect(await s.stores.recurrences.list()).toHaveLength(1);
+	});
+
+	it("limite que o agente realmente gravou e ficou sem concluir: não dá para provar que foi ele, então o Desfazer não remove", async () => {
+		const s = await seed({ lazer: true });
+		await run(failing(s.stores, "agentActivity", "finish"));
+		await run(s.stores);
+		const [a] = await kinds(s, "set_budget_limit");
+		expect(a?.status).toBe("done");
+		expect(a?.undo.unverified).toBe(true);
+		const undone = await undoActivity(s.stores, a?.id as string);
+		expect(undone.reverted).toBe(false);
+		expect(undone.activity.undoNote).toContain("Não tenho certeza");
+		expect((await s.stores.budgets.list()).find((b) => b.scope === s.cat("lazer"))?.limitCents).toBe(30000);
+	});
+
+	it("assinatura e meta que o agente realmente criou e ficaram sem concluir continuam desfazíveis (reconhecidas pelo id)", async () => {
+		const s = await seed({ netflix: true, goal: true });
+		await run(failing(s.stores, "agentActivity", "finish"));
+		await run(s.stores);
+		const sub = (await kinds(s, "register_subscription"))[0];
+		const goal = (await kinds(s, "create_savings_goal"))[0];
+		expect([sub?.status, goal?.status]).toEqual(["done", "done"]);
+		expect((await undoActivity(s.stores, sub?.id as string)).reverted).toBe(true);
+		expect((await undoActivity(s.stores, goal?.id as string)).reverted).toBe(true);
+		expect(await s.stores.recurrences.list()).toEqual([]);
+		expect(await s.stores.goals.list()).toEqual([]);
+	});
+
+	it("erro determinístico: tenta no máximo 3 vezes e depois fica 'failed', sem novas tentativas", async () => {
+		const s = await seed({ netflix: true });
+		const broken = failing(s.stores, "recurrences", "create", "validação");
+		const results = [];
+		for (let i = 0; i < 6; i++) results.push((await run(broken)).failed);
+		expect(results).toEqual([1, 1, 1, 0, 0, 0]);
+		const [a] = await kinds(s, "register_subscription");
+		expect(a?.status).toBe("failed");
+		await expect(undoActivity(s.stores, a?.id as string)).rejects.toBeInstanceOf(DataError);
+		// Mesmo com o banco são, não insiste (só voltaria a tentar se o achado mudasse de chave).
+		expect((await run(s.stores)).applied.map((x) => x.kind)).not.toContain("register_subscription");
+		expect(await s.stores.recurrences.list()).toEqual([]);
 	});
 });
