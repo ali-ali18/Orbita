@@ -1,4 +1,9 @@
-export type { AccountInput, AccountPatch, AccountRecord, AccountStore } from "./account-store.ts";
+export type {
+	AccountInput,
+	AccountPatch,
+	AccountRecord,
+	AccountStore,
+} from "./account-store.ts";
 export type {
 	ActivityDraft,
 	ActivityQuery,
