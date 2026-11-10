@@ -14,8 +14,10 @@ import {
 	classRows,
 	decimalLabel,
 	detailLines,
+	emptyYield,
 	evolutionChart,
 	institutionRows,
+	investedCard,
 	monthBars,
 	monthYieldCard,
 	movementRow,
@@ -94,6 +96,75 @@ describe("cartões de rendimento", () => {
 		expect(c.caption).toBe("sem histórico ainda");
 		expect(c.tone).toBe("secondary");
 		expect(c.a11y).toContain("sem valor");
+		// Estado vazio desenhado: ícone e duas linhas, sem traço no lugar do número.
+		expect(c.empty).toEqual({
+			icon: "relogio",
+			title: "Começa a aparecer em alguns dias",
+			hint: "Precisa de 2 dias de histórico",
+		});
+		expect(c.a11y).toBe(
+			"Rendimento no mês: sem valor. Começa a aparecer em alguns dias. Precisa de 2 dias de histórico",
+		);
+	});
+
+	it("cada motivo sem número tem texto curto próprio, e nenhum é traço", () => {
+		const reasons = [
+			"sem histórico ainda",
+			"sem saldo informado",
+			"sem valor aplicado e sem compras nas movimentações",
+			"sem valor aplicado nem compras para calcular",
+			"resgates maiores que o valor aplicado; sem como estimar",
+			"posição encerrada: sem as movimentações completas para calcular o ganho",
+			"resgate ainda não lido nas movimentações",
+			"a posição sumiu da lista do banco: sem saldo atual para calcular",
+			"conexão removida: sem dados atuais para calcular",
+			"sem posições ativas",
+			"não deu para calcular com segurança",
+			"algo que o servidor passou a dizer",
+			null,
+		];
+		const seen = new Set<string>();
+		for (const r of reasons) {
+			const e = emptyYield(r);
+			expect(e.title.length).toBeGreaterThan(0);
+			expect(e.hint.length).toBeGreaterThan(0);
+			expect(`${e.title}${e.hint}`).not.toMatch(/[—–-]$|^[—–-]/);
+			expect(["relogio", "grafico"]).toContain(e.icon);
+			seen.add(e.title);
+		}
+		expect(emptyYield("sem saldo informado")).toMatchObject({ title: "Sem saldo informado" });
+		expect(emptyYield("sem valor aplicado nem compras para calcular")).toMatchObject({
+			title: "Sem valor aplicado",
+		});
+		expect(emptyYield(null)).toMatchObject({ icon: "grafico", title: "Sem como calcular" });
+		expect(seen.size).toBeGreaterThan(6);
+	});
+
+	it("com número não há estado vazio (e valor conhecido nunca vira vazio, nem zero)", () => {
+		const c = totalYieldCard(
+			{
+				cents: 0,
+				estimated: false,
+				returnBps: 0,
+				countedPositions: 1,
+				missingPositions: 0,
+				reason: null,
+			},
+			false,
+		);
+		expect(c.empty).toBeNull();
+		expect(c.value).toBe("+R$ 0,00");
+	});
+
+	it("aplicado: com valor mostra o valor; sem valor, estado vazio próprio", () => {
+		expect(investedCard(1000000, "desde mai/2026", false)).toMatchObject({
+			value: "R$ 10.000,00",
+			empty: null,
+			caption: "desde mai/2026",
+		});
+		const none = investedCard(null, null, false);
+		expect(none.value).toBeNull();
+		expect(none.empty).toMatchObject({ title: "Sem valor aplicado" });
 	});
 
 	it("mês parcial avisa quantas posições entraram", () => {
@@ -277,7 +348,7 @@ describe("posições", () => {
 	it("sem nome usa o código e depois o tipo; sem saldo mostra traço", () => {
 		expect(positionRow(position({ name: null, code: "EXEM3" }), false).title).toBe("EXEM3");
 		expect(positionRow(position({ name: null, code: null }), false).title).toBe("CDB");
-		expect(positionRow(position({ balanceCents: null }), false).value).toBe("—");
+		expect(positionRow(position({ balanceCents: null }), false).value).toBe("sem saldo");
 	});
 
 	it("taxa: do índice, prefixada ou nenhuma", () => {
@@ -346,7 +417,7 @@ describe("movimentações", () => {
 	it("outro tipo sem nome conhecido usa o texto do banco como dado", () => {
 		expect(movementRow(movement({ description: "Crédito de juros" }), false).title).toBe("Crédito de juros");
 		expect(movementRow(movement({}), false).title).toBe("Movimentação");
-		expect(movementRow(movement({ amountCents: null, kind: "contribution" }), false).value).toBe("—");
+		expect(movementRow(movement({ amountCents: null, kind: "contribution" }), false).value).toBe("sem valor");
 	});
 });
 

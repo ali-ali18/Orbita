@@ -7,8 +7,16 @@ import { toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { Card, ErrorState, LineChart, Skeleton, Text } from "../../ui/index.ts";
 import { DetailScreen } from "../summary/DetailScreen.tsx";
-import { barHeights, evolutionChart, type MonthBar, monthBars, RANGE_OPTIONS } from "./investments-model.ts";
-import { evolutionSeries, incompleteDaysLabel, PillTabs } from "./parts.tsx";
+import {
+	barHeights,
+	emptyYield,
+	evolutionChart,
+	type MonthBar,
+	monthBars,
+	NO_BALANCE,
+	RANGE_OPTIONS,
+} from "./investments-model.ts";
+import { EmptyNote, evolutionSeries, incompleteDaysLabel, PillTabs } from "./parts.tsx";
 import { useInvestmentEvolution, useInvestments } from "./queries.ts";
 
 /** Uma barra de aporte e uma de rendimento por mês, na mesma escala; tocar num mês põe os dois valores no cabeçalho. */
@@ -143,15 +151,20 @@ export function EvolutionScreen() {
 								Patrimônio
 							</Text>
 							{chart.balanceRuns.length === 0 ? (
-								<Text variant="body" tone="secondary">
-									{chart.onlyIncomplete
-										? `Dias incompletos: ${incompleteDaysLabel(chart.hiddenDays)}`
-										: (evolution.data.reason ?? "sem histórico ainda")}
-								</Text>
+								chart.onlyIncomplete ? (
+									<Text variant="body" tone="secondary">
+										{`Dias incompletos: ${incompleteDaysLabel(chart.hiddenDays)}`}
+									</Text>
+								) : (
+									<EmptyNote
+										empty={emptyYield(evolution.data.reason ?? "sem histórico ainda")}
+										align="center"
+									/>
+								)
 							) : (
 								<>
 									<Text variant="numberLarge" adjustsFontSizeToFit numberOfLines={1}>
-										{label ?? "—"}
+										{label ?? NO_BALANCE}
 									</Text>
 									<Text variant="caption" tone="secondary">
 										{[chart.lastBalanceLabel, chart.span].filter(Boolean).join(" · ")}

@@ -1,8 +1,8 @@
 import { colors, layout, radius, spacing } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
 import { useAccent } from "../../lib/theme.tsx";
-import { BankLogo, Card, type LineSeries, Text } from "../../ui/index.ts";
-import type { EvolutionChart, PositionRow, YieldCard } from "./investments-model.ts";
+import { BankLogo, Card, Icon, type LineSeries, Text } from "../../ui/index.ts";
+import type { EvolutionChart, PositionRow, YieldCard, YieldEmpty } from "./investments-model.ts";
 
 /** As linhas do gráfico: o aplicado tracejado (quebrado onde há buraco) e o patrimônio com a bolinha no último trecho. */
 export function evolutionSeries(chart: EvolutionChart): LineSeries[] {
@@ -27,20 +27,67 @@ export function incompleteDaysLabel(n: number): string {
 	return n === 1 ? "1 dia sem todas as posições" : `${n} dias sem todas as posições`;
 }
 
-/** Cartão de meia largura: rótulo, valor (ou traço), legenda e, quando vale, o selo "estimado"/"parcial". */
+/**
+ * Estado vazio de um número que não existe: ícone do app num disco discreto e duas linhas curtas (o que acontece e o
+ * que falta), em cor secundária. Nunca traço, nunca zero. `compact` é a versão de uma linha de altura (cartões).
+ */
+export function EmptyNote({ empty, align = "start" }: { empty: YieldEmpty; align?: "start" | "center" }) {
+	return (
+		<View style={{ gap: spacing.sm, alignItems: align === "center" ? "center" : "flex-start" }}>
+			<View
+				style={{
+					width: layout.emptyIconDisc,
+					height: layout.emptyIconDisc,
+					borderRadius: radius.pill,
+					alignItems: "center",
+					justifyContent: "center",
+					backgroundColor: colors.surface2,
+				}}
+			>
+				<Icon name={empty.icon} size={layout.emptyIcon} color={colors.textSecondary} />
+			</View>
+			<View style={{ gap: spacing.xs, alignItems: align === "center" ? "center" : "flex-start" }}>
+				<Text
+					variant="caption"
+					tone="secondary"
+					numberOfLines={3}
+					style={{ textAlign: align === "center" ? "center" : "left" }}
+				>
+					{empty.title}
+				</Text>
+				<Text
+					variant="micro"
+					tone="secondary"
+					numberOfLines={3}
+					style={{ textAlign: align === "center" ? "center" : "left" }}
+				>
+					{empty.hint}
+				</Text>
+			</View>
+		</View>
+	);
+}
+
+/** Cartão de meia largura: rótulo, valor e legenda; sem valor, o estado vazio desenhado; e o selo "estimado"/"parcial". */
 export function YieldTile({ label, y }: { label: string; y: YieldCard }) {
 	return (
 		<Card style={{ flex: 1, padding: spacing.lg }}>
-			<View accessible accessibilityLabel={y.a11y} style={{ gap: spacing.xs }}>
+			<View accessible accessibilityLabel={y.a11y} style={{ gap: spacing.sm, flex: 1 }}>
 				<Text variant="caption" tone="secondary" numberOfLines={1}>
 					{label}
 				</Text>
-				<Text variant="numberMedium" tone={y.tone} numberOfLines={1} adjustsFontSizeToFit>
-					{y.value ?? "—"}
-				</Text>
-				<Text variant="caption" tone="secondary" numberOfLines={2}>
-					{y.caption}
-				</Text>
+				{y.empty ? (
+					<EmptyNote empty={y.empty} />
+				) : (
+					<View style={{ gap: spacing.xs }}>
+						<Text variant="numberMedium" tone={y.tone} numberOfLines={1} adjustsFontSizeToFit>
+							{y.value}
+						</Text>
+						<Text variant="caption" tone="secondary" numberOfLines={2}>
+							{y.caption}
+						</Text>
+					</View>
+				)}
 				{y.note ? (
 					<View
 						style={{
