@@ -269,7 +269,7 @@ Uma análise do histórico do dono que configura o app: acha as assinaturas, sug
 
 ## Tarefas em segundo plano
 
-O worker tem filas por assunto (`manutencao`, `sincronizacao`, `alertas`). Cada processador é uma função pura testável (`cleanPairingCodes({ store, now })`, `cleanIdempotencyKeys`); o arquivo `index.ts` só liga fila → função. Decidir **se** algo deve acontecer (avisar, sincronizar) é código determinístico; a IA só escreve o texto.
+O worker tem filas por assunto (`manutencao`, `sincronizacao`, `alertas`). Cada processador é uma função pura testável (`cleanPairingCodes({ store, now })`, `cleanIdempotencyKeys`); o arquivo `index.ts` só liga fila → função. Decidir **se** algo deve acontecer (avisar, sincronizar) é código determinístico; a IA só escreve o texto. A sincronização do Pluggy tem três jobs na mesma fila e no mesmo processador: o diário, o pedido do app e a **nova tentativa** (`pluggy-de-novo`), que o próprio worker agenda quando uma conexão ainda espera o banco (`planPluggyRetry`, função pura: espera crescente e fim certo; ver `docs/pluggy.md`).
 
 ## Configuração
 
