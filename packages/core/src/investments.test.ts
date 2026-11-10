@@ -657,3 +657,98 @@ describe("revisão: números que não podem sair errados e exatos", () => {
 		expect(b.withoutBalance).toBe(1);
 	});
 });
+
+describe("segunda revisão: nada de número absurdo marcado como confiável", () => {
+	it("resgate parcial com o banco JÁ tendo reduzido o aplicado: saldo − aplicado, estimado (não subtrai o SELL de novo)", () => {
+		const movements = [mv("a", "BUY", "2026-01-10", 1000000), mv("a", "SELL", "2026-06-10", 500000)];
+		// Aplicado reduzido pelo banco (5.200 < 99% de 10.000): +100 sobre a base de 5.200, não +5.100 sobre 200.
+		const reduced = positionYield(pos("a", { balanceCents: 530000, investedCents: 520000 }), movements);
+		expect(reduced).toMatchObject({ cents: 10000, estimated: true, basis: "invested", basisCents: 520000 });
+		expect(reduced.reason).toContain("banco");
+		// Aplicado ≈ soma das compras (±1%): o banco não reduziu, então tira o resgate.
+		const kept = positionYield(pos("a", { balanceCents: 520000, investedCents: 1000000 }), movements);
+		expect(kept).toMatchObject({ cents: 20000, estimated: true, basisCents: 500000 });
+		// Resgate sem nenhuma compra na lista: não dá para saber se o aplicado já foi reduzido.
+		const noBuy = positionYield(pos("a", { balanceCents: 520000, investedCents: 1000000 }), [
+			mv("a", "SELL", "2026-06-10", 500000),
+		]);
+		expect(noBuy).toMatchObject({ cents: null, basis: "unavailable" });
+	});
+
+	it("rede de segurança: base minúscula ou rentabilidade acima de 100% em renda fixa vira null", () => {
+		const movements = [mv("a", "BUY", "2026-01-10", 1000000), mv("a", "SELL", "2026-06-10", 995000)];
+		const tiny = positionYield(pos("a", { balanceCents: 30000, investedCents: 1000000 }), movements);
+		expect(tiny).toMatchObject({ cents: null, basis: "unavailable" });
+		expect(tiny.reason).toContain("com segurança");
+		// Retorno > 100% numa renda fixa: absurdo.
+		const wild = positionYield(pos("a", { balanceCents: 2600000, investedCents: 1000000 }), [
+			mv("a", "BUY", "2026-01-10", 1000000),
+			mv("a", "SELL", "2026-06-10", 100000),
+		]);
+		expect(wild.cents).toBeNull();
+	});
+
+	it("posição que só sumiu da lista (status ainda ativo, saldo velho): sem realizado inventado", () => {
+		const vanished = pos("v", {
+			archived: true,
+			status: "ACTIVE",
+			balanceCents: 1020000,
+			movementsComplete: true,
+		});
+		const y = positionYield(vanished, [
+			mv("v", "BUY", "2026-01-10", 1000000),
+			mv("v", "SELL", "2026-09-30", 1020000),
+		]);
+		expect(y).toMatchObject({ cents: null, basis: "unavailable" });
+		expect(y.reason).toContain("sumiu");
+		// Encerrada de verdade usa saldo ZERO, mesmo que o último saldo gravado fosse outro.
+		const closed = pos("z", {
+			archived: true,
+			status: "TOTAL_WITHDRAWAL",
+			balanceCents: 777,
+			movementsComplete: true,
+		});
+		expect(
+			positionYield(closed, [mv("z", "BUY", "2026-01-10", 1000000), mv("z", "SELL", "2026-09-30", 1020000)])
+				.cents,
+		).toBe(20000);
+	});
+
+	it("posição de conexão removida: motivo próprio", () => {
+		const y = positionYield(pos("r", { archived: true, connectionRemoved: true, balanceCents: 5 }), []);
+		expect(y.reason).toContain("conexão removida");
+	});
+
+	it("mês: aberta e fechada no mesmo mês sem SELL fica de fora (não conta −compra)", () => {
+		const r = monthYield({
+			positions: [
+				pos("x", { status: "TOTAL_WITHDRAWAL", archived: true, balanceCents: 0, purchaseDate: "2026-11-03" }),
+			],
+			movements: [mv("x", "BUY", "2026-11-03", 100000)],
+			snapshots: [snap("x", "2026-11-12", 0)],
+			month: "2026-11",
+			today: TODAY,
+		});
+		expect(r).toMatchObject({ cents: null, countedPositions: 0, missingPositions: 1 });
+		expect(r.reason).toContain("resgate");
+	});
+
+	it("evolução: posição arquivada não é contada como faltando depois de arquivada", () => {
+		const series = investmentEvolution({
+			positions: [pos("a"), pos("sumiu", { archived: true, status: "ACTIVE", archivedDay: "2026-11-05" })],
+			movements: [],
+			snapshots: [
+				snap("a", "2026-11-01", 1000),
+				snap("sumiu", "2026-11-01", 500),
+				snap("a", "2026-11-12", 1100),
+				snap("a", "2026-11-14", 1200),
+			],
+			from: "2026-11-01",
+			to: TODAY,
+		});
+		// 12/11: a "sumiu" tem retrato de 11 dias (velho) mas foi arquivada em 05/11: não é "faltando".
+		expect(series[1]).toMatchObject({ day: "2026-11-12", balanceCents: 1100, missingPositions: 0 });
+		// Antes de arquivar (04/11 hipotético) ela contaria; aqui só conferimos que a ativa segue sem faltar.
+		expect(series[2]?.missingPositions).toBe(0);
+	});
+});

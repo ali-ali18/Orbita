@@ -35,6 +35,10 @@ export interface InvestmentPositionInput {
 	 * faltando). Só com isso o ganho realizado de uma posição encerrada é estimado.
 	 */
 	movementsComplete?: boolean;
+	/** O dia (America/Sao_Paulo) em que foi arquivada; a evolução não conta como "faltando" depois dele. */
+	archivedDay?: LocalDate | null;
+	/** A conexão que a trouxe foi removida: ninguém mais atualiza a posição. */
+	connectionRemoved?: boolean;
 	/** Chave e rótulo da instituição (a conexão), para agrupar. */
 	institutionKey: string;
 	institutionLabel: string;
@@ -225,6 +229,10 @@ export const YIELD_REASONS = {
 	redemptionOverInvested: "resgates maiores que o valor aplicado; sem como estimar",
 	closedRealized: "posição encerrada; ganho realizado estimado pelas movimentações",
 	closedUnknown: "posição encerrada: sem as movimentações completas para calcular o ganho",
+	vanished: "a posição sumiu da lista do banco: sem saldo atual para calcular",
+	connectionRemoved: "conexão removida: sem dados atuais para calcular",
+	bankReduced: "o banco já reduziu o valor aplicado depois do resgate; valor aproximado",
+	notSafe: "não deu para calcular com segurança",
 } as const;
 
 const unavailable = (reason: string): PositionYield => ({
@@ -249,12 +257,16 @@ function yieldOf(p: InvestmentPositionInput, flows: readonly Flow[]): PositionYi
 			hasSell = true;
 		}
 	}
-	// Encerrada: `saldo − aplicado` seria "−aplicado" (o saldo é zero). O que existe é o ganho REALIZADO, e só as
-	// movimentações completas o dão (estimado: o histórico pode ter começado depois da compra).
+	// Não ativa. `saldo − aplicado` seria "−aplicado" (o saldo é zero), então o que existe é o ganho REALIZADO, e só
+	// para posição ENCERRADA de verdade (`TOTAL_WITHDRAWAL`, saldo zero), com as movimentações completas. Estimado: se o
+	// histórico começou depois da compra, o realizado sai superestimado. Posição que só SUMIU da lista tem saldo
+	// desconhecido (o último gravado é velho): sem número.
 	if (!isActiveInvestment(p)) {
+		if (p.connectionRemoved === true) return unavailable(YIELD_REASONS.connectionRemoved);
+		if (norm(p.status) !== INVESTMENT_CLOSED_STATUS) return unavailable(YIELD_REASONS.vanished);
 		if (p.movementsComplete === true && hasBuy && hasSell) {
 			return {
-				cents: (p.balanceCents ?? 0) + sold - bought,
+				cents: sold - bought,
 				estimated: true,
 				basis: "movements",
 				basisCents: bought,
@@ -275,16 +287,33 @@ function yieldOf(p: InvestmentPositionInput, flows: readonly Flow[]): PositionYi
 				reason: null,
 			};
 		}
-		// Resgate parcial: o saldo já não carrega o que saiu, então `saldo − aplicado` seria perda falsa. Tira do
-		// aplicado o que foi resgatado (aproximação: o banco pode já ter reduzido o `amountOriginal`).
-		if (sold >= p.investedCents) return unavailable(YIELD_REASONS.redemptionOverInvested);
-		return {
-			cents: p.balanceCents - (p.investedCents - sold),
-			estimated: true,
-			basis: "invested",
-			basisCents: p.investedCents - sold,
-			reason: YIELD_REASONS.partialRedemption,
-		};
+		// Resgate parcial: o saldo já não carrega o que saiu, então `saldo − aplicado` seria perda falsa... a não ser que o
+		// banco JÁ tenha reduzido o `amountOriginal` (aí subtrair o resgate de novo seria absurdo). Compara o aplicado
+		// com a soma das compras: bem menor = o banco reduziu; igual (±1%) = não reduziu. Sem compra na lista não dá
+		// para saber qual dos dois vale.
+		if (!hasBuy) return unavailable(YIELD_REASONS.notSafe);
+		const invested = p.investedCents;
+		let base: number;
+		let reason: string;
+		if (invested * 100 < bought * 99) {
+			base = invested;
+			reason = YIELD_REASONS.bankReduced;
+		} else if (invested * 100 <= bought * 101) {
+			if (sold >= invested) return unavailable(YIELD_REASONS.redemptionOverInvested);
+			base = invested - sold;
+			reason = YIELD_REASONS.partialRedemption;
+		} else {
+			return unavailable(YIELD_REASONS.notSafe);
+		}
+		const cents = p.balanceCents - base;
+		// Rede de segurança: base minúscula perto do aplicado, ou mais de 100% de retorno numa renda fixa, é conta errada.
+		if (
+			base * 100 < invested ||
+			(investmentClassOf(p.type, p.subtype) === "fixed_income" && Math.abs(cents) > base)
+		) {
+			return unavailable(YIELD_REASONS.notSafe);
+		}
+		return { cents, estimated: true, basis: "invested", basisCents: base, reason };
 	}
 	if (hasBuy) {
 		const net = bought - sold;
@@ -534,8 +563,8 @@ export function monthYield(input: {
 				if (f.kind === "out") sells++;
 			}
 		}
-		if (end === 0 && start.cents > 0 && sells === 0) {
-			missing++; // o saldo sumiu sem o resgate nas movimentações
+		if (end === 0 && sells === 0 && (start.cents > 0 || net > 0)) {
+			missing++; // o saldo foi a zero (ou a posição abriu e fechou no período) sem o resgate nas movimentações
 			continue;
 		}
 		cents += end - start.cents - net;
@@ -661,6 +690,7 @@ export function investmentEvolution(input: {
 	const known = new Set(positions.filter(isBrlInvestment).map((p) => p.id));
 	const flows = flowsByPosition(movements);
 	const snaps = sortedSnapshots(snapshots.filter((s) => known.has(s.investmentId)));
+	const archivedDayOf = new Map(positions.map((p) => [p.id, p.archivedDay ?? null]));
 	const days = new Set<LocalDate>();
 	for (const list of snaps.values()) for (const s of list) if (s.day >= from && s.day <= to) days.add(s.day);
 	const points: EvolutionPoint[] = [];
@@ -676,7 +706,9 @@ export function investmentEvolution(input: {
 			const exact = list.find((s) => s.day === day);
 			const s = exact ?? snapshotAt(list, day);
 			if (!s) {
-				if (list.some((x) => x.day <= day)) missing++;
+				// Só conta como "faltando" quem ainda estava na lista naquele dia (não arquivada até então).
+				const archivedDay = archivedDayOf.get(id);
+				if (list.some((x) => x.day <= day) && !(archivedDay != null && archivedDay <= day)) missing++;
 				continue;
 			}
 			if (exact) actual++;
