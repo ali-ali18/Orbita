@@ -1,6 +1,7 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, ScrollView, type ScrollViewInstance, View } from "react-native";
+import { useAccent } from "../../lib/theme.tsx";
 import { BankLogo, Icon, Text } from "../../ui/index.ts";
 import { bankBadge } from "../summary/summary-model.ts";
 import { type CardLike, cardLabel, cardSpokenName, type PaymentBadge } from "./card-model.ts";
@@ -87,6 +88,7 @@ export function CardChip({
 	/** Parcelas mostra o nome do banco no lugar dos 4 dígitos. */
 	showName?: boolean;
 }) {
+	const { accent, onAccent } = useAccent();
 	const label = card === null ? "Todos os cartões" : showName ? card.name : cardLabel(card);
 	const filled = card === null && selected;
 	return (
@@ -106,13 +108,13 @@ export function CardChip({
 					paddingRight: 14,
 					paddingVertical: spacing.sm,
 					borderRadius: radius.pill,
-					backgroundColor: filled ? colors.accent : selected ? colors.surface3 : colors.surface,
+					backgroundColor: filled ? accent : selected ? colors.surface3 : colors.surface,
 					borderWidth: showName && !filled ? 1 : 0,
 					borderColor: colors.border,
 				}}
 			>
 				{card === null ? (
-					<Icon name="cartao" size={18} color={selected ? colors.onAccent : colors.text} />
+					<Icon name="cartao" size={18} color={selected ? onAccent : colors.text} />
 				) : (
 					<BankLogo {...bankBadge(card)} size={24} />
 				)}

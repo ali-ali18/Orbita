@@ -46,14 +46,14 @@ export function ConnectedScreen({
 									width: 32,
 									height: 32,
 									borderRadius: radius.pill,
-									backgroundColor: colors.accent,
+									backgroundColor: colors.text,
 									borderWidth: 3,
 									borderColor: colors.background,
 									alignItems: "center",
 									justifyContent: "center",
 								}}
 							>
-								<Icon name="check" size={16} color={colors.onAccent} />
+								<Icon name="check" size={16} color={colors.background} />
 							</View>
 						</View>
 						<Text variant="greeting" style={{ textAlign: "center" }} accessibilityRole="header">

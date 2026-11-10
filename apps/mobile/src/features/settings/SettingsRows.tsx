@@ -1,6 +1,7 @@
 import { colors, layout, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
+import { useAccent } from "../../lib/theme.tsx";
 import { Icon, type IconName, Text } from "../../ui/index.ts";
 
 /**
@@ -131,13 +132,14 @@ export function SettingsRow({
 
 /** Interruptor (46 × 28) só de desenho: o toque é da linha que o contém. */
 export function StaticSwitch({ on }: { on: boolean }) {
+	const { accent, onAccent } = useAccent();
 	return (
 		<View
 			style={{
 				width: spacing.xxxl + spacing.lg,
 				height: spacing.xxl + spacing.xs,
 				borderRadius: radius.pill,
-				backgroundColor: on ? colors.accent : colors.surface3,
+				backgroundColor: on ? accent : colors.surface3,
 				padding: spacing.xs,
 				alignItems: on ? "flex-end" : "flex-start",
 			}}
@@ -147,7 +149,7 @@ export function StaticSwitch({ on }: { on: boolean }) {
 					width: spacing.xl,
 					height: spacing.xl,
 					borderRadius: radius.pill,
-					backgroundColor: on ? colors.onAccent : colors.textSecondary,
+					backgroundColor: on ? onAccent : colors.textSecondary,
 				}}
 			/>
 		</View>

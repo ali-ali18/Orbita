@@ -65,4 +65,6 @@ export const KEYS = {
 	onboarding: "orbita.onboarding",
 	/** "1" quando a pessoa dispensou a lista de primeiros passos do Início. */
 	checklistDismissed: "orbita.checklistDismissed",
+	/** Chave do tema de cor primária (ver `accentThemes`). Preferência deste aparelho; ausente: "atual". */
+	accentTheme: "orbita.accentTheme",
 } as const;

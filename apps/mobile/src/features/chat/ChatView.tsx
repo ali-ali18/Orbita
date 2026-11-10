@@ -5,6 +5,7 @@ import { Pressable, ScrollView, type ScrollViewInstance, TextInput, View } from 
 import { KeyboardEvents } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { percentOf } from "../../lib/format.ts";
+import { useAccent } from "../../lib/theme.tsx";
 import { Button, Icon, IconButton, Screen, Sheet, SheetGroup, SheetRow, Text } from "../../ui/index.ts";
 import { keyboardPadding } from "../../ui/keyboard-model.ts";
 import { AgentAvatar } from "../agents/AgentAvatar.tsx";
@@ -101,6 +102,7 @@ function ProposalCard({
 	onAction: (action: ProposalAction, proposal: ProposalDto) => void;
 	onOpenTransaction?: ((id: string) => void) | undefined;
 }) {
+	const { accent, onAccent } = useAccent();
 	const done = proposal.status === "confirmed";
 	const closed = proposal.status === "canceled" || proposal.status === "undone";
 	const amount = proposalAmount(proposal);
@@ -122,12 +124,12 @@ function ProposalCard({
 						width: 20,
 						height: 20,
 						borderRadius: radius.sm,
-						backgroundColor: done ? colors.accent : colors.surface3,
+						backgroundColor: done ? accent : colors.surface3,
 						alignItems: "center",
 						justifyContent: "center",
 					}}
 				>
-					<Icon name="check" size={12} color={done ? colors.onAccent : colors.textSecondary} />
+					<Icon name="check" size={12} color={done ? onAccent : colors.textSecondary} />
 				</View>
 				<Text variant="caption" tone="secondary" style={{ flex: 1 }}>
 					{proposal.title} · {PROPOSAL_STATUS_LABEL[proposal.status]}

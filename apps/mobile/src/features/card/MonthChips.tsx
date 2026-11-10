@@ -2,6 +2,7 @@ import { colors, radius, spacing } from "@orbita/tokens";
 import { useEffect, useRef } from "react";
 import { Pressable, type ScrollViewInstance, View } from "react-native";
 import { monthName } from "../../lib/format.ts";
+import { useAccent } from "../../lib/theme.tsx";
 import { Text } from "../../ui/index.ts";
 import { BleedRow } from "./parts.tsx";
 
@@ -21,6 +22,7 @@ export function MonthChips({
 	value: string;
 	onChange: (month: string) => void;
 }) {
+	const { accent } = useAccent();
 	const ref = useRef<ScrollViewInstance>(null);
 	const xs = useRef(new Map<string, number>());
 
@@ -58,7 +60,7 @@ export function MonthChips({
 								paddingHorizontal: 14,
 								paddingVertical: spacing.sm,
 								borderRadius: radius.pill,
-								backgroundColor: active ? colors.accent : colors.surface,
+								backgroundColor: active ? accent : colors.surface,
 								borderWidth: active ? 0 : 1,
 								borderColor: colors.border,
 							}}

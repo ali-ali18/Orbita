@@ -1,6 +1,7 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, ScrollView, View } from "react-native";
+import { useAccent } from "../../lib/theme.tsx";
 import { Text } from "../../ui/index.ts";
 import { ACTIVITY_FILTERS, type ActivityFilter } from "./activity-model.ts";
 
@@ -15,6 +16,7 @@ export function FilterChips({
 	/** Botão "Filtros" (gaveta), que abre a fila como no Figma. */
 	leading?: ReactNode;
 }) {
+	const { accent } = useAccent();
 	return (
 		<ScrollView
 			horizontal
@@ -41,9 +43,9 @@ export function FilterChips({
 								paddingHorizontal: 14,
 								paddingVertical: 9,
 								borderRadius: radius.pill,
-								backgroundColor: active ? colors.accent : colors.surface,
+								backgroundColor: active ? accent : colors.surface,
 								borderWidth: 1,
-								borderColor: active ? colors.accent : colors.border,
+								borderColor: active ? accent : colors.border,
 							}}
 						>
 							<Text variant="bodyStrong" tone={active ? "onAccent" : "primary"}>

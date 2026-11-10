@@ -1,5 +1,6 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import { ActivityIndicator, Pressable, type StyleProp, type ViewStyle } from "react-native";
+import { useAccent } from "../lib/theme.tsx";
 import { Icon, type IconName } from "./icons.tsx";
 import { Text } from "./Text.tsx";
 
@@ -27,6 +28,7 @@ export function Button({
 	icon,
 	style,
 }: ButtonProps) {
+	const { accent, onAccent } = useAccent();
 	const primary = variant === "primary";
 	const inactive = disabled || loading;
 	return (
@@ -45,17 +47,17 @@ export function Button({
 					justifyContent: "center",
 					flexDirection: "row",
 					gap: spacing.sm,
-					backgroundColor: primary ? colors.accent : colors.surface2,
+					backgroundColor: primary ? accent : colors.surface2,
 					opacity: inactive && !loading ? 0.4 : pressed ? 0.8 : 1,
 				},
 				style,
 			]}
 		>
 			{loading ? (
-				<ActivityIndicator color={primary ? colors.onAccent : colors.text} />
+				<ActivityIndicator color={primary ? onAccent : colors.text} />
 			) : (
 				<>
-					{icon ? <Icon name={icon} size={18} color={primary ? colors.onAccent : colors.text} /> : null}
+					{icon ? <Icon name={icon} size={18} color={primary ? onAccent : colors.text} /> : null}
 					<Text variant="bodyStrong" tone={primary ? "onAccent" : "primary"}>
 						{label}
 					</Text>

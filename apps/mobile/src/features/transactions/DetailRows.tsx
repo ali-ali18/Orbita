@@ -1,6 +1,7 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
+import { useAccent } from "../../lib/theme.tsx";
 import { Icon, type IconName, Text } from "../../ui/index.ts";
 import { categoryDot } from "./new-transaction-model.ts";
 
@@ -126,6 +127,7 @@ export function OriginLine({
 	caption: string;
 	done: boolean;
 }) {
+	const { accent, onAccent } = useAccent();
 	return (
 		<View
 			accessible
@@ -146,12 +148,12 @@ export function OriginLine({
 					borderRadius: radius.pill,
 					alignItems: "center",
 					justifyContent: "center",
-					backgroundColor: done ? colors.accent : "transparent",
+					backgroundColor: done ? accent : "transparent",
 					borderWidth: done ? 0 : 1.5,
 					borderColor: colors.textTertiary,
 				}}
 			>
-				{done ? <Icon name="check" size={11} color={colors.onAccent} /> : null}
+				{done ? <Icon name="check" size={11} color={onAccent} /> : null}
 			</View>
 		</View>
 	);

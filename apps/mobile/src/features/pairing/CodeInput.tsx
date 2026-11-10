@@ -2,6 +2,7 @@ import { PAIRING_CODE_LENGTH } from "@orbita/shared";
 import { colors, radius, spacing } from "@orbita/tokens";
 import { type ComponentRef, useRef, useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
+import { useAccent } from "../../lib/theme.tsx";
 import { Text } from "../../ui/index.ts";
 import { sanitizeCode } from "./pairing-model.ts";
 
@@ -18,6 +19,7 @@ export function CodeInput({
 	onChange: (code: string) => void;
 	onSubmit: () => void;
 }) {
+	const { accent } = useAccent();
 	const inputRef = useRef<ComponentRef<typeof TextInput>>(null);
 	const [focused, setFocused] = useState(false);
 	const activeIndex = Math.min(value.length, PAIRING_CODE_LENGTH - 1);
@@ -41,7 +43,7 @@ export function CodeInput({
 								borderRadius: radius.inner,
 								backgroundColor: colors.surface,
 								borderWidth: active ? 1.5 : 1,
-								borderColor: active ? colors.accent : colors.border,
+								borderColor: active ? accent : colors.border,
 								alignItems: "center",
 								justifyContent: "center",
 							}}

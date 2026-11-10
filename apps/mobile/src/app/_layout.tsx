@@ -15,6 +15,7 @@ import { ClockProvider } from "../lib/clock.tsx";
 import { PrivacyProvider, usePrivacy } from "../lib/privacy.tsx";
 import { bindFocusToAppState, createAppQueryClient } from "../lib/query-client.ts";
 import { SessionProvider, useSession } from "../lib/session.tsx";
+import { ThemeProvider, useTheme } from "../lib/theme.tsx";
 import { geistFonts } from "../ui/index.ts";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -78,14 +79,19 @@ function Routes() {
 	);
 }
 
-/** Segura a splash até as fontes, a sessão e as preferências (privacidade, bloqueio) estarem prontas: sem pisca-pisca. */
+/** Segura a splash até as fontes, a sessão e as preferências (privacidade, bloqueio, tema) estarem prontas: sem pisca-pisca. */
 function Gate({ children }: { children: ReactElement }) {
 	const [fontsLoaded, fontError] = useFonts(geistFonts);
 	const { state } = useSession();
 	const { loaded: privacyLoaded } = usePrivacy();
 	const { loaded: lockLoaded } = useLock();
+	const { loaded: themeLoaded } = useTheme();
 	const ready =
-		(fontsLoaded || fontError !== null) && state.status !== "loading" && privacyLoaded && lockLoaded;
+		(fontsLoaded || fontError !== null) &&
+		state.status !== "loading" &&
+		privacyLoaded &&
+		lockLoaded &&
+		themeLoaded;
 
 	useEffect(() => {
 		if (ready) SplashScreen.hideAsync().catch(() => {});
@@ -112,25 +118,27 @@ export default function RootLayout() {
 	return (
 		<SafeAreaProvider>
 			<KeyboardProvider statusBarTranslucent navigationBarTranslucent>
-				<QueryClientProvider client={queryClient}>
-					<ClockProvider>
-						<SessionProvider>
-							<QueryErrorBridge target={onError} />
-							<AutoUpdate />
-							<CaptureSync />
-							<LockProvider>
-								<PrivacyProvider>
-									<StatusBar style="light" />
-									<Gate>
-										<LockGate>
-											<Routes />
-										</LockGate>
-									</Gate>
-								</PrivacyProvider>
-							</LockProvider>
-						</SessionProvider>
-					</ClockProvider>
-				</QueryClientProvider>
+				<ThemeProvider>
+					<QueryClientProvider client={queryClient}>
+						<ClockProvider>
+							<SessionProvider>
+								<QueryErrorBridge target={onError} />
+								<AutoUpdate />
+								<CaptureSync />
+								<LockProvider>
+									<PrivacyProvider>
+										<StatusBar style="light" />
+										<Gate>
+											<LockGate>
+												<Routes />
+											</LockGate>
+										</Gate>
+									</PrivacyProvider>
+								</LockProvider>
+							</SessionProvider>
+						</ClockProvider>
+					</QueryClientProvider>
+				</ThemeProvider>
 			</KeyboardProvider>
 		</SafeAreaProvider>
 	);

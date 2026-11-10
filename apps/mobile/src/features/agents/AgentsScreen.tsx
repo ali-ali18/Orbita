@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useClock } from "../../lib/clock.tsx";
 import { toLoadable } from "../../lib/loadable.ts";
+import { useAccent } from "../../lib/theme.tsx";
 import { Button, ErrorState, IconButton, Screen, Skeleton, Text, TOP_FADE } from "../../ui/index.ts";
 import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
 import { isUnreachableQuery } from "../server/server-model.ts";
@@ -15,6 +16,7 @@ type AgentItem = NonNullable<ReturnType<typeof useAgents>["data"]>["agents"][num
 
 /** Uma linha de "Seus agentes" (Figma 39:578): rosto, nome, hora do último aviso, última frase e a bolinha de "novo". */
 function AgentRow({ agent, onPress }: { agent: AgentItem; onPress: () => void }) {
+	const { accent } = useAccent();
 	const { today } = useClock();
 	const when = agent.latestAlert ? whenLabel(agent.latestAlert.createdAt, new Date(), today) : "";
 	const unread = agent.alertsNew > 0;
@@ -59,7 +61,7 @@ function AgentRow({ agent, onPress }: { agent: AgentItem; onPress: () => void })
 					{unread ? (
 						<View
 							accessibilityElementsHidden
-							style={{ width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.accent }}
+							style={{ width: 8, height: 8, borderRadius: radius.pill, backgroundColor: accent }}
 						/>
 					) : null}
 				</View>

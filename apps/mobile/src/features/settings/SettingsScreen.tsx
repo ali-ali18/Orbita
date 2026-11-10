@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { useSession } from "../../lib/session.tsx";
+import { useTheme } from "../../lib/theme.tsx";
 import { Icon, IconButton, LetterAvatar, OrbitaAvatar, Screen, Text, TOP_FADE } from "../../ui/index.ts";
 import { useLock } from "../lock/LockProvider.tsx";
 import { useOnboardingPhase } from "../onboarding/flag.ts";
@@ -15,6 +16,8 @@ import { avatarInitial } from "./profile-model.ts";
 import { REPO_URL } from "./report-model.ts";
 import { SettingsRow, SettingsSection, StaticSwitch } from "./SettingsRows.tsx";
 import { SignOutDialog } from "./SignOutDialog.tsx";
+import { ThemeSheet } from "./ThemeSheet.tsx";
+import { themeLabel } from "./theme-options.ts";
 
 /** "https://financas.seudominio.dev" -> "financas.seudominio.dev" (valor curto da linha). */
 function hostOf(baseUrl: string | null): string | undefined {
@@ -31,6 +34,8 @@ export function SettingsScreen() {
 	const router = useRouter();
 	const { baseUrl } = useSession();
 	const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+	const [themeOpen, setThemeOpen] = useState(false);
+	const theme = useTheme();
 	const lock = useLock();
 	const [lockBusy, setLockBusy] = useState(false);
 	const [lockMessage, setLockMessage] = useState<string | null>(null);
@@ -158,6 +163,16 @@ export function SettingsScreen() {
 					/>
 				</SettingsSection>
 
+				<SettingsSection title="Aparência">
+					<SettingsRow
+						icon="brilho"
+						title="Tema"
+						value={themeLabel(theme.key)}
+						onPress={() => setThemeOpen(true)}
+						last
+					/>
+				</SettingsSection>
+
 				<SettingsSection title="Segurança">
 					{lock.supported ? (
 						<SettingsRow
@@ -242,6 +257,7 @@ export function SettingsScreen() {
 				) : null}
 			</ScrollView>
 
+			<ThemeSheet visible={themeOpen} onClose={() => setThemeOpen(false)} />
 			<SignOutDialog visible={confirmingSignOut} onCancel={() => setConfirmingSignOut(false)} />
 		</Screen>
 	);

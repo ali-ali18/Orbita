@@ -88,7 +88,7 @@ export function LimitsTab({ cards, hidden }: { cards: readonly CardLike[]; hidde
 				const { limit } = line;
 				const card = cardById.get(line.card.id);
 				const share = usagePercent(limit.usedCents, limit.limitCents);
-				const color = card ? cardColor(card) : colors.accent;
+				const color = card ? cardColor(card) : colors.text;
 				return (
 					<View
 						key={line.card.id}

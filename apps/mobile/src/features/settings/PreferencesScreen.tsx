@@ -13,7 +13,7 @@ import { SettingsRow, SettingsSection, StaticSwitch } from "./SettingsRows.tsx";
 
 /**
  * Tela "Preferências" (Figma 44:739). O que tem efeito de verdade fica ativo: a conta padrão do Novo lançamento.
- * Moeda, tema e idioma só têm um valor hoje (BRL, escuro, português) e aparecem como informação. O que depende de
+ * Moeda, modo (escuro) e idioma só têm um valor hoje (BRL, escuro, português) e aparecem como informação. O que depende de
  * funções ainda não construídas (mês que começa em outro dia, semana, avisos) aparece esmaecido com "Em breve".
  * "Esconder valores ao abrir" fica em Configurações → Segurança.
  */
@@ -77,7 +77,7 @@ export function PreferencesScreen() {
 			) : null}
 
 			<SettingsSection title="Aparência">
-				<SettingsRow info title="Tema" value="Escuro" />
+				<SettingsRow info title="Modo" value="Escuro" />
 				<SettingsRow info last title="Idioma" value="Português" />
 			</SettingsSection>
 

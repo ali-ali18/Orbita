@@ -138,7 +138,7 @@ export function BalancesScreen() {
 												width: `${Math.min(100, Math.max(a.sharePercent > 0 ? 3 : 0, a.sharePercent))}%`,
 												height: 6,
 												borderRadius: 3,
-												backgroundColor: colors.accent,
+												backgroundColor: colors.text,
 											}}
 										/>
 									</View>

@@ -1,6 +1,7 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
+import { useAccent } from "../../lib/theme.tsx";
 import { Icon, Text } from "../../ui/index.ts";
 
 /** Opção da gaveta de filtros (Figma: pílula de 34, `surface2`; marcada fica branca). Aceita marca à esquerda (logo, bolinha). */
@@ -15,6 +16,7 @@ export function OptionChip({
 	onPress: () => void;
 	leading?: ReactNode;
 }) {
+	const { accent } = useAccent();
 	return (
 		<Pressable
 			accessibilityRole="checkbox"
@@ -30,7 +32,7 @@ export function OptionChip({
 				gap: spacing.sm,
 				paddingHorizontal: 14,
 				borderRadius: radius.pill,
-				backgroundColor: selected ? colors.accent : colors.surface2,
+				backgroundColor: selected ? accent : colors.surface2,
 				opacity: pressed ? 0.8 : 1,
 			})}
 		>

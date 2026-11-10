@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError } from "../../lib/api.ts";
 import { useClock } from "../../lib/clock.tsx";
 import { errorMessage } from "../../lib/loadable.ts";
+import { useAccent } from "../../lib/theme.tsx";
 import { Button, ErrorState, Icon, IconButton, Screen, Skeleton, Text, TextField } from "../../ui/index.ts";
 import { selectableAccounts } from "../settings/preferences-model.ts";
 import { SettingsRow, SettingsSection } from "../settings/SettingsRows.tsx";
@@ -31,7 +32,7 @@ import { useGoal, useGoals, useSaveGoal } from "./queries.ts";
 
 type OpenSheet = "target" | "deadline" | "account" | null;
 
-/** Opção redonda de 44 (ícone ou cor), com a borda branca de `accent` na escolhida. */
+/** Opção redonda de 44 (ícone ou cor), com a borda na cor primária (`accent`) na escolhida. */
 function Choice({
 	label,
 	selected,
@@ -43,6 +44,7 @@ function Choice({
 	onPress: () => void;
 	children: React.ReactNode;
 }) {
+	const { accent } = useAccent();
 	return (
 		<Pressable
 			accessibilityRole="radio"
@@ -54,7 +56,7 @@ function Choice({
 				height: layout.touchTarget,
 				borderRadius: radius.pill,
 				borderWidth: 2,
-				borderColor: selected ? colors.accent : "transparent",
+				borderColor: selected ? accent : "transparent",
 				backgroundColor: colors.surface2,
 				alignItems: "center",
 				justifyContent: "center",

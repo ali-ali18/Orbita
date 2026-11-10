@@ -26,7 +26,7 @@ export function ConnectionUsageCard({ usage }: { usage: ConnectionUsage }) {
 			<ProgressBar
 				height={6}
 				parts={[
-					{ key: "used", color: colors.accent, weight: used },
+					{ key: "used", color: colors.text, weight: used },
 					{ key: "free", color: colors.surface3, weight: usage.limit - used },
 				]}
 			/>

@@ -1,8 +1,9 @@
 import { colors, radius } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
+import { useAccent } from "../lib/theme.tsx";
 import { Text } from "./Text.tsx";
 
-/** Abas em pílula (Faturas · Parcelas · Limites): a ativa em branco, as outras em `textSecondary`. */
+/** Abas em pílula (Faturas · Parcelas · Limites): a ativa na cor primária do tema, as outras em `textSecondary`. */
 export function Segmented<T extends string>({
 	options,
 	value,
@@ -12,6 +13,7 @@ export function Segmented<T extends string>({
 	value: T;
 	onChange: (next: T) => void;
 }) {
+	const { accent } = useAccent();
 	return (
 		<View
 			accessibilityRole="tablist"
@@ -38,7 +40,7 @@ export function Segmented<T extends string>({
 							alignItems: "center",
 							justifyContent: "center",
 							borderRadius: radius.pill,
-							backgroundColor: active ? colors.accent : "transparent",
+							backgroundColor: active ? accent : "transparent",
 						}}
 					>
 						<Text variant="bodyStrong" tone={active ? "onAccent" : "secondary"} numberOfLines={1}>

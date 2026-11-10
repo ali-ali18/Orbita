@@ -1,5 +1,6 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
+import { useAccent } from "../../lib/theme.tsx";
 import { Text } from "../../ui/index.ts";
 import { categoryDot } from "./new-transaction-model.ts";
 
@@ -20,6 +21,7 @@ function CategoryChip({
 	selected: boolean;
 	onPress: () => void;
 }) {
+	const { accent } = useAccent();
 	return (
 		<Pressable
 			accessibilityRole="button"
@@ -35,7 +37,7 @@ function CategoryChip({
 				paddingRight: spacing.md,
 				paddingVertical: spacing.sm,
 				borderRadius: radius.pill,
-				backgroundColor: selected ? colors.accent : colors.surface,
+				backgroundColor: selected ? accent : colors.surface,
 				borderWidth: selected ? 0 : 1,
 				borderColor: colors.border,
 				opacity: pressed ? 0.8 : 1,

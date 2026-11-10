@@ -6,6 +6,7 @@ import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useClock } from "../../lib/clock.tsx";
 import { toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
+import { useAccent } from "../../lib/theme.tsx";
 import {
 	Button,
 	Chip,
@@ -54,6 +55,7 @@ type Sheet = "schedule" | "model" | "cents" | "days" | null;
  * de coisas que não existem (push, silêncio, horário estranho, comparar rendimento) não aparece.
  */
 export function AgentScreen() {
+	const { accent } = useAccent();
 	const router = useRouter();
 	const { id } = useLocalSearchParams<{ id?: string }>();
 	const agentId = typeof id === "string" ? id : null;
@@ -307,7 +309,7 @@ export function AgentScreen() {
 														width: 8,
 														height: 8,
 														borderRadius: radius.pill,
-														backgroundColor: colors.accent,
+														backgroundColor: accent,
 													}}
 												/>
 											) : null}

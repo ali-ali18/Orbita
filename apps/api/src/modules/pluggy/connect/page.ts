@@ -1,4 +1,4 @@
-import { colors, radius } from "@orbita/tokens";
+import { accentThemes, colors, defaultAccentTheme, radius } from "@orbita/tokens";
 import { secureHeaders } from "hono/secure-headers";
 
 type ContentSecurityPolicyOptions = NonNullable<Parameters<typeof secureHeaders>[0]>["contentSecurityPolicy"];
@@ -40,7 +40,7 @@ export const connectSecureHeaders = secureHeaders({
 });
 
 const CSS = `
-:root{color-scheme:dark;--bg:${colors.background};--surface:${colors.surface};--surface2:${colors.surface2};--text:${colors.text};--muted:${colors.textSecondary};--accent:${colors.accent};--on-accent:${colors.onAccent};--r:${radius.card}px}
+:root{color-scheme:dark;--bg:${colors.background};--surface:${colors.surface};--surface2:${colors.surface2};--text:${colors.text};--muted:${colors.textSecondary};--accent:${accentThemes[defaultAccentTheme].accent};--on-accent:${accentThemes[defaultAccentTheme].onAccent};--r:${radius.card}px}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--text);font:15px/20px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
 main{min-height:100dvh;display:flex;flex-direction:column;justify-content:center;gap:24px;padding:32px 20px;max-width:420px;margin:0 auto}

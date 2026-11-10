@@ -65,7 +65,7 @@ export function InstallmentCard({
 						width: `${Math.min(100, model.percent)}%`,
 						height: 6,
 						borderRadius: 3,
-						backgroundColor: colors.accent,
+						backgroundColor: colors.text,
 					}}
 				/>
 			</View>
