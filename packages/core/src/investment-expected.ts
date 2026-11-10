@@ -278,7 +278,7 @@ export function expectedYield(input: ExpectedYieldInput): ExpectedYieldResult {
 	}
 
 	const { days, holeAfter, holeBefore, missingWeekdays } = usableCdi(cdi, startDate, today);
-	const latestPublished = cdi.reduce<LocalDate>((max, d) => (d.day > max ? d.day : max), firstPublished);
+	const latestPublished = [...cdi.map((d) => d.day)].sort().pop() ?? firstPublished;
 	const first = days[0];
 	// Aplicação de hoje (ou de um fim de semana recente): nada rendeu ainda, e isso é verdade, não falta de dado.
 	if (first === undefined) {
