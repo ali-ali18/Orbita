@@ -37,7 +37,7 @@ O APK carrega duas coisas para receber atualizações de JavaScript do servidor 
 
 Depois de compilar, o passo "Conferir o runtimeVersion dentro do APK" lê `assets/fingerprint` do APK pronto e **não publica** se o valor for diferente do calculado: um APK assim nunca receberia atualização. O valor também vai nas notas do release. Ele **não** muda com `version`, `versionCode`, commit ou código JS (o CI prova isso a cada execução); muda só com o que é nativo.
 
-O app só checa atualização se o servidor pareado for o mesmo host de `ORBITA_PUBLIC_URL` (`apps/mobile/src/lib/updates.ts`). Sem servidor pareado, com outro servidor, em dev ou na web, nada é checado. A atualização baixada entra em uso quando o app volta do segundo plano ou num início a frio (`apps/mobile/src/lib/auto-update.tsx`).
+O app só checa atualização se o servidor pareado for o mesmo host de `ORBITA_PUBLIC_URL` (`apps/mobile/src/lib/updates.ts`). Sem servidor pareado, com outro servidor, em dev ou na web, nada é checado. A atualização baixada entra em uso quando o app volta depois de pelo menos 1 minuto fora ou num início a frio (`apps/mobile/src/lib/auto-update.tsx`).
 
 Para conferir no celular: _Configurações → Servidor e chaves → Atualização do app_ mostra o APK instalado, o JavaScript em uso (do APK ou baixado), o `runtimeVersion`, o que o servidor oferece e a última checagem, com o botão **Procurar atualização agora**. Detalhes em [A atualização não chegou?](servidor.md#a-atualização-não-chegou).
 

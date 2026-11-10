@@ -36,7 +36,7 @@ export function useAppUpdate() {
 	}, [baseUrl, refresh, server.refetch]);
 
 	const applyNow = useCallback(async () => {
-		if (!(await appUpdateChecker.applyPending())) {
+		if (!(await appUpdateChecker.applyPending({ force: true }))) {
 			setMessage("Não deu para reiniciar sozinho. Feche o app e abra de novo para aplicar.");
 		}
 	}, []);

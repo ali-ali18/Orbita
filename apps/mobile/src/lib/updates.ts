@@ -43,6 +43,12 @@ export type UpdateCheckerState = {
 const DEFAULT_MIN_INTERVAL_MS = 15 * 60_000;
 /** Depois de uma falha (servidor reiniciando, sem rede) a próxima tentativa não espera os 15 minutos. */
 const DEFAULT_ERROR_RETRY_MS = 60_000;
+/**
+ * Tempo mínimo fora do app para a volta reiniciar o JavaScript na atualização baixada. Sair para o app do banco
+ * no meio de um lançamento e voltar em segundos não pode custar o rascunho; abaixo disto a atualização continua
+ * pendente até uma volta mais longa ou o próximo início a frio (em que o expo-updates já abre a mais nova).
+ */
+export const MIN_AWAY_TO_APPLY_MS = 60_000;
 
 /** `true` se o servidor pareado é o mesmo host (e porta) do endereço de atualização embutido no APK. */
 export function isSameServer(baseUrl: string, otaUpdateUrl: string | null): boolean {
@@ -67,7 +73,13 @@ function messageOf(e: unknown): string {
  */
 export function createUpdateChecker(
 	port: UpdatesPort,
-	opts: { now?: () => number; minIntervalMs?: number; errorRetryMs?: number; otaUpdateUrl: string | null },
+	opts: {
+		now?: () => number;
+		minIntervalMs?: number;
+		errorRetryMs?: number;
+		minAwayMs?: number;
+		otaUpdateUrl: string | null;
+	},
 ) {
 	const now = opts.now ?? Date.now;
 	const minInterval = opts.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
@@ -77,6 +89,9 @@ export function createUpdateChecker(
 	let last: UpdateCheckRecord | null = null;
 	let pending = false;
 	let applying = false;
+	const minAway = opts.minAwayMs ?? MIN_AWAY_TO_APPLY_MS;
+	/** Quando o app saiu da tela (ms); `null` enquanto está em uso. */
+	let leftAt: number | null = null;
 
 	async function work(baseUrl: string | null, force: boolean): Promise<UpdateRunResult> {
 		if (!port.isEnabled) return "disabled";
@@ -121,12 +136,22 @@ export function createUpdateChecker(
 			return inFlight;
 		},
 
+		/** O app saiu da tela: marca a hora (só a primeira, se o sistema avisar mais de uma vez). */
+		noteBackground(): void {
+			leftAt ??= now();
+		},
+
 		/**
-		 * Se há atualização baixada, reinicia o JavaScript para ela entrar em uso. `true` se pediu o reinício.
-		 * Não lança; se o reinício falhar, a atualização continua pendente e entra no próximo início a frio.
+		 * Chamado quando o app volta à tela (e pelo botão do Diagnóstico, com `force`). Se há atualização baixada
+		 * e o app ficou fora pelo menos `MIN_AWAY_TO_APPLY_MS`, reinicia o JavaScript para ela entrar em uso;
+		 * numa volta curta ela continua pendente. `true` se pediu o reinício. Não lança; se o reinício falhar, a
+		 * atualização continua pendente e entra no próximo início a frio.
 		 */
-		async applyPending(): Promise<boolean> {
+		async applyPending(applyOpts: { force?: boolean } = {}): Promise<boolean> {
+			const away = leftAt === null ? null : now() - leftAt;
+			leftAt = null;
 			if (!pending || applying || !port.isEnabled) return false;
+			if (applyOpts.force !== true && (away === null || away < minAway)) return false;
 			applying = true;
 			try {
 				await port.reload();
