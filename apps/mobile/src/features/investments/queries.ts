@@ -1,7 +1,8 @@
 import type { InvestmentEvolutionRange } from "@orbita/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { call } from "../../lib/api.ts";
 import { useSession } from "../../lib/session.tsx";
+import { isInvestmentsKey, type TermsPutBody } from "./terms-model.ts";
 
 /** Consultas de Investimentos (só leitura). A chave inclui o servidor: trocar de servidor não reaproveita dados. */
 function useScoped() {
@@ -32,5 +33,28 @@ export function useInvestmentDetail(id: string | undefined) {
 		queryKey: [baseUrl, "investment", id],
 		enabled: Boolean(id),
 		queryFn: () => call(() => api.v1.investments[":id"].$get({ param: { id: id ?? "" } })),
+	});
+}
+
+/** Grava o que o dono informou (substitui tudo) e recarrega lista, detalhe e evolução com os números recalculados. */
+export function useSaveTerms(id: string) {
+	const { api, baseUrl } = useSession();
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async (body: TermsPutBody) => {
+			if (!api) throw new Error("Sem sessão");
+			// A rota lê o corpo cru (sem validador tipado): o JSON vai por `init`.
+			return await call(() =>
+				api.v1.investments[":id"].terms.$put(
+					{ param: { id } },
+					{ headers: { "content-type": "application/json" }, init: { body: JSON.stringify(body) } },
+				),
+			);
+		},
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
+				predicate: (q) => baseUrl !== null && isInvestmentsKey(q.queryKey, baseUrl),
+			});
+		},
 	});
 }

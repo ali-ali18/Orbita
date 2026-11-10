@@ -48,6 +48,7 @@ describe("tokens", () => {
 		for (const bg of [colors.background, colors.surface, colors.surface2]) {
 			expect(ratio(colors.positive, bg)).toBeGreaterThanOrEqual(4.5);
 			expect(ratio(colors.danger, bg)).toBeGreaterThanOrEqual(4.5);
+			expect(ratio(colors.warning, bg)).toBeGreaterThanOrEqual(4.5);
 		}
 	});
 

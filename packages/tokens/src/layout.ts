@@ -35,4 +35,6 @@ export const layout = {
 	/** Estado vazio de um número que falta (Investimentos): disco do ícone e o ícone dentro dele. */
 	emptyIconDisc: 32,
 	emptyIcon: 20,
+	/** Ponto de "falta completar" ao lado do nome de uma posição. */
+	statusDot: 8,
 } as const;

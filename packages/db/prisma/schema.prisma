@@ -808,10 +808,39 @@ model Investment {
 
   snapshots    InvestmentSnapshot[]
   transactions InvestmentTransaction[]
+  terms        InvestmentTerms?
 
   @@unique([source, externalId])
   @@index([connectionId])
   @@map("investments")
+}
+
+/// Condições que o DONO informou para uma posição (a Pluggy quase nunca manda taxa nem valor aplicado). Tabela à parte de propósito: o sync regrava `investments` por inteiro a cada rodada e apagaria isto. Taxa em centésimos de ponto percentual (102% do CDI = 10200). Cada campo tem sua origem (BANK, USER, NAME_HINT).
+model InvestmentTerms {
+  investmentId      String    @id @map("investment_id")
+  /// CDI_PERCENT, PREFIXED ou IPCA_PLUS.
+  rateKind          String?   @map("rate_kind")
+  rateBps           Int?      @map("rate_bps")
+  rateSource        String?   @map("rate_source")
+  investedCents     Int?      @map("invested_cents")
+  investedSource    String?   @map("invested_source")
+  startDate         DateTime? @map("start_date") @db.Date
+  startDateSource   String?   @map("start_date_source")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  investment Investment @relation(fields: [investmentId], references: [id], onDelete: Cascade)
+
+  @@map("investment_terms")
+}
+
+/// CDI diário (série SGS 12 do Banco Central, % ao dia). `rateE8` = fração diária x 10^8 (0,055131% a.d. = 55131), inteiro: nunca float. Dia útil = dia com linha aqui.
+model CdiRate {
+  day       DateTime @id @db.Date
+  rateE8    Int      @map("rate_e8")
+  fetchedAt DateTime @map("fetched_at")
+
+  @@map("cdi_rates")
 }
 
 /// Retrato diário da posição (dia em America/Sao_Paulo): é o único histórico de saldo que existe, porque o Pluggy só dá a posição de agora. Só grava com saldo não nulo; refazer no mesmo dia sobrescreve.

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { idSchema, localDateSchema, monthKeySchema, timestampSchema } from "./finance-primitives.ts";
+import { investmentRateKindSchema } from "./investment-terms.ts";
 
 /*
  * Investimentos (leitura). CONTRATO da tela de Investimentos: a API devolve os números prontos (patrimônio,
@@ -58,6 +59,63 @@ export const investmentYieldDto = z.object({
 });
 export type InvestmentYieldDto = z.infer<typeof investmentYieldDto>;
 
+/**
+ * Condições para calcular o rendimento ESPERADO. O que o DONO informou vence (`source: "USER"`, a tela mostra "informado
+ * por você"); onde ele não disse vale o do banco (`source: "BANK"`). O valor do banco vem em `bank`. Campo `null` = não se
+ * sabe (nunca zero). Taxa em CENTÉSIMOS de ponto percentual (102% do CDI = 10200, 13,5% a.a. = 1350, IPCA + 6,2% = 620).
+ */
+export const investmentTermsDto = z.object({
+	rate: z.object({ kind: investmentRateKindSchema, bps: bps, source: z.enum(["BANK", "USER"]) }).nullable(),
+	invested: z.object({ cents: cents, source: z.enum(["BANK", "USER"]) }).nullable(),
+	startDate: z.object({ date: localDateSchema, source: z.enum(["BANK", "USER"]) }).nullable(),
+	/**
+	 * O que o BANCO informa, ao lado do valor efetivo (que é o do dono quando ele informou): a tela mostra "o banco informa
+	 * X". Ausente (servidor antigo) = o app trata como "o banco não informou nada".
+	 */
+	bank: z
+		.object({
+			rate: z.object({ kind: investmentRateKindSchema, bps: bps }).nullable(),
+			invested: cents.nullable(),
+			startDate: localDateSchema.nullable(),
+		})
+		.optional(),
+});
+export type InvestmentTermsDto = z.infer<typeof investmentTermsDto>;
+
+/** O que falta para calcular o esperado: a taxa, o valor aplicado ou a data da aplicação. */
+export const investmentMissingSchema = z.enum(["rate", "invested", "startDate"]);
+export type InvestmentMissing = z.infer<typeof investmentMissingSchema>;
+
+/** SUGESTÃO tirada do nome do produto (origem NAME_HINT): nunca entra no cálculo até o dono confirmar pelo PUT. */
+export const investmentNameHintDto = z.object({
+	kind: investmentRateKindSchema,
+	bps: bps,
+	/** O trecho do nome que originou a sugestão. */
+	matched: z.string(),
+	source: z.literal("NAME_HINT"),
+});
+
+/**
+ * Rendimento esperado (bruto e líquido estimado) desde a data da aplicação. `asOf` = o último dia de CDI usado: o
+ * cálculo vale até ele. `netYieldCents: null` = não dá para estimar o líquido e `reason` diz por quê.
+ * `warnings`: aproximações (um único aporte, série do CDI atrasada ou com falha…) a mostrar junto.
+ */
+export const investmentExpectedDto = z.object({
+	/** Valor aplicado + rendimento bruto esperado. */
+	grossCents: cents,
+	yieldCents: cents,
+	netYieldCents: cents.nullable(),
+	iofCents: cents.nullable(),
+	irCents: cents.nullable(),
+	asOf: localDateSchema,
+	businessDays: z.number().int(),
+	/** Dias de semana sem CDI entre dois dias publicados (feriado ou falha): o rendimento deles não entrou. */
+	missingWeekdays: z.number().int().optional(),
+	reason: z.string().nullable(),
+	warnings: z.array(z.string()),
+});
+export type InvestmentExpectedDto = z.infer<typeof investmentExpectedDto>;
+
 export const investmentPositionDto = z.object({
 	id: idSchema,
 	/** Texto do banco; pode faltar. */
@@ -102,6 +160,27 @@ export const investmentPositionDto = z.object({
 	/** Última vez que a sincronização viu a posição. */
 	syncedAt: timestampSchema,
 	archivedAt: timestampSchema.nullable(),
+	/**
+	 * Só renda fixa ATIVA em reais tem taxa e rendimento esperado (`termsApplicable`). Nas outras, `terms` é tudo `null`,
+	 * `missing` vazio e o resto `null`.
+	 */
+	termsApplicable: z.boolean().optional(),
+	terms: investmentTermsDto.optional(),
+	/** O que falta para calcular o esperado (vazio = dá para calcular, salvo `expectedUnavailable`). */
+	missing: z.array(investmentMissingSchema).optional(),
+	/** Sugestão pelo nome, só quando falta a taxa e o nome traz uma inequívoca. */
+	nameHint: investmentNameHintDto.nullable().optional(),
+	/** `null` quando falta dado (veja `missing`) ou o cálculo não se aplica (veja `expectedUnavailable`). */
+	expected: investmentExpectedDto.nullable().optional(),
+	/** Por que `expected` é `null` mesmo sem `missing`: `ipca_unsupported` ou `cdi_unavailable`. */
+	expectedUnavailable: z
+		.object({ code: z.enum(["ipca_unsupported", "cdi_unavailable"]), message: z.string() })
+		.nullable()
+		.optional(),
+	/** Saldo do banco − esperado BRUTO. `null` sem saldo ou sem esperado. Positivo = o banco informa mais que o esperado. */
+	gapCents: cents.nullable().optional(),
+	/** Saldo do banco − (aplicado + rendimento LÍQUIDO estimado). `null` se não há líquido. */
+	gapNetCents: cents.nullable().optional(),
 });
 export type InvestmentPositionDto = z.infer<typeof investmentPositionDto>;
 
@@ -177,6 +256,8 @@ export const investmentsOverviewResponse = z.object({
 	/** Ativas sem saldo informado (fora da soma) e ativas em outra moeda (fora da soma). */
 	withoutBalance: z.number().int(),
 	foreignCurrency: z.number().int(),
+	/** Posições de renda fixa ativas a que falta taxa, valor aplicado ou data para calcular o esperado. */
+	missingTermsPositions: z.number().int().optional(),
 	/** Resgatadas por inteiro ou sumidas da lista (não aparecem em `positions`). */
 	closedPositions: z.number().int(),
 	yield: z.object({
@@ -271,3 +352,8 @@ export const investmentEvolutionResponse = z.object({
 	reason: z.string().nullable(),
 });
 export type InvestmentEvolutionResponse = z.infer<typeof investmentEvolutionResponse>;
+
+/** `PUT /v1/investments/:id/terms`: devolve a posição já com o esperado recalculado. */
+export const investmentTermsResponse = z.object({ position: investmentPositionDto });
+export type InvestmentTermsResponse = z.infer<typeof investmentTermsResponse>;
+export type InvestmentNameHintDto = z.infer<typeof investmentNameHintDto>;

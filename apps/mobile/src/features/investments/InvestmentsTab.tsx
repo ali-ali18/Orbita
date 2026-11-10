@@ -6,7 +6,7 @@ import { RefreshControl, ScrollView, View } from "react-native";
 import { money } from "../../lib/format.ts";
 import { toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import { Button, Card, CardHeader, ErrorState, Icon, Skeleton, Text } from "../../ui/index.ts";
+import { Button, Card, CardHeader, Chip, ErrorState, Icon, Skeleton, Text } from "../../ui/index.ts";
 import { useChartView } from "./chart-view-store.ts";
 import { GroupsCard } from "./GroupsCard.tsx";
 import {
@@ -19,6 +19,7 @@ import {
 } from "./investments-model.ts";
 import { PositionLine, YieldTile } from "./parts.tsx";
 import { useInvestments } from "./queries.ts";
+import { missingChip } from "./terms-model.ts";
 
 type GroupTab = "classes" | "institutions";
 const GROUP_TABS = [
@@ -117,6 +118,7 @@ export function InvestmentsTab({
 						d.withoutBalance > 0 ? `${d.withoutBalance} sem saldo informado` : null,
 						d.foreignCurrency > 0 ? `${d.foreignCurrency} em outra moeda` : null,
 					].filter(Boolean);
+					const toComplete = missingChip(d.missingTermsPositions);
 					return (
 						<>
 							<View style={{ gap: spacing.xs }}>
@@ -130,6 +132,17 @@ export function InvestmentsTab({
 									<Text variant="caption" tone="secondary">
 										{`Fora da soma: ${notes.join(", ")}`}
 									</Text>
+								) : null}
+								{toComplete ? (
+									<View style={{ flexDirection: "row" }}>
+										<Chip
+											label={toComplete}
+											active
+											onPress={() =>
+												router.push({ pathname: "/investimentos-posicoes", params: { completar: "1" } })
+											}
+										/>
+									</View>
 								) : null}
 							</View>
 							<View style={{ flexDirection: "row", gap: spacing.md }}>

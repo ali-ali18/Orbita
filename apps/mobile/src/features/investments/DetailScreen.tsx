@@ -20,6 +20,7 @@ import {
 } from "./investments-model.ts";
 import { EmptyNote, evolutionSeries, YieldTile } from "./parts.tsx";
 import { useInvestmentDetail } from "./queries.ts";
+import { TermsCard } from "./TermsCard.tsx";
 
 function Line({ label, value, last }: { label: string; value: string; last: boolean }) {
 	return (
@@ -97,6 +98,7 @@ export function InvestmentDetailScreen() {
 					{p.yield.reason}
 				</Text>
 			) : null}
+			<TermsCard position={p} />
 			<Card style={{ gap: spacing.md }}>
 				<Text variant="cardTitle" tone="secondary" accessibilityRole="header">
 					Valor da posição

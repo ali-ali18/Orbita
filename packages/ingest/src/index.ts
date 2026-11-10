@@ -1,3 +1,4 @@
+export * from "./bcb/cdi.ts";
 export {
 	INBOX_MAX_AGE_DAYS,
 	ingestNotification,

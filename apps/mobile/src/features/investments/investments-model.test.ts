@@ -333,6 +333,12 @@ const position = (over: Partial<InvestmentPositionDto> = {}): InvestmentPosition
 });
 
 describe("posições", () => {
+	it("ponto de completar só quando o servidor diz que falta algo", () => {
+		expect(positionRow(position(), false).needsTerms).toBe(false);
+		expect(positionRow(position({ termsApplicable: true, missing: ["rate"] }), false).needsTerms).toBe(true);
+		expect(positionRow(position({ termsApplicable: true, missing: [] }), false).needsTerms).toBe(false);
+	});
+
 	it("linha da lista: título, tipo e taxa, saldo e rendimento", () => {
 		const row = positionRow(position(), false);
 		expect(row).toMatchObject({ title: "CDB Porquinho", subtitle: "CDB · 102% do CDI", value: "R$ 251,07" });
