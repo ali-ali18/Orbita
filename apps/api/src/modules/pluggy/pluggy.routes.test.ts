@@ -97,7 +97,7 @@ describe("conexões", () => {
 			lastSyncAt: null,
 			lastStatus: null,
 			lastError: null,
-			summary: { accounts: 0, cards: 0 },
+			summary: { accounts: 0, cards: 0, investments: { active: 0, closed: 0 } },
 		});
 		expect((await api.get("/v1/pluggy/connections")).body.connections).toHaveLength(1);
 		const removed = await api.delete(`/v1/pluggy/connections/${ITEM}`);
@@ -105,6 +105,45 @@ describe("conexões", () => {
 		expect(removed.body.connection.id).toBe(ITEM);
 		expect((await api.delete(`/v1/pluggy/connections/${ITEM}`)).status).toBe(404);
 		expect((await api.get("/v1/pluggy/connections")).body.connections).toEqual([]);
+	});
+
+	it("a linha da conexão traz quantos investimentos ela tem (ativos e encerrados)", async () => {
+		const stores = createMemoryStores({ now: () => new Date(NOW) });
+		const t = await setupFinance(NOW, () => stores, {
+			pluggySyncQueue: fakeQueue().queue,
+			pluggyFetch: pluggyFetch(),
+		});
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM, label: "Banco Fictício" });
+		await t.api.post("/v1/pluggy/connections", { itemId: OTHER });
+		const base = { source: "pluggy", type: "FIXED_INCOME", subtype: "CDB", currency: "BRL" };
+		await stores.investments.upsertPosition({
+			...base,
+			externalId: "i1",
+			connectionId: ITEM,
+			status: "ACTIVE",
+			balanceCents: 5000,
+		});
+		await stores.investments.upsertPosition({
+			...base,
+			externalId: "i2",
+			connectionId: ITEM,
+			status: "TOTAL_WITHDRAWAL",
+			balanceCents: 0,
+		});
+		const list = (await t.api.get("/v1/pluggy/connections")).body.connections;
+		expect(list.find((c: { id: string }) => c.id === ITEM).summary.investments).toEqual({
+			active: 1,
+			closed: 1,
+		});
+		expect(list.find((c: { id: string }) => c.id === OTHER).summary.investments).toEqual({
+			active: 0,
+			closed: 0,
+		});
+		const status = (await t.api.get("/v1/pluggy/status")).body.connections;
+		expect(status.find((c: { id: string }) => c.id === ITEM).summary.investments).toEqual({
+			active: 1,
+			closed: 1,
+		});
 	});
 
 	it("remover a conexão tira as contas dela do saldo e das contagens e mantém os lançamentos", async () => {

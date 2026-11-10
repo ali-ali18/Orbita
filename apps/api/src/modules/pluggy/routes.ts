@@ -1,4 +1,4 @@
-import type { SecretVault } from "@orbita/db";
+import type { PluggyConnectionRecord, SecretVault, Stores } from "@orbita/db";
 import {
 	createPluggyClient,
 	diagnoseConnection,
@@ -7,8 +7,10 @@ import {
 	removePluggyConnection,
 	safeText,
 } from "@orbita/ingest";
+import { connectionInvestmentCounts } from "@orbita/ledger";
 import {
 	type DiagLink,
+	type PluggyConnectionDto,
 	type PluggyConnectSessionResponse,
 	type PluggyDiagnosticsResponse,
 	type PluggyReimportResponse,
@@ -25,6 +27,20 @@ import type { AppEnv } from "../../http/require-device.ts";
 import { validate } from "../../http/validate.ts";
 import { connectPagePath, createConnectSession } from "./connect/session.ts";
 import { toPluggyConnectionDto } from "./dto.ts";
+
+/** As conexões com as posições de investimento que cada uma trouxe. */
+async function listDtos(stores: Stores): Promise<PluggyConnectionDto[]> {
+	const [connections, counts] = await Promise.all([
+		stores.pluggyConnections.list(),
+		connectionInvestmentCounts(stores),
+	]);
+	return connections.map((c) => toPluggyConnectionDto(c, counts.get(c.id)));
+}
+
+async function oneDto(stores: Stores, c: PluggyConnectionRecord): Promise<PluggyConnectionDto> {
+	return toPluggyConnectionDto(c, (await connectionInvestmentCounts(stores)).get(c.id));
+}
+
 import type { PluggySyncQueue } from "./queue.ts";
 
 export type PluggyRoutesDeps = ModuleDeps & {
@@ -64,9 +80,7 @@ export function routes({
 	const { pluggyConnections } = stores;
 	return new Hono<AppEnv>()
 		.use("/v1/pluggy/*", requireDevice)
-		.get("/v1/pluggy/connections", async (c) =>
-			c.json({ connections: (await pluggyConnections.list()).map(toPluggyConnectionDto) }),
-		)
+		.get("/v1/pluggy/connections", async (c) => c.json({ connections: await listDtos(stores) }))
 		.post("/v1/pluggy/connections", validate("json", pluggyConnectionCreateBody), async (c) => {
 			const { itemId, label } = c.req.valid("json");
 			if (await pluggyConnections.get(itemId)) {
@@ -89,7 +103,7 @@ export function routes({
 			const connection = await pluggyConnections.add(
 				defined({ id: itemId, label: label ?? suggested, byOwner: label != null }),
 			);
-			return c.json({ connection: toPluggyConnectionDto(connection) }, 201);
+			return c.json({ connection: await oneDto(stores, connection) }, 201);
 		})
 		.patch(
 			"/v1/pluggy/connections/:id",
@@ -100,7 +114,7 @@ export function routes({
 				const { id } = c.req.valid("param");
 				const { label } = c.req.valid("json");
 				const connection = orNotFound(await pluggyConnections.rename(id, label), "Conexão");
-				return c.json({ connection: toPluggyConnectionDto(connection) });
+				return c.json({ connection: await oneDto(stores, connection) });
 			},
 		)
 		.delete("/v1/pluggy/connections/:id", validate("param", pluggyConnectionIdParam), async (c) => {
@@ -123,7 +137,7 @@ export function routes({
 			if (archived.accounts + archived.cards === 0 && syncQueue) {
 				await syncQueue.enqueue().catch(() => undefined);
 			}
-			return c.json({ connection: toPluggyConnectionDto(connection) });
+			return c.json({ connection: await oneDto(stores, connection) });
 		})
 		.post("/v1/pluggy/connect-sessions", async (c) => {
 			// Corpo opcional: `{ connectionId }` pede a RECONEXÃO de uma conexão já cadastrada.
@@ -250,7 +264,7 @@ export function routes({
 				keysConfigured: (await readKeys(vault)) !== null,
 				sync: syncQueue ? await syncQueue.state() : "unavailable",
 				lastSyncAt: oldest?.toISOString() ?? null,
-				connections: connections.map(toPluggyConnectionDto),
+				connections: await listDtos(stores),
 			};
 			return c.json(body);
 		});

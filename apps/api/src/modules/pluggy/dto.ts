@@ -1,8 +1,12 @@
 import type { PluggyConnectionRecord } from "@orbita/db";
+import type { ConnectionInvestmentCounts } from "@orbita/ledger";
 import type { PluggyConnectionDto } from "@orbita/shared";
 
 /** Só estado e mensagem sanitizada; nada de chave. */
-export function toPluggyConnectionDto(c: PluggyConnectionRecord): PluggyConnectionDto {
+export function toPluggyConnectionDto(
+	c: PluggyConnectionRecord,
+	investments: ConnectionInvestmentCounts = { active: 0, closed: 0 },
+): PluggyConnectionDto {
 	return {
 		id: c.id,
 		label: c.label,
@@ -10,6 +14,6 @@ export function toPluggyConnectionDto(c: PluggyConnectionRecord): PluggyConnecti
 		lastSyncAt: c.lastSyncAt?.toISOString() ?? null,
 		lastStatus: c.lastStatus,
 		lastError: c.lastError,
-		summary: { accounts: c.accountCount, cards: c.cardCount },
+		summary: { accounts: c.accountCount, cards: c.cardCount, investments },
 	};
 }

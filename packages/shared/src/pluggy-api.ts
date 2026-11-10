@@ -67,7 +67,8 @@ export const PLUGGY_NO_ACCOUNTS_PREFIX = "Conectado, mas o banco ainda não envi
 export const PLUGGY_UNREAD_PRODUCTS_PREFIX = "O banco só enviou produtos que o Órbita ainda não lê.";
 /**
  * `GET /accounts` veio vazio, mas `GET /investments` trouxe posições, e a conexão ainda é nova (o espelho do MeuPluggy
- * pode estar sendo preenchido): `lastStatus` "ok", mesmo estado "produtos que o Órbita não lê", e o servidor tenta de novo.
+ * pode estar sendo preenchido): `lastStatus` "ok" e o servidor tenta de novo. Em conexão antiga a frase segue com "Conta e
+ * cartão aparecem aqui se o banco enviar." Os investimentos são lidos e gravados: não é "produto que o Órbita não lê".
  */
 export const PLUGGY_ONLY_INVESTMENTS_PREFIX = "O banco enviou só investimentos por enquanto.";
 /** Veio conta, mas nenhum lançamento nem fatura, e o item foi atualizado antes da autorização (espelho ainda vazio). */
@@ -128,8 +129,15 @@ export const pluggyConnectionDto = z.object({
 	lastSyncAt: timestampSchema.nullable(),
 	lastStatus: z.enum(PLUGGY_SYNC_STATUSES).nullable(),
 	lastError: z.string().nullable(),
-	/** O que a última sincronização trouxe desta conexão (contas e cartões do Órbita ligados a ela). */
-	summary: z.object({ accounts: z.number().int().min(0), cards: z.number().int().min(0) }),
+	/**
+	 * O que a última sincronização trouxe desta conexão: contas e cartões do Órbita ligados a ela e as posições de
+	 * investimento (`active`: entram no patrimônio; `closed`: encerradas ou sem saldo). Ausente (servidor antigo) = não se sabe.
+	 */
+	summary: z.object({
+		accounts: z.number().int().min(0),
+		cards: z.number().int().min(0),
+		investments: z.object({ active: z.number().int().min(0), closed: z.number().int().min(0) }).optional(),
+	}),
 });
 export type PluggyConnectionDto = z.infer<typeof pluggyConnectionDto>;
 
