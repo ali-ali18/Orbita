@@ -62,6 +62,10 @@ Se o pacote aparecer como privado no GHCR, deixe-o público em _GitHub → Packa
 
 Use o backup agendado do Dokploy para o Postgres (destino S3). Guarde num bucket privado: o backup tem seus dados financeiros.
 
+## Saída para o Banco Central (CDI)
+
+O worker passa a chamar `https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados` (série pública do CDI diário, sem chave) uma vez por dia (08:20, America/Sao_Paulo) e uma vez quando sobe, para o app calcular o rendimento esperado dos investimentos. **Só saída HTTPS (443)**: se o servidor filtra a saída, libere `api.bcb.gov.br`. Não há variável de ambiente nova. Sem acesso, o resto do app funciona; os investimentos só mostram "a série do CDI ainda não cobre o período" e o worker registra a falha no log (`[atualizar-cdi] falhou`). Na primeira subida a série vem de 5 anos para trás (uma chamada).
+
 ## Atualizar o app sem APK
 
 Mudou só o JavaScript do app (telas, textos, regras)? Não precisa instalar APK novo. O servidor Órbita, o mesmo que o app pareou, entrega a atualização; o app baixa em segundo plano e aplica **quando você volta ao app depois de pelo menos 1 minuto fora** (ou no próximo início a frio). Sem EAS e sem terceiros.

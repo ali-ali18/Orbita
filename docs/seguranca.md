@@ -142,6 +142,12 @@ O app abre no navegador uma página do servidor que carrega o Pluggy Connect. As
   - **Repostagem e duplicata:** a notificação do Android repostada (mesma chave `sbn.key`, minuto vizinho até 2) não duplica; duas compras iguais são notificações com chaves diferentes e continuam sendo duas. Compra já trazida pelo Open Finance, ou lançada à mão no mesmo dia com o mesmo estabelecimento e valor, não é lançada de novo.
   - **Riscos aceitos:** (1) o texto de um banco pode citar uma palavra de código e a compra se perde (o Open Finance traz depois); (2) um valor falso dentro de uma notificação com um só valor (ex.: nome de estabelecimento enganoso) vira o nome do lançamento, nunca o valor; (3) duas compras iguais no mesmo dia com uma só do Pluggy: a segunda fica "aguardando o banco" até o banco trazê-la, e uma notificação tardia de compra igual à que o banco já trouxe é suprimida até o banco trazer a segunda.
 
+## Investimentos: taxa informada e CDI
+
+- **Saída nova:** o worker chama `api.bcb.gov.br` (HTTPS, só saída, GET público sem chave) para baixar o CDI diário. **Nenhum dado do usuário vai nessa chamada**: só o intervalo de datas. A API e o app não chamam o Banco Central.
+- **A resposta é dado não confiável:** validada com zod; taxa diária só de 0 a 0,2% (inteiro em escala 10^-8), datas dd/MM/aaaa válidas e dentro do período pedido, linha inválida descartada e contada, resposta limitada a 20 s e 2 MB, erro de rede ou HTTP vira erro genérico (o corpo nunca é repassado ao log nem ao app).
+- **`PUT /v1/investments/:id/terms`** exige o token do aparelho como as outras rotas; só altera posição que existe e não está encerrada (404 e 409); taxa, valor e data têm limites no schema da API **e** nos stores (valor em centavos inteiros até o teto de 32 bits, taxa 0,01% a 1000% do CDI ou 100% a.a., data não futura). O nome do produto (texto do banco) só passa por expressões regulares com repetição limitada para a sugestão de taxa, nunca é interpretado como instrução, e a sugestão não entra no cálculo sem confirmação do dono.
+
 ## Containers
 
 - Imagem roda como usuário `node`, nunca root.
