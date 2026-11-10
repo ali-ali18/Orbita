@@ -25,8 +25,28 @@ Como o Órbita se parece e como manter isso consistente sem engessar. Os valores
 | `textTertiary`  | `#5A5A5A` | Placeholder, chevron, desativado                                                     | Texto que precisa ser lido           |
 | `positive`      | `#34D17A` | **Valor de dinheiro que entra**: receita, estorno e pagamento de fatura; selo "Paga" | Texto corrido, ícone, fundo, gráfico |
 | `danger`        | `#FF6B6B` | Ação destrutiva no menu do widget ("Remover"), sempre com rótulo e ícone             | Valor de dinheiro, fundo             |
-| `accent`        | `#FFFFFF` | Botão principal, chip ativo, switch ligado, ponto de "não lido"                      | Fundo grande                         |
-| `onAccent`      | `#000000` | Texto e ícone sobre `accent`                                                         | —                                    |
+| `accent` (tema) | `#FFFFFF` no tema Atual | Só **ação e seleção**: botão principal, botão +, chip/aba ativos, switch ligado, ponto de "não lido", barra selecionada de série única | Fundo grande, texto, valor de dinheiro, cor de categoria ou série |
+| `onAccent` (tema) | `#000000` no tema Atual | Texto e ícone sobre `accent` | — |
+
+### Cor primária e temas
+
+`accent`/`onAccent` **não são tokens de `colors`**: vêm do tema que o dono escolhe em Configurações → Aparência → Tema (`accentThemes` em `@orbita/tokens`). O app lê só por `useAccent()` (ou `useTheme()`), de `lib/theme.tsx`; usar `colors.accent` ou `accentThemes` fora do provider quebra o teste de guarda (`lib/theme-model.test.ts`). A escolha vale na hora e fica **neste aparelho** (`orbita.accentTheme`, como "Esconder valores ao abrir"); a splash espera a leitura, então não pisca de branco para a cor.
+
+| Chave     | Nome       | `accent`  | `onAccent` | Observação                                                        |
+| --------- | ---------- | --------- | ---------- | ----------------------------------------------------------------- |
+| `atual`   | Atual      | `#FFFFFF` | `#000000`  | Padrão                                                            |
+| `volt`    | Verde volt | `#C2FF19` | `#000000`  |                                                                   |
+| `amarelo` | Amarelo    | `#FFC700` | `#000000`  |                                                                   |
+| `azul`    | Azul       | `#2F5BFF` | `#FFFFFF`  | 3,6:1 sobre `surface`: só elemento gráfico, nunca texto pequeno   |
+| `fucsia`  | Fúcsia     | `#FF2EE6` | `#000000`  |                                                                   |
+| `laranja` | Laranja    | `#FF7A1A` | `#000000`  | Branco sobre ele falha AA                                         |
+| `violeta` | Violeta    | `#7447FF` | `#FFFFFF`  | 3,6:1 sobre `surface`: só elemento gráfico, nunca texto pequeno   |
+
+Teste em `@orbita/tokens`: `onAccent` ≥ 4,5:1 sobre o `accent`; `accent` ≥ 3:1 sobre `background`, `surface` e `surface2`.
+
+**Regra de uso.** A primária é só ação e seleção. Nunca como cor de categoria ou de série de gráfico por categoria, nunca em texto de valor de dinheiro, nunca como cor de texto corrido (use `text`). Barra de progresso, status ("conectado") e o avatar da Órbita são neutros (`text`), não seguem o tema.
+
+**Conflitos conhecidos** (não travam a escolha; só vale saber): laranja parece a marca do Inter e a categoria Delivery; amarelo parece o Mercado Pago; volt parece o verde de valor positivo (`positive`); violeta fica perto da categoria Moradia (`#7C5CFF`) e da marca Nubank. Como a primária só aparece em ação e seleção, e nunca em gráfico, a confusão é de leitura rápida, não de significado.
 
 **Verde só para dinheiro que entra.** `positive` colore o valor (e o selo "Paga") de receita, estorno e pagamento de fatura, junto do rótulo e do sinal (`+` em receita e estorno), então a cor reforça o texto e nunca é a única informação. Saída continua branca (`text`) e transferência entre contas próprias é neutra (`textSecondary`), porque o dinheiro só mudou de lugar. A regra mora numa função só no app, `amountTone(kind)`, usada por Início, Atividades, Detalhe e Fatura. Passa AA (4,5:1) sobre `background`, `surface` e `surface2` (teste em `@orbita/tokens`). Não existe vermelho de "negativo": a saída é o sinal `−`. `danger` (vermelho, AA sobre as três superfícies) existe só para ações destrutivas com rótulo, como "Remover" no menu do widget; estado de aviso ainda não tem token (crie `warning` aqui antes de usar).
 
