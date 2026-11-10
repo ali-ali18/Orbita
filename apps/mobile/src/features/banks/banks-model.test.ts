@@ -1,4 +1,9 @@
-import type { PluggyConnectionDto, PluggyStatusResponse } from "@orbita/shared";
+import {
+	PLUGGY_NO_ACCOUNTS_PREFIX,
+	PLUGGY_UPDATING_PREFIX,
+	type PluggyConnectionDto,
+	type PluggyStatusResponse,
+} from "@orbita/shared";
 import { banks } from "@orbita/tokens";
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../../lib/api.ts";
@@ -8,6 +13,7 @@ import {
 	canSync,
 	connectionCaption,
 	connectionName,
+	connectionStatusDetail,
 	connectionStatusLine,
 	disconnectedConnections,
 	formatAgo,
@@ -47,6 +53,7 @@ const conn = (over: Partial<PluggyConnectionDto> = {}): PluggyConnectionDto => (
 	summary: { accounts: 0, cards: 0 },
 	...over,
 });
+const ONE = { accounts: 1, cards: 0 };
 const status = (over: Partial<PluggyStatusResponse> = {}): PluggyStatusResponse => ({
 	keysConfigured: true,
 	sync: "idle",
@@ -73,7 +80,7 @@ describe("situação da conexão", () => {
 		expect(connectionStatusLine(conn(), NOW)).toBe("Nunca sincronizou");
 	});
 	it("ok com há X", () => {
-		const c = conn({ lastStatus: "ok", lastSyncAt: "2026-11-07T13:00:00.000Z" });
+		const c = conn({ lastStatus: "ok", lastSyncAt: "2026-11-07T13:00:00.000Z", summary: ONE });
 		expect(connectionStatusLine(c, NOW)).toBe("Sincronizado há 2 h");
 		expect(connectionStatusLine({ ...c, lastSyncAt: "2026-11-07T14:59:59.000Z" }, NOW)).toBe(
 			"Sincronizado agora",
@@ -95,13 +102,56 @@ describe("situação da conexão", () => {
 	it("sem chaves", () => {
 		expect(connectionStatusLine(conn({ lastStatus: "no_keys" }), NOW)).toBe("Sem chaves do Pluggy");
 	});
-	it("nome cai num texto neutro", () => {
-		expect(connectionName(conn({ label: null }))).toBe("Conexão sem nome");
-		expect(connectionName(conn({ label: "  " }))).toBe("Conexão sem nome");
+	it("nome cai num texto neutro, e o nome do conector MeuPluggy não é nome de banco", () => {
+		expect(connectionName(conn({ label: null }))).toBe("Banco novo");
+		expect(connectionName(conn({ label: "  " }))).toBe("Banco novo");
+		expect(connectionName(conn({ label: "MeuPluggy" }))).toBe("Banco novo");
+		expect(connectionName(conn({ label: " meu pluggy " }))).toBe("Banco novo");
+		expect(connectionName(conn({ label: "C6 Bank" }))).toBe("C6 Bank");
+	});
+	it("sem conta nem cartão nunca diz só 'Sincronizado'", () => {
+		// Servidor antigo gravava "ok" mesmo com a lista de contas vazia.
+		const old = conn({ lastStatus: "ok", lastSyncAt: "2026-11-07T14:59:59.000Z" });
+		expect(connectionStatusLine(old, NOW)).toBe("Conectado, mas o banco ainda não enviou contas");
+		expect(connectionCaption(old, NOW)).toBe("Conectado, mas o banco ainda não enviou contas");
+		const waiting = conn({
+			lastStatus: "partial",
+			lastError: `${PLUGGY_NO_ACCOUNTS_PREFIX} O Órbita tenta de novo sozinho.`,
+		});
+		expect(connectionStatusLine(waiting, NOW)).toBe("Conectado, mas o banco ainda não enviou contas");
+		expect(connectionStatusDetail(waiting)).toContain("tenta de novo sozinho");
+		// Quem já tem contas e veio vazio desta vez: a situação comum de "em parte".
+		expect(connectionStatusLine({ ...waiting, summary: ONE }, NOW)).toBe("Sincronizou em parte");
+	});
+	it("item ainda atualizando no Pluggy", () => {
+		const c = conn({ lastStatus: "partial", lastError: `${PLUGGY_UPDATING_PREFIX} O Órbita tenta de novo.` });
+		expect(connectionStatusLine(c, NOW)).toBe("Atualizando no banco…");
+		expect(connectionCaption({ ...c, summary: ONE }, NOW)).toBe("1 conta · Atualizando no banco…");
+		expect(connectionStatusDetail(c)).toContain("ainda está buscando");
+		expect(connectionStatusDetail(conn({ lastStatus: "ok", summary: ONE }))).toBeNull();
 	});
 });
 
 describe("cartão e botão de sincronização", () => {
+	it("conexão nova esperando o banco não apaga a hora das outras", () => {
+		const ok = conn({ id: "a", lastStatus: "ok", lastSyncAt: "2026-11-07T13:00:00.000Z", summary: ONE });
+		const waiting = conn({
+			id: "b",
+			lastStatus: "partial",
+			lastError: `${PLUGGY_NO_ACCOUNTS_PREFIX} O Órbita tenta de novo sozinho.`,
+		});
+		const idle = { sync: "idle" as const, lastSyncAt: null };
+		expect(syncCardText({ ...idle, connections: [ok, waiting] }, NOW).caption).toBe(
+			"Sincronizado há 2 h · 1 conexão esperando o banco",
+		);
+		// Conexão que nunca sincronizou por outro motivo: o aviso de sempre.
+		expect(syncCardText({ ...idle, connections: [ok, conn({ id: "c" })] }, NOW).caption).toBe(
+			"Alguma conexão ainda não sincronizou.",
+		);
+		expect(syncCardText({ ...idle, connections: [waiting] }, NOW).caption).toBe(
+			"Alguma conexão ainda não sincronizou.",
+		);
+	});
 	it("textos por estado", () => {
 		expect(syncCardText({ sync: "running", lastSyncAt: null }, NOW).title).toBe("Sincronizando…");
 		expect(syncCardText({ sync: "queued", lastSyncAt: null }, NOW).title).toBe("Na fila");

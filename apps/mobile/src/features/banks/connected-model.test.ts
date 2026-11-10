@@ -31,19 +31,26 @@ describe("newConnection", () => {
 
 describe("isReadyToCelebrate", () => {
 	it("só com a sincronização parada e dado trazido", () => {
-		expect(isReadyToCelebrate({ lastStatus: "ok" }, "idle")).toBe(true);
-		expect(isReadyToCelebrate({ lastStatus: "partial" }, "idle")).toBe(true);
-		expect(isReadyToCelebrate({ lastStatus: "ok" }, "running")).toBe(false);
-		expect(isReadyToCelebrate({ lastStatus: "ok" }, "queued")).toBe(false);
-		expect(isReadyToCelebrate({ lastStatus: "error" }, "idle")).toBe(false);
-		expect(isReadyToCelebrate({ lastStatus: null }, "idle")).toBe(false);
+		const summary = { accounts: 1, cards: 0 };
+		expect(isReadyToCelebrate({ lastStatus: "ok", summary }, "idle")).toBe(true);
+		expect(isReadyToCelebrate({ lastStatus: "partial", summary }, "idle")).toBe(true);
+		expect(isReadyToCelebrate({ lastStatus: "ok", summary }, "running")).toBe(false);
+		expect(isReadyToCelebrate({ lastStatus: "ok", summary }, "queued")).toBe(false);
+		expect(isReadyToCelebrate({ lastStatus: "error", summary }, "idle")).toBe(false);
+		expect(isReadyToCelebrate({ lastStatus: null, summary }, "idle")).toBe(false);
+	});
+	it("conexão que o banco ainda não preencheu não é comemorada", () => {
+		const summary = { accounts: 0, cards: 0 };
+		expect(isReadyToCelebrate({ lastStatus: "ok", summary }, "idle")).toBe(false);
+		expect(isReadyToCelebrate({ lastStatus: "partial", summary }, "idle")).toBe(false);
+		expect(isReadyToCelebrate({ lastStatus: "ok", summary: { accounts: 0, cards: 1 } }, "idle")).toBe(true);
 	});
 });
 
 describe("connectedTitle", () => {
 	it("usa o nome da conexão", () => {
 		expect(connectedTitle({ label: "Santander" })).toBe("Santander conectado");
-		expect(connectedTitle({ label: null })).toBe("Conexão sem nome conectado");
+		expect(connectedTitle({ label: null })).toBe("Banco novo conectado");
 	});
 });
 

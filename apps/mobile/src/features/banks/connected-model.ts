@@ -17,12 +17,20 @@ export function newConnection(
 	return connections.find((c) => !known.has(c.id)) ?? null;
 }
 
-/** Hora de mostrar os números: nada em andamento e a conexão trouxe dado (ok ou parcial). */
+/**
+ * Hora de mostrar os números: nada em andamento e a conexão trouxe dado (ok ou parcial) com ao menos uma conta ou
+ * cartão. Conexão que o banco ainda não preencheu não é "conectado, trouxe os últimos dias": fica na lista, com a
+ * situação dela na legenda.
+ */
 export function isReadyToCelebrate(
-	connection: Pick<PluggyConnectionDto, "lastStatus">,
+	connection: Pick<PluggyConnectionDto, "lastStatus" | "summary">,
 	sync: PluggyStatusResponse["sync"],
 ): boolean {
-	return sync === "idle" && (connection.lastStatus === "ok" || connection.lastStatus === "partial");
+	return (
+		sync === "idle" &&
+		(connection.lastStatus === "ok" || connection.lastStatus === "partial") &&
+		connection.summary.accounts + connection.summary.cards > 0
+	);
 }
 
 export function connectedTitle(connection: Pick<PluggyConnectionDto, "label">): string {

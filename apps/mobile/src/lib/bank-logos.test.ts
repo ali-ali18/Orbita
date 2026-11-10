@@ -42,6 +42,8 @@ describe("bankLogoKey", () => {
 		["Caixa Econômica Federal", "00360305"],
 		["Caixa", "00360305"],
 		["C6 Bank", "31872495"],
+		["Itaú", "60701190"],
+		["BTG", "30306294"],
 		["BTG Pactual", "30306294"],
 		["PicPay", "22896431"],
 	])("%s → %s", (n, key) => {
