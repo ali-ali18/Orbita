@@ -15,7 +15,7 @@ import {
 	sinceLabel,
 	snapshotsChart,
 } from "./investments-model.ts";
-import { YieldTile } from "./parts.tsx";
+import { evolutionSeries, YieldTile } from "./parts.tsx";
 import { useInvestmentDetail } from "./queries.ts";
 
 function Line({ label, value, last }: { label: string; value: string; last: boolean }) {
@@ -108,21 +108,13 @@ export function InvestmentDetailScreen() {
 				<Text variant="cardTitle" tone="secondary" accessibilityRole="header">
 					Valor da posição
 				</Text>
-				{chart.segments.length > 0 && snapshots.length > 1 ? (
+				{chart.balanceRuns.length > 0 && snapshots.length > 1 ? (
 					<LineChart
-						height={140}
+						height={layout.lineChartSmall}
 						xMax={chart.xMax}
 						yMax={chart.yMax}
 						label={`Valor da posição ${chart.span ?? ""}`}
-						series={chart.segments.flatMap((s, i) => [
-							{ key: `invested-${i}`, points: s.invested, color: colors.textTertiary, dashed: true },
-							{
-								key: `balance-${i}`,
-								points: s.balance,
-								color: colors.text,
-								endDot: i === chart.segments.length - 1,
-							},
-						])}
+						series={evolutionSeries(chart)}
 					/>
 				) : (
 					<Text variant="body" tone="secondary">
@@ -151,7 +143,12 @@ export function InvestmentDetailScreen() {
 							key={r.id}
 							accessible
 							accessibilityLabel={`${r.title}, ${r.date}, ${r.value}`}
-							style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 56 }}
+							style={{
+								flexDirection: "row",
+								alignItems: "center",
+								gap: spacing.md,
+								minHeight: layout.movementRow,
+							}}
 						>
 							<View style={{ flex: 1 }}>
 								<Text variant="bodyStrong" numberOfLines={1}>

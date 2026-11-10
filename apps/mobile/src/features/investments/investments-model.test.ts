@@ -298,6 +298,16 @@ describe("posições", () => {
 		).toEqual([]);
 	});
 
+	it("com o olho fechado, quantidade e valor da cota somem (dariam o saldo)", () => {
+		const p = position({ quantity: "100", unitValue: "31.45" });
+		const shown = detailLines(p, false).map((l) => l.label);
+		expect(shown).toContain("Quantidade");
+		expect(shown).toContain("Valor da cota");
+		const hiddenLabels = detailLines(p, true).map((l) => l.label);
+		expect(hiddenLabels).not.toContain("Quantidade");
+		expect(hiddenLabels).not.toContain("Valor da cota");
+	});
+
 	it("desde mês/ano pela compra ou emissão", () => {
 		expect(sinceLabel(position())).toBe("desde mar/2025");
 		expect(sinceLabel(position({ purchaseDate: null, issueDate: "2024-12-01" }))).toBe("desde dez/2024");
@@ -368,7 +378,8 @@ const evolution = (points: InvestmentEvolutionPointDto[]): InvestmentEvolutionRe
 describe("evolução", () => {
 	it("sem pontos não desenha nada", () => {
 		const c = evolutionChart(evolution([]));
-		expect(c.segments).toEqual([]);
+		expect(c.balanceRuns).toEqual([]);
+		expect(c.onlyIncomplete).toBe(false);
 		expect(c.lastBalanceCents).toBeNull();
 		expect(c.span).toBeNull();
 	});
@@ -377,12 +388,12 @@ describe("evolução", () => {
 		const c = evolutionChart(
 			evolution([point("2026-10-01", 1000), point("2026-10-11", 1100), point("2026-11-10", 1300)]),
 		);
-		expect(c.segments).toHaveLength(1);
-		expect(c.segments[0]?.balance.map((p) => p.x)).toEqual([0, 10, 40]);
+		expect(c.balanceRuns).toHaveLength(1);
+		expect(c.balanceRuns[0]?.map((p) => p.x)).toEqual([0, 10, 40]);
 		expect(c.xMax).toBe(40);
 		// Chão abaixo do menor valor (900 aplicado, menos 25% da amplitude): a linha não parte do zero.
 		expect(c.yMax).toBe(1300 - 800);
-		expect(c.segments[0]?.balance.map((p) => p.y)).toEqual([200, 300, 500]);
+		expect(c.balanceRuns[0]?.map((p) => p.y)).toEqual([200, 300, 500]);
 		expect(c.ticks.map((t) => t.label)).toEqual(["out", "nov"]);
 		expect(c.lastBalanceCents).toBe(1300);
 		expect(c.span).toBe("de 1 de out a 10 de nov");
@@ -396,18 +407,65 @@ describe("evolução", () => {
 				point("2026-11-03", 1050),
 			]),
 		);
-		expect(c.segments).toHaveLength(2);
+		expect(c.balanceRuns).toHaveLength(2);
 		expect(c.hiddenDays).toBe(1);
 		// O dia incompleto (400) não puxa o chão para baixo.
-		expect(c.segments[0]?.balance[0]?.y).toBe(c.yMax - 50);
+		expect(c.balanceRuns[0]?.[0]?.y).toBe(c.yMax - 50);
 	});
 
 	it("aplicado incompleto não entra na linha tracejada", () => {
 		const c = evolutionChart(
 			evolution([point("2026-11-01", 1000, { investedComplete: false }), point("2026-11-02", 1010)]),
 		);
-		expect(c.segments[0]?.balance).toHaveLength(2);
-		expect(c.segments[0]?.invested).toHaveLength(1);
+		expect(c.balanceRuns[0]).toHaveLength(2);
+		expect(c.investedRuns).toHaveLength(1);
+		expect(c.investedRuns[0]).toHaveLength(1);
+	});
+
+	it("buraco no aplicado quebra a linha tracejada em vez de ligar por cima", () => {
+		const c = evolutionChart(
+			evolution([
+				point("2026-11-01", 1000),
+				point("2026-11-02", 1010, { investedComplete: false }),
+				point("2026-11-03", 1020),
+			]),
+		);
+		expect(c.balanceRuns).toHaveLength(1);
+		expect(c.investedRuns).toHaveLength(2);
+	});
+
+	it("aplicado estimado é sinalizado para a legenda", () => {
+		expect(evolutionChart(evolution([point("2026-11-01", 1000)])).investedEstimated).toBe(false);
+		expect(
+			evolutionChart(evolution([point("2026-11-01", 1000, { investedEstimated: true })])).investedEstimated,
+		).toBe(true);
+	});
+
+	it("todos os dias incompletos: há pontos mas nenhum trecho, e não é 'sem histórico'", () => {
+		const c = evolutionChart(
+			evolution([
+				point("2026-11-01", 400, { missingPositions: 1 }),
+				point("2026-11-02", 410, { missingPositions: 2 }),
+			]),
+		);
+		expect(c.balanceRuns).toEqual([]);
+		expect(c.onlyIncomplete).toBe(true);
+		expect(c.hiddenDays).toBe(2);
+		expect(c.lastBalanceCents).toBeNull();
+		expect(c.lastBalanceLabel).toBeNull();
+	});
+
+	it("o número grande leva a data do último dia completo, não a do último ponto", () => {
+		const c = evolutionChart(
+			evolution([
+				point("2026-11-07", 1000),
+				point("2026-11-08", 1100),
+				point("2026-11-10", 300, { missingPositions: 1 }),
+			]),
+		);
+		expect(c.lastBalanceCents).toBe(1100);
+		expect(c.lastBalanceLabel).toBe("em 8 de nov");
+		expect(c.span).toBe("de 7 de nov a 10 de nov");
 	});
 });
 
@@ -465,8 +523,17 @@ describe("retratos de uma posição", () => {
 			{ day: "2026-11-01", balanceCents: 1000, investedCents: 900 },
 			{ day: "2026-11-03", balanceCents: 1020, investedCents: null },
 		]);
-		expect(c.segments[0]?.balance.map((p) => p.x)).toEqual([0, 2]);
-		expect(c.segments[0]?.invested).toHaveLength(1);
-		expect(snapshotsChart([]).segments).toEqual([]);
+		expect(c.balanceRuns[0]?.map((p) => p.x)).toEqual([0, 2]);
+		expect(c.investedRuns).toHaveLength(1);
+		expect(snapshotsChart([]).balanceRuns).toEqual([]);
+	});
+
+	it("retrato sem aplicado no meio quebra o tracejado", () => {
+		const c = snapshotsChart([
+			{ day: "2026-11-01", balanceCents: 1000, investedCents: 900 },
+			{ day: "2026-11-02", balanceCents: 1010, investedCents: null },
+			{ day: "2026-11-03", balanceCents: 1020, investedCents: 900 },
+		]);
+		expect(c.investedRuns).toHaveLength(2);
 	});
 });

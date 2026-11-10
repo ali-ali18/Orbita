@@ -1,8 +1,31 @@
-import { colors, radius, spacing } from "@orbita/tokens";
+import { colors, layout, radius, spacing } from "@orbita/tokens";
 import { Pressable, View } from "react-native";
 import { useAccent } from "../../lib/theme.tsx";
-import { BankLogo, Card, Text } from "../../ui/index.ts";
-import type { PositionRow, YieldCard } from "./investments-model.ts";
+import { BankLogo, Card, type LineSeries, Text } from "../../ui/index.ts";
+import type { EvolutionChart, PositionRow, YieldCard } from "./investments-model.ts";
+
+/** As linhas do gráfico: o aplicado tracejado (quebrado onde há buraco) e o patrimônio com a bolinha no último trecho. */
+export function evolutionSeries(chart: EvolutionChart): LineSeries[] {
+	return [
+		...chart.investedRuns.map((points, i) => ({
+			key: `invested-${i}`,
+			points,
+			color: colors.textTertiary,
+			dashed: true,
+		})),
+		...chart.balanceRuns.map((points, i) => ({
+			key: `balance-${i}`,
+			points,
+			color: colors.text,
+			endDot: i === chart.balanceRuns.length - 1,
+		})),
+	];
+}
+
+/** "1 dia incompleto" / "N dias incompletos". */
+export function incompleteDaysLabel(n: number): string {
+	return n === 1 ? "1 dia sem todas as posições" : `${n} dias sem todas as posições`;
+}
 
 /** Cartão de meia largura: rótulo, valor (ou traço), legenda e, quando vale, o selo "estimado"/"parcial". */
 export function YieldTile({ label, y }: { label: string; y: YieldCard }) {
@@ -60,7 +83,7 @@ export function PillTabs<T extends string>({
 						accessibilityState={{ selected: active }}
 						onPress={() => onChange(o.id)}
 						style={{
-							minHeight: 44,
+							minHeight: layout.touchTarget,
 							paddingHorizontal: spacing.lg,
 							justifyContent: "center",
 							borderRadius: radius.pill,
@@ -89,11 +112,11 @@ export function PositionLine({ row, onPress }: { row: PositionRow; onPress: () =
 				flexDirection: "row",
 				alignItems: "center",
 				gap: spacing.md,
-				minHeight: 64,
+				minHeight: layout.positionRow,
 				opacity: pressed ? 0.8 : 1,
 			})}
 		>
-			<BankLogo {...row.badge} size={44} />
+			<BankLogo {...row.badge} size={layout.touchTarget} />
 			<View style={{ flex: 1 }}>
 				<Text variant="bodyStrong" numberOfLines={1}>
 					{row.title}

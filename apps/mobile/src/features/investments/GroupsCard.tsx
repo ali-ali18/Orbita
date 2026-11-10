@@ -1,13 +1,9 @@
-import { colors, radius, spacing } from "@orbita/tokens";
+import { colors, layout, radius, spacing } from "@orbita/tokens";
 import { View } from "react-native";
 import { BankLogo, Card, DonutChart, Text } from "../../ui/index.ts";
 import { ChartMenu, useChartMenu } from "./ChartMenu.tsx";
 import { CHART_VIEW_LABELS, type ChartView } from "./chart-view.ts";
 import { barHeights, type GroupRow, groupsA11y } from "./investments-model.ts";
-
-const BAR_AREA = 150;
-const BAR_MIN = 14;
-const BAR_WIDTH = 44;
 
 /** Cor da série só no desenho (barra, arco, ponto): o texto nunca usa a cor da série. */
 function Dot({ color }: { color: string }) {
@@ -22,17 +18,17 @@ function Dot({ color }: { color: string }) {
 function BarsView({ rows }: { rows: readonly GroupRow[] }) {
 	const heights = barHeights(
 		rows.map((r) => r.weight),
-		BAR_AREA,
-		BAR_MIN,
+		layout.barArea,
+		layout.barMin,
 	);
 	return (
 		<View>
-			<View style={{ flexDirection: "row", height: BAR_AREA, alignItems: "flex-end" }}>
+			<View style={{ flexDirection: "row", height: layout.barArea, alignItems: "flex-end" }}>
 				{rows.map((r, i) => (
 					<View key={r.key} style={{ flex: 1, alignItems: "center" }}>
 						<View
 							style={{
-								width: BAR_WIDTH,
+								width: layout.barWidth,
 								height: heights[i] ?? 0,
 								borderRadius: radius.pill,
 								backgroundColor: r.color,
@@ -85,11 +81,11 @@ function HBarsView({ rows }: { rows: readonly GroupRow[] }) {
 							{r.value}
 						</Text>
 					</View>
-					<View style={{ height: 12, borderRadius: radius.pill, backgroundColor: colors.surface3 }}>
+					<View style={{ height: layout.hbar, borderRadius: radius.pill, backgroundColor: colors.surface3 }}>
 						<View
 							style={{
 								width: `${widths[i] ?? 0}%`,
-								height: 12,
+								height: layout.hbar,
 								borderRadius: radius.pill,
 								backgroundColor: r.color,
 							}}

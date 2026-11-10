@@ -1,5 +1,5 @@
 import { DEFAULT_INVESTMENT_EVOLUTION_RANGE, type InvestmentEvolutionRange } from "@orbita/shared";
-import { colors, radius, spacing } from "@orbita/tokens";
+import { colors, layout, radius, spacing } from "@orbita/tokens";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 import { money } from "../../lib/format.ts";
@@ -8,19 +8,15 @@ import { usePrivacy } from "../../lib/privacy.tsx";
 import { Card, ErrorState, LineChart, Skeleton, Text } from "../../ui/index.ts";
 import { DetailScreen } from "../summary/DetailScreen.tsx";
 import { barHeights, evolutionChart, type MonthBar, monthBars, RANGE_OPTIONS } from "./investments-model.ts";
-import { PillTabs } from "./parts.tsx";
+import { evolutionSeries, incompleteDaysLabel, PillTabs } from "./parts.tsx";
 import { useInvestmentEvolution, useInvestments } from "./queries.ts";
-
-const BAR_AREA = 120;
-const BAR_MIN = 10;
-const BAR_WIDTH = 16;
 
 /** Uma barra de aporte e uma de rendimento por mês, na mesma escala; tocar num mês põe os dois valores no cabeçalho. */
 function MonthlyCard({ bars }: { bars: readonly MonthBar[] }) {
 	const [picked, setPicked] = useState<string | null>(null);
 	const selected = bars.find((b) => b.month === picked) ?? bars.at(-1);
 	const both = bars.flatMap((b) => [b.contributionsCents, b.yieldCents]);
-	const heights = barHeights(both, BAR_AREA, BAR_MIN);
+	const heights = barHeights(both, layout.monthBarArea, layout.monthBarMin);
 	if (!selected) return null;
 	return (
 		<Card style={{ gap: spacing.md }}>
@@ -41,7 +37,7 @@ function MonthlyCard({ bars }: { bars: readonly MonthBar[] }) {
 					<Text variant="caption" tone="secondary">{`Resgate ${selected.withdrawal}`}</Text>
 				) : null}
 			</View>
-			<View style={{ flexDirection: "row", height: BAR_AREA, alignItems: "flex-end" }}>
+			<View style={{ flexDirection: "row", height: layout.monthBarArea, alignItems: "flex-end" }}>
 				{bars.map((b, i) => {
 					const on = b.month === selected.month;
 					return (
@@ -51,12 +47,17 @@ function MonthlyCard({ bars }: { bars: readonly MonthBar[] }) {
 							accessibilityLabel={`${b.label}: aporte ${b.contribution}, ${b.yieldText}`}
 							accessibilityState={{ selected: on }}
 							onPress={() => setPicked(b.month)}
-							style={{ flex: 1, height: BAR_AREA, alignItems: "center", justifyContent: "flex-end" }}
+							style={{
+								flex: 1,
+								height: layout.monthBarArea,
+								alignItems: "center",
+								justifyContent: "flex-end",
+							}}
 						>
 							<View style={{ flexDirection: "row", alignItems: "flex-end", gap: 2 }}>
 								<View
 									style={{
-										width: BAR_WIDTH,
+										width: layout.monthBarWidth,
 										height: heights[i * 2] ?? 0,
 										borderRadius: radius.pill,
 										backgroundColor: on ? colors.text : colors.textTertiary,
@@ -64,7 +65,7 @@ function MonthlyCard({ bars }: { bars: readonly MonthBar[] }) {
 								/>
 								<View
 									style={{
-										width: BAR_WIDTH,
+										width: layout.monthBarWidth,
 										height: heights[i * 2 + 1] ?? 0,
 										borderRadius: radius.pill,
 										backgroundColor: (b.yieldCents ?? 0) < 0 ? colors.danger : colors.positive,
@@ -141,34 +142,26 @@ export function EvolutionScreen() {
 							<Text variant="cardTitle" tone="secondary" accessibilityRole="header">
 								Patrimônio
 							</Text>
-							{chart.segments.length === 0 ? (
+							{chart.balanceRuns.length === 0 ? (
 								<Text variant="body" tone="secondary">
-									{evolution.data.reason ?? "sem histórico ainda"}
+									{chart.onlyIncomplete
+										? `Dias incompletos: ${incompleteDaysLabel(chart.hiddenDays)}`
+										: (evolution.data.reason ?? "sem histórico ainda")}
 								</Text>
 							) : (
 								<>
 									<Text variant="numberLarge" adjustsFontSizeToFit numberOfLines={1}>
 										{label ?? "—"}
 									</Text>
-									{chart.span ? (
-										<Text variant="caption" tone="secondary">
-											{chart.span}
-										</Text>
-									) : null}
+									<Text variant="caption" tone="secondary">
+										{[chart.lastBalanceLabel, chart.span].filter(Boolean).join(" · ")}
+									</Text>
 									<LineChart
-										height={170}
+										height={layout.lineChart}
 										xMax={chart.xMax}
 										yMax={chart.yMax}
-										label={`Evolução do patrimônio ${chart.span ?? ""}${label ? `, hoje ${label}` : ""}`}
-										series={chart.segments.flatMap((s, i) => [
-											{ key: `invested-${i}`, points: s.invested, color: colors.textTertiary, dashed: true },
-											{
-												key: `balance-${i}`,
-												points: s.balance,
-												color: colors.text,
-												endDot: i === chart.segments.length - 1,
-											},
-										])}
+										label={`Evolução do patrimônio ${chart.span ?? ""}${label ? `, ${label} ${chart.lastBalanceLabel ?? ""}` : ""}`}
+										series={evolutionSeries(chart)}
 									/>
 									<View style={{ flexDirection: "row", justifyContent: "space-between" }}>
 										{chart.ticks.map((t) => (
@@ -179,13 +172,15 @@ export function EvolutionScreen() {
 									</View>
 									<View style={{ flexDirection: "row", gap: spacing.lg }}>
 										<Legend color={colors.text} label="Patrimônio" />
-										<Legend color={colors.textTertiary} label="Aplicado" dashed />
+										<Legend
+											color={colors.textTertiary}
+											label={chart.investedEstimated ? "Aplicado (estimado)" : "Aplicado"}
+											dashed
+										/>
 									</View>
 									{chart.hiddenDays > 0 ? (
 										<Text variant="caption" tone="secondary">
-											{chart.hiddenDays === 1
-												? "1 dia incompleto ficou de fora"
-												: `${chart.hiddenDays} dias incompletos ficaram de fora`}
+											{`${incompleteDaysLabel(chart.hiddenDays)} ficaram de fora`}
 										</Text>
 									) : null}
 								</>

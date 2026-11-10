@@ -272,8 +272,10 @@ export function detailLines(p: InvestmentPositionDto, hidden: boolean): DetailLi
 	const lines: DetailLine[] = [];
 	const rate = rateText(p);
 	if (rate) lines.push({ label: "Taxa", value: rate });
-	if (p.quantity) lines.push({ label: "Quantidade", value: decimalLabel(p.quantity) });
-	if (p.unitValue) lines.push({ label: "Valor da cota", value: `R$ ${decimalLabel(p.unitValue)}` });
+	// Quantidade e valor da cota dão o saldo: com o olho fechado não aparecem.
+	if (p.quantity && !hidden) lines.push({ label: "Quantidade", value: decimalLabel(p.quantity) });
+	if (p.unitValue && !hidden)
+		lines.push({ label: "Valor da cota", value: `R$ ${decimalLabel(p.unitValue)}` });
 	if (p.dueDate) lines.push({ label: "Vence em", value: fullDate(p.dueDate) });
 	if (p.withdrawableCents !== null)
 		lines.push({
@@ -353,59 +355,95 @@ export function dayNumber(day: string): number {
 	);
 }
 
-export interface EvolutionSegment {
-	/** Pontos já no domínio do gráfico: x em dias desde o primeiro ponto, y em centavos. */
-	balance: { x: number; y: number }[];
-	invested: { x: number; y: number }[];
+export interface ChartXY {
+	x: number;
+	y: number;
 }
 
 export interface EvolutionChart {
-	segments: EvolutionSegment[];
+	/** Trechos contínuos do patrimônio: um dia incompleto quebra a linha em vez de ser ligado por cima. */
+	balanceRuns: ChartXY[][];
+	/** Trechos do aplicado: quebram também onde `investedComplete` é falso (buraco, não ligar por cima). */
+	investedRuns: ChartXY[][];
+	/** Pontos em x em dias desde o primeiro; y em centavos já sem o chão do gráfico. */
 	xMax: number;
 	yMax: number;
 	/** Rótulos do eixo: um por mês que aparece, com a posição (0..1) na largura. */
 	ticks: { label: string; at: number }[];
 	/** Dias em que o ponto estava incompleto (posição fora da soma): a linha não passa por eles. */
 	hiddenDays: number;
-	/** O patrimônio do último ponto, para o cabeçalho. */
+	/** Há pontos, mas todos incompletos: não é "sem histórico". */
+	onlyIncomplete: boolean;
+	/** O patrimônio do último dia COMPLETO e o dia dele (pode não ser hoje). */
 	lastBalanceCents: number | null;
-	/** "de 12 jun a 10 nov". */
+	lastBalanceDay: string | null;
+	/** "em 8 de nov": a data do número grande, sem sugerir que é hoje. */
+	lastBalanceLabel: string | null;
+	/** Algum ponto usa aplicado estimado pelas movimentações. */
+	investedEstimated: boolean;
+	/** "de 12 de jun a 10 de nov". */
 	span: string | null;
 }
 
 const incomplete = (p: InvestmentEvolutionPointDto) => p.missingPositions > 0;
 
+const EMPTY_CHART: EvolutionChart = {
+	balanceRuns: [],
+	investedRuns: [],
+	xMax: 0,
+	yMax: 0,
+	ticks: [],
+	hiddenDays: 0,
+	onlyIncomplete: false,
+	lastBalanceCents: null,
+	lastBalanceDay: null,
+	lastBalanceLabel: null,
+	investedEstimated: false,
+	span: null,
+};
+
 /**
  * Prepara a linha: dias incompletos (`missingPositions > 0`) subestimam o patrimônio, então a linha não os liga, e o
- * aplicado só entra onde `investedComplete`. Sem inventar pontos: dia sem retrato simplesmente não aparece.
+ * aplicado só entra onde `investedComplete` (o buraco quebra a linha). Sem inventar pontos: dia sem retrato não aparece.
  */
 export function evolutionChart(res: InvestmentEvolutionResponse): EvolutionChart {
 	const points = res.points;
 	const first = points[0];
 	const last = points.at(-1);
-	if (!first || !last) {
-		return { segments: [], xMax: 0, yMax: 0, ticks: [], hiddenDays: 0, lastBalanceCents: null, span: null };
-	}
+	if (!first || !last) return EMPTY_CHART;
 	const origin = dayNumber(first.day);
 	const xMax = Math.max(1, dayNumber(last.day) - origin);
-	const segments: EvolutionSegment[] = [];
-	let current: EvolutionSegment | null = null;
+	const balanceRuns: ChartXY[][] = [];
+	const investedRuns: ChartXY[][] = [];
+	let balanceRun: ChartXY[] | null = null;
+	let investedRun: ChartXY[] | null = null;
 	let hidden = 0;
 	let yMax = 0;
 	let yMin = Number.POSITIVE_INFINITY;
+	let investedEstimated = false;
 	for (const p of points) {
 		if (incomplete(p)) {
 			hidden++;
-			current = null;
+			balanceRun = null;
+			investedRun = null;
 			continue;
 		}
-		if (!current) {
-			current = { balance: [], invested: [] };
-			segments.push(current);
-		}
 		const x = dayNumber(p.day) - origin;
-		current.balance.push({ x, y: p.balanceCents });
-		if (p.investedComplete) current.invested.push({ x, y: p.investedCents });
+		if (!balanceRun) {
+			balanceRun = [];
+			balanceRuns.push(balanceRun);
+		}
+		balanceRun.push({ x, y: p.balanceCents });
+		if (p.investedComplete) {
+			if (!investedRun) {
+				investedRun = [];
+				investedRuns.push(investedRun);
+			}
+			investedRun.push({ x, y: p.investedCents });
+			if (p.investedEstimated) investedEstimated = true;
+		} else {
+			investedRun = null;
+		}
 		const values = p.investedComplete ? [p.balanceCents, p.investedCents] : [p.balanceCents];
 		yMax = Math.max(yMax, ...values);
 		yMin = Math.min(yMin, ...values);
@@ -413,10 +451,7 @@ export function evolutionChart(res: InvestmentEvolutionResponse): EvolutionChart
 	// A linha não parte do zero (ficaria reta): o chão do gráfico fica um pouco abaixo do menor valor. É só escala,
 	// o gráfico não tem números no eixo.
 	const floor = Math.max(0, yMin === Number.POSITIVE_INFINITY ? 0 : yMin - Math.round((yMax - yMin) * 0.25));
-	for (const s of segments) {
-		for (const point of s.balance) point.y -= floor;
-		for (const point of s.invested) point.y -= floor;
-	}
+	for (const run of [...balanceRuns, ...investedRuns]) for (const point of run) point.y -= floor;
 	yMax -= floor;
 	const ticks: EvolutionChart["ticks"] = [];
 	let lastMonth = "";
@@ -428,12 +463,17 @@ export function evolutionChart(res: InvestmentEvolutionResponse): EvolutionChart
 	}
 	const lastComplete = [...points].reverse().find((p) => !incomplete(p));
 	return {
-		segments,
+		balanceRuns,
+		investedRuns,
 		xMax,
 		yMax,
 		ticks,
 		hiddenDays: hidden,
+		onlyIncomplete: balanceRuns.length === 0,
 		lastBalanceCents: lastComplete?.balanceCents ?? null,
+		lastBalanceDay: lastComplete?.day ?? null,
+		lastBalanceLabel: lastComplete ? `em ${dayMonth(lastComplete.day)}` : null,
+		investedEstimated,
 		span: first.day === last.day ? dayMonth(first.day) : `de ${dayMonth(first.day)} a ${dayMonth(last.day)}`,
 	};
 }
