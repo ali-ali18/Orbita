@@ -64,7 +64,7 @@ Use o backup agendado do Dokploy para o Postgres (destino S3). Guarde num bucket
 
 ## Saída para o Banco Central (CDI)
 
-O worker passa a chamar `https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados` (série pública do CDI diário, sem chave) uma vez por dia (08:20, America/Sao_Paulo) e uma vez quando sobe, para o app calcular o rendimento esperado dos investimentos. **Só saída HTTPS (443)**: se o servidor filtra a saída, libere `api.bcb.gov.br`. Não há variável de ambiente nova. Sem acesso, o resto do app funciona; os investimentos só mostram "a série do CDI ainda não cobre o período" e o worker registra a falha no log (`[atualizar-cdi] falhou`). Na primeira subida a série vem de 5 anos para trás (uma chamada).
+O worker passa a chamar `https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados` (série pública do CDI diário, sem chave) uma vez por dia (08:20, America/Sao_Paulo) e uma vez quando sobe, para o app calcular o rendimento esperado dos investimentos. **Só saída HTTPS (443)**: se o servidor filtra a saída, libere `api.bcb.gov.br`. Não há variável de ambiente nova. Sem acesso, o resto do app funciona; os investimentos só mostram "a série do CDI ainda não cobre o período" e o worker registra a falha no log (`[atualizar-cdi] falhou`). Na primeira subida a série vem de 8 anos para trás (uma chamada; a API do Banco Central responde 406 para janelas de 10 anos ou mais). O job tem 3 tentativas com espera exponencial e repara buracos antigos da série.
 
 ## Atualizar o app sem APK
 
