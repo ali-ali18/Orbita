@@ -11,6 +11,7 @@ import {
 	runDueAgents,
 } from "./alertas.ts";
 import {
+	CDI_JOB_OPTIONS,
 	CDI_QUEUE,
 	CDI_UPDATE_JOB,
 	CDI_UPDATE_PATTERN,
@@ -129,12 +130,12 @@ const cdiQueue = new Queue(CDI_QUEUE, { connection });
 await cdiQueue.upsertJobScheduler(
 	CDI_UPDATE_JOB,
 	{ pattern: CDI_UPDATE_PATTERN, tz: CDI_UPDATE_TIME_ZONE },
-	{ name: CDI_UPDATE_JOB },
+	{ name: CDI_UPDATE_JOB, opts: CDI_JOB_OPTIONS },
 );
 await cdiQueue.add(
 	CDI_UPDATE_JOB,
 	{},
-	{ jobId: `${CDI_UPDATE_JOB}-subida-${new Date().toISOString().slice(0, 10)}` },
+	{ ...CDI_JOB_OPTIONS, jobId: `${CDI_UPDATE_JOB}-subida-${new Date().toISOString().slice(0, 10)}` },
 );
 const cdiWorker = new Worker(
 	CDI_QUEUE,
