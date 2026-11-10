@@ -1,5 +1,5 @@
-import { colors, radius, spacing } from "@orbita/tokens";
-import { type ReactNode, useCallback, useRef, useState } from "react";
+import { colors, layout, radius, spacing } from "@orbita/tokens";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { useAccent } from "../../lib/theme.tsx";
 import { Text } from "../../ui/index.ts";
-import { HOME_TABS, offsetOfPage, pageFromOffset } from "./home-tabs-model.ts";
+import { HOME_TABS, offsetOfPage, pageFromOffset, resolvePage } from "./home-tabs-model.ts";
 
 /**
  * Estado do pager do Início: qual página está à vista (pelo arrasto ou pelo toque na aba) e como rolar até outra.
@@ -24,26 +24,51 @@ export function useHomePager() {
 	const [width, setWidth] = useState(window.width);
 	const [height, setHeight] = useState(0);
 	const [page, setPage] = useState(0);
+	// A aba tocada enquanto a rolagem anima; o `onScroll` não a troca de volta pelo caminho.
+	const target = useRef<number | null>(null);
+	const current = useRef(0);
 
+	const show = useCallback((next: number) => {
+		current.current = next;
+		setPage(next);
+	}, []);
 	const onLayout = useCallback((event: LayoutChangeEvent) => {
 		const { width: w, height: h } = event.nativeEvent.layout;
 		if (w > 0) setWidth(Math.round(w));
 		if (h > 0) setHeight(Math.round(h));
 	}, []);
+	// Largura nova (girar o aparelho, fonte): a rolagem fica na página atual, não no deslocamento antigo.
+	useEffect(() => {
+		scrollRef.current?.scrollTo({ x: offsetOfPage(current.current, width), animated: false });
+	}, [width]);
 	const onScroll = useCallback(
 		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-			setPage(pageFromOffset(event.nativeEvent.contentOffset.x, width, HOME_TABS.length));
+			const next = resolvePage(event.nativeEvent.contentOffset.x, width, HOME_TABS.length, target.current);
+			target.current = next.target;
+			show(next.page);
 		},
-		[width],
+		[width, show],
+	);
+	/** O dedo pegou a rolagem no meio da animação: o arrasto volta a mandar. */
+	const onScrollBeginDrag = useCallback(() => {
+		target.current = null;
+	}, []);
+	const onMomentumScrollEnd = useCallback(
+		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+			target.current = null;
+			show(pageFromOffset(event.nativeEvent.contentOffset.x, width, HOME_TABS.length));
+		},
+		[width, show],
 	);
 	const goTo = useCallback(
 		(index: number) => {
-			setPage(index);
+			target.current = index;
+			show(index);
 			scrollRef.current?.scrollTo({ x: offsetOfPage(index, width), animated: true });
 		},
-		[width],
+		[width, show],
 	);
-	return { scrollRef, width, height, page, onLayout, onScroll, goTo };
+	return { scrollRef, width, height, page, onLayout, onScroll, onScrollBeginDrag, onMomentumScrollEnd, goTo };
 }
 
 export type HomePagerState = ReturnType<typeof useHomePager>;
@@ -71,7 +96,7 @@ export function HomeTabsBar({ pager }: { pager: HomePagerState }) {
 						accessibilityState={{ selected: active }}
 						onPress={() => pager.goTo(index)}
 						style={{
-							minHeight: 44,
+							minHeight: layout.touchTarget,
 							paddingHorizontal: spacing.lg,
 							justifyContent: "center",
 							borderRadius: radius.pill,
@@ -110,6 +135,8 @@ export function HomePager({
 			showsHorizontalScrollIndicator={false}
 			scrollEventThrottle={16}
 			onScroll={pager.onScroll}
+			onScrollBeginDrag={pager.onScrollBeginDrag}
+			onMomentumScrollEnd={pager.onMomentumScrollEnd}
 			onLayout={pager.onLayout}
 			style={{ flex: 1 }}
 			contentContainerStyle={{ flexGrow: 1 }}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HOME_TABS, offsetOfPage, pageFromOffset } from "./home-tabs-model.ts";
+import { HOME_TABS, offsetOfPage, pageFromOffset, resolvePage } from "./home-tabs-model.ts";
 
 describe("abas do Início", () => {
 	it("Contas vem primeiro e Investimentos depois", () => {
@@ -22,5 +22,15 @@ describe("abas do Início", () => {
 	it("tocar na aba rola até o começo da página", () => {
 		expect(offsetOfPage(0, 390)).toBe(0);
 		expect(offsetOfPage(1, 390)).toBe(390);
+	});
+
+	it("animando até a aba tocada, a aba não pisca de volta pela página de origem", () => {
+		// Tocou em Investimentos (1) estando em Contas: a rolagem ainda passa por 0 e por 0,5.
+		expect(resolvePage(0, 390, 2, 1)).toEqual({ page: 1, target: 1 });
+		expect(resolvePage(120, 390, 2, 1)).toEqual({ page: 1, target: 1 });
+		// Chegou: libera o destino.
+		expect(resolvePage(390, 390, 2, 1)).toEqual({ page: 1, target: null });
+		// Sem destino pendente, o arrasto manda.
+		expect(resolvePage(100, 390, 2, null)).toEqual({ page: 0, target: null });
 	});
 });
