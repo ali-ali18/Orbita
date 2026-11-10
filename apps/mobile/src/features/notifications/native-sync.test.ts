@@ -70,4 +70,23 @@ describe("módulo nativo de notificações espelha o que o servidor aceita", () 
 		expect(allowlist).toBeLessThan(listener.indexOf("store.config()"));
 		expect(listener).toContain("`when`");
 	});
+
+	it("só o resultado 'error' do item conta tentativa; 5xx e falta de rede esperam por idade", () => {
+		const sender = readFileSync(join(NATIVE, "Sender.kt"), "utf8");
+		// Só uma chamada a bumpAttempts no envio inteiro: a dos itens que o servidor respondeu "error".
+		expect(sender.match(/bumpAttempts\(/g)).toHaveLength(1);
+		expect(sender).toMatch(/failed\)/);
+		const serverDown = /code >= 500 -> \{[\s\S]*?return false/.exec(sender)?.[0] ?? "";
+		expect(serverDown).not.toContain("bumpAttempts");
+		expect(policy).toMatch(/MAX_AGE_DAYS = 7L/);
+		expect(sender).toContain("dropExpired(");
+	});
+
+	it("resposta 2xx ilegível não marca o lote como entregue", () => {
+		const sender = readFileSync(join(NATIVE, "Sender.kt"), "utf8");
+		expect(sender).toMatch(/results == null/);
+		const parse = /private fun parseResults[\s\S]*?\n {2}}\n/.exec(sender)?.[0] ?? "";
+		expect(parse).toContain("null");
+		expect(parse).not.toContain('"created"');
+	});
 });

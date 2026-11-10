@@ -14,8 +14,14 @@ internal object NotificationPolicy {
   const val BATCH_MAX = 10
   const val QUEUE_MAX = 200
 
-  /** Quantas vezes um item que o servidor não consegue tratar (5xx, "error") é tentado antes de ser descartado. */
+  /** Quantas vezes um item que o servidor respondeu "error" (só ele falhou) é tentado antes de ser descartado. */
   const val MAX_ATTEMPTS = 8
+
+  /**
+   * Quanto tempo um item espera na fila (rede fora, servidor caído) antes de ser descartado. Queda do servidor ou falta
+   * de rede NÃO gastam tentativas: o prazo é por idade, e o Open Finance traz a compra de qualquer jeito.
+   */
+  const val MAX_AGE_DAYS = 7L
 
   /** A mesma notificação do Android (mesma chave) repostada em até tantos minutos é a mesma. */
   const val REPOST_WINDOW_MINUTES = 2L

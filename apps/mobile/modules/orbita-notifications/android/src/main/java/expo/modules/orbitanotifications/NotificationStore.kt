@@ -16,6 +16,8 @@ internal data class QueuedNotification(
   /** `StatusBarNotification.key` (pacote, id, tag, usuário); vazio se o Android não deu. */
   val sbnKey: String = "",
   val attempts: Int = 0,
+  /** Quando entrou na fila (milissegundos): o prazo da fila é por idade. */
+  val queuedAt: Long = System.currentTimeMillis(),
 )
 
 internal data class CaptureConfig(
@@ -97,6 +99,16 @@ internal class NotificationStore private constructor(context: Context) {
     }
   }
 
+  /** Descarta o que espera há mais de `MAX_AGE_DAYS`. */
+  fun dropExpired(now: Long) {
+    synchronized(lock) {
+      val limit = now - NotificationPolicy.MAX_AGE_DAYS * 86_400_000L
+      val items = readQueue()
+      val kept = items.filter { it.queuedAt >= limit }
+      if (kept.size != items.size) writeQueue(kept)
+    }
+  }
+
   fun peek(max: Int): List<QueuedNotification> = synchronized(lock) { readQueue().take(max) }
 
   fun remove(sent: Collection<QueuedNotification>) {
@@ -132,6 +144,7 @@ internal class NotificationStore private constructor(context: Context) {
           o.getLong("postedAt"),
           o.optString("sbnKey", ""),
           o.optInt("attempts", 0),
+          o.optLong("queuedAt", System.currentTimeMillis()),
         )
       }
     } catch (e: Exception) {
@@ -155,6 +168,7 @@ internal class NotificationStore private constructor(context: Context) {
           .put("postedAt", it.postedAt)
           .put("sbnKey", it.sbnKey)
           .put("attempts", it.attempts)
+          .put("queuedAt", it.queuedAt)
       )
     }
     prefs.edit().putString(KEY_QUEUE, KeystoreCrypto.encrypt(array.toString())).apply()
