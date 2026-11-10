@@ -12,5 +12,7 @@ export const colors = {
 	positive: "#34D17A",
 	/** Ação destrutiva ("Remover" no menu do widget): texto e ícone, sempre junto de um rótulo. Nunca em valor de dinheiro. */
 	danger: "#FF6B6B",
+	/** Aviso (diferença negativa no rendimento esperado, algo a completar): texto e marca pequena, sempre com sinal ou rótulo. */
+	warning: "#F5B041",
 	/** A cor primária (accent/onAccent) não é fixa: vem do tema escolhido, ver `accent.ts`. */
 } as const;
