@@ -268,7 +268,7 @@ describe("buraco na série", () => {
 		expect(r.warnings.join(" ")).toContain("1 dia útil sem CDI");
 	});
 
-	it("lacuna com dia útil faltando e mais de 4 dias corridos (Carnaval) trunca e avisa", () => {
+	it("Carnaval (sexta publicada, próxima publicação na quarta: 5 dias) não trunca e conta 2 dias úteis faltando", () => {
 		const a = weekdays("2026-02-09", 5, 50_000); // 09 a 13/02 (sexta)
 		const b = weekdays("2026-02-18", 5, 50_000); // quarta-feira de cinzas
 		const r = expectedYield({
@@ -280,8 +280,25 @@ describe("buraco na série", () => {
 			productKind: "CDB",
 		});
 		if (!r.ok) throw new Error("esperava ok");
+		expect(r.businessDays).toBe(10);
+		expect(r.missingWeekdays).toBe(2);
+	});
+
+	it("lacuna de 6 dias corridos com dia útil faltando trunca e avisa", () => {
+		const a = weekdays("2026-02-09", 5, 50_000); // até sexta 13/02
+		const b = weekdays("2026-02-19", 4, 50_000); // quinta 19/02: 6 dias depois
+		const r = expectedYield({
+			investedCents: 1_000_000,
+			startDate: "2026-02-09",
+			today: "2026-02-25",
+			rate: { kind: "CDI_PERCENT", bps: 10_000 },
+			cdi: [...a, ...b],
+			productKind: "CDB",
+		});
+		if (!r.ok) throw new Error("esperava ok");
 		expect(r.businessDays).toBe(5);
 		expect(r.asOf).toBe("2026-02-13");
+		expect(r.warnings.join(" ")).toContain("falha entre 13/02/2026 e 19/02/2026");
 	});
 
 	it("fim de semana comum não conta como dia útil faltando", () => {

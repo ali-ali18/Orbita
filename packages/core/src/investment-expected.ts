@@ -19,9 +19,9 @@ import type { Cents, LocalDate } from "./types.ts";
  * - Prefixado: (1 + taxa)^(dias úteis / 252), calculado com a raiz 252 inteira (busca binária em BigInt).
  * - IPCA+: precisa da série do IPCA (fora desta fase): `ipca_unsupported`.
  * - Buraco: a série é lida até o último dia sem lacuna e o resultado diz até que dia vale (`asOf`).
- *   Lacuna = mais de `MAX_CDI_GAP_DAYS` (4) dias corridos entre dois dias publicados COM dia útil (seg a sex) faltando
+ *   Lacuna = mais de `MAX_CDI_GAP_DAYS` (5) dias corridos entre dois dias publicados COM dia útil (seg a sex) faltando
  *   no meio: trunca. Lacunas menores (feriado de um dia) não truncam e entram em `missingWeekdays` e nos avisos.
- *   LIMITAÇÃO: sem calendário de feriados, o Carnaval (sexta a quarta, 5 dias) também trunca.
+ *   O Carnaval (sexta publicada, próxima na quarta = 5 dias, 2 dias úteis faltando) não trunca.
  * - IR regressivo sobre o rendimento (22,5% até 180 dias corridos, 20% até 360, 17,5% até 720, 15% acima), resgate
  *   hoje. Isento (LCI, LCA, CRI, CRA, LIG) quando o tipo é conhecido; tipo desconhecido ou que pode ou não ser isento
  *   (debênture) = líquido `null` com motivo. IOF: tabela regressiva do Decreto 6.306/2007 até o 29º dia (96% do
@@ -34,7 +34,7 @@ export const FIXED_SCALE = 10n ** 18n;
 /** Dias úteis por ano na convenção prefixada brasileira. */
 export const BUSINESS_DAYS_PER_YEAR = 252;
 /** Maior intervalo (dias corridos) entre dois CDI publicados antes de a série ser tratada como furada. */
-export const MAX_CDI_GAP_DAYS = 4;
+export const MAX_CDI_GAP_DAYS = 5;
 /** Tolerância (dias corridos) entre a data da aplicação e o primeiro CDI usado (fim de semana e feriado). */
 export const START_TOLERANCE_DAYS = 4;
 /** Taxa diária plausível do CDI: de 0,001% a 0,2% (fração × 10^8 de 1000 a 200000). */
