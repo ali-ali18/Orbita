@@ -22,6 +22,7 @@ import {
 	type UpsertByExternalInput,
 } from "@orbita/db";
 import {
+	PLUGGY_FIRST_SYNC_DAYS,
 	PLUGGY_NO_ACCOUNTS_PREFIX,
 	PLUGGY_NO_DATA_PREFIX,
 	PLUGGY_RECONNECT_MESSAGE,
@@ -108,7 +109,7 @@ export const PLUGGY_RETRY_JOB = "pluggy-de-novo";
  * Quantos dias para trás a primeira sincronização de uma conexão olha: 6 meses (e o backfill único das conexões
  * que nunca buscaram tanto: ver `syncWindowStart`).
  */
-export const FIRST_SYNC_DAYS = 183;
+export const FIRST_SYNC_DAYS = PLUGGY_FIRST_SYNC_DAYS;
 /** Nas rodadas seguintes, a janela nunca é menor que 4 meses (parcelas e faturas anteriores). */
 export const ROUTINE_SYNC_DAYS = 122;
 /**

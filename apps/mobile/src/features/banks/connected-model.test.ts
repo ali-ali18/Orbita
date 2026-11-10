@@ -1,9 +1,12 @@
-import type { PluggyConnectionDto } from "@orbita/shared";
+import { PLUGGY_FIRST_SYNC_DAYS, type PluggyConnectionDto } from "@orbita/shared";
 import { describe, expect, it } from "vitest";
 import {
+	CONNECTED_SUBTITLE,
 	connectedPrimary,
 	connectedRows,
 	connectedTitle,
+	firstSyncSpanText,
+	IMPORTED_ALL_BANKS_LABEL,
 	isReadyToCelebrate,
 	newConnection,
 } from "./connected-model.ts";
@@ -80,5 +83,39 @@ describe("connectedPrimary", () => {
 	it("sem pendentes, volta ao Início", () => {
 		expect(connectedPrimary(0).target).toBe("home");
 		expect(connectedPrimary(null).target).toBe("home");
+	});
+});
+
+describe("subtítulo da tela Pronto", () => {
+	it("diz o tempo que a primeira importação realmente busca (183 dias = 6 meses), nunca 90 dias", () => {
+		expect(PLUGGY_FIRST_SYNC_DAYS).toBe(183);
+		expect(firstSyncSpanText(PLUGGY_FIRST_SYNC_DAYS)).toBe("6 meses");
+		expect(CONNECTED_SUBTITLE).toBe("Trouxe os últimos 6 meses. Já separei em categorias.");
+		expect(CONNECTED_SUBTITLE).not.toContain("90");
+	});
+	it("acompanha a constante compartilhada", () => {
+		expect(firstSyncSpanText(30)).toBe("1 mês");
+		expect(firstSyncSpanText(122)).toBe("4 meses");
+	});
+});
+
+describe("total de lançamentos", () => {
+	it("com uma conexão só, o total é dela e o rótulo é 'importados'", () => {
+		const rows = connectedRows({
+			summary: { accounts: 1, cards: 0 },
+			imported: 40,
+			pending: 0,
+			connections: 1,
+		});
+		expect(rows.find((r) => r.value === 40)?.label).toBe("Lançamentos importados");
+	});
+	it("com várias conexões, o total soma todas e o rótulo não engana", () => {
+		const rows = connectedRows({
+			summary: { accounts: 1, cards: 0 },
+			imported: 900,
+			pending: 0,
+			connections: 3,
+		});
+		expect(rows.find((r) => r.value === 900)?.label).toBe(IMPORTED_ALL_BANKS_LABEL);
 	});
 });

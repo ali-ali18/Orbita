@@ -17,6 +17,12 @@ export const pluggyItemIdSchema = z
 
 export const PLUGGY_LABEL_MAX = 60;
 
+/**
+ * Dias que a primeira sincronização de uma conexão busca para trás (6 meses). O servidor usa este número na janela e
+ * o app o usa no texto da tela "Pronto": um valor só, para o texto nunca divergir do que foi importado.
+ */
+export const PLUGGY_FIRST_SYNC_DAYS = 183;
+
 /** Resultado da última sincronização de uma conexão. */
 export const PLUGGY_SYNC_STATUSES = ["ok", "partial", "error", "no_keys"] as const;
 export type PluggySyncStatus = (typeof PLUGGY_SYNC_STATUSES)[number];
