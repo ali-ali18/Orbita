@@ -33,7 +33,16 @@ const PREVIEW_POSITIONS = 3;
  * A aba Investimentos do Início: patrimônio, rendimento do mês e total, Classes/Instituições (segurar o gráfico abre
  * "Ver como"), posições e entrada para a Evolução. Todo número vem da API; aqui só se formata.
  */
-export function InvestmentsTab({ topPadding, bottomPadding }: { topPadding: number; bottomPadding: number }) {
+export function InvestmentsTab({
+	topPadding,
+	bottomPadding,
+	onScrollY,
+}: {
+	topPadding: number;
+	bottomPadding: number;
+	/** A rolagem vertical desta aba (o header do Início faz as abas sumirem com ela). */
+	onScrollY?: (y: number) => void;
+}) {
 	const router = useRouter();
 	const queryClient = useQueryClient();
 	const { hidden } = usePrivacy();
@@ -56,6 +65,8 @@ export function InvestmentsTab({ topPadding, bottomPadding }: { topPadding: numb
 	return (
 		<ScrollView
 			directionalLockEnabled
+			scrollEventThrottle={16}
+			onScroll={(event) => onScrollY?.(event.nativeEvent.contentOffset.y)}
 			contentContainerStyle={{
 				paddingHorizontal: spacing.lg,
 				paddingTop: topPadding,

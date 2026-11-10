@@ -1,6 +1,7 @@
 import { colors, layout, radius, spacing } from "@orbita/tokens";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+	Animated,
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
@@ -12,7 +13,14 @@ import {
 } from "react-native";
 import { useAccent } from "../../lib/theme.tsx";
 import { Text } from "../../ui/index.ts";
-import { HOME_TABS, offsetOfPage, pageFromOffset, resolvePage } from "./home-tabs-model.ts";
+import {
+	HOME_TABS,
+	offsetOfPage,
+	pageFromOffset,
+	resolvePage,
+	tabsFade,
+	tabsTouchable,
+} from "./home-tabs-model.ts";
 
 /**
  * Estado do pager do Início: qual página está à vista (pelo arrasto ou pelo toque na aba) e como rolar até outra.
@@ -69,6 +77,60 @@ export function useHomePager() {
 		[width, show],
 	);
 	return { scrollRef, width, height, page, onLayout, onScroll, onScrollBeginDrag, onMomentumScrollEnd, goTo };
+}
+
+/**
+ * As abas somem com a rolagem vertical da página à vista (como no Pierre): opacidade 1 no topo, caindo linearmente até
+ * 0 ao rolar a altura das abas, e a faixa encolhe junto, então o degradê do header sobe para logo abaixo do avatar e do
+ * olho. Cada página guarda a própria rolagem; trocar de aba pelo arrasto passa a seguir a da página que ficou à vista.
+ * Animated do RN, sem módulo nativo (o valor é atualizado direto, sem renderizar a tela a cada quadro).
+ */
+export function useTabsFade(activePage: number) {
+	const scrollY = useRef([new Animated.Value(0), new Animated.Value(0)]).current;
+	const touchRef = useRef([true, true]);
+	const [touchable, setTouchable] = useState([true, true]);
+	const fades = useMemo(
+		() =>
+			scrollY.map((y) =>
+				y.interpolate({ inputRange: [0, layout.homeTabs], outputRange: [1, 0], extrapolate: "clamp" }),
+			),
+		[scrollY],
+	);
+	/** Chamada pela rolagem de cada página com o `contentOffset.y`. */
+	const report = useCallback(
+		(index: number, y: number) => {
+			scrollY[index]?.setValue(y);
+			const ok = tabsTouchable(tabsFade(y, layout.homeTabs));
+			if (touchRef.current[index] !== ok) {
+				touchRef.current[index] = ok;
+				setTouchable([...touchRef.current]);
+			}
+		},
+		[scrollY],
+	);
+	const opacity = fades[activePage] ?? fades[0];
+	return { opacity, touchable: touchable[activePage] ?? true, report };
+}
+
+export type TabsFadeState = ReturnType<typeof useTabsFade>;
+
+/** Envolve as abas: opacidade e altura seguem a rolagem; invisíveis, não recebem toque nem leitor de tela. */
+export function HomeTabsFade({ fade, children }: { fade: TabsFadeState; children: ReactNode }) {
+	if (!fade.opacity) return <>{children}</>;
+	return (
+		<Animated.View
+			pointerEvents={fade.touchable ? "auto" : "none"}
+			accessibilityElementsHidden={!fade.touchable}
+			importantForAccessibility={fade.touchable ? "auto" : "no-hide-descendants"}
+			style={{
+				opacity: fade.opacity,
+				height: fade.opacity.interpolate({ inputRange: [0, 1], outputRange: [0, layout.homeTabs] }),
+				overflow: "hidden",
+			}}
+		>
+			{children}
+		</Animated.View>
+	);
 }
 
 export type HomePagerState = ReturnType<typeof useHomePager>;
