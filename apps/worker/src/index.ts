@@ -10,6 +10,13 @@ import {
 	RUN_AGENTS_TIME_ZONE,
 	runDueAgents,
 } from "./alertas.ts";
+import {
+	CDI_QUEUE,
+	CDI_UPDATE_JOB,
+	CDI_UPDATE_PATTERN,
+	CDI_UPDATE_TIME_ZONE,
+	updateCdiRates,
+} from "./cdi.ts";
 import { chatModelsFromEnv, loadEnv } from "./env.ts";
 import {
 	CLEAN_IDEMPOTENCY_KEYS,
@@ -116,6 +123,34 @@ const alertsWorker = new Worker(
 // O resultado traz só contagens.
 alertsWorker.on("completed", (job, result) => console.log(`[${job.name}]`, result));
 alertsWorker.on("failed", (job, err) => console.error(`[${job?.name}] falhou: ${err.message}`));
+// CDI diário (Banco Central): uma vez por dia e uma vez na subida (a série vazia faz a primeira carga). Só saída HTTPS
+// para api.bcb.gov.br; idempotente. Concorrência 1.
+const cdiQueue = new Queue(CDI_QUEUE, { connection });
+await cdiQueue.upsertJobScheduler(
+	CDI_UPDATE_JOB,
+	{ pattern: CDI_UPDATE_PATTERN, tz: CDI_UPDATE_TIME_ZONE },
+	{ name: CDI_UPDATE_JOB },
+);
+await cdiQueue.add(
+	CDI_UPDATE_JOB,
+	{},
+	{ jobId: `${CDI_UPDATE_JOB}-subida-${new Date().toISOString().slice(0, 10)}` },
+);
+const cdiWorker = new Worker(
+	CDI_QUEUE,
+	async (job) => {
+		if (job.name !== CDI_UPDATE_JOB) throw new Error(`Tarefa desconhecida: ${job.name}`);
+		return updateCdiRates({
+			stores,
+			fetch: (url, init) => fetch(url, init),
+			now: () => new Date(),
+			log: (line) => console.log(line),
+		});
+	},
+	{ connection, concurrency: 1 },
+);
+cdiWorker.on("completed", (job, result) => console.log(`[${job.name}]`, result));
+cdiWorker.on("failed", (job, err) => console.error(`[${job?.name}] falhou: ${err.message}`));
 console.log("Worker rodando.");
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -123,9 +158,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 		await worker.close();
 		await syncWorker.close();
 		await alertsWorker.close();
+		await cdiWorker.close();
 		await queue.close();
 		await syncQueue.close();
 		await alertsQueue.close();
+		await cdiQueue.close();
 		await db.$disconnect();
 		process.exit(0);
 	});
