@@ -1,5 +1,7 @@
 import { addDays, type LocalDate } from "@orbita/core";
 import type { TransactionRecord, TransactionStore, UpsertByExternalInput } from "@orbita/db";
+import { normalizeMerchantName } from "@orbita/shared";
+import { UNCERTAIN_TARGET_NOTE } from "../notification/notes.ts";
 import { UNCONFIRMED_NOTE } from "../notification/reconcile.ts";
 import type { MappedTransaction } from "./mapping.ts";
 
@@ -38,9 +40,14 @@ const apart = (a: LocalDate, b: LocalDate) =>
  * Um só mais próximo na data: adota (`adoptExternal`). Empate no mais próximo: `ambiguous`. Nenhum: `none`.
  */
 export async function adoptEarlyEntry(
-	transactions: Pick<TransactionStore, "listByTarget" | "adoptExternal" | "existsByExternal" | "update">,
+	transactions: Pick<
+		TransactionStore,
+		"listByTarget" | "adoptExternal" | "existsByExternal" | "update" | "softDelete"
+	>,
 	source: "pluggy",
 	mapped: Upsert,
+	/** Contas do mesmo banco do cartão desta transação (só para compra no cartão): ver `replaceUncertainNotification`. */
+	sameBankAccountIds: readonly string[] = [],
 ): Promise<EarlyOutcome> {
 	const { input } = mapped;
 	// Parcela avulsa (sem data da compra, o Pluggy não dá como agrupar) traz só a nota "Parcela n/N".
@@ -63,13 +70,21 @@ export async function adoptEarlyEntry(
 	});
 	const candidates = rows
 		.filter((t) => matches(t, input, installment, source, window))
-		.map((t) => ({ t, gap: apart(t.date, input.date) }))
+		.map((t) => ({ t, gap: apart(t.date, input.date), score: nameScore(t, input) }))
+		// Mais perto na data; no empate, o nome mais parecido com o do banco (duas notificações de R$ 10, uma na
+		// padaria e outra na farmácia); só então o mais antigo.
 		.sort(
 			(a, b) =>
-				a.gap - b.gap || a.t.createdAt.getTime() - b.t.createdAt.getTime() || (a.t.id < b.t.id ? -1 : 1),
+				a.gap - b.gap ||
+				b.score - a.score ||
+				a.t.createdAt.getTime() - b.t.createdAt.getTime() ||
+				(a.t.id < b.t.id ? -1 : 1),
 		);
 	const best = candidates[0];
-	if (best === undefined) return { outcome: "none" };
+	if (best === undefined) {
+		await replaceUncertainNotification(transactions, input, sameBankAccountIds);
+		return { outcome: "none" };
+	}
 	const tied = candidates.filter((c) => c.gap === best.gap);
 	// Lançamentos criados por notificação, iguais em tudo, são intercambiáveis (duas compras idênticas no mesmo dia):
 	// adota o mais antigo; o seguinte fica para a próxima transação do banco. Empate com algo digitado pelo dono é
@@ -103,6 +118,54 @@ export async function clearUnconfirmed(
 ): Promise<TransactionRecord> {
 	if (t.note !== UNCONFIRMED_NOTE || t.editedByOwner) return t;
 	return transactions.update(t.id, { status: "confirmed", note: null });
+}
+
+/** 2 = mesmo nome, 1 = um contém o outro, 0 = sem relação (ou sem nome). */
+function nameScore(t: TransactionRecord, input: UpsertByExternalInput): number {
+	const a = normalizeMerchantName(t.merchantName ?? t.description);
+	const b = normalizeMerchantName(input.merchantName ?? input.description);
+	if (a === "" || b === "") return 0;
+	if (a === b) return 2;
+	return a.includes(b) || b.includes(a) ? 1 : 0;
+}
+
+/**
+ * Compra no cartão que o banco traz agora e que uma notificação "Você pagou…" (alvo incerto: saldo ou cartão?) lançou na
+ * CONTA do mesmo banco: o banco sabe onde foi, então o lançamento dele prevalece e a linha da notificação sai (exclusão
+ * lógica), em vez de ficar duplicada. Só a que ninguém mexeu (o dono confirmando ou editando é decisão dele) e que
+ * combina em tipo, valor e data (± a janela de sempre). Se a compra tivesse sido na conta, o banco a traria na conta e a
+ * adoção normal a casaria: este caminho só roda quando nada casou no cartão.
+ */
+async function replaceUncertainNotification(
+	transactions: Pick<TransactionStore, "listByTarget" | "softDelete">,
+	input: UpsertByExternalInput,
+	accountIds: readonly string[],
+): Promise<void> {
+	if (input.kind !== "expense" || !input.cardId || accountIds.length === 0) return;
+	const found: TransactionRecord[] = [];
+	for (const accountId of accountIds) {
+		const rows = await transactions.listByTarget(
+			{ accountId },
+			{ from: addDays(input.date, -EARLY_WINDOW_DAYS), to: addDays(input.date, EARLY_WINDOW_DAYS) },
+		);
+		found.push(
+			...rows.filter(
+				(t) =>
+					t.source === "notification" &&
+					t.note === UNCERTAIN_TARGET_NOTE &&
+					!t.editedByOwner &&
+					t.kind === "expense" &&
+					t.amountCents === input.amountCents &&
+					t.installmentNumber === null,
+			),
+		);
+	}
+	const best = found
+		.map((t) => ({ t, gap: apart(t.date, input.date), score: nameScore(t, input) }))
+		.sort(
+			(a, b) => a.gap - b.gap || b.score - a.score || a.t.createdAt.getTime() - b.t.createdAt.getTime(),
+		)[0];
+	if (best) await transactions.softDelete(best.t.id);
 }
 
 const parcelOfNote = (note: string | null | undefined) => {
