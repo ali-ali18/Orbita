@@ -11,12 +11,15 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
  */
 export const TOP_FADE = spacing.xxl;
 
-/** Degradê linear do fundo (opaco) para transparente, por cima do conteúdo e sem receber toques. */
-function TopFade() {
+/**
+ * Degradê linear do fundo (opaco) para transparente, por cima do conteúdo e sem receber toques. `style` dá a posição e
+ * a altura; o Início o usa na base do header fixo, para o conteúdo sumir suave ao passar por baixo dele.
+ */
+export function FadeEdge({ style }: { style?: StyleProp<ViewStyle> }) {
 	return (
 		<View
 			pointerEvents="none"
-			style={styles.topFade}
+			style={style ?? styles.topFade}
 			accessibilityElementsHidden
 			importantForAccessibility="no-hide-descendants"
 		>
@@ -68,7 +71,7 @@ export function Screen({
 		>
 			<View style={{ flex: 1 }}>
 				{children}
-				{fadeTop ? <TopFade /> : null}
+				{fadeTop ? <FadeEdge /> : null}
 			</View>
 			{footer && floatingFooter ? (
 				<View style={styles.floating} pointerEvents="box-none">

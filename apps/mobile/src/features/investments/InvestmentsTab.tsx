@@ -17,7 +17,7 @@ import {
 	positionRow,
 	totalYieldCard,
 } from "./investments-model.ts";
-import { PillTabs, PositionLine, YieldTile } from "./parts.tsx";
+import { PositionLine, YieldTile } from "./parts.tsx";
 import { useInvestments } from "./queries.ts";
 
 type GroupTab = "classes" | "institutions";
@@ -33,7 +33,7 @@ const PREVIEW_POSITIONS = 3;
  * A aba Investimentos do Início: patrimônio, rendimento do mês e total, Classes/Instituições (segurar o gráfico abre
  * "Ver como"), posições e entrada para a Evolução. Todo número vem da API; aqui só se formata.
  */
-export function InvestmentsTab({ bottomPadding }: { bottomPadding: number }) {
+export function InvestmentsTab({ topPadding, bottomPadding }: { topPadding: number; bottomPadding: number }) {
 	const router = useRouter();
 	const queryClient = useQueryClient();
 	const { hidden } = usePrivacy();
@@ -58,7 +58,7 @@ export function InvestmentsTab({ bottomPadding }: { bottomPadding: number }) {
 			directionalLockEnabled
 			contentContainerStyle={{
 				paddingHorizontal: spacing.lg,
-				paddingTop: spacing.md,
+				paddingTop: topPadding,
 				paddingBottom: bottomPadding,
 				gap: spacing.md,
 			}}
@@ -125,10 +125,10 @@ export function InvestmentsTab({ bottomPadding }: { bottomPadding: number }) {
 								<YieldTile label="Rendimento no mês" y={monthYieldCard(d.yield.month, hidden)} />
 								<YieldTile label="Rendimento total" y={totalYieldCard(d.yield.total, hidden)} />
 							</View>
-							<PillTabs options={GROUP_TABS} value={tab} onChange={setTab} />
 							{tab === "classes" ? (
 								<GroupsCard
 									title="Por classe"
+									tabs={{ options: GROUP_TABS, value: tab, onChange: setTab }}
 									rows={classRows(d.byClass, hidden)}
 									total={total}
 									view={classesView}
@@ -137,6 +137,7 @@ export function InvestmentsTab({ bottomPadding }: { bottomPadding: number }) {
 							) : (
 								<GroupsCard
 									title="Por instituição"
+									tabs={{ options: GROUP_TABS, value: tab, onChange: setTab }}
 									rows={institutionRows(d.byInstitution, hidden)}
 									total={total}
 									view={institutionsView}

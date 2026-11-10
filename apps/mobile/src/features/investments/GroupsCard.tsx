@@ -4,6 +4,7 @@ import { BankLogo, Card, DonutChart, Text } from "../../ui/index.ts";
 import { ChartMenu, useChartMenu } from "./ChartMenu.tsx";
 import { CHART_VIEW_LABELS, type ChartView } from "./chart-view.ts";
 import { barHeights, type GroupRow, groupsA11y } from "./investments-model.ts";
+import { MiniTabs, type MiniTabsProps } from "./parts.tsx";
 
 /** Cor da série só no desenho (barra, arco, ponto): o texto nunca usa a cor da série. */
 function Dot({ color }: { color: string }) {
@@ -142,12 +143,16 @@ function DonutView({ rows, total }: { rows: readonly GroupRow[]; total: string }
  */
 export function GroupsCard({
 	title,
+	tabs,
 	rows,
 	total,
 	view,
 	onViewChange,
 }: {
+	/** Nome do gráfico, para o leitor de tela (quem aparece no cabeçalho do card são as abas). */
 	title: string;
+	/** Classes | Instituições, dentro do cabeçalho do card: não é uma segunda barra de abas do Início. */
+	tabs: MiniTabsProps<"classes" | "institutions">;
 	rows: readonly GroupRow[];
 	total: string;
 	view: ChartView;
@@ -162,14 +167,9 @@ export function GroupsCard({
 					longPressHint="Segure para escolher como ver o gráfico"
 					label={`${groupsA11y(title, rows)}. Visto como ${CHART_VIEW_LABELS[view].toLowerCase()}`}
 				>
-					<Text
-						variant="cardTitle"
-						tone="secondary"
-						accessibilityRole="header"
-						style={{ marginBottom: spacing.lg }}
-					>
-						{title}
-					</Text>
+					<View style={{ marginBottom: spacing.lg }}>
+						<MiniTabs {...tabs} />
+					</View>
 					{view === "bars" ? <BarsView rows={rows} /> : null}
 					{view === "hbars" ? <HBarsView rows={rows} /> : null}
 					{view === "donut" ? <DonutView rows={rows} total={total} /> : null}

@@ -14,7 +14,16 @@ import { useClock } from "../../lib/clock.tsx";
 import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import { BottomBar, Button, Screen, Skeleton, Text, useBottomBarHeight } from "../../ui/index.ts";
+import {
+	BottomBar,
+	Button,
+	FadeEdge,
+	Screen,
+	Skeleton,
+	Text,
+	TOP_FADE,
+	useBottomBarHeight,
+} from "../../ui/index.ts";
 import { disconnectedConnections } from "../banks/banks-model.ts";
 import { usePluggyHomeWatch, usePluggyStatusSnapshot } from "../banks/queries.ts";
 import { ReconnectBanner } from "../banks/ReconnectBanner.tsx";
@@ -60,11 +69,14 @@ export function HomeScreen() {
 	const [refreshing, setRefreshing] = useState(false);
 	const bottomBarHeight = useBottomBarHeight();
 	const pager = useHomePager();
+	// A base do header fixo: o conteúdo começa abaixo dele (e do degradê) e o menu do widget usa como topo útil.
+	const headerBottom = sizes.homeHeader + sizes.homeTabs;
+	const contentTop = headerBottom + TOP_FADE;
 	// Widgets: o layout vem do servidor; segurar um widget abre o menu colado nele e cada escolha vale na hora.
 	const layoutQ = useHomeLayout();
 	const saveLayout = useSaveHomeLayout();
 	const layout: HomeLayout | null = layoutQ.data ?? (layoutQ.isError ? defaultHomeLayout() : null);
-	const widgetMenu = useWidgetMenu(layout, bottomBarHeight, sizes.homeHeader + sizes.homeTabs);
+	const widgetMenu = useWidgetMenu(layout, bottomBarHeight, headerBottom);
 	const menuId = widgetMenu.menu?.model.id ?? null;
 	const [adding, setAdding] = useState(false);
 	const addable = layout ? addableWidgets(layout) : [];
@@ -131,24 +143,13 @@ export function HomeScreen() {
 			footer={<BottomBar onNew={() => router.push("/novo")} onAsk={() => router.push("/chat")} />}
 			floatingFooter
 		>
-			{/* Header e abas ficam parados; só o conteúdo de cada aba rola, e arrastar de lado troca de aba. */}
-			<View style={{ paddingHorizontal: spacing.lg }}>
-				<HomeHeader
-					height={sizes.homeHeader}
-					initial={avatarInitial(displayName)}
-					hidden={hidden}
-					onToggleHidden={toggle}
-					onAvatarPress={() => router.push("/configuracoes")}
-				/>
-			</View>
-			<HomeTabsBar pager={pager} />
 			<HomePager pager={pager}>
 				<ScrollView
 					ref={widgetMenu.scrollRef}
 					onScroll={widgetMenu.onScroll}
 					scrollEventThrottle={16}
 					contentContainerStyle={{
-						paddingTop: spacing.sm,
+						paddingTop: contentTop,
 						paddingHorizontal: spacing.lg,
 						paddingBottom: bottomBarHeight + spacing.lg,
 						gap: spacing.md,
@@ -256,8 +257,25 @@ export function HomeScreen() {
 						</>
 					)}
 				</ScrollView>
-				<InvestmentsTab bottomPadding={bottomBarHeight + spacing.lg} />
+				<InvestmentsTab topPadding={contentTop} bottomPadding={bottomBarHeight + spacing.lg} />
 			</HomePager>
+			{/* Um bloco só: avatar, olho e abas. Fica sobre as páginas (o conteúdo rola por baixo) e o degradê na base
+			    faz o que passa por baixo sumir suave, sem corte seco. */}
+			<View pointerEvents="box-none" style={{ position: "absolute", top: 0, left: 0, right: 0 }}>
+				<View style={{ backgroundColor: colors.background }}>
+					<View style={{ paddingHorizontal: spacing.lg }}>
+						<HomeHeader
+							height={sizes.homeHeader}
+							initial={avatarInitial(displayName)}
+							hidden={hidden}
+							onToggleHidden={toggle}
+							onAvatarPress={() => router.push("/configuracoes")}
+						/>
+					</View>
+					<HomeTabsBar pager={pager} />
+				</View>
+				<FadeEdge style={{ height: TOP_FADE }} />
+			</View>
 			<WidgetMenu
 				menu={widgetMenu.menu}
 				viewport={widgetMenu.viewport}

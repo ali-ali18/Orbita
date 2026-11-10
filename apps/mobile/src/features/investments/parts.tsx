@@ -136,3 +136,53 @@ export function PositionLine({ row, onPress }: { row: PositionRow; onPress: () =
 		</Pressable>
 	);
 }
+
+export interface MiniTabsProps<T extends string> {
+	options: readonly { id: T; label: string }[];
+	value: T;
+	onChange: (next: T) => void;
+}
+
+/**
+ * Abas pequenas no cabeçalho de um card (estilo segmentado do card): a ativa em `surface3` com texto claro, as outras
+ * só texto. A área de toque chega a 44 pelo `hitSlop`. Cor primária só em ação: aqui é seleção discreta dentro do card.
+ */
+export function MiniTabs<T extends string>({ options, value, onChange }: MiniTabsProps<T>) {
+	return (
+		<View
+			accessibilityRole="tablist"
+			style={{
+				alignSelf: "flex-start",
+				flexDirection: "row",
+				padding: spacing.xs,
+				borderRadius: radius.pill,
+				backgroundColor: colors.surface2,
+			}}
+		>
+			{options.map((o) => {
+				const active = o.id === value;
+				return (
+					<Pressable
+						key={o.id}
+						accessibilityRole="tab"
+						accessibilityLabel={o.label}
+						accessibilityState={{ selected: active }}
+						hitSlop={{ top: spacing.xs, bottom: spacing.xs }}
+						onPress={() => onChange(o.id)}
+						style={{
+							minHeight: layout.miniTab,
+							paddingHorizontal: spacing.md,
+							justifyContent: "center",
+							borderRadius: radius.pill,
+							backgroundColor: active ? colors.surface3 : "transparent",
+						}}
+					>
+						<Text variant="caption" tone={active ? "primary" : "secondary"} numberOfLines={1}>
+							{o.label}
+						</Text>
+					</Pressable>
+				);
+			})}
+		</View>
+	);
+}

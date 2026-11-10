@@ -14,6 +14,8 @@ export const layout = {
 	homeHeader: 64,
 	/** Faixa das abas do Início (alvo de toque mais a folga de baixo). */
 	homeTabs: 56,
+	/** Altura das abas pequenas dentro do cabeçalho de um card (a área de toque chega a 44 pelo hitSlop). */
+	miniTab: 32,
 	/** Gráfico de barras verticais (Instituições): altura da área, barra mínima e largura da barra. */
 	barArea: 152,
 	barMin: 16,
