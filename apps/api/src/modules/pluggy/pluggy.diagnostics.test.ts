@@ -90,7 +90,40 @@ const parcel = tx("c1", {
 // Fora da janela de 45 dias (15/11 menos 45 = 01/10): não conta.
 const old = tx("old", { date: "2026-08-01T00:00:00.000Z" });
 
-function pluggy(opts: { bills?: "ok" | "404" | "500" } = {}) {
+// Investimento fictício, com titular e número que NÃO podem sair na resposta.
+const INV_ID = "1a2b3c4d-0000-4aaa-8bbb-000000000101";
+const INV_NUMBER = "445566778-9";
+const investment = {
+	id: INV_ID,
+	itemId: ITEM,
+	number: INV_NUMBER,
+	owner: "FULANO DE TAL",
+	name: "CDB Banco Fictício 110% CDI",
+	type: "FIXED_INCOME",
+	subtype: "CDB",
+	currencyCode: "BRL",
+	balance: 10432.57,
+	amount: 10580.1,
+	amountOriginal: 10000,
+	amountProfit: 432.57,
+	rate: 110,
+	rateType: "CDI",
+	date: "2026-11-13T00:00:00.000Z",
+	dueDate: "2028-05-10T00:00:00.000Z",
+	status: "ACTIVE",
+};
+const investmentTx = {
+	id: "m1",
+	type: "BUY",
+	movementType: "CREDIT",
+	amount: 10000,
+	date: "2026-05-10T00:00:00.000Z",
+	description: `Aplicação do CPF ${CPF}`,
+};
+
+type Investments = "ok" | "empty" | "403" | "500";
+
+function pluggy(opts: { bills?: "ok" | "404" | "500"; investments?: Investments } = {}) {
 	return async (url: string, init: RequestInit): Promise<Response> => {
 		const u = new URL(url);
 		if (u.pathname === "/auth") return json({ apiKey: API_KEY });
@@ -129,6 +162,12 @@ function pluggy(opts: { bills?: "ok" | "404" | "500" } = {}) {
 				},
 			]);
 		}
+		if (u.pathname === "/investments") {
+			if (opts.investments === "403") return json({ message: `proibido ${CLIENT_SECRET}` }, 403);
+			if (opts.investments === "500") return json({ message: "boom" }, 500);
+			return paged(opts.investments === "ok" ? [investment] : []);
+		}
+		if (u.pathname === `/investments/${INV_ID}/transactions`) return paged([investmentTx]);
 		if (u.pathname === "/v2/transactions") {
 			const id = u.searchParams.get("accountId");
 			const from = u.searchParams.get("dateFrom") ?? "";
@@ -140,9 +179,9 @@ function pluggy(opts: { bills?: "ok" | "404" | "500" } = {}) {
 	};
 }
 
-async function make(bills: "ok" | "404" | "500" = "ok") {
+async function make(bills: "ok" | "404" | "500" = "ok", investments: Investments = "ok") {
 	const stores = createMemoryStores({ now: () => new Date(NOW) });
-	const t = await setupFinance(NOW, () => stores, { pluggyFetch: pluggy({ bills }) });
+	const t = await setupFinance(NOW, () => stores, { pluggyFetch: pluggy({ bills, investments }) });
 	await t.api.put("/v1/settings/secrets/pluggy_client_id", { value: CLIENT_ID });
 	await t.api.put("/v1/settings/secrets/pluggy_client_secret", { value: CLIENT_SECRET });
 	await t.api.post("/v1/pluggy/connections", { itemId: ITEM, label: "Meu banco" });
@@ -274,6 +313,9 @@ describe("GET /v1/pluggy/diagnostics", () => {
 			ITEM,
 			BANK_ID,
 			CARD_ID,
+			INV_ID,
+			INV_NUMBER,
+			"445566778",
 		]) {
 			expect(raw, secret).not.toContain(secret);
 		}
@@ -282,6 +324,66 @@ describe("GET /v1/pluggy/diagnostics", () => {
 		expect(pixOut.receiver).toEqual({ name: "MARIA SILVA", documentEnd: "•••195" });
 		expect(pixOut.description).toBe("Pix enviado •••900 Maria");
 		expect(res.body.connections[0].itemError.message).toBe("falha para o CPF •••900");
+	});
+
+	it("investimentos: posições com os campos brutos, movimentações e intervalo de datas", async () => {
+		const { api } = await make();
+		const res = await api.get("/v1/pluggy/diagnostics");
+		expect(res.status).toBe(200);
+		const inv = res.body.connections[0].investments;
+		expect(inv).toMatchObject({
+			outcome: "ok",
+			error: null,
+			count: 1,
+			balanceTotal: "R$ 10.432,57",
+			consentExpired: false,
+			transactionsCount: 1,
+			transactionsFirstDate: "2026-05-10",
+			transactionsLastDate: "2026-05-10",
+		});
+		expect(inv.positions[0]).toMatchObject({
+			idStart: INV_ID.slice(0, 8),
+			type: "FIXED_INCOME",
+			subtype: "CDB",
+			name: "CDB Banco Fictício 110% CDI",
+			balance: 10432.57,
+			amountOriginal: 10000,
+			amountProfit: 432.57,
+			quantity: null,
+			rate: 110,
+			rateType: "CDI",
+			dueDate: "2028-05-10",
+			date: "2026-11-13",
+			status: "ACTIVE",
+			otherFields: ["number", "owner"],
+		});
+		expect(inv.positions[0].transactions).toMatchObject({ outcome: "ok", count: 1 });
+		expect(inv.positions[0].transactions.recent[0].description).toBe("Aplicação do CPF •••900");
+	});
+
+	it("investimentos: endpoint vazio, 403 e erro ficam na seção e a resposta segue 200", async () => {
+		const expected = {
+			empty: { outcome: "empty", error: null },
+			"403": { outcome: "unavailable", error: { code: "forbidden", status: 403 } },
+			"500": { outcome: "error", error: { code: "unavailable", status: 500 } },
+		} as const;
+		for (const mode of ["empty", "403", "500"] as const) {
+			const { api } = await make("ok", mode);
+			const res = await api.get("/v1/pluggy/diagnostics");
+			expect(res.status).toBe(200);
+			const conn = res.body.connections[0];
+			expect(conn.error).toBeNull();
+			expect(conn.accounts).toHaveLength(2);
+			expect(conn.investments).toMatchObject({ ...expected[mode], count: 0, positions: [] });
+			expect(JSON.stringify(res.body)).not.toContain(CLIENT_SECRET);
+		}
+	});
+
+	it("investimentos: o diagnóstico não grava nada", async () => {
+		const { api, stores } = await make();
+		await api.get("/v1/pluggy/diagnostics");
+		expect(await stores.accounts.list()).toEqual([]);
+		expect(await stores.cards.list()).toEqual([]);
 	});
 
 	it("erro de /bills fica só naquela conta e a resposta segue 200", async () => {
@@ -318,5 +420,6 @@ describe("GET /v1/pluggy/diagnostics", () => {
 		expect(res.status).toBe(200);
 		expect(res.body.connections[0].error).toMatchObject({ code: "forbidden", status: 403 });
 		expect(res.body.connections[0].accounts).toEqual([]);
+		expect(res.body.connections[0].investments).toBeNull();
 	});
 });

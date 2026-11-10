@@ -1,8 +1,10 @@
 import {
 	diagAccountTitle,
 	diagConnectionTitle,
+	diagInvestmentsTitle,
 	formatDiagAccount,
 	formatDiagConnectionHead,
+	formatDiagInvestments,
 	formatPluggyDiagnostics,
 	type PluggyDiagnosticsResponse,
 } from "@orbita/shared";
@@ -51,6 +53,8 @@ function Report({ data }: { data: PluggyDiagnosticsResponse }) {
 					{c.accounts.map((a) => (
 						<Block key={a.idStart} title={diagAccountTitle(a)} body={formatDiagAccount(a)} />
 					))}
+					{/* Servidor antigo não manda a seção: o texto diz "não consultado". */}
+					<Block title={diagInvestmentsTitle(c)} body={formatDiagInvestments(c.investments)} />
 				</View>
 			))}
 		</>
