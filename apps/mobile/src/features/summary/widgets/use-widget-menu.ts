@@ -15,7 +15,7 @@ import { type MenuViewport, type Rect, revealScroll, widgetMenuModel } from "./w
 export const MENU_GAP = spacing.sm;
 export const MENU_MARGIN = spacing.sm;
 /** Altura do menu antes da primeira medida (o `onLayout` corrige em seguida). */
-const MENU_HEIGHT_GUESS = 300;
+const MENU_HEIGHT_GUESS = 304;
 
 /** A `View` montada de um widget (o que `ref` entrega). */
 export type WidgetNode = ComponentRef<typeof View>;

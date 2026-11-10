@@ -31,48 +31,14 @@ function Row({
 	icon,
 	label,
 	danger = false,
+	disabled = false,
 	onPress,
 }: {
 	icon: IconName;
 	label: string;
 	danger?: boolean;
-	onPress: () => void;
-}) {
-	return (
-		<Pressable
-			accessibilityRole="menuitem"
-			accessibilityLabel={label}
-			onPress={onPress}
-			style={({ pressed }) => ({
-				minHeight: layout.touchTarget,
-				flexDirection: "row",
-				alignItems: "center",
-				gap: spacing.md,
-				paddingHorizontal: spacing.md,
-				borderRadius: radius.inner,
-				opacity: pressed ? 0.8 : 1,
-			})}
-		>
-			<Icon name={icon} size={20} color={danger ? colors.danger : colors.text} />
-			<Text variant="body" tone={danger ? "danger" : "primary"} numberOfLines={1}>
-				{label}
-			</Text>
-		</Pressable>
-	);
-}
-
-/** Metade da linha "mover": seta e direção. Na ponta fica apagada e não responde. */
-function MoveButton({
-	icon,
-	text,
-	label,
-	disabled,
-	onPress,
-}: {
-	icon: IconName;
-	text: string;
-	label: string;
-	disabled: boolean;
+	/** Ação indisponível (mover na ponta): a linha fica no lugar, apagada, e a altura do menu não muda. */
+	disabled?: boolean;
 	onPress: () => void;
 }) {
 	return (
@@ -83,20 +49,18 @@ function MoveButton({
 			disabled={disabled}
 			onPress={onPress}
 			style={({ pressed }) => ({
-				flex: 1,
 				minHeight: layout.touchTarget,
 				flexDirection: "row",
 				alignItems: "center",
-				justifyContent: "center",
-				gap: spacing.sm,
+				gap: spacing.md,
+				paddingHorizontal: spacing.md,
 				borderRadius: radius.inner,
-				backgroundColor: colors.surface,
 				opacity: disabled ? DISABLED_OPACITY : pressed ? 0.8 : 1,
 			})}
 		>
-			<Icon name={icon} size={18} />
-			<Text variant="caption" numberOfLines={1}>
-				{text}
+			<Icon name={icon} size={20} color={danger ? colors.danger : colors.text} />
+			<Text variant="body" tone={danger ? "danger" : "primary"} numberOfLines={1}>
+				{label}
 			</Text>
 		</Pressable>
 	);
@@ -205,22 +169,18 @@ export function WidgetMenu({
 								))}
 							</View>
 						) : null}
-						<View style={{ flexDirection: "row", gap: spacing.xs }}>
-							<MoveButton
-								icon="seta-cima"
-								text="Para cima"
-								label="Mover para cima"
-								disabled={!menu.model.canMoveUp}
-								onPress={() => onMove(-1)}
-							/>
-							<MoveButton
-								icon="seta-baixo"
-								text="Para baixo"
-								label="Mover para baixo"
-								disabled={!menu.model.canMoveDown}
-								onPress={() => onMove(1)}
-							/>
-						</View>
+						<Row
+							icon="seta-cima"
+							label="Mover para cima"
+							disabled={!menu.model.canMoveUp}
+							onPress={() => onMove(-1)}
+						/>
+						<Row
+							icon="seta-baixo"
+							label="Mover para baixo"
+							disabled={!menu.model.canMoveDown}
+							onPress={() => onMove(1)}
+						/>
 						<Row
 							icon={valuesHidden ? "olho" : "olho-cortado"}
 							label={valuesHidden ? "Mostrar dados" : "Ocultar dados"}
