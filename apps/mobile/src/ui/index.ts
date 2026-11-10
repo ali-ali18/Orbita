@@ -16,7 +16,7 @@ export { ListRow } from "./ListRow.tsx";
 export { LongPressContext, useWidgetLongPress } from "./long-press.ts";
 export { type BarPart, ProgressBar } from "./ProgressBar.tsx";
 export { Ring } from "./Ring.tsx";
-export { Screen, TOP_FADE } from "./Screen.tsx";
+export { FadeEdge, Screen, TOP_FADE } from "./Screen.tsx";
 export { Segmented } from "./Segmented.tsx";
 export { Sheet } from "./Sheet.tsx";
 export { SheetGroup, SheetRow } from "./SheetGroup.tsx";
