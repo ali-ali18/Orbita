@@ -16,6 +16,8 @@ describe("rateHintFromName: o que casa", () => {
 		["Tesouro IPCA + 6,2%", "IPCA_PLUS", 620],
 		["CDB IPCA+ 5,85% a.a.", "IPCA_PLUS", 585],
 		["ipca + 6%", "IPCA_PLUS", 600],
+		["Tesouro IPCA+6,2%", "IPCA_PLUS", 620],
+		["CDB IPCA+5,85% a.a.", "IPCA_PLUS", 585],
 	])("%s", (name, kind, bps) => {
 		expect(rateHintFromName(name)).toMatchObject({ kind, bps });
 	});
@@ -30,6 +32,8 @@ describe("rateHintFromName: falsos positivos (tudo isto é null)", () => {
 		"CDB Liquidez Diária",
 		"CDB CDI + 2%", // spread sobre o CDI, não % do CDI
 		"CDB CDI+2,5% a.a.",
+		"CDB CDI+2%",
+		"CDB IPCA+ 2035 +6,2",
 		"Tesouro IPCA+ 2035", // sem taxa
 		"Tesouro IPCA+ com Juros Semestrais 2040",
 		"Fundo DI 100% Referenciado", // sem CDI no nome

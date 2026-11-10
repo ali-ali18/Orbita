@@ -19,8 +19,9 @@ import type { Cents, LocalDate } from "./types.ts";
  * - Prefixado: (1 + taxa)^(dias úteis / 252), calculado com a raiz 252 inteira (busca binária em BigInt).
  * - IPCA+: precisa da série do IPCA (fora desta fase): `ipca_unsupported`.
  * - Buraco: a série é lida até o último dia sem lacuna e o resultado diz até que dia vale (`asOf`).
- *   Lacuna = mais de `MAX_CDI_GAP_DAYS` dias corridos entre dois dias publicados (feriados juntos a fins de semana
- *   chegam a 5 dias, o Carnaval).
+ *   Lacuna = mais de `MAX_CDI_GAP_DAYS` (4) dias corridos entre dois dias publicados COM dia útil (seg a sex) faltando
+ *   no meio: trunca. Lacunas menores (feriado de um dia) não truncam e entram em `missingWeekdays` e nos avisos.
+ *   LIMITAÇÃO: sem calendário de feriados, o Carnaval (sexta a quarta, 5 dias) também trunca.
  * - IR regressivo sobre o rendimento (22,5% até 180 dias corridos, 20% até 360, 17,5% até 720, 15% acima), resgate
  *   hoje. Isento (LCI, LCA, CRI, CRA, LIG) quando o tipo é conhecido; tipo desconhecido ou que pode ou não ser isento
  *   (debênture) = líquido `null` com motivo. IOF: tabela regressiva do Decreto 6.306/2007 até o 29º dia (96% do
@@ -33,7 +34,9 @@ export const FIXED_SCALE = 10n ** 18n;
 /** Dias úteis por ano na convenção prefixada brasileira. */
 export const BUSINESS_DAYS_PER_YEAR = 252;
 /** Maior intervalo (dias corridos) entre dois CDI publicados antes de a série ser tratada como furada. */
-export const MAX_CDI_GAP_DAYS = 6;
+export const MAX_CDI_GAP_DAYS = 4;
+/** Tolerância (dias corridos) entre a data da aplicação e o primeiro CDI usado (fim de semana e feriado). */
+export const START_TOLERANCE_DAYS = 4;
 /** Taxa diária plausível do CDI: de 0 a 0,2% (fração × 10^8 de 0 a 200000). */
 export const CDI_DAILY_MAX_E8 = 200_000;
 /** Se o último CDI usado é mais velho que isso (dias corridos antes de `today`), avisa que a série está atrasada. */
@@ -79,6 +82,8 @@ export interface ExpectedYield {
 	asOf: LocalDate;
 	/** Dias com CDI publicado dentro do período. */
 	businessDays: number;
+	/** Dias de semana (seg a sex) sem CDI entre dois dias publicados, em lacunas pequenas (feriado provável). */
+	missingWeekdays: number;
 	/** Dias corridos da aplicação até hoje (base do IR e do IOF). */
 	calendarDays: number;
 	warnings: string[];
@@ -204,28 +209,45 @@ export function netOfTaxes(
 // Rendimento esperado
 // ---------------------------------------------------------------------------------------------------------------------
 
+const isWeekday = (d: LocalDate): boolean => {
+	const dow = new Date(`${d}T12:00:00Z`).getUTCDay();
+	return dow !== 0 && dow !== 6;
+};
+
+/** Dias de semana estritamente entre `a` e `b`. */
+function weekdaysBetween(a: LocalDate, b: LocalDate): number {
+	let n = 0;
+	for (let d = addDays(a, 1); d < b; d = addDays(d, 1)) if (isWeekday(d)) n++;
+	return n;
+}
+
 /**
- * Os dias do CDI que contam, em ordem: de `startDate` (inclusive) a `today` (exclusive), parando antes de uma lacuna.
- * Devolve também se houve lacuna.
+ * Os dias do CDI que contam, em ordem: de `startDate` (inclusive) a `today` (exclusive), parando antes de uma lacuna
+ * (mais de `MAX_CDI_GAP_DAYS` dias corridos com dia útil faltando). Conta os dias úteis que faltaram em lacunas pequenas.
  */
 function usableCdi(
 	cdi: readonly CdiDay[],
 	startDate: LocalDate,
 	today: LocalDate,
-): { days: CdiDay[]; holeAfter: LocalDate | null; holeBefore: LocalDate | null } {
+): { days: CdiDay[]; holeAfter: LocalDate | null; holeBefore: LocalDate | null; missingWeekdays: number } {
 	const byDay = new Map<LocalDate, CdiDay>();
 	for (const d of cdi) if (d.day >= startDate && d.day < today) byDay.set(d.day, d);
 	const sorted = [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1));
 	const days: CdiDay[] = [];
 	let previous: LocalDate | null = null;
+	let missingWeekdays = 0;
 	for (const d of sorted) {
-		if (previous !== null && daysBetween(previous, d.day) > MAX_CDI_GAP_DAYS) {
-			return { days, holeAfter: previous, holeBefore: d.day };
+		if (previous !== null) {
+			const missing = weekdaysBetween(previous, d.day);
+			if (missing > 0 && daysBetween(previous, d.day) > MAX_CDI_GAP_DAYS) {
+				return { days, holeAfter: previous, holeBefore: d.day, missingWeekdays };
+			}
+			missingWeekdays += missing;
 		}
 		days.push(d);
 		previous = d.day;
 	}
-	return { days, holeAfter: null, holeBefore: null };
+	return { days, holeAfter: null, holeBefore: null, missingWeekdays };
 }
 
 const fmtDate = (d: LocalDate): string => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
@@ -249,15 +271,19 @@ export function expectedYield(input: ExpectedYieldInput): ExpectedYieldResult {
 		(min, d) => (min === null || d.day < min ? d.day : min),
 		null,
 	);
-	if (firstPublished === null || firstPublished > addDays(startDate, MAX_CDI_GAP_DAYS)) {
+	if (firstPublished === null || firstPublished > addDays(startDate, START_TOLERANCE_DAYS)) {
 		return unavailable("cdi_unavailable");
 	}
 
-	const { days, holeAfter, holeBefore } = usableCdi(cdi, startDate, today);
+	const { days, holeAfter, holeBefore, missingWeekdays } = usableCdi(cdi, startDate, today);
+	const latestPublished = cdi.reduce<LocalDate>((max, d) => (d.day > max ? d.day : max), firstPublished);
 	const first = days[0];
 	// Aplicação de hoje (ou de um fim de semana recente): nada rendeu ainda, e isso é verdade, não falta de dado.
 	if (first === undefined) {
-		if (calendarDays > MAX_CDI_GAP_DAYS) return unavailable("cdi_unavailable");
+		// Sem nenhum CDI no período: só é "zero de verdade" se a série está em dia; série atrasada não prova nada.
+		if (calendarDays > START_TOLERANCE_DAYS || daysBetween(latestPublished, today) > STALE_AFTER_DAYS) {
+			return unavailable("cdi_unavailable");
+		}
 		return {
 			ok: true,
 			grossCents: investedCents,
@@ -265,12 +291,18 @@ export function expectedYield(input: ExpectedYieldInput): ExpectedYieldResult {
 			...netOfTaxes(0, calendarDays, productKind),
 			asOf: startDate,
 			businessDays: 0,
+			missingWeekdays: 0,
 			calendarDays,
 			warnings,
 		};
 	}
 	// O primeiro CDI usado não pode estar muito depois da aplicação (o começo do período ficou sem taxa).
-	if (daysBetween(startDate, first.day) > MAX_CDI_GAP_DAYS) return unavailable("cdi_unavailable");
+	if (daysBetween(startDate, first.day) > START_TOLERANCE_DAYS) return unavailable("cdi_unavailable");
+	if (first.day > startDate) {
+		warnings.push(
+			`O primeiro CDI usado é ${fmtDate(first.day)}, depois do início (${fmtDate(startDate)}): o rendimento dos dias antes dele não entrou.`,
+		);
+	}
 
 	let factor = FIXED_SCALE;
 	if (rate.kind === "CDI_PERCENT") {
@@ -289,6 +321,11 @@ export function expectedYield(input: ExpectedYieldInput): ExpectedYieldResult {
 	const yieldCents = grossCents - investedCents;
 	const asOf = (days[days.length - 1] as CdiDay).day;
 
+	if (missingWeekdays > 0) {
+		warnings.push(
+			`${missingWeekdays} dia útil sem CDI na série (feriado ou falha): o rendimento desses dias não entrou.`,
+		);
+	}
 	if (holeAfter !== null && holeBefore !== null) {
 		warnings.push(
 			`A série do CDI tem uma falha entre ${fmtDate(holeAfter)} e ${fmtDate(holeBefore)}: calculado só até ${fmtDate(asOf)}.`,
@@ -304,6 +341,7 @@ export function expectedYield(input: ExpectedYieldInput): ExpectedYieldResult {
 		...netOfTaxes(yieldCents, calendarDays, productKind),
 		asOf,
 		businessDays: days.length,
+		missingWeekdays,
 		calendarDays,
 		warnings,
 	};

@@ -251,7 +251,24 @@ describe("buraco na série", () => {
 		expect(r.warnings.join(" ")).toContain("só chega a 14/10/2026");
 	});
 
-	it("feriado prolongado (lacuna de 5 dias corridos) não conta como buraco", () => {
+	it("feriado de um dia útil (lacuna de 4 dias corridos) não trunca: só avisa quantos dias úteis faltaram", () => {
+		const a = weekdays("2026-03-30", 4, 50_000); // seg 30/03 a qui 02/04
+		const b = weekdays("2026-04-06", 3, 50_000); // seg 06/04 (sexta-feira santa 03/04 sem taxa)
+		const r = expectedYield({
+			investedCents: 1_000_000,
+			startDate: "2026-03-30",
+			today: "2026-04-10",
+			rate: { kind: "CDI_PERCENT", bps: 10_000 },
+			cdi: [...a, ...b],
+			productKind: "CDB",
+		});
+		if (!r.ok) throw new Error("esperava ok");
+		expect(r.businessDays).toBe(7);
+		expect(r.missingWeekdays).toBe(1);
+		expect(r.warnings.join(" ")).toContain("1 dia útil sem CDI");
+	});
+
+	it("lacuna com dia útil faltando e mais de 4 dias corridos (Carnaval) trunca e avisa", () => {
 		const a = weekdays("2026-02-09", 5, 50_000); // 09 a 13/02 (sexta)
 		const b = weekdays("2026-02-18", 5, 50_000); // quarta-feira de cinzas
 		const r = expectedYield({
@@ -263,7 +280,53 @@ describe("buraco na série", () => {
 			productKind: "CDB",
 		});
 		if (!r.ok) throw new Error("esperava ok");
-		expect(r.businessDays).toBe(10);
+		expect(r.businessDays).toBe(5);
+		expect(r.asOf).toBe("2026-02-13");
+	});
+
+	it("fim de semana comum não conta como dia útil faltando", () => {
+		const s = weekdays("2026-10-05", 10, 50_000);
+		const r = expectedYield({
+			investedCents: 1_000_000,
+			startDate: "2026-10-05",
+			today: next(s),
+			rate: { kind: "CDI_PERCENT", bps: 10_000 },
+			cdi: s,
+			productKind: "CDB",
+		});
+		if (!r.ok) throw new Error("esperava ok");
+		expect(r.missingWeekdays).toBe(0);
+	});
+});
+
+describe("cobertura do início da série", () => {
+	const base = {
+		investedCents: 1_000_000,
+		rate: { kind: "CDI_PERCENT", bps: 10_000 },
+		productKind: "CDB",
+	} as const;
+
+	it("tolera até 4 dias corridos entre a aplicação e o primeiro CDI, e avisa que o primeiro dia usado é posterior", () => {
+		const s = weekdays("2026-10-06", 5, 50_000); // terça 06/10
+		const r = expectedYield({ ...base, startDate: "2026-10-02", today: next(s), cdi: s });
+		if (!r.ok) throw new Error("esperava ok");
+		expect(r.warnings.join(" ")).toContain("primeiro CDI usado é 06/10/2026, depois do início (02/10/2026)");
+	});
+
+	it("5 dias ou mais depois da aplicação: cdi_unavailable", () => {
+		const s = weekdays("2026-10-07", 5, 50_000);
+		expect(expectedYield({ ...base, startDate: "2026-10-02", today: next(s), cdi: s })).toMatchObject({
+			ok: false,
+			code: "cdi_unavailable",
+		});
+	});
+
+	it("aplicação recente mas série atrasada: cdi_unavailable, nunca rendimento zero", () => {
+		const s = weekdays("2026-09-01", 10, 50_000); // acaba em 14/09
+		expect(expectedYield({ ...base, startDate: "2026-11-09", today: "2026-11-12", cdi: s })).toMatchObject({
+			ok: false,
+			code: "cdi_unavailable",
+		});
 	});
 });
 

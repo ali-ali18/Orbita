@@ -36,7 +36,9 @@ export function percentToBps(text: string): number | null {
 // Número: 1 a 3 dígitos, no máximo 2 casas, sem dígito colado depois ("1.000" não é "1.00"+"0") nem antes ("2027").
 const NUM = String.raw`(?<![\d.,+])(\d{1,3}(?:[.,]\d{1,2})?)(?![\d])`;
 const CDI_PERCENT_RE = new RegExp(String.raw`${NUM}\s{0,2}%\s{0,2}(?:d[oae]s?\s{1,3})?CDI(?![A-Za-z])`, "gi");
-const IPCA_PLUS_RE = new RegExp(String.raw`IPCA\s{0,2}\+\s{0,2}${NUM}\s{0,2}%`, "gi");
+// Depois do "+" do IPCA o número pode vir colado ("IPCA+6,2%"), então o "+" não bloqueia este número.
+const NUM_AFTER_PLUS = NUM.replace("[\\d.,+]", "[\\d.,]");
+const IPCA_PLUS_RE = new RegExp(String.raw`IPCA\s{0,2}\+\s{0,2}${NUM_AFTER_PLUS}\s{0,2}%`, "gi");
 const PREFIXED_WORD_RE = /(?<![A-Za-zÀ-ÿ])(?:PREFIXAD[OA]|PRE-?FIXAD[OA]|PR[EÉ])(?![A-Za-zÀ-ÿ])/gi;
 // Depois da palavra "pré": no máximo 12 caracteres sem dígito e a taxa com "%" (e "a.a."/"ao ano" opcional).
 const PREFIXED_RATE_RE = new RegExp(
