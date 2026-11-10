@@ -14,6 +14,7 @@ import {
 	bankLine,
 	buildTermsBody,
 	expectedView,
+	investedProblem,
 	isInformed,
 	parseRateText,
 	RATE_KIND_OPTIONS,
@@ -127,7 +128,12 @@ export function TermsCard({ position: p }: { position: InvestmentPositionDto }) 
 	const [open, setOpen] = useState(false);
 	const [field, setField] = useState<TermsField>("rate");
 	const [session, setSession] = useState(0);
+	const save = useSaveTerms(p.id);
 	if (!rows) return null;
+	// Salvando (até a consulta recarregar) a gaveta não fecha: não há segundo envio nem corrida com o recarregamento.
+	const close = () => {
+		if (!save.isPending) setOpen(false);
+	};
 	return (
 		<>
 			<Card style={{ gap: spacing.xs }}>
@@ -143,6 +149,7 @@ export function TermsCard({ position: p }: { position: InvestmentPositionDto }) 
 							onPress={() => {
 								setField(row.field);
 								setSession((n) => n + 1);
+								save.reset();
 								setOpen(true);
 							}}
 						/>
@@ -150,8 +157,15 @@ export function TermsCard({ position: p }: { position: InvestmentPositionDto }) 
 				</View>
 				<ExpectedBlock p={p} />
 			</Card>
-			<Sheet visible={open} title={FIELD_TITLES[field]} onClose={() => setOpen(false)}>
-				<TermsForm key={session} position={p} field={field} today={today} onDone={() => setOpen(false)} />
+			<Sheet visible={open} title={FIELD_TITLES[field]} onClose={close}>
+				<TermsForm
+					key={session}
+					position={p}
+					field={field}
+					today={today}
+					save={save}
+					onDone={() => setOpen(false)}
+				/>
 			</Sheet>
 		</>
 	);
@@ -161,20 +175,21 @@ function TermsForm({
 	position: p,
 	field,
 	today,
+	save,
 	onDone,
 }: {
 	position: InvestmentPositionDto;
 	field: TermsField;
 	today: string;
+	save: ReturnType<typeof useSaveTerms>;
 	onDone: () => void;
 }) {
 	const { hidden } = usePrivacy();
-	const save = useSaveTerms(p.id);
 	const draft = rateDraft(p);
 	const [kind, setKind] = useState<InvestmentRateKind>(draft.kind);
 	const [rateText, setRateText] = useState(draft.text);
 	const [hintShown, setHintShown] = useState(draft.hint !== null);
-	const [cents, setCents] = useState(p.terms?.invested?.cents ?? 0);
+	const [cents, setCents] = useState(hidden ? 0 : (p.terms?.invested?.cents ?? 0));
 	const [dateText, setDateText] = useState(p.terms?.startDate ? toBrDate(p.terms.startDate.date) : "");
 	const [problem, setProblem] = useState<string | null>(null);
 
@@ -190,7 +205,8 @@ function TermsForm({
 			return submit({ field, value: { kind, bps: parsed.bps } });
 		}
 		if (field === "invested") {
-			if (cents <= 0) return setProblem("Informe o valor");
+			const err = investedProblem(cents);
+			if (err !== null) return setProblem(err);
 			return submit({ field, value: cents });
 		}
 		const date = parseBrDate(dateText);
@@ -199,7 +215,7 @@ function TermsForm({
 		return submit({ field, value: date });
 	};
 
-	const bank = bankLine(p, field, hidden);
+	const bank = bankLine(p, field, hidden, today);
 	const error =
 		problem ??
 		(save.error ? (save.error instanceof ApiError ? save.error.message : "Não deu para salvar") : null);
@@ -208,7 +224,14 @@ function TermsForm({
 		<View style={{ gap: spacing.lg, paddingBottom: spacing.lg }}>
 			{field === "rate" ? (
 				<View style={{ gap: spacing.md }}>
-					<Segmented options={RATE_KIND_OPTIONS} value={kind} onChange={setKind} />
+					<Segmented
+						options={RATE_KIND_OPTIONS}
+						value={kind}
+						onChange={(k) => {
+							setKind(k);
+							setHintShown(false);
+						}}
+					/>
 					<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
 						<TextField
 							value={rateText}

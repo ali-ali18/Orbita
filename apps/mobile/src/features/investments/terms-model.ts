@@ -1,5 +1,5 @@
 import type { InvestmentNameHintDto, InvestmentPositionDto, InvestmentRateKind } from "@orbita/shared";
-import { rateProblem } from "@orbita/shared";
+import { MAX_CENTS, MIN_APPLICATION_DATE, rateProblem } from "@orbita/shared";
 import { dayMonth, money } from "../../lib/format.ts";
 import { parseReais } from "../activity/filters-model.ts";
 
@@ -150,6 +150,7 @@ export function bankLine(
 	p: Pick<InvestmentPositionDto, "terms">,
 	field: TermsField,
 	hidden: boolean,
+	today: string,
 ): string | null {
 	const t = p.terms;
 	const bank = t?.bank;
@@ -166,7 +167,7 @@ export function bankLine(
 			: `Banco: ${money(bank.invested, hidden, { sign: "never" })}`;
 	}
 	if (bank.startDate === null) return null;
-	return t.startDate?.date === bank.startDate ? null : `Banco: ${dayMonth(bank.startDate)}`;
+	return t.startDate?.date === bank.startDate ? null : `Banco: ${startLabel(bank.startDate, today)}`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -223,7 +224,14 @@ export function parseInvested(text: string): number | null {
 /** Data (já convertida de dd/mm/aaaa) que não pode ser futura. */
 export function startDateProblem(date: string | null, today: string): string | null {
 	if (date === null) return "Data inválida";
-	return date > today ? "Data futura" : null;
+	if (date > today) return "Data futura";
+	return date < MIN_APPLICATION_DATE ? "Data antiga demais" : null;
+}
+
+/** Valor aplicado dentro do que o contrato aceita (maior que zero, até o teto de centavos). */
+export function investedProblem(cents: number): string | null {
+	if (cents <= 0) return "Informe o valor";
+	return cents > MAX_CENTS ? "Valor acima do limite" : null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -257,21 +265,23 @@ export function expectedView(
 		const u = p.expectedUnavailable;
 		return u ? { kind: "unavailable", text: UNAVAILABLE_TEXT[u.code] ?? "Indisponível" } : { kind: "none" };
 	}
+	// Esperado = montante bruto; os rendimentos vêm do servidor na mesma base (bruto e líquido), sem conta aqui.
 	const lines: ExpectedLine[] = [
 		{ label: "Esperado", value: money(e.grossCents, hidden, { sign: "never" }), tone: "primary" },
+		{ label: "Rend. esperado", value: money(e.yieldCents, hidden, { sign: "always" }), tone: "secondary" },
 	];
+	if (e.netYieldCents !== null) {
+		lines.push({
+			label: "Rend. líquido",
+			value: money(e.netYieldCents, hidden, { sign: "always" }),
+			tone: "secondary",
+		});
+	}
 	if (p.gapCents !== null && p.gapCents !== undefined) {
 		lines.push({
 			label: "Diferença",
 			value: money(p.gapCents, hidden, { sign: "always" }),
 			tone: p.gapCents < 0 ? "warning" : "primary",
-		});
-	}
-	if (e.netYieldCents !== null) {
-		lines.push({
-			label: "Líquido est.",
-			value: money(e.netYieldCents, hidden, { sign: "always" }),
-			tone: "secondary",
 		});
 	}
 	const until = `até ${dayMonth(e.asOf)}`;

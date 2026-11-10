@@ -6,6 +6,7 @@ import {
 	buildTermsBody,
 	expectedView,
 	informedTerms,
+	investedProblem,
 	isInformed,
 	isInvestmentsKey,
 	missingChip,
@@ -95,6 +96,15 @@ describe("dinheiro e data", () => {
 		expect(startDateProblem("2026-11-10", TODAY)).toBeNull();
 		expect(startDateProblem("2026-11-11", TODAY)).toBe("Data futura");
 		expect(startDateProblem(null, TODAY)).toBe("Data inválida");
+		expect(startDateProblem("1995-01-01", TODAY)).toBeNull();
+		expect(startDateProblem("1994-12-31", TODAY)).toBe("Data antiga demais");
+	});
+
+	it("valor aplicado dentro do teto do contrato", () => {
+		expect(investedProblem(0)).toBe("Informe o valor");
+		expect(investedProblem(1)).toBeNull();
+		expect(investedProblem(2_147_483_647)).toBeNull();
+		expect(investedProblem(2_147_483_648)).toBe("Valor acima do limite");
 	});
 
 	it("data curta e com ano quando não é o de hoje", () => {
@@ -161,10 +171,20 @@ describe("cartão Condições", () => {
 				bank: { rate: { kind: "CDI_PERCENT", bps: 10000 }, invested: 100_000, startDate: null },
 			},
 		} as InvestmentPositionDto;
-		expect(bankLine(p, "rate", false)).toBe("Banco: 100% do CDI");
-		expect(bankLine(p, "invested", false)).toBeNull();
-		expect(bankLine(p, "startDate", false)).toBeNull();
-		expect(bankLine({ terms: full.terms } as InvestmentPositionDto, "rate", false)).toBeNull();
+		expect(bankLine(p, "rate", false, TODAY)).toBe("Banco: 100% do CDI");
+		expect(bankLine(p, "invested", false, TODAY)).toBeNull();
+		expect(bankLine(p, "startDate", false, TODAY)).toBeNull();
+		expect(bankLine({ terms: full.terms } as InvestmentPositionDto, "rate", false, TODAY)).toBeNull();
+		const dated = {
+			terms: { ...p.terms, startDate: null, bank: { rate: null, invested: null, startDate: "2025-03-03" } },
+		};
+		expect(bankLine(dated as InvestmentPositionDto, "startDate", false, TODAY)).toBe(
+			"Banco: 3 de mar de 2025",
+		);
+		const same = {
+			terms: { ...p.terms, startDate: null, bank: { rate: null, invested: null, startDate: "2026-11-03" } },
+		};
+		expect(bankLine(same as InvestmentPositionDto, "startDate", false, TODAY)).toBe("Banco: 3 de nov");
 	});
 
 	it("isInformed olha a origem", () => {
@@ -236,8 +256,9 @@ describe("rendimento esperado", () => {
 		if (v.kind !== "ready") throw new Error("esperava ready");
 		expect(v.lines.map((l) => [l.label, l.value, l.tone])).toEqual([
 			["Esperado", "R$ 1.050,00", "primary"],
+			["Rend. esperado", "+R$ 50,00", "secondary"],
+			["Rend. líquido", "+R$ 42,00", "secondary"],
 			["Diferença", "+R$ 12,30", "primary"],
-			["Líquido est.", "+R$ 42,00", "secondary"],
 		]);
 	});
 
@@ -253,8 +274,8 @@ describe("rendimento esperado", () => {
 		);
 		if (v.kind !== "ready") throw new Error("esperava ready");
 		expect(v.approx).toBe(true);
-		expect(v.lines.map((l) => l.label)).toEqual(["Esperado", "Diferença"]);
-		expect(v.lines[1]).toMatchObject({ value: "−R$ 3,00", tone: "warning" });
+		expect(v.lines.map((l) => l.label)).toEqual(["Esperado", "Rend. esperado", "Diferença"]);
+		expect(v.lines[2]).toMatchObject({ value: "−R$ 3,00", tone: "warning" });
 	});
 
 	it("olho fechado esconde esperado, diferença e líquido", () => {
@@ -272,7 +293,7 @@ describe("rendimento esperado", () => {
 			false,
 		);
 		if (v.kind !== "ready") throw new Error("esperava ready");
-		expect(v.lines.map((l) => l.label)).toEqual(["Esperado", "Líquido est."]);
+		expect(v.lines.map((l) => l.label)).toEqual(["Esperado", "Rend. esperado", "Rend. líquido"]);
 	});
 
 	it("indisponível vira expressão curta", () => {
