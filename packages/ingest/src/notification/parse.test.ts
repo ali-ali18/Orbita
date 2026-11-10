@@ -242,7 +242,7 @@ describe("parseNotification: texto de terceiros e ambiguidade", () => {
 
 	it("mais de um valor no mesmo texto não vira lançamento", () => {
 		notUnderstood(parse("nubank", "JOAO te enviou R$ 9.999,00 te enviou R$ 0,01"));
-		notUnderstood(parse("nubank", "Você recebeu um Pix de R$ 5,00 de ANA. Saldo R$ 900,00"));
+		notUnderstood(parse("nubank", "Você recebeu um Pix de R$ 5,00 de ANA. Cobrança de R$ 900,00"));
 	});
 
 	it("o mesmo valor repetido (título e corpo) continua valendo", () => {
@@ -288,5 +288,52 @@ describe("parseNotification: texto de terceiros e ambiguidade", () => {
 			parsed(parse("inter", "Compra aprovada: R$ 18,70 em 09/11 13:00 LOJA TESTE no cartão final 7390"))
 				.merchant,
 		).toBe("LOJA TESTE");
+	});
+
+	it("limite e saldo no fim do texto não contam como outro valor: vale o primeiro", () => {
+		expect(
+			parsed(
+				parse(
+					"inter",
+					"Compra aprovada: R$ 18,70 em LOJA TESTE no cartão final 7390. Limite disponível: R$ 1.000,00",
+				),
+			),
+		).toMatchObject({ kind: "credit_purchase", amountCents: 1870, merchant: "LOJA TESTE" });
+		expect(
+			parsed(parse("nubank", "Você recebeu um Pix de R$ 50,00 de ANA. Seu saldo é R$ 300,00")),
+		).toMatchObject({
+			kind: "pix_received",
+			amountCents: 5000,
+		});
+	});
+
+	it("'2X SPORTS' e 'Parcele em até 12x no app' não são parcelamento", () => {
+		expect(
+			parsed(parse("nubank", "Compra de R$ 10,00 APROVADA em 2X SPORTS para o cartão com final 4821")),
+		).toMatchObject({ amountCents: 1000, merchant: "2X SPORTS" });
+		expect(
+			parsed(
+				parse(
+					"nubank",
+					"Compra de R$ 10,00 APROVADA em LOJA EXEMPLO para o cartão com final 4821. Parcele em até 12x no app",
+				),
+			),
+		).toMatchObject({ amountCents: 1000, merchant: "LOJA EXEMPLO" });
+	});
+
+	it("parcelamento colado ao valor ou a 'em' continua indo para a lista", () => {
+		for (const text of [
+			"Compra de R$ 120,00 APROVADA em LOJA EXEMPLO em 10x para o cartão com final 4821",
+			"Compra aprovada: R$ 120,00 10x em LOJA EXEMPLO no cartão final 4821",
+			"Compra aprovada em 3x de R$ 40,00 em LOJA EXEMPLO no cartão final 4821",
+			"Compra de R$ 120,00 APROVADA em LOJA EXEMPLO em 6x",
+		]) {
+			expect(parse("nubank", text), text).toMatchObject({ outcome: "unrecognized", reason: "installment" });
+		}
+	});
+
+	it("título com o valor e corpo com o valor: o estabelecimento não vira 'R$ 30'", () => {
+		const r = parsed(parse("inter", "R$ 30,00 em PADARIA no cartão final 7390", "Compra aprovada R$ 30,00"));
+		expect(r).toMatchObject({ amountCents: 3000, merchant: "PADARIA", last4: "7390" });
 	});
 });

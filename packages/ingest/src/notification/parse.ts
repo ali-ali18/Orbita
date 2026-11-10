@@ -144,15 +144,26 @@ const DEBIT_WORD = /\bdebito\b/;
 const CREDIT_WORD = /\bcredito\b/;
 const LAST4 = /(?:final|finalizado em|terminad[oa] em|terminando em|\*{2,4}|\.{3})\s*(\d{4})\b/;
 
-/** Parcelamento: "10x", "em 3 vezes", "parcelado". `1x`/à vista não conta. */
-const INSTALLMENT =
-	/\b((?:[2-9]|\d{2})\s?x|parcelad[oa]s?|parcelamento|em \d{1,2} vezes|\d{1,2} parcelas?|parcela \d)\b/;
+/**
+ * Parcelamento: "parcelado", "em 3 vezes", "em 10x" (colado a "em"/"de" e seguido de fim, pontuação ou "para o cartão",
+ * "sem juros"…), "3x de R$ 40" e "R$ 120,00 10x". "2X SPORTS" (nome de loja) e "Parcele em até 12x no app" (propaganda)
+ * não contam. `1x`/à vista também não.
+ */
+const INSTALLMENT = new RegExp(
+	String.raw`\b(?:parcelad[oa]s?|parcelamento|em (?:[2-9]|\d{2}) vezes|(?:[2-9]|\d{2}) parcelas?|parcela \d` +
+		String.raw`|(?:em|de)\s+(?:[2-9]|\d{2})\s?x(?=\s*(?:$|[.,;:]|\s(?:para|no|na|com|sem|de|do|da|e|ou)\b))` +
+		String.raw`|(?:[2-9]|\d{2})\s?x\s+de\s+r\$)` +
+		String.raw`|r\$\s*[\d.,]+\s?(?:[2-9]|\d{2})\s?x\b`,
+);
 const ANY_MONEY = /r\$\s*(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d+(?:,\d{2})?)(?!\d|[.,]\d)/g;
+/** "Limite disponível: R$ 1.000,00", "Seu saldo é R$ 300,00": valores que acompanham a notificação, não a operação. */
+const SIDE_BALANCE = /(?:limite|saldo|disponivel)(?:(?!r\$).){0,40}?r\$\s*[\d.,]+/g;
 
 /** Os valores distintos em R$ de um texto (o mesmo valor repetido conta uma vez). */
 function distinctAmounts(folded: string): Set<string> {
 	const out = new Set<string>();
-	for (const m of folded.matchAll(ANY_MONEY)) out.add(String(parseAmount(m[1] ?? "") ?? m[1]));
+	for (const m of folded.replace(SIDE_BALANCE, " ").matchAll(ANY_MONEY))
+		out.add(String(parseAmount(m[1] ?? "") ?? m[1]));
 	return out;
 }
 
@@ -236,7 +247,17 @@ export function parseNotification(input: { app: NotificationApp; title: string; 
 			return unrecognized(true);
 		}
 	}
-	const candidates = [text, title ? `${title}: ${text}` : ""].filter((c) => c !== "");
+	// Título que repete o valor do corpo ("Compra aprovada R$ 30,00" + "R$ 30,00 em PADARIA"): sem o valor no título, o
+	// texto junto lê como um formato só.
+	const titleNoMoney = title
+		.replace(/R\$\s*[\d.,]+/gi, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	const candidates = [
+		text,
+		hasTitleAmount && titleNoMoney ? `${titleNoMoney}: ${text}` : "",
+		title ? `${title}: ${text}` : "",
+	].filter((c) => c !== "");
 	let last: ParseResult = unrecognized(false);
 	for (const candidate of candidates) {
 		const result = tryParse(candidate);
