@@ -38,6 +38,15 @@ export {
 	restoreBudgets,
 } from "./income-plan.ts";
 export {
+	INVESTMENT_MONTHLY_MONTHS,
+	investmentDetail,
+	investmentEvolutionSeries,
+	investmentsOverview,
+	toInvestmentMovementDto,
+	toInvestmentPositionDto,
+	UNNAMED_INSTITUTION,
+} from "./investments.ts";
+export {
 	type CardInvoicesLine,
 	cardLimit,
 	INVOICE_FUTURE_MONTHS,

@@ -9,6 +9,11 @@ import type { CategoryRecord } from "./category-store.ts";
 import { badReference } from "./errors.ts";
 import type { GoalContributionRecord, GoalRecord } from "./goal-store.ts";
 import type { IncomeSourceRecord } from "./income-source-store.ts";
+import type {
+	InvestmentMovementRecord,
+	InvestmentRecord,
+	InvestmentSnapshotRecord,
+} from "./investment-store.ts";
 import type { PluggyConnectionRecord } from "./pluggy-connection-store.ts";
 import { DEFAULT_PREFERENCES, type PreferencesRecord } from "./preferences-store.ts";
 import type { RecurrencePostingRecord, RecurrenceRecord } from "./recurrence-store.ts";
@@ -35,6 +40,11 @@ export interface MemoryState {
 	secrets: Map<string, StoredSecret & { createdAt: Date }>;
 	pluggyConnections: Map<string, PluggyConnectionRecord>;
 	incomeSources: Map<string, IncomeSourceRecord>;
+	investments: Map<string, InvestmentRecord>;
+	/** Chave `investmentId|dia`. */
+	investmentSnapshots: Map<string, InvestmentSnapshotRecord>;
+	/** Chave `source|externalId`. */
+	investmentMovements: Map<string, InvestmentMovementRecord>;
 	goals: Map<string, GoalRecord>;
 	goalContributions: Map<string, GoalContributionRecord>;
 	agents: Map<string, AgentRecord>;
@@ -59,6 +69,9 @@ export function createMemoryState(now: Clock = () => new Date()): MemoryState {
 		secrets: new Map(),
 		pluggyConnections: new Map(),
 		incomeSources: new Map(),
+		investments: new Map(),
+		investmentSnapshots: new Map(),
+		investmentMovements: new Map(),
 		goals: new Map(),
 		goalContributions: new Map(),
 		agents: new Map(),

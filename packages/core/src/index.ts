@@ -11,6 +11,7 @@ export * from "./income.ts";
 export * from "./income-plan.ts";
 export * from "./installment-standing.ts";
 export * from "./installments.ts";
+export * from "./investments.ts";
 export * from "./invoice.ts";
 export * from "./invoice-composition.ts";
 export * from "./invoice-payment.ts";
