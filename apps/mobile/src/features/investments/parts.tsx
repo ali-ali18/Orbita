@@ -28,12 +28,23 @@ export function incompleteDaysLabel(n: number): string {
 }
 
 /**
- * Estado vazio de um número que não existe: ícone do app num disco discreto e duas linhas curtas (o que acontece e o
- * que falta), em cor secundária. Nunca traço, nunca zero.
+ * Estado vazio de um número que não existe: ícone do app num disco discreto e UMA expressão curta, em cor secundária.
+ * Nunca traço, nunca zero. `row` (cartões): ícone e texto lado a lado; `column` (gráficos): empilhados e centrados.
  */
-export function EmptyNote({ empty, align = "start" }: { empty: YieldEmpty; align?: "start" | "center" }) {
+export function EmptyNote({ empty, arrange = "row" }: { empty: YieldEmpty; arrange?: "row" | "column" }) {
+	const column = arrange === "column";
 	return (
-		<View style={{ gap: spacing.sm, alignItems: align === "center" ? "center" : "flex-start" }}>
+		<View
+			accessible
+			accessibilityLabel={empty.title}
+			style={{
+				flexDirection: column ? "column" : "row",
+				alignItems: "center",
+				justifyContent: column ? "center" : "flex-start",
+				gap: spacing.sm,
+				flex: column ? undefined : 1,
+			}}
+		>
 			<View
 				style={{
 					width: layout.emptyIconDisc,
@@ -46,24 +57,14 @@ export function EmptyNote({ empty, align = "start" }: { empty: YieldEmpty; align
 			>
 				<Icon name={empty.icon} size={layout.emptyIcon} color={colors.textSecondary} />
 			</View>
-			<View style={{ gap: spacing.xs, alignItems: align === "center" ? "center" : "flex-start" }}>
-				<Text
-					variant="caption"
-					tone="secondary"
-					numberOfLines={3}
-					style={{ textAlign: align === "center" ? "center" : "left" }}
-				>
-					{empty.title}
-				</Text>
-				<Text
-					variant="micro"
-					tone="secondary"
-					numberOfLines={3}
-					style={{ textAlign: align === "center" ? "center" : "left" }}
-				>
-					{empty.hint}
-				</Text>
-			</View>
+			<Text
+				variant="caption"
+				tone="secondary"
+				numberOfLines={2}
+				style={{ flexShrink: 1, textAlign: column ? "center" : "left" }}
+			>
+				{empty.title}
+			</Text>
 		</View>
 	);
 }
@@ -177,7 +178,7 @@ export function PositionLine({ row, onPress }: { row: PositionRow; onPress: () =
 					{row.value}
 				</Text>
 				<Text variant="caption" tone={y.value ? y.tone : "secondary"} numberOfLines={1}>
-					{y.value ? `${y.value}${y.note ? " · est." : ""}` : y.caption}
+					{y.value ? `${y.value}${y.note ? " · est." : ""}` : (y.empty?.title ?? y.caption)}
 				</Text>
 			</View>
 		</Pressable>

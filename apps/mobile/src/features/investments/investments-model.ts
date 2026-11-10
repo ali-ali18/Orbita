@@ -43,45 +43,6 @@ const SHORT_REASONS: ReadonlyArray<readonly [string, string]> = [
 
 export const NO_YIELD_FALLBACK = "sem como calcular";
 
-/** Estado vazio de um número que não existe: ícone do app e duas linhas curtas (nunca traço, nunca zero). */
-export interface YieldEmpty {
-	icon: Extract<IconName, "relogio" | "grafico">;
-	title: string;
-	hint: string;
-}
-
-const NO_NUMBER = (title: string, hint: string): YieldEmpty => ({ icon: "grafico", title, hint });
-
-/** Motivo do servidor (prefixo) → estado vazio. A ordem importa: o mais específico primeiro. */
-const EMPTY_BY_REASON: ReadonlyArray<readonly [string, YieldEmpty]> = [
-	[
-		"sem histórico ainda",
-		{ icon: "relogio", title: "Começa a aparecer em alguns dias", hint: "Precisa de 2 dias de histórico" },
-	],
-	["sem saldo informado", NO_NUMBER("Sem saldo informado", "O banco não enviou o valor da posição")],
-	["sem valor aplicado", NO_NUMBER("Sem valor aplicado", "O banco não enviou quanto foi aplicado")],
-	["houve resgate parcial", NO_NUMBER("Resgate parcial", "Sem como calcular com precisão")],
-	["resgates maiores", NO_NUMBER("Sem como estimar", "Os resgates passaram do valor aplicado")],
-	["o banco já reduziu", NO_NUMBER("Valor aproximado", "O banco já reduziu o valor aplicado")],
-	[
-		"posição encerrada: sem as movimentações",
-		NO_NUMBER("Sem como calcular", "Posição encerrada, faltam movimentações"),
-	],
-	["posição encerrada", NO_NUMBER("Posição encerrada", "Ganho estimado pelas movimentações")],
-	["resgate ainda não lido", NO_NUMBER("Falta o resgate", "O banco ainda não enviou a movimentação")],
-	["a posição sumiu", NO_NUMBER("Sumiu da lista do banco", "Sem saldo atual para calcular")],
-	["conexão removida", NO_NUMBER("Conexão removida", "Sem dados atuais para calcular")],
-	["sem posições", NO_NUMBER("Sem posições ativas", "Nada para calcular por enquanto")],
-	["não deu para calcular", NO_NUMBER("Sem como calcular", "Faltam dados do banco")],
-];
-
-/** O estado vazio para o motivo; motivo desconhecido ou ausente cai em "Sem como calcular". */
-export function emptyYield(reason: string | null | undefined): YieldEmpty {
-	const lower = reason?.trim().toLowerCase() ?? "";
-	for (const [prefix, empty] of EMPTY_BY_REASON) if (lower.startsWith(prefix)) return empty;
-	return NO_NUMBER("Sem como calcular", "O banco não enviou o que falta");
-}
-
 /** O motivo curto para mostrar no lugar de um número que faltou. */
 export function shortReason(reason: string | null | undefined): string {
 	const text = reason?.trim();
@@ -89,6 +50,38 @@ export function shortReason(reason: string | null | undefined): string {
 	const lower = text.toLowerCase();
 	for (const [prefix, short] of SHORT_REASONS) if (lower.startsWith(prefix)) return short;
 	return text;
+}
+
+/** Estado vazio de um número que não existe: ícone do app e UMA expressão curta (nunca traço, nunca zero). */
+export interface YieldEmpty {
+	icon: Extract<IconName, "relogio" | "grafico">;
+	title: string;
+}
+
+const NO_NUMBER = (title: string): YieldEmpty => ({ icon: "grafico", title });
+
+/**
+ * Motivo do servidor (prefixo) → estado vazio. Só os motivos que o engine devolve de fato sem número (posição, mês,
+ * total e gráfico); os de resgate parcial e "posição encerrada; ganho estimado" vêm COM número e nunca chegam aqui.
+ */
+const EMPTY_BY_REASON: ReadonlyArray<readonly [string, YieldEmpty]> = [
+	["sem histórico ainda", { icon: "relogio", title: "Em alguns dias" }],
+	["sem saldo informado", NO_NUMBER("Sem saldo")],
+	["sem valor aplicado", NO_NUMBER("Sem valor aplicado")],
+	["resgates maiores", NO_NUMBER("Sem como estimar")],
+	["posição encerrada: sem as movimentações", NO_NUMBER("Sem como calcular")],
+	["resgate ainda não lido", NO_NUMBER("Falta o resgate")],
+	["a posição sumiu", NO_NUMBER("Sumiu do banco")],
+	["conexão removida", NO_NUMBER("Conexão removida")],
+	["sem posições", NO_NUMBER("Sem posições")],
+	["não deu para calcular", NO_NUMBER("Sem como calcular")],
+];
+
+/** O estado vazio para o motivo; motivo desconhecido ou ausente cai em "Sem dados do banco". */
+export function emptyYield(reason: string | null | undefined): YieldEmpty {
+	const lower = reason?.trim().toLowerCase() ?? "";
+	for (const [prefix, empty] of EMPTY_BY_REASON) if (lower.startsWith(prefix)) return empty;
+	return NO_NUMBER("Sem dados do banco");
 }
 
 /** Pontos-base em percentual com uma casa: 370 → "3,7%", −50 → "−0,5%". Só texto, sem float. */
@@ -151,7 +144,7 @@ function card(
 		note,
 		empty,
 		a11y: empty
-			? `${label}: sem valor. ${empty.title}. ${empty.hint}`
+			? `${label}: sem valor. ${empty.title}`
 			: `${label}: ${value}, ${caption}${note ? `, ${note}` : ""}`,
 	};
 }
@@ -167,7 +160,7 @@ export function investedCard(cents: number | null, since: string | null, hidden:
 		caption,
 		note: null,
 		empty,
-		a11y: empty ? `Aplicado: sem valor. ${empty.title}. ${empty.hint}` : `Aplicado: ${value}, ${caption}`,
+		a11y: empty ? `Aplicado: sem valor. ${empty.title}` : `Aplicado: ${value}, ${caption}`,
 	};
 }
 

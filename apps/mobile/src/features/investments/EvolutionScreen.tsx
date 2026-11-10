@@ -158,7 +158,7 @@ export function EvolutionScreen() {
 								) : (
 									<EmptyNote
 										empty={emptyYield(evolution.data.reason ?? "sem histórico ainda")}
-										align="center"
+										arrange="column"
 									/>
 								)
 							) : (

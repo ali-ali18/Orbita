@@ -110,7 +110,7 @@ export function InvestmentDetailScreen() {
 						series={evolutionSeries(chart)}
 					/>
 				) : (
-					<EmptyNote empty={emptyYield("sem histórico ainda")} align="center" />
+					<EmptyNote empty={emptyYield("sem histórico ainda")} arrange="column" />
 				)}
 			</Card>
 			{lines.length > 0 ? (

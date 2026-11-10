@@ -1,3 +1,4 @@
+import { CLOSE_NOT_READ_REASON, NO_HISTORY_REASON, YIELD_REASONS } from "@orbita/core";
 import type {
 	InvestmentEvolutionPointDto,
 	InvestmentEvolutionResponse,
@@ -96,48 +97,42 @@ describe("cartões de rendimento", () => {
 		expect(c.caption).toBe("sem histórico ainda");
 		expect(c.tone).toBe("secondary");
 		expect(c.a11y).toContain("sem valor");
-		// Estado vazio desenhado: ícone e duas linhas, sem traço no lugar do número.
-		expect(c.empty).toEqual({
-			icon: "relogio",
-			title: "Começa a aparecer em alguns dias",
-			hint: "Precisa de 2 dias de histórico",
-		});
-		expect(c.a11y).toBe(
-			"Rendimento no mês: sem valor. Começa a aparecer em alguns dias. Precisa de 2 dias de histórico",
-		);
+		// Estado vazio desenhado: ícone e UMA expressão curta; nada de prazo que o engine não cumpre.
+		expect(c.empty).toEqual({ icon: "relogio", title: "Em alguns dias" });
+		expect(c.a11y).toBe("Rendimento no mês: sem valor. Em alguns dias");
 	});
 
-	it("cada motivo sem número tem texto curto próprio, e nenhum é traço", () => {
+	it("cada motivo que o engine realmente devolve sem número tem expressão própria de até 3 palavras", () => {
+		// Só motivos alcançáveis: os do engine com `cents: null` (posição, mês e total) e o do gráfico.
 		const reasons = [
-			"sem histórico ainda",
-			"sem saldo informado",
-			"sem valor aplicado e sem compras nas movimentações",
+			NO_HISTORY_REASON,
+			CLOSE_NOT_READ_REASON,
+			YIELD_REASONS.noBalance,
+			YIELD_REASONS.noBasis,
+			YIELD_REASONS.redemptionOverInvested,
+			YIELD_REASONS.closedUnknown,
+			YIELD_REASONS.vanished,
+			YIELD_REASONS.connectionRemoved,
+			YIELD_REASONS.notSafe,
 			"sem valor aplicado nem compras para calcular",
-			"resgates maiores que o valor aplicado; sem como estimar",
-			"posição encerrada: sem as movimentações completas para calcular o ganho",
-			"resgate ainda não lido nas movimentações",
-			"a posição sumiu da lista do banco: sem saldo atual para calcular",
-			"conexão removida: sem dados atuais para calcular",
 			"sem posições ativas",
-			"não deu para calcular com segurança",
-			"algo que o servidor passou a dizer",
-			null,
+			"sem posições",
 		];
-		const seen = new Set<string>();
 		for (const r of reasons) {
 			const e = emptyYield(r);
-			expect(e.title.length).toBeGreaterThan(0);
-			expect(e.hint.length).toBeGreaterThan(0);
-			expect(`${e.title}${e.hint}`).not.toMatch(/[—–-]$|^[—–-]/);
+			expect(e.title, r).not.toBe("");
+			expect(e.title.split(/\s+/).length, r).toBeLessThanOrEqual(3);
+			expect(e.title, r).not.toMatch(/[—–-]/);
 			expect(["relogio", "grafico"]).toContain(e.icon);
-			seen.add(e.title);
 		}
-		expect(emptyYield("sem saldo informado")).toMatchObject({ title: "Sem saldo informado" });
-		expect(emptyYield("sem valor aplicado nem compras para calcular")).toMatchObject({
-			title: "Sem valor aplicado",
-		});
-		expect(emptyYield(null)).toMatchObject({ icon: "grafico", title: "Sem como calcular" });
-		expect(seen.size).toBeGreaterThan(6);
+		expect(emptyYield(NO_HISTORY_REASON)).toEqual({ icon: "relogio", title: "Em alguns dias" });
+		expect(emptyYield("sem saldo informado").title).toBe("Sem saldo");
+		expect(emptyYield("sem valor aplicado nem compras para calcular").title).toBe("Sem valor aplicado");
+		expect(emptyYield(YIELD_REASONS.vanished).title).toBe("Sumiu do banco");
+		const fallback = emptyYield(null);
+		expect(fallback).toEqual({ icon: "grafico", title: "Sem dados do banco" });
+		// Texto desconhecido cai no genérico, sem quebrar.
+		expect(emptyYield("algo novo do servidor")).toEqual(fallback);
 	});
 
 	it("com número não há estado vazio (e valor conhecido nunca vira vazio, nem zero)", () => {
@@ -164,7 +159,7 @@ describe("cartões de rendimento", () => {
 		});
 		const none = investedCard(null, null, false);
 		expect(none.value).toBeNull();
-		expect(none.empty).toMatchObject({ title: "Sem valor aplicado" });
+		expect(none.empty).toEqual({ icon: "grafico", title: "Sem valor aplicado" });
 	});
 
 	it("mês parcial avisa quantas posições entraram", () => {
