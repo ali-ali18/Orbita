@@ -235,3 +235,48 @@ describe.each(contractSuites())("InvestmentStore (%s)", (_name, make) => {
 		);
 	});
 });
+
+describe.each(contractSuites())("InvestmentStore: marcadores de leitura (%s)", (_name, make) => {
+	let stores: Stores;
+	beforeEach(async () => {
+		stores = await make();
+	});
+
+	it("archiveMissing com mínimo de leituras ausentes: só arquiva na enésima seguida; reaparecer zera", async () => {
+		const a = await stores.investments.upsertPosition({ ...base, externalId: "a" });
+		await stores.investments.upsertPosition({ ...base, externalId: "b" });
+		expect(a.record.missingReads).toBe(0);
+		// Lista vazia 1ª vez: nada arquivado, contador sobe.
+		expect(await stores.investments.archiveMissing("pluggy", "item-1", [], 2)).toBe(0);
+		expect((await stores.investments.list()).map((i) => i.missingReads)).toEqual([1, 1]);
+		// "a" volta: contador dela zera; a 2ª leitura vazia arquiva só "b".
+		await stores.investments.upsertPosition({ ...base, externalId: "a" });
+		expect(await stores.investments.archiveMissing("pluggy", "item-1", [], 2)).toBe(1);
+		expect((await stores.investments.list()).map((i) => [i.externalId, i.missingReads])).toEqual([["a", 1]]);
+	});
+
+	it("movimentações lidas depois de arquivar: o contador sobe só se arquivada e zera ao desarquivar", async () => {
+		const { record } = await stores.investments.upsertPosition({ ...base, status: "ACTIVE" });
+		expect(await stores.investments.markMovementsRead(record.id)).toBe(0);
+		const closed = await stores.investments.upsertPosition({
+			...base,
+			status: "TOTAL_WITHDRAWAL",
+			balanceCents: 0,
+		});
+		expect(closed.record.movementsClosedReads).toBe(0);
+		expect(await stores.investments.markMovementsRead(record.id)).toBe(1);
+		expect(await stores.investments.markMovementsRead(record.id)).toBe(2);
+		// Regravar a posição encerrada não zera.
+		const again = await stores.investments.upsertPosition({
+			...base,
+			status: "TOTAL_WITHDRAWAL",
+			balanceCents: 0,
+		});
+		expect(again.record.movementsClosedReads).toBe(2);
+		const back = await stores.investments.upsertPosition({ ...base, status: "ACTIVE", balanceCents: 5 });
+		expect(back.record.movementsClosedReads).toBe(0);
+		await expect(stores.investments.markMovementsRead("fantasma")).rejects.toMatchObject({
+			code: "not_found",
+		});
+	});
+});

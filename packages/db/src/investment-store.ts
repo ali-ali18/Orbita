@@ -54,6 +54,10 @@ export interface InvestmentRecord extends InvestmentFields {
 	syncedAt: Date;
 	/** Sumiu da lista da fonte ou chegou a TOTAL_WITHDRAWAL. A posição NUNCA é apagada. */
 	archivedAt: Date | null;
+	/** Leituras seguidas em que a posição sumiu da lista (zera quando ela volta). */
+	missingReads: number;
+	/** Leituras de movimentações bem-sucedidas depois de arquivada (zera se desarquivar). */
+	movementsClosedReads: number;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -144,14 +148,22 @@ export interface InvestmentStore {
 		input: InvestmentInput,
 	): Promise<{ record: InvestmentRecord; created: boolean; wasArchived: boolean }>;
 	/**
-	 * Arquiva as posições NÃO arquivadas da conexão que não estão em `presentExternalIds` (sumiram da lista da fonte).
-	 * Devolve quantas. Só chamar depois de uma leitura que deu certo: lista que falhou não pode arquivar nada.
+	 * Conta uma leitura em que as posições NÃO arquivadas da conexão não vieram em `presentExternalIds` e arquiva as que
+	 * já chegaram a `minAbsentReads` leituras seguidas ausentes (padrão 1 = arquiva já). Quem voltou a vir tem o contador
+	 * zerado por `upsertPosition`. Devolve quantas arquivou. Só chamar depois de uma leitura que deu certo: lista que
+	 * falhou não pode arquivar nada; lista vazia deve pedir 2 ou mais (pode ser falha disfarçada de "ok").
 	 */
 	archiveMissing(
 		source: string,
 		connectionId: string,
 		presentExternalIds: readonly string[],
+		minAbsentReads?: number,
 	): Promise<number>;
+	/**
+	 * Registra uma leitura de movimentações bem-sucedida. Só conta se a posição está arquivada (devolve o novo total de
+	 * leituras depois do arquivamento; 0 se não arquivada). `not_found` se não existe.
+	 */
+	markMovementsRead(id: string): Promise<number>;
 	get(id: string): Promise<InvestmentRecord | null>;
 	/** Mais antigas primeiro. */
 	list(filter?: InvestmentListFilter): Promise<InvestmentRecord[]>;

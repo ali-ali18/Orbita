@@ -785,6 +785,10 @@ model Investment {
   /// Última vez que a sincronização viu esta posição na lista.
   syncedAt             DateTime  @map("synced_at")
   archivedAt           DateTime? @map("archived_at")
+  /// Leituras seguidas em que a posição não veio na lista da fonte (só arquiva com o mínimo exigido: lista vazia "ok" pode ser falha).
+  missingReads         Int       @default(0) @map("missing_reads")
+  /// Leituras de movimentações bem-sucedidas DEPOIS de a posição ser arquivada (o resgate final pode chegar atrasado: relê até ter o bastante).
+  movementsClosedReads Int       @default(0) @map("movements_closed_reads")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 

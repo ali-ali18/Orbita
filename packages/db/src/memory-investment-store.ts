@@ -38,6 +38,8 @@ export function createMemoryInvestmentStore(state: MemoryState): InvestmentStore
 					...data,
 					syncedAt: at,
 					archivedAt: closed ? at : null,
+					missingReads: 0,
+					movementsClosedReads: 0,
 					createdAt: at,
 					updatedAt: at,
 				};
@@ -49,22 +51,38 @@ export function createMemoryInvestmentStore(state: MemoryState): InvestmentStore
 				...data,
 				syncedAt: at,
 				archivedAt: closed ? (current.archivedAt ?? at) : null,
+				missingReads: 0,
+				movementsClosedReads: closed ? current.movementsClosedReads : 0,
 				updatedAt: at,
 			};
 			state.investments.set(record.id, record);
 			return { record: { ...record }, created: false, wasArchived: current.archivedAt !== null };
 		},
-		async archiveMissing(source, connectionId, presentExternalIds) {
+		async archiveMissing(source, connectionId, presentExternalIds, minAbsentReads = 1) {
 			const present = new Set(presentExternalIds);
 			const at = state.now();
 			let count = 0;
-			for (const i of state.investments.values()) {
+			for (const i of [...state.investments.values()]) {
 				if (i.source !== source || i.connectionId !== connectionId) continue;
 				if (i.archivedAt !== null || present.has(i.externalId)) continue;
-				state.investments.set(i.id, { ...i, archivedAt: at, updatedAt: at });
-				count++;
+				const missingReads = i.missingReads + 1;
+				const archive = missingReads >= minAbsentReads;
+				state.investments.set(i.id, {
+					...i,
+					missingReads,
+					archivedAt: archive ? at : null,
+					updatedAt: at,
+				});
+				if (archive) count++;
 			}
 			return count;
+		},
+		async markMovementsRead(id) {
+			const current = need(id);
+			if (current.archivedAt === null) return 0;
+			const next = { ...current, movementsClosedReads: current.movementsClosedReads + 1 };
+			state.investments.set(id, next);
+			return next.movementsClosedReads;
 		},
 		async get(id) {
 			const found = state.investments.get(id);

@@ -34,6 +34,8 @@ CREATE TABLE "investments" (
     "issuer" TEXT,
     "synced_at" TIMESTAMP(3) NOT NULL,
     "archived_at" TIMESTAMP(3),
+    "missing_reads" INTEGER NOT NULL DEFAULT 0,
+    "movements_closed_reads" INTEGER NOT NULL DEFAULT 0,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 

@@ -60,6 +60,8 @@ const toRecord = (row: PositionRow): InvestmentRecord => ({
 	issuer: row.issuer,
 	syncedAt: row.syncedAt,
 	archivedAt: row.archivedAt,
+	missingReads: row.missingReads,
+	movementsClosedReads: row.movementsClosedReads,
 	createdAt: row.createdAt,
 	updatedAt: row.updatedAt,
 });
@@ -131,6 +133,8 @@ export function createPrismaInvestmentStore(db: Db, now: Clock): InvestmentStore
 							...columns(data),
 							syncedAt: at,
 							archivedAt: closed ? at : null,
+							missingReads: 0,
+							movementsClosedReads: 0,
 							createdAt: at,
 							updatedAt: at,
 						},
@@ -143,6 +147,8 @@ export function createPrismaInvestmentStore(db: Db, now: Clock): InvestmentStore
 						...columns(data),
 						syncedAt: at,
 						archivedAt: closed ? (current.archivedAt ?? at) : null,
+						missingReads: 0,
+						movementsClosedReads: closed ? current.movementsClosedReads : 0,
 						updatedAt: at,
 					},
 				});
@@ -156,18 +162,32 @@ export function createPrismaInvestmentStore(db: Db, now: Clock): InvestmentStore
 				throw e;
 			}
 		},
-		async archiveMissing(source, connectionId, presentExternalIds) {
+		async archiveMissing(source, connectionId, presentExternalIds, minAbsentReads = 1) {
 			const at = now();
-			const r = await db.investment.updateMany({
-				where: {
-					source,
-					connectionId,
-					archivedAt: null,
-					externalId: { notIn: [...presentExternalIds] },
-				},
-				data: { archivedAt: at, updatedAt: at },
+			const where = {
+				source,
+				connectionId,
+				archivedAt: null,
+				externalId: { notIn: [...presentExternalIds] },
+			};
+			// Uma transação: conta a leitura ausente e arquiva quem chegou ao mínimo.
+			return db.$transaction(async (tx) => {
+				await tx.investment.updateMany({ where, data: { missingReads: { increment: 1 }, updatedAt: at } });
+				const r = await tx.investment.updateMany({
+					where: { ...where, missingReads: { gte: minAbsentReads } },
+					data: { archivedAt: at, updatedAt: at },
+				});
+				return r.count;
 			});
-			return r.count;
+		},
+		async markMovementsRead(id) {
+			await exists(id);
+			await db.investment.updateMany({
+				where: { id, archivedAt: { not: null } },
+				data: { movementsClosedReads: { increment: 1 } },
+			});
+			const row = await db.investment.findUniqueOrThrow({ where: { id } });
+			return row.archivedAt === null ? 0 : row.movementsClosedReads;
 		},
 		async get(id) {
 			const row = await db.investment.findUnique({ where: { id } });
