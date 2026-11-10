@@ -46,16 +46,21 @@ const c6Card = { ...cardAccount, name: "Mastercard Black", marketingName: null }
 function setup(initial: FakePluggyOptions = {}) {
 	let options = initial;
 	let clock = NOW;
+	const seen: { url: URL }[] = [];
 	const stores = createMemoryStores({ now: () => clock });
 	const deps = (): SyncPluggyDeps => ({
 		stores,
 		readSecret: async (name) => SECRETS[name] ?? null,
 		// Um Pluggy falso novo a cada pedido: as opções podem mudar entre uma rodada e outra.
-		fetch: (url, init) => fakePluggy(options).fetch(url, init),
+		fetch: (url, init) => {
+			const fake = fakePluggy(options);
+			return fake.fetch(url, init).finally(() => seen.push(...fake.requests));
+		},
 		now: () => clock,
 	});
 	return {
 		stores,
+		fakeRequests: async () => seen,
 		run: () => syncPluggy(deps()),
 		set: (next: FakePluggyOptions) => {
 			options = next;
@@ -146,6 +151,25 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		// O emissor (ISPB do C6) vai para a conta e o cartão: é ele que dá o logo no app.
 		expect((await t.stores.accounts.list())[0]?.bankCode).toBe("31872495");
 		expect((await t.stores.cards.list())[0]).toMatchObject({ bankCode: "31872495", name: "C6 Bank" });
+	});
+
+	it("conexão gravada 'ok' com zero contas pela versão antiga conta como nova: busca os 6 meses quando as contas chegam", async () => {
+		const t = setup({
+			item: { connector: MEU },
+			accounts: [c6Account, c6Card],
+			transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: [] },
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+		// O que a versão antiga gravava: ok, janela avançada e historyFrom preenchido, sem nenhuma conta.
+		await t.stores.pluggyConnections.recordSync(ITEM_ID, {
+			status: "ok",
+			syncedAt: new Date("2026-11-10T09:00:00Z"),
+			historyFrom: "2026-05-13",
+			counts: { accounts: 0, cards: 0 },
+		});
+		await t.run();
+		const froms = (await t.fakeRequests()).filter((r) => r.url.pathname === "/v2/transactions");
+		expect(froms.map((r) => r.url.searchParams.get("dateFrom"))).toEqual(["2026-05-13", "2026-05-13"]);
 	});
 
 	it("conexão antiga e vazia não fica pedindo nova tentativa para sempre", async () => {
@@ -359,6 +383,61 @@ describe("conta em formato inesperado", () => {
 			result.connections[0]?.notes.some((n) => /^1 fatura\(s\) vieram fora do formato .*id: /.test(n)),
 		).toBe(true);
 		expect(result.connections[0]?.bankNumbers?.bills).toBe(1);
+	});
+});
+
+describe("conexão partial que não se resolve sozinha", () => {
+	const withBadRow: FakePluggyOptions = {
+		item: { connector: MEU },
+		accounts: [bankAccount, { type: "CREDIT", name: "Cartão sem id" }],
+		transactions: { [BANK_ACCOUNT_ID]: [] },
+	};
+	const froms = async (t: ReturnType<typeof setup>) =>
+		(await t.fakeRequests())
+			.filter((r) => r.url.pathname === "/v2/transactions")
+			.map((r) => r.url.searchParams.get("dateFrom"));
+
+	it("só linha recusada por formato: continua partial, mas a janela avança", async () => {
+		const t = setup(withBadRow);
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		expect(await t.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({
+			lastStatus: "partial",
+			lastSyncAt: NOW,
+			historyFrom: "2026-05-13",
+			accountCount: 1,
+		});
+		t.setNow(new Date("2026-11-13T09:00:00Z"));
+		await t.run();
+		// Rotina (4 meses), não os 6 meses de novo.
+		expect((await froms(t)).at(-1)).toBe("2026-07-14");
+	});
+
+	it("outro motivo junto (conta que não sincronizou) não avança a janela", async () => {
+		const t = setup({ ...withBadRow, item: { connector: MEU, status: "OUTDATED" } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		expect(await t.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({
+			lastStatus: "partial",
+			lastSyncAt: null,
+		});
+	});
+
+	it("a janela nunca passa de 6 meses, mesmo com a última sincronização boa muito antiga", async () => {
+		const t = setup({
+			item: { connector: MEU },
+			accounts: [bankAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [] },
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.stores.pluggyConnections.recordSync(ITEM_ID, {
+			status: "ok",
+			syncedAt: new Date("2026-01-02T09:00:00Z"),
+			historyFrom: "2025-07-01",
+			counts: { accounts: 1, cards: 0 },
+		});
+		await t.run();
+		expect(await froms(t)).toEqual(["2026-05-13"]);
 	});
 });
 

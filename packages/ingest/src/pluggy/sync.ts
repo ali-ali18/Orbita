@@ -176,6 +176,11 @@ export interface ConnectionSyncResult {
 	 * nova e ainda não trouxe conta. `notBefore`: quando o Pluggy diz que atualiza o item (`nextAutoSyncAt`).
 	 */
 	retry?: { reason: "updating" | "no_accounts"; notBefore?: string };
+	/**
+	 * `partial` cujo único motivo é conta recusada por formato, com todas as aceitas sincronizadas: repetir a janela
+	 * não ajuda, então ela avança como numa rodada `ok` (a conta recusada continua avisada a cada rodada).
+	 */
+	windowDone?: boolean;
 	/** Avisos que não são erro (conta ignorada, por exemplo). Sem segredo. */
 	notes: string[];
 }
@@ -388,8 +393,12 @@ async function finish(
 	await deps.stores.pluggyConnections.recordSync(connection.id, {
 		status: result.status,
 		error: result.error,
-		...(result.status === "ok" && startedAt
-			? { syncedAt: startedAt, ...(from ? { historyFrom: from } : {}) }
+		...((result.status === "ok" || (result.status === "partial" && result.windowDone)) && startedAt
+			? {
+					syncedAt: startedAt,
+					...(from ? { historyFrom: from } : {}),
+					...(result.status === "partial" ? { windowDone: true } : {}),
+				}
 			: {}),
 		...(result.counts ? { counts: result.counts } : {}),
 		...(typeof result.isOpenFinance === "boolean" ? { isOpenFinance: result.isOpenFinance } : {}),
@@ -409,6 +418,8 @@ async function syncConnection(
 	const result = blank(connection.id, "ok", null);
 	// Motivos para a conexão terminar `partial`: não avança `lastSyncAt`, então a próxima rodada refaz a janela.
 	const partial: string[] = [];
+	// Dos motivos acima, os que são só linha recusada por formato (repetir a janela não os resolve).
+	const formatOnly = new Set<string>();
 	// Começo do `lastError` que o app reconhece ("Atualizando no banco…", "ainda não enviou contas").
 	let lead: string | null = null;
 	try {
@@ -447,7 +458,9 @@ async function syncConnection(
 			result.notes.push(
 				`${accountsRead.dropped} conta(s) vieram do Pluggy fora do formato e não foram importadas (${accountsRead.problems.join("; ") || "sem detalhe"}). Mande o Diagnóstico da conexão para corrigir.`,
 			);
-			partial.push(`${accountsRead.dropped} conta(s) vieram fora do formato`);
+			const reason = `${accountsRead.dropped} conta(s) vieram fora do formato`;
+			partial.push(reason);
+			formatOnly.add(reason);
 		}
 		if (
 			pluggyAccounts.length === 0 &&
@@ -814,6 +827,7 @@ async function syncConnection(
 		if (result.failed > 0) partial.push(`${result.failed} lançamento(s) não puderam ser gravados`);
 		if (partial.length > 0) {
 			result.status = "partial";
+			result.windowDone = partial.every((reason) => formatOnly.has(reason));
 			result.error =
 				lead !== null
 					? `${lead} O Órbita tenta de novo sozinho; você também pode tocar em Sincronizar agora mais tarde.`
@@ -1179,18 +1193,24 @@ async function linkAccounts(
 /**
  * O começo da janela. Conexão nova (sem sincronização boa) ou que nunca buscou os 6 meses (`historyFrom` ausente ou
  * mais recente que hoje − 183 dias, como as criadas quando o histórico era de 4 meses): desde hoje − 183 dias, uma vez
- * (a rodada boa registra `historyFrom`). Depois: no mínimo 4 meses, ou mais se a última sincronização boa for anterior.
+ * (a rodada boa registra `historyFrom`). Depois: no mínimo 4 meses, ou mais se a última sincronização boa for anterior,
+ * limitado aos 6 meses (uma conexão `partial` permanente não pode fazer a janela crescer sem teto).
  */
 export function syncWindowStart(
 	today: string,
-	connection: Pick<PluggyConnectionRecord, "lastSyncAt" | "historyFrom">,
+	connection: Pick<PluggyConnectionRecord, "lastSyncAt" | "historyFrom" | "accountCount" | "cardCount">,
 ): string {
 	const full = addDays(today, -FIRST_SYNC_DAYS);
 	const { lastSyncAt, historyFrom } = connection;
-	if (lastSyncAt === null || historyFrom === null || historyFrom > full) return full;
+	// Sem conta nem cartão a conexão ainda não buscou nada: a versão antiga gravava "ok" com zero contas e já avançava
+	// `lastSyncAt` e `historyFrom`. Quando as contas chegam, é a primeira busca de verdade.
+	const neverHadAccounts = connection.accountCount + connection.cardCount === 0;
+	if (lastSyncAt === null || historyFrom === null || historyFrom > full || neverHadAccounts) return full;
 	const routine = addDays(today, -ROUTINE_SYNC_DAYS);
 	const overlap = addDays(toLocalDate(lastSyncAt), -OVERLAP_DAYS);
-	return [routine, overlap].sort()[0] ?? routine;
+	// Teto: a janela cresce quando a última sincronização boa é antiga, mas nunca passa dos 6 meses iniciais.
+	const start = [routine, overlap].sort()[0] ?? routine;
+	return start < full ? full : start;
 }
 
 const bump = (counts: ConnectionSyncResult["skipped"], key: SkipReason | "archived_account") => {
