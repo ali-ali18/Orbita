@@ -30,6 +30,10 @@ export interface CardRecord {
 	source: TransactionSource;
 	externalId: string | null;
 	archivedAt: Date | null;
+	/** A conexão do Meu Pluggy (itemId) que a sincronização ligou. `null`: manual, ou ligada antes do vínculo existir. */
+	connectionId: string | null;
+	/** Motivo do arquivamento que não foi do dono: "connection_removed". Só ele pode ser desfeito ao reconectar. */
+	archiveReason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -77,6 +81,19 @@ export interface CardStore {
 	findByExternal(source: TransactionSource, externalId: string): Promise<CardRecord | null>;
 	/** Como `AccountStore.relinkExternal`, para cartão: troca só o identificador externo (mesma origem). */
 	relinkExternal(id: string, externalId: string): Promise<CardRecord | null>;
+	/** Liga o cartão à conexão do Meu Pluggy que o trouxe (idempotente, sem mexer em `updatedAt`). `null` se não existe ou é manual. */
+	linkConnection(id: string, connectionId: string): Promise<CardRecord | null>;
+	/** A conexão saiu: arquiva os cartões vivos ligados a ela (motivo "connection_removed"); faturas e lançamentos ficam. Devolve quantos. */
+	archiveByConnection(connectionId: string): Promise<number>;
+	/** Como `AccountStore.archiveOrphans`, para cartão. */
+	archiveOrphans(
+		liveConnectionIds: readonly string[],
+		options: { includeUnlinked: boolean },
+	): Promise<number>;
+	/** As arquivadas porque a conexão saiu (candidatas a religar quando o banco é reconectado). */
+	listRemovedByConnection(): Promise<CardRecord[]>;
+	/** Reconectou: desarquiva se o arquivamento foi por conexão removida (o do dono fica). `null` se não existe. */
+	restoreFromConnection(id: string): Promise<CardRecord | null>;
 	/** Atalho para o engine: `invoiceFor(date, (await cards.getConfig(id))!)`. */
 	getConfig(id: string): Promise<CardConfig | null>;
 	/**

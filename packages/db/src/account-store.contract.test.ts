@@ -146,4 +146,71 @@ describe.each(contractSuites())("AccountStore: cadastro de fora (%s)", (_name, m
 			code: "invalid",
 		});
 	});
+
+	it("a conexão que sai arquiva as vivas dela (motivo) e deixa as outras; reconectar desarquiva só esse arquivamento", async () => {
+		const a = await stores.accounts.create({
+			name: "A",
+			kind: "checking",
+			source: "pluggy",
+			externalId: "a",
+		});
+		const b = await stores.accounts.create({
+			name: "B",
+			kind: "checking",
+			source: "pluggy",
+			externalId: "b",
+		});
+		const manual = await stores.accounts.create({ name: "M", kind: "checking" });
+		expect(a).toMatchObject({ connectionId: null, archiveReason: null });
+		expect(await stores.accounts.linkConnection(a.id, "conn-1")).toMatchObject({ connectionId: "conn-1" });
+		await stores.accounts.linkConnection(b.id, "conn-2");
+		expect(await stores.accounts.linkConnection(manual.id, "conn-1")).toBeNull();
+		expect(await stores.accounts.linkConnection("nada", "conn-1")).toBeNull();
+		expect(await stores.accounts.archiveByConnection("conn-1")).toBe(1);
+		expect(await stores.accounts.archiveByConnection("conn-1")).toBe(0);
+		expect((await stores.accounts.list()).map((x) => x.id)).toEqual([b.id, manual.id]);
+		expect(await stores.accounts.get(a.id)).toMatchObject({
+			archiveReason: "connection_removed",
+			connectionId: "conn-1",
+		});
+		expect((await stores.accounts.get(a.id))?.archivedAt).toBeInstanceOf(Date);
+		expect((await stores.accounts.listRemovedByConnection()).map((x) => x.id)).toEqual([a.id]);
+		const back = await stores.accounts.restoreFromConnection(a.id);
+		expect(back).toMatchObject({ archivedAt: null, archiveReason: null, connectionId: "conn-1" });
+		expect((await stores.accounts.list()).map((x) => x.id)).toEqual([a.id, b.id, manual.id]);
+		expect(await stores.accounts.listRemovedByConnection()).toEqual([]);
+		expect(await stores.accounts.restoreFromConnection("nada")).toBeNull();
+	});
+
+	it("arquivamento do dono não é desfeito por reconexão", async () => {
+		const a = await stores.accounts.create({
+			name: "A",
+			kind: "checking",
+			source: "pluggy",
+			externalId: "a",
+		});
+		await stores.accounts.linkConnection(a.id, "conn-1");
+		await stores.accounts.archive(a.id);
+		const kept = await stores.accounts.restoreFromConnection(a.id);
+		expect(kept?.archivedAt).toBeInstanceOf(Date);
+		expect(kept?.archiveReason).toBeNull();
+		expect(await stores.accounts.archiveByConnection("conn-1")).toBe(0);
+	});
+
+	it("archiveOrphans: conexão que não está entre as vivas; sem vínculo só com includeUnlinked; manual nunca", async () => {
+		const mk = (name: string, externalId: string) =>
+			stores.accounts.create({ name, kind: "checking", source: "pluggy", externalId });
+		const live = await mk("viva", "1");
+		const gone = await mk("saiu", "2");
+		const legacy = await mk("antiga", "3");
+		const manual = await stores.accounts.create({ name: "M", kind: "checking" });
+		await stores.accounts.linkConnection(live.id, "conn-live");
+		await stores.accounts.linkConnection(gone.id, "conn-gone");
+		expect(await stores.accounts.archiveOrphans(["conn-live"], { includeUnlinked: false })).toBe(1);
+		expect((await stores.accounts.list()).map((x) => x.id)).toEqual([live.id, legacy.id, manual.id]);
+		expect(await stores.accounts.archiveOrphans(["conn-live"], { includeUnlinked: true })).toBe(1);
+		expect((await stores.accounts.list()).map((x) => x.id)).toEqual([live.id, manual.id]);
+		expect(await stores.accounts.archiveOrphans([], { includeUnlinked: true })).toBe(1);
+		expect((await stores.accounts.list()).map((x) => x.id)).toEqual([manual.id]);
+	});
 });

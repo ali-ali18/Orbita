@@ -30,6 +30,8 @@ export function createMemoryAccountStore(state: MemoryState): AccountStore {
 				balanceCents: null,
 				balanceSyncedAt: null,
 				archivedAt: null,
+				connectionId: null,
+				archiveReason: null,
 				createdAt: now,
 				updatedAt: now,
 			};
@@ -77,6 +79,51 @@ export function createMemoryAccountStore(state: MemoryState): AccountStore {
 			const updated = { ...current, externalId: next, updatedAt: state.now() };
 			state.accounts.set(id, updated);
 			return { ...updated };
+		},
+		async linkConnection(id, connectionId) {
+			const current = state.accounts.get(id);
+			if (!current || current.source === "manual") return null;
+			const next = { ...current, connectionId };
+			state.accounts.set(id, next);
+			return { ...next };
+		},
+		async archiveByConnection(connectionId) {
+			const at = state.now();
+			let count = 0;
+			for (const [id, x] of state.accounts) {
+				if (x.connectionId !== connectionId || x.archivedAt !== null) continue;
+				state.accounts.set(id, { ...x, archivedAt: at, archiveReason: "connection_removed", updatedAt: at });
+				count += 1;
+			}
+			return count;
+		},
+		async archiveOrphans(liveConnectionIds, { includeUnlinked }) {
+			const at = state.now();
+			const live = new Set(liveConnectionIds);
+			let count = 0;
+			for (const [id, x] of state.accounts) {
+				if (x.source !== "pluggy" || x.archivedAt !== null) continue;
+				const gone = x.connectionId === null ? includeUnlinked : !live.has(x.connectionId);
+				if (!gone) continue;
+				state.accounts.set(id, { ...x, archivedAt: at, archiveReason: "connection_removed", updatedAt: at });
+				count += 1;
+			}
+			return count;
+		},
+		async listRemovedByConnection() {
+			return [...state.accounts.values()]
+				.filter((x) => x.archivedAt !== null && x.archiveReason === "connection_removed")
+				.sort(byCreated)
+				.map((x) => ({ ...x }));
+		},
+		async restoreFromConnection(id) {
+			const current = state.accounts.get(id);
+			if (!current) return null;
+			if (current.archivedAt === null || current.archiveReason !== "connection_removed")
+				return { ...current };
+			const next = { ...current, archivedAt: null, archiveReason: null, updatedAt: state.now() };
+			state.accounts.set(id, next);
+			return { ...next };
 		},
 		async recordBalance(id, balanceCents, syncedAt) {
 			const next = { ...need(id), balanceCents: cleanBalance(balanceCents), balanceSyncedAt: syncedAt };

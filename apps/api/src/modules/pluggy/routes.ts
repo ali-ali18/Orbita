@@ -4,6 +4,7 @@ import {
 	diagnoseConnection,
 	PluggyError,
 	type PluggyFetch,
+	removePluggyConnection,
 	safeText,
 } from "@orbita/ingest";
 import {
@@ -103,10 +104,16 @@ export function routes({
 			},
 		)
 		.delete("/v1/pluggy/connections/:id", validate("param", pluggyConnectionIdParam), async (c) => {
-			// Só para de sincronizar: contas e lançamentos que já vieram ficam.
+			// Remover e MANTER o histórico (não há "remover e apagar" por conexão; o reimport é geral): as contas e os
+			// cartões dela são arquivados (saem de saldo, limites, faturas abertas e contagens) e os lançamentos ficam.
 			const { id } = c.req.valid("param");
 			const connection = orNotFound(await pluggyConnections.get(id), "Conexão");
-			await pluggyConnections.remove(id);
+			const archived = await removePluggyConnection(stores, id);
+			// Dados anteriores ao vínculo conta → conexão não dizem de quem são: nada foi arquivado aqui, e a próxima
+			// sincronização completa os arquiva (as de conexão que não existe mais). Pede essa rodada agora.
+			if (archived.accounts + archived.cards === 0 && syncQueue) {
+				await syncQueue.enqueue().catch(() => undefined);
+			}
 			return c.json({ connection: toPluggyConnectionDto(connection) });
 		})
 		.post("/v1/pluggy/connect-sessions", async (c) => {

@@ -12,6 +12,7 @@ import {
 } from "@orbita/core";
 import {
 	type AccountRecord,
+	ARCHIVE_CONNECTION_REMOVED,
 	type CardRecord,
 	DataError,
 	type PluggyConnectionRecord,
@@ -27,6 +28,7 @@ import {
 	PLUGGY_NO_DATA_PREFIX,
 	PLUGGY_ONLY_INVESTMENTS_PREFIX,
 	PLUGGY_RECONNECT_MESSAGE,
+	PLUGGY_REMOVED_MESSAGE,
 	PLUGGY_UNREAD_PRODUCTS_PREFIX,
 	PLUGGY_UPDATING_PREFIX,
 	type PluggySyncStatus,
@@ -94,6 +96,7 @@ import {
 	rekeyRelinked,
 	relinkKey,
 } from "./relink.ts";
+import { archiveConnectionData, archiveOrphanedData, removePluggyConnection } from "./removal.ts";
 import { categorizeSalaryCredits } from "./salary.ts";
 import type { PluggyAccount, PluggyBill, PluggyItem, PluggyTransaction } from "./schemas.ts";
 
@@ -146,6 +149,10 @@ export interface ConnectionSyncResult {
 	status: PluggySyncStatus;
 	error: string | null;
 	accounts: number;
+	/** O item não existe mais no Meu Pluggy (404): as contas e cartões dela foram arquivados; os lançamentos ficam. */
+	removedAtSource?: boolean;
+	/** Contas/cartões que esta rodada não conseguiu ligar (esperam outra rodada). Com isso o varredor de órfãos não age. */
+	unlinked?: number;
 	/** Contas e cartões (não arquivados) ligados à conexão; ausente se a sincronização parou antes de ligar. */
 	counts?: { accounts: number; cards: number };
 	/** O que a rodada gravou do que o banco informa: saldos, limites disponíveis e faturas (só quando gravou algo). */
@@ -238,7 +245,17 @@ export async function syncPluggy(
 	// sincronização é filtrado por `connectionIds`.
 	const everyConnection = await stores.pluggyConnections.list();
 	const connections = everyConnection.filter((c) => only === null || only.has(c.id));
-	if (connections.length === 0) return { status: "no_connections", connections: [] };
+	if (connections.length === 0) {
+		// Todas as conexões saíram: o que veio por elas já não conta (e não depende de chaves nem do Pluggy).
+		if (everyConnection.length === 0) {
+			try {
+				await archiveOrphanedData(stores, [], { includeUnlinked: true });
+			} catch {
+				log("pluggy: não deu para arquivar contas de conexão removida");
+			}
+		}
+		return { status: "no_connections", connections: [] };
+	}
 
 	let clientId: string | null;
 	let clientSecret: string | null;
@@ -291,6 +308,20 @@ export async function syncPluggy(
 		startedAt,
 		results,
 	);
+	// Conexão que não existe mais deixa as contas dela arquivadas. Sem vínculo gravado (dados antigos), só quando todas as
+	// conexões vivas foram lidas e ligaram o que é delas; numa rodada parcial (`connectionIds`) nem isso.
+	if (only === null) {
+		const everyRead = results.every((r) => r.counts !== undefined && (r.unlinked ?? 0) === 0);
+		try {
+			await archiveOrphanedData(
+				stores,
+				everyConnection.map((c) => c.id),
+				{ includeUnlinked: everyRead },
+			);
+		} catch {
+			log("pluggy: não deu para arquivar contas de conexão removida");
+		}
+	}
 	await labelSalary(deps, startedAt, log);
 	const statuses = new Set(results.map((r) => r.status));
 	const status: PluggySyncStatus = statuses.has("error")
@@ -501,7 +532,23 @@ async function syncConnection(
 		const today = toLocalDate(startedAt);
 		let from = syncWindowStart(today, connection);
 
-		const item = await client.item(connection.id);
+		let item: PluggyItem;
+		try {
+			item = await client.item(connection.id);
+		} catch (e) {
+			// 404 no item: o dono o removeu no meu.pluggy.ai. Não é falha: a conexão passa a dizer isso, as contas dela
+			// saem do saldo (arquivadas) e os lançamentos já importados ficam. Conexão que nunca sincronizou e nunca teve
+			// conta é id errado, não item removido: segue como erro comum.
+			const known = connection.lastSyncAt !== null || connection.accountCount + connection.cardCount > 0;
+			if (!(e instanceof PluggyError && e.code === "not_found" && known)) throw e;
+			await archiveConnectionData(deps.stores, connection.id);
+			result.status = "error";
+			result.error = PLUGGY_REMOVED_MESSAGE;
+			result.removedAtSource = true;
+			result.counts = { accounts: 0, cards: 0 };
+			delete result.retry;
+			return result;
+		}
 		// `connector.isOpenFinance` (docs.pluggy.ai/reference/items-retrieve): onde `providerId`, `billId`,
 		// `billForecastDate` e o `operationType` do Open Finance podem vir. Guardado na conexão.
 		if (typeof item.connector?.isOpenFinance === "boolean")
@@ -621,7 +668,9 @@ async function syncConnection(
 			result,
 			bankName,
 			guard,
+			connection.id,
 		);
+		result.unlinked = deferredCards + deferredRelink;
 		// Conexão que ainda não importou lançamento nem fatura nenhum (o espelho do MeuPluggy pode entregar a conta antes
 		// dos dados) é nova: a janela é a inicial, mesmo que uma rodada anterior tenha terminado `ok` e gasto `historyFrom`.
 		const imported = await hasImportedData(deps, linked);
@@ -1167,11 +1216,18 @@ async function inheritAccount(
 	currentIds: ReadonlySet<string>,
 	rivals: number,
 ): Promise<Inherit<AccountRecord>> {
-	const candidate = pickRelinkAccount(await deps.stores.accounts.list(), currentIds, mapped.input, rivals);
+	const pool = [
+		...(await deps.stores.accounts.list()),
+		...(await deps.stores.accounts.listRemovedByConnection()),
+	];
+	const candidate = pickRelinkAccount(pool, currentIds, mapped.input, rivals);
 	if (!candidate?.externalId) return null;
 	if (await guard.undecided()) return "defer";
 	if (await guard.heldElsewhere(candidate.externalId)) return null;
-	return deps.stores.accounts.relinkExternal(candidate.id, mapped.externalId);
+	const moved = await deps.stores.accounts.relinkExternal(candidate.id, mapped.externalId);
+	// Reconectou o banco depois de remover a conexão: a conta arquivada por isso volta, com os lançamentos de antes.
+	if (moved === null || moved.archiveReason !== ARCHIVE_CONNECTION_REMOVED) return moved;
+	return (await deps.stores.accounts.restoreFromConnection(moved.id)) ?? moved;
 }
 
 async function inheritCard(
@@ -1181,11 +1237,14 @@ async function inheritCard(
 	currentIds: ReadonlySet<string>,
 	rivals: number,
 ): Promise<Inherit<CardRecord>> {
-	const candidate = pickRelinkCard(await deps.stores.cards.list(), currentIds, mapped.input, rivals);
+	const pool = [...(await deps.stores.cards.list()), ...(await deps.stores.cards.listRemovedByConnection())];
+	const candidate = pickRelinkCard(pool, currentIds, mapped.input, rivals);
 	if (!candidate?.externalId) return null;
 	if (await guard.undecided()) return "defer";
 	if (await guard.heldElsewhere(candidate.externalId)) return null;
-	return deps.stores.cards.relinkExternal(candidate.id, mapped.externalId);
+	const moved = await deps.stores.cards.relinkExternal(candidate.id, mapped.externalId);
+	if (moved === null || moved.archiveReason !== ARCHIVE_CONNECTION_REMOVED) return moved;
+	return (await deps.stores.cards.restoreFromConnection(moved.id)) ?? moved;
 }
 
 /**
@@ -1204,7 +1263,8 @@ async function retireOldConnections(
 		const names = [connector?.name, bankName, connection.label].filter((n): n is string => !!n);
 		const old = await guard.retirable(connector?.id ?? null, names);
 		for (const o of old) {
-			if (await deps.stores.pluggyConnections.remove(o.id)) {
+			// Contas que não foram religadas à nova (as religadas já apontam para ela) saem do saldo junto.
+			if ((await removePluggyConnection(deps.stores, o.id)).removed) {
 				result.notes.push(`A conexão antiga "${o.label ?? "sem nome"}" foi arquivada: a nova a substitui.`);
 			}
 		}
@@ -1222,6 +1282,7 @@ async function linkAccounts(
 	result: ConnectionSyncResult,
 	bankName: string | null,
 	guard: RelinkGuard,
+	connectionId: string,
 ): Promise<{ linked: Linked[]; deferredCards: number; deferredRelink: number; relinked: number }> {
 	const { accounts, cards } = deps.stores;
 	const out: Linked[] = [];
@@ -1259,6 +1320,10 @@ async function linkAccounts(
 		result.accounts += 1;
 		if (mapped.kind === "account") {
 			let account = await accounts.findByExternal(PLUGGY_SOURCE, mapped.externalId);
+			// O banco voltou (mesmo item): o que a saída da conexão arquivou volta; o que o dono arquivou fica.
+			if (account !== null && account.archiveReason === ARCHIVE_CONNECTION_REMOVED) {
+				account = (await accounts.restoreFromConnection(account.id)) ?? account;
+			}
 			if (!account) {
 				const inherited = await inheritAccount(deps, guard, mapped, currentIds, sameAs(mapped));
 				if (inherited === "defer") {
@@ -1274,9 +1339,13 @@ async function linkAccounts(
 					result.relinkedAccounts = (result.relinkedAccounts ?? 0) + 1;
 				}
 			}
+			if (account && account.connectionId !== connectionId) {
+				account = (await accounts.linkConnection(account.id, connectionId)) ?? account;
+			}
 			if (!account) {
 				try {
 					account = await accounts.create(mapped.input);
+					account = (await accounts.linkConnection(account.id, connectionId)) ?? account;
 				} catch (e) {
 					if (!(e instanceof DataError && e.code === "duplicate")) throw e;
 					account = await accounts.findByExternal(PLUGGY_SOURCE, mapped.externalId);
@@ -1306,6 +1375,9 @@ async function linkAccounts(
 			continue;
 		}
 		let card = await cards.findByExternal(PLUGGY_SOURCE, mapped.externalId);
+		if (card !== null && card.archiveReason === ARCHIVE_CONNECTION_REMOVED) {
+			card = (await cards.restoreFromConnection(card.id)) ?? card;
+		}
 		if (!card) {
 			const inherited = await inheritCard(deps, guard, mapped, currentIds, sameAs(mapped));
 			if (inherited === "defer") {
@@ -1320,6 +1392,9 @@ async function linkAccounts(
 				relinked += 1;
 				result.relinkedAccounts = (result.relinkedAccounts ?? 0) + 1;
 			}
+		}
+		if (card && card.connectionId !== connectionId) {
+			card = (await cards.linkConnection(card.id, connectionId)) ?? card;
 		}
 		if (!card) {
 			// As faturas falharam e o `creditData` não tem as datas: criar agora fixaria dias inventados (o sync nunca
@@ -1340,6 +1415,7 @@ async function linkAccounts(
 			}
 			try {
 				card = await cards.create(mapped.input);
+				card = (await cards.linkConnection(card.id, connectionId)) ?? card;
 			} catch (e) {
 				if (!(e instanceof DataError && e.code === "duplicate")) throw e;
 				card = await cards.findByExternal(PLUGGY_SOURCE, mapped.externalId);

@@ -95,6 +95,52 @@ describe("conexões", () => {
 		expect((await api.get("/v1/pluggy/connections")).body.connections).toEqual([]);
 	});
 
+	it("remover a conexão tira as contas dela do saldo e das contagens e mantém os lançamentos", async () => {
+		const stores = createMemoryStores({ now: () => new Date(NOW) });
+		const q = fakeQueue();
+		const t = await setupFinance(NOW, () => stores, { pluggySyncQueue: q.queue, pluggyFetch: pluggyFetch() });
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		await t.api.post("/v1/pluggy/connections", { itemId: OTHER });
+		const mk = async (name: string, externalId: string, connectionId: string) => {
+			const a = await stores.accounts.create({ name, kind: "checking", source: "pluggy", externalId });
+			await stores.accounts.linkConnection(a.id, connectionId);
+			await stores.accounts.recordBalance(a.id, 10_000, new Date(NOW));
+			return a;
+		};
+		const gone = await mk("Itaú · Conta corrente", "a1", ITEM);
+		await mk("Azul · Conta", "a2", OTHER);
+		await stores.transactions.upsertByExternal("pluggy", "p1", {
+			kind: "expense",
+			amountCents: 1000,
+			date: "2026-11-05",
+			accountId: gone.id,
+			description: "Mercado",
+		});
+		expect((await t.api.get("/v1/accounts/balances")).body.accounts).toHaveLength(2);
+
+		expect((await t.api.delete(`/v1/pluggy/connections/${ITEM}`)).status).toBe(200);
+
+		const balances = (await t.api.get("/v1/accounts/balances")).body;
+		expect(balances.accounts.map((a: { name: string }) => a.name)).toEqual(["Azul · Conta"]);
+		expect(balances.totalCents).toBe(10_000);
+		expect((await t.api.get("/v1/accounts")).body.accounts).toHaveLength(1);
+		// O lançamento importado continua no histórico.
+		const list = (await t.api.get("/v1/transactions")).body;
+		expect(list.transactions.map((x: { description: string }) => x.description)).toEqual(["Mercado"]);
+		// Tudo ligado à conexão já foi arquivado: não precisa de nova sincronização para isso.
+		expect(q.calls).toEqual([]);
+	});
+
+	it("remover conexão sem vínculo gravado pede uma sincronização, que arquiva as órfãs", async () => {
+		const stores = createMemoryStores({ now: () => new Date(NOW) });
+		const q = fakeQueue();
+		const t = await setupFinance(NOW, () => stores, { pluggySyncQueue: q.queue, pluggyFetch: pluggyFetch() });
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		await stores.accounts.create({ name: "Antiga", kind: "checking", source: "pluggy", externalId: "a1" });
+		expect((await t.api.delete(`/v1/pluggy/connections/${ITEM}`)).status).toBe(200);
+		expect(q.calls).toEqual(["enqueue"]);
+	});
+
 	it("valida o corpo: UUID, nome, campos extras", async () => {
 		const { api } = await make();
 		for (const body of [
