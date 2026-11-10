@@ -27,9 +27,17 @@ describe("highlight", () => {
 		expect(highlight.strokeWidth).toBeLessThan(1);
 	});
 
-	it("a borda some antes do meio, então há um trecho sem borda", () => {
-		expect(highlight.fadeAt).toBeGreaterThan(0);
-		expect(highlight.fadeAt).toBeLessThan(0.5);
+	it("o alcance da borda é em px e sempre sobra um trecho sem borda", () => {
+		expect(highlight.reachX).toBeGreaterThan(0);
+		expect(highlight.reachY).toBeGreaterThan(0);
+		expect(highlight.reachY).toBeLessThanOrEqual(highlight.reachX);
+		expect(highlight.reachMaxRatio).toBeGreaterThan(0);
+		expect(highlight.reachMaxRatio).toBeLessThan(1);
+	});
+
+	it("o desenho tem folga para fora do card, maior que o traço", () => {
+		expect(highlight.bleed).toBeGreaterThanOrEqual(2);
+		expect(highlight.bleed).toBeGreaterThan(highlight.strokeWidth);
 	});
 
 	it("é delicado: o canto iluminado não passa de 0,6, o oposto é mais fraco e a luz é mínima", () => {

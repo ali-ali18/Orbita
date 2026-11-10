@@ -52,15 +52,18 @@ Teste em `@orbita/tokens`: `onAccent` ≥ 4,5:1 sobre o `accent`; `accent` ≥ 3
 
 Todo **card de largura cheia** tem uma **borda de brilho**: acesa no canto de cima à esquerda, some ao longo das duas arestas, fica sem borda no meio e reaparece, mais fraca, no canto de baixo à direita. Junto vem uma **luz suave** saindo do mesmo canto de cima. As duas são **sempre neutras**: o branco de `colors.text` em opacidades decrescentes (o "prata"), em qualquer tema. O destaque **não segue o tema** e não é uso da cor primária (o componente não chama `useAccent()`).
 
-| Token (`highlight.…`) | Valor | O que é                                                                       |
-| --------------------- | ----- | ----------------------------------------------------------------------------- |
-| `strokeWidth`         | 0,75  | Espessura do traço: um fio, mais fino que 1                                   |
-| `nearOpacity`         | 0,5   | Opacidade da borda no canto iluminado                                         |
-| `farOpacity`          | 0,22  | Opacidade da borda no canto oposto                                            |
-| `fadeAt`              | 0,28  | Onde a borda some (0 = canto iluminado, 0,5 = os outros cantos, 1 = o oposto) |
-| `glowOpacity`         | 0,045 | Opacidade da luz no canto                                                     |
-| `glowRadius`          | 0,8   | Raio da luz, em larguras do card                                              |
-| `minWidthRatio`       | 0,6   | Largura mínima do card, como fração da tela, para receber                     |
+| Token (`highlight.…`) | Valor | O que é                                                             |
+| --------------------- | ----- | ------------------------------------------------------------------- |
+| `strokeWidth`         | 0,75  | Espessura do traço: um fio, mais fino que 1                         |
+| `nearOpacity`         | 0,5   | Opacidade da borda no canto iluminado                               |
+| `farOpacity`          | 0,22  | Opacidade da borda no canto oposto                                  |
+| `reachX`              | 200   | Até onde a borda vai, em px, na aresta horizontal a partir do canto |
+| `reachY`              | 120   | Até onde a borda vai, em px, na aresta vertical a partir do canto   |
+| `reachMaxRatio`       | 0,8   | Em card pequeno o alcance encolhe: no máximo esta fração do lado    |
+| `bleed`               | 4     | Folga do desenho para fora do card, em px, em cada lado             |
+| `glowOpacity`         | 0,045 | Opacidade da luz no canto                                           |
+| `glowRadius`          | 0,8   | Raio da luz, em larguras do card                                    |
+| `minWidthRatio`       | 0,6   | Largura mínima do card, como fração da tela, para receber           |
 
 Há **um nível só**, de propósito delicado: como vários cards da mesma tela acendem juntos, a borda quase se confunde com o card e só aparece no canto. Não existe versão mais forte (o teste dos tokens segura o canto em 0,6 e a luz em 0,05).
 
@@ -78,6 +81,8 @@ Como funciona, para não virar prop espalhada:
 - É decoração: não carrega informação, não recebe toque e é invisível para o leitor de tela.
 - **O texto mantém o contraste.** A luz clareia o fundo do card; por isso `glowOpacity` tem teto. Teste em `@orbita/tokens`: `text`, `textSecondary` e `positive` continuam em 4,5:1 sobre o ponto mais claro da luz.
 - Estático por enquanto. Se ganhar movimento, respeita "reduzir movimento" (fica parado).
+
+O alcance da borda é em **px, não em fração do card**: num card alto ("Gastos por categoria") o trecho aceso do canto de baixo tem o mesmo comprimento que no card do Início. A tela do SVG é `bleed` px maior que o card em cada lado: a borda fica rente à aresta, e quando a tela acabava exatamente ali o Android cortava a aresta de baixo dos cards altos. Não tire a folga nem dê `overflow: "hidden"` a quem contém um `CardHighlight`.
 
 O desenho é SVG (`ui/CardHighlight.tsx`), com a geometria e a regra de largura em funções puras (`ui/highlight-geometry.ts`).
 
