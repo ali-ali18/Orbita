@@ -53,6 +53,136 @@ export const cardAccount = {
 
 type Json = Record<string, unknown>;
 
+/*
+ * Investimentos FICTÍCIOS, no formato dos exemplos da doc (docs.pluggy.ai/docs/products/investments). Nenhum dado
+ * real: nomes, códigos, ISIN e valores inventados.
+ */
+export const INV_CDB_ID = "1a2b3c4d-0000-4aaa-8bbb-000000000101";
+export const INV_FUND_ID = "1a2b3c4d-0000-4aaa-8bbb-000000000102";
+export const INV_STOCK_ID = "1a2b3c4d-0000-4aaa-8bbb-000000000103";
+export const INV_ETF_ID = "1a2b3c4d-0000-4aaa-8bbb-000000000104";
+export const INV_BARE_ID = "1a2b3c4d-0000-4aaa-8bbb-000000000105";
+
+/** Renda fixa com taxa contratada (110% do CDI) e vencimento. */
+export const cdbInvestment = {
+	id: INV_CDB_ID,
+	itemId: ITEM_ID,
+	number: "000123-4",
+	owner: "FULANO DE TAL",
+	name: "CDB Banco Fictício 110% CDI",
+	code: null,
+	isin: null,
+	currencyCode: "BRL",
+	type: "FIXED_INCOME",
+	subtype: "CDB",
+	balance: 10432.57,
+	amount: 10580.1,
+	amountOriginal: 10000,
+	amountProfit: 432.57,
+	amountWithdrawal: 10432.57,
+	taxes: 147.53,
+	taxes2: 0,
+	rate: 110,
+	rateType: "CDI",
+	fixedAnnualRate: null,
+	date: "2026-11-06T00:00:00.000Z",
+	dueDate: "2028-05-10T00:00:00.000Z",
+	issueDate: "2026-05-10T00:00:00.000Z",
+	issuer: "BANCO FICTICIO S/A",
+	status: "ACTIVE",
+	institution: null,
+};
+
+/** Fundo com cotas (quantidade e valor da cota com muitas casas) e rentabilidade medida. */
+export const fundInvestment = {
+	id: INV_FUND_ID,
+	itemId: ITEM_ID,
+	name: "Fundo Exemplo Multimercado FIC FIM",
+	code: "11.222.333/0001-81",
+	currencyCode: "BRL",
+	type: "MUTUAL_FUND",
+	subtype: "MULTIMARKET_FUND",
+	balance: 5210.33,
+	amount: 5250.9,
+	amountOriginal: 5000,
+	amountProfit: null,
+	amountWithdrawal: 5210.33,
+	taxes: 40.57,
+	taxes2: null,
+	value: 1.73482915,
+	quantity: 3026.752341,
+	lastMonthRate: 0.87,
+	annualRate: 9.41,
+	lastTwelveMonthsRate: 11.2,
+	date: "2026-11-05T00:00:00.000Z",
+	status: "ACTIVE",
+};
+
+/** Ação: quantidade inteira, preço unitário, sem taxa nem vencimento. */
+export const stockInvestment = {
+	id: INV_STOCK_ID,
+	itemId: ITEM_ID,
+	name: "EXEM3",
+	code: "EXEM3",
+	isin: "BREXEMACNOR1",
+	currencyCode: "BRL",
+	type: "EQUITY",
+	subtype: "STOCK",
+	balance: 3145,
+	amount: 3145,
+	amountOriginal: 2900.5,
+	amountProfit: 244.5,
+	value: 31.45,
+	quantity: 100,
+	date: "2026-11-06T00:00:00.000Z",
+	dueDate: null,
+	rate: null,
+	rateType: null,
+	status: "ACTIVE",
+};
+
+export const etfInvestment = {
+	id: INV_ETF_ID,
+	itemId: ITEM_ID,
+	name: "ETFX11",
+	code: "ETFX11",
+	currencyCode: "BRL",
+	type: "ETF",
+	subtype: "ETF",
+	balance: 1287.6,
+	amount: 1287.6,
+	value: 128.76,
+	quantity: 10,
+	date: "2026-11-06T00:00:00.000Z",
+	status: "ACTIVE",
+};
+
+/** Só o que não dá para faltar: o resto ausente (nem `null`, a chave não vem). */
+export const bareInvestment = {
+	id: INV_BARE_ID,
+	name: "Caixinha Reserva",
+	type: "FIXED_INCOME",
+	balance: 250,
+};
+
+export function invTx(id: string, extra: Json = {}): Json {
+	return {
+		id,
+		type: "BUY",
+		movementType: "CREDIT",
+		description: "Aplicação",
+		quantity: null,
+		value: null,
+		amount: 1000,
+		netAmount: null,
+		date: "2026-05-10T00:00:00.000Z",
+		tradeDate: "2026-05-10T00:00:00.000Z",
+		brokerageNumber: null,
+		expenses: null,
+		...extra,
+	};
+}
+
 export function tx(id: string, extra: Json): Json {
 	return {
 		id,
@@ -83,6 +213,10 @@ export interface FakePluggyOptions {
 	transactions?: Record<string, Json[]>;
 	/** Faturas por accountId do cartão (`GET /bills`). Ausente = 404, como num conector sem faturas. */
 	bills?: Record<string, Json[]>;
+	/** Posições (`GET /investments?itemId=`) por itemId. Ausente = página vazia (200), como numa conexão sem investimentos. */
+	investments?: Record<string, unknown[]>;
+	/** Movimentações por id do investimento (`GET /investments/{id}/transactions`). Ausente = página vazia. */
+	investmentTransactions?: Record<string, unknown[]>;
 	/** Árvore de categorias (`GET /categories`). Ausente = 404. */
 	categories?: Json[];
 	/** Lançamentos por página do cursor (padrão: `pageSize`). */
@@ -105,7 +239,7 @@ const json = (body: unknown, status = 200) =>
 export function fakePluggy(options: FakePluggyOptions = {}) {
 	const requests: RecordedRequest[] = [];
 	const pageSize = options.pageSize ?? 500;
-	const paged = (all: Json[], url: URL) => {
+	const paged = (all: unknown[], url: URL) => {
 		const page = Number(url.searchParams.get("page") ?? "1");
 		const size = Math.min(Number(url.searchParams.get("pageSize") ?? pageSize), pageSize);
 		return json({
@@ -165,6 +299,11 @@ export function fakePluggy(options: FakePluggyOptions = {}) {
 		if (url.pathname === "/accounts" && url.searchParams.get("itemId") === ITEM_ID) {
 			return paged(options.accounts ?? [bankAccount, cardAccount], url);
 		}
+		if (url.pathname === "/investments") {
+			return paged(options.investments?.[url.searchParams.get("itemId") ?? ""] ?? [], url);
+		}
+		const invTxs = /^\/investments\/([^/]+)\/transactions$/.exec(url.pathname);
+		if (invTxs) return paged(options.investmentTransactions?.[invTxs[1] ?? ""] ?? [], url);
 		if (url.pathname === "/categories") {
 			return options.categories ? paged(options.categories, url) : json({ message: "Not found" }, 404);
 		}

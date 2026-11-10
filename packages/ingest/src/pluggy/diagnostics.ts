@@ -4,14 +4,30 @@ import type {
 	DiagBill,
 	DiagConnection,
 	DiagError,
+	DiagInvestment,
+	DiagInvestments,
+	DiagInvestmentTransaction,
 	DiagLink,
 	DiagMoney,
 	DiagParty,
 	DiagTransaction,
 } from "@orbita/shared";
 import type { PluggyClient } from "./client.ts";
-import { PluggyError } from "./errors.ts";
-import type { PluggyAccount, PluggyTransaction } from "./schemas.ts";
+import { PluggyError, pluggyError } from "./errors.ts";
+import {
+	type InvestmentsRead,
+	readInvestments,
+	readInvestmentTransactions,
+	toInvestmentPosition,
+} from "./investments.ts";
+import {
+	investmentSchema,
+	type PluggyAccount,
+	type PluggyInvestment,
+	type PluggyInvestmentTransaction,
+	type PluggyItem,
+	type PluggyTransaction,
+} from "./schemas.ts";
 
 /*
  * Diagnóstico somente leitura: chama o Pluggy ao vivo e devolve um resumo REDIGIDO. Nada aqui grava, e nada daqui
@@ -24,6 +40,11 @@ export const DIAGNOSTIC_WINDOW_DAYS = 45;
 export const DIAGNOSTIC_RECENT = 15;
 /** Teto por conta (lançamentos + faturas): uma conta lenta não segura a resposta. */
 export const DIAGNOSTIC_ACCOUNT_DEADLINE_MS = 45_000;
+/** Posições de investimento detalhadas (e com movimentações consultadas) por conexão; o resto só entra na contagem. */
+export const DIAGNOSTIC_INVESTMENTS_MAX = 40;
+export const DIAGNOSTIC_INVESTMENT_TX_RECENT = 5;
+/** Pedidos de movimentações ao mesmo tempo (o Pluggy tem limite de pedidos). */
+const INVESTMENT_TX_CONCURRENCY = 4;
 const TEXT_MAX = 120;
 
 const digitsOf = (v: string) => v.replace(/\D/g, "");
@@ -201,6 +222,204 @@ function toDiagBill(b: Awaited<ReturnType<PluggyClient["bills"]>>[number]): Diag
 	};
 }
 
+const isoDay = (v: string | null | undefined) => (v && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null);
+
+const KNOWN_INVESTMENT_FIELDS = new Set([...Object.keys(investmentSchema.shape), "itemId"]);
+
+/** Nomes (só nomes) dos campos preenchidos que o schema não conhece: mostra o que mais o Pluggy manda. */
+function otherFieldsOf(i: PluggyInvestment): string[] {
+	return Object.entries(i)
+		.filter(([k, v]) => !KNOWN_INVESTMENT_FIELDS.has(k) && v !== null && v !== undefined)
+		.map(([k]) => k)
+		.filter((k) => /^[A-Za-z0-9_]{1,40}$/.test(k))
+		.sort()
+		.slice(0, 30);
+}
+
+function readError(r: Exclude<InvestmentsRead<unknown>, { outcome: "ok" }>): DiagError {
+	return { code: r.code, status: r.status, message: r.message };
+}
+
+function toDiagInvestmentTransaction(t: PluggyInvestmentTransaction): DiagInvestmentTransaction {
+	return {
+		date: isoDay(t.date) ?? isoDay(t.tradeDate),
+		type: safeText(t.type, 40),
+		movementType: safeText(t.movementType, 20),
+		amount: money(t.amount),
+		quantity: money(t.quantity),
+		value: money(t.value),
+		description: safeText(t.description),
+	};
+}
+
+function toDiagInvestmentTransactions(
+	r: InvestmentsRead<PluggyInvestmentTransaction>,
+): NonNullable<DiagInvestment["transactions"]> {
+	if (r.outcome !== "ok") {
+		return {
+			outcome: r.outcome,
+			error: readError(r),
+			count: 0,
+			dropped: 0,
+			firstDate: null,
+			lastDate: null,
+			byType: [],
+			recent: [],
+		};
+	}
+	const rows = r.rows.map(toDiagInvestmentTransaction);
+	const days = rows.flatMap((x) => (x.date ? [x.date] : [])).sort();
+	const types = new Map<string, number>();
+	for (const x of rows) types.set(x.type ?? "?", (types.get(x.type ?? "?") ?? 0) + 1);
+	return {
+		outcome: "ok",
+		error: null,
+		count: rows.length,
+		dropped: r.dropped,
+		firstDate: days[0] ?? null,
+		lastDate: days.at(-1) ?? null,
+		byType: [...types].map(([type, count]) => ({ type, count })).sort((a, b) => a.type.localeCompare(b.type)),
+		recent: [...rows]
+			.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))
+			.slice(0, DIAGNOSTIC_INVESTMENT_TX_RECENT),
+	};
+}
+
+function toDiagInvestment(i: PluggyInvestment, transactions: DiagInvestment["transactions"]): DiagInvestment {
+	return {
+		idStart: i.id.slice(0, 8),
+		type: safeText(i.type, 40),
+		subtype: safeText(i.subtype, 60),
+		name: safeText(i.name),
+		code: safeText(i.code, 60),
+		isin: safeText(i.isin, 20),
+		currencyCode: safeText(i.currencyCode, 10),
+		balance: money(i.balance),
+		amount: money(i.amount),
+		amountOriginal: money(i.amountOriginal),
+		amountProfit: money(i.amountProfit),
+		amountWithdrawal: money(i.amountWithdrawal),
+		taxes: money(i.taxes),
+		taxes2: money(i.taxes2),
+		quantity: money(i.quantity),
+		value: money(i.value),
+		rate: money(i.rate),
+		rateType: safeText(i.rateType, 20),
+		fixedAnnualRate: money(i.fixedAnnualRate),
+		annualRate: money(i.annualRate),
+		lastMonthRate: money(i.lastMonthRate),
+		lastTwelveMonthsRate: money(i.lastTwelveMonthsRate),
+		date: isoDay(i.date),
+		dueDate: isoDay(i.dueDate),
+		issueDate: isoDay(i.issueDate),
+		purchaseDate: isoDay(i.purchaseDate),
+		status: safeText(i.status, 40),
+		issuer: safeText(i.issuer),
+		institutionName: safeText(i.institution?.name),
+		otherFields: otherFieldsOf(i),
+		transactions,
+	};
+}
+
+/** Soma dos saldos em BRL (centavos inteiros), formatada. `null` se nenhum saldo é legível. */
+function balanceTotal(list: PluggyInvestment[]): string | null {
+	let sum = 0;
+	let any = false;
+	for (const i of list) {
+		if (i.currencyCode && i.currencyCode !== "BRL") continue;
+		const cents = toInvestmentPosition(i).balanceCents;
+		if (cents === null) continue;
+		sum += cents;
+		any = true;
+	}
+	return any && Number.isSafeInteger(sum) ? formatBRL(sum) : null;
+}
+
+async function inPool<T, R>(items: T[], size: number, work: (item: T) => Promise<R>): Promise<R[]> {
+	const out = new Array<R>(items.length);
+	let next = 0;
+	const runner = async () => {
+		for (;;) {
+			const index = next++;
+			if (index >= items.length) return;
+			out[index] = await work(items[index] as T);
+		}
+	};
+	await Promise.all(Array.from({ length: Math.min(size, items.length) }, runner));
+	return out;
+}
+
+/**
+ * Investimentos da conexão, ao vivo e só leitura: nada é gravado. Nunca lança: recusa do endpoint (403/404) vira
+ * "unavailable", outra falha vira "error", e falha das movimentações de uma posição fica só nela. O motivo de não
+ * vir nada é só o OBSERVADO (endpoint vazio, recusado, erro) mais o que o item diz (produtos pedidos, avisos,
+ * autorização vencida).
+ */
+async function diagnoseInvestments(deps: DiagnoseDeps, item: PluggyItem): Promise<DiagInvestments> {
+	const now = deps.now().getTime();
+	const until = now + (deps.deadlineMs ?? DIAGNOSTIC_ACCOUNT_DEADLINE_MS);
+	const products = item.products?.map((p) => p.toUpperCase()) ?? null;
+	const expires = item.consentExpiresAt ? Date.parse(item.consentExpiresAt) : Number.NaN;
+	const base: DiagInvestments = {
+		outcome: "empty",
+		error: null,
+		count: 0,
+		dropped: 0,
+		balanceTotal: null,
+		productRequested: products ? products.includes("INVESTMENTS") : null,
+		transactionsProductRequested: products ? products.includes("INVESTMENTS_TRANSACTIONS") : null,
+		consentExpired: Number.isFinite(expires) ? expires < now : null,
+		warnings: Object.entries(item.statusDetail ?? {})
+			.filter(([name]) => name.toLowerCase().startsWith("investment"))
+			.flatMap(([name, d]) =>
+				(d?.warnings ?? []).map(
+					(w) =>
+						`${safeText(name, 60) ?? "?"} ${safeText(w.code === null || w.code === undefined ? null : String(w.code), 60) ?? "?"}: ${safeText(w.message, 200) ?? ""}`,
+				),
+			)
+			.slice(0, 20),
+		positions: [],
+		transactionsCount: 0,
+		transactionsFirstDate: null,
+		transactionsLastDate: null,
+	};
+	const read = await withDeadline(readInvestments(deps.client, item.id), until - now).catch(
+		(): InvestmentsRead<PluggyInvestment> => {
+			const e = pluggyError("timeout");
+			return { outcome: "error", code: e.code, status: null, message: e.message };
+		},
+	);
+	if (read.outcome !== "ok") return { ...base, outcome: read.outcome, error: readError(read) };
+	base.count = read.rows.length;
+	base.dropped = read.dropped;
+	if (read.rows.length === 0) return base;
+	base.outcome = "ok";
+	base.balanceTotal = balanceTotal(read.rows);
+	const shown = read.rows.slice(0, DIAGNOSTIC_INVESTMENTS_MAX);
+	base.positions = await inPool(shown, INVESTMENT_TX_CONCURRENCY, async (i) => {
+		const left = until - deps.now().getTime();
+		const late = (): InvestmentsRead<PluggyInvestmentTransaction> => {
+			const e = pluggyError("timeout");
+			return { outcome: "error", code: e.code, status: null, message: e.message };
+		};
+		const txs =
+			left <= 0
+				? late()
+				: await withDeadline(readInvestmentTransactions(deps.client, i.id), left).catch(late);
+		return toDiagInvestment(i, toDiagInvestmentTransactions(txs));
+	});
+	const days: string[] = [];
+	for (const p of base.positions) {
+		base.transactionsCount += p.transactions?.count ?? 0;
+		if (p.transactions?.firstDate) days.push(p.transactions.firstDate);
+		if (p.transactions?.lastDate) days.push(p.transactions.lastDate);
+	}
+	days.sort();
+	base.transactionsFirstDate = days[0] ?? null;
+	base.transactionsLastDate = days.at(-1) ?? null;
+	return base;
+}
+
 /**
  * Uma conexão, ao vivo. Falha do item ou das contas vira `error` da conexão; falha de uma conta (timeout, `/bills`
  * 404…) vira erro só daquela conta. Nunca lança.
@@ -224,9 +443,13 @@ export async function diagnoseConnection(
 		itemError: null,
 		error: null,
 		accounts: [],
+		investments: null,
 	};
+	let investments: Promise<DiagInvestments | null>;
 	try {
 		const item = await deps.client.item(connection.id);
+		// Em paralelo com as contas; nunca rejeita (qualquer surpresa vira "não consultado").
+		investments = diagnoseInvestments(deps, item).catch(() => null);
 		base.connectorName = safeText(item.connector?.name);
 		base.status = safeText(item.status, 60);
 		base.executionStatus = safeText(item.executionStatus, 60);
@@ -258,6 +481,7 @@ export async function diagnoseConnection(
 		accounts = await deps.client.accounts(connection.id);
 	} catch (e) {
 		base.error = toDiagError(e);
+		base.investments = await investments;
 		return base;
 	}
 	const ms = deps.deadlineMs ?? DIAGNOSTIC_ACCOUNT_DEADLINE_MS;
@@ -290,5 +514,6 @@ export async function diagnoseConnection(
 			),
 		),
 	);
+	base.investments = await investments;
 	return base;
 }

@@ -66,6 +66,8 @@ export const itemResponse = z.object({
 		)
 		.nullish()
 		.catch(null),
+	/** Produtos pedidos para o item ("INVESTMENTS", "INVESTMENTS_TRANSACTIONS"…; docs.pluggy.ai/docs/connections/item). Só o diagnóstico lê. */
+	products: z.array(z.string().max(60)).max(50).nullish().catch(null),
 	nextAutoSyncAt: z.string().max(40).nullish().catch(null),
 	consentExpiresAt: z.string().max(40).nullish().catch(null),
 	/** Erro do item (SDK: `error { code, message }`). Só o diagnóstico lê; texto de terceiro, nunca instrução. */
@@ -243,3 +245,93 @@ export const page = <T extends z.ZodType>(item: T) =>
 		page: z.number().int().nonnegative(),
 		totalPages: z.number().int().nonnegative(),
 	});
+
+/*
+ * Investimentos (docs.pluggy.ai/docs/products/investments, /docs/products/investment-transactions e as referências
+ * `investments-list`, `investments-retrieve`, `investment-transactions-list`; resumo em docs/pluggy.md, "Investimentos").
+ * Schema TOLERANTE de propósito: só o `id` é exigido. A doc marca `name`, `type`, `balance` e `date` como sempre
+ * presentes, mas as conexões do dono são MeuPluggy (não Open Finance) e a doc não promete nada por campo para elas;
+ * tudo o mais é `nullish` e valor estranho vira `null` (`.catch(null)`) em vez de derrubar a posição.
+ * `.passthrough()`: o diagnóstico lista os NOMES dos campos que vieram e o Órbita ainda não lê (nunca os valores).
+ * Dinheiro chega em reais (número JSON); quem usa converte com `decimalToCents` (ver `investments.ts`).
+ */
+const decimal = money.nullish().catch(null);
+const shortText = (max: number) => z.string().max(max).nullish().catch(null);
+const dateText = z.string().max(40).nullish().catch(null);
+
+export const investmentSchema = z
+	.object({
+		id,
+		/** FIXED_INCOME, MUTUAL_FUND, EQUITY, ETF, SECURITY, COE, OTHER. Texto livre: valor novo não quebra. */
+		type: shortText(40),
+		/** CDB, LCI, TREASURY, STOCK, REAL_ESTATE_FUND, INVESTMENT_FUND, RETIREMENT… */
+		subtype: shortText(60),
+		name: shortText(500),
+		/** Ticker, ou o CNPJ do fundo. */
+		code: shortText(60),
+		isin: shortText(20),
+		currencyCode: shortText(10),
+		/** Saldo LÍQUIDO atual (depois de taxas e impostos). */
+		balance: decimal,
+		/** Valor BRUTO (com impostos). */
+		amount: decimal,
+		/** Valor originalmente aplicado. */
+		amountOriginal: decimal,
+		/** Lucro líquido até aqui (negativo = perda). A doc avisa: `null` em conector Open Finance. */
+		amountProfit: decimal,
+		/** Disponível para resgate. */
+		amountWithdrawal: decimal,
+		/** IR e IOF informados/provisionados. */
+		taxes: decimal,
+		taxes2: decimal,
+		/** Valor da cota em `date` e quantidade de cotas/ações. NÃO são centavos: guardar como decimal em texto. */
+		value: decimal,
+		quantity: decimal,
+		/** Remuneração CONTRATADA da renda fixa (ex.: 110% do CDI; 12,5% a.a.). Não é rentabilidade medida. */
+		rate: decimal,
+		rateType: shortText(20),
+		fixedAnnualRate: decimal,
+		/** Rentabilidade medida ("returned for funds"); `null` em conector Open Finance. */
+		annualRate: decimal,
+		lastMonthRate: decimal,
+		lastTwelveMonthsRate: decimal,
+		/** Data de referência do valor (fim de semana → último dia útil). */
+		date: dateText,
+		dueDate: dateText,
+		issueDate: dateText,
+		purchaseDate: dateText,
+		issuer: shortText(300),
+		/** ACTIVE, PENDING, TOTAL_WITHDRAWAL. */
+		status: shortText(40),
+		/** Corretora/instituição que guarda o ativo ("only returned in CEI B3 Connector", segundo a doc). */
+		institution: z
+			.object({ name: shortText(300), number: shortText(40) })
+			.nullish()
+			.catch(null),
+	})
+	.passthrough();
+export type PluggyInvestment = z.infer<typeof investmentSchema>;
+
+/** Movimentação de um investimento (`GET /investments/{id}/transactions`). Só o `id` é exigido. */
+export const investmentTransactionSchema = z
+	.object({
+		id,
+		/** BUY, SELL, TAX, TRANSFER, INTEREST, AMORTIZATION. */
+		type: shortText(40),
+		/** CREDIT (entra dinheiro na posição; padrão do BUY) ou DEBIT (sai). */
+		movementType: shortText(20),
+		/** Data da operação e data da liquidação. */
+		date: dateText,
+		tradeDate: dateText,
+		description: shortText(1000),
+		quantity: decimal,
+		/** Preço unitário e valor bruto da operação. */
+		value: decimal,
+		amount: decimal,
+		/** Valor com as despesas. */
+		netAmount: decimal,
+		/** Despesas da nota (corretagem, IR, IOF…). A doc diz que vem em Open Finance e Meu Pluggy; os nomes passam, os valores não são lidos. */
+		expenses: z.record(z.string().max(60), z.unknown()).nullish().catch(null),
+	})
+	.passthrough();
+export type PluggyInvestmentTransaction = z.infer<typeof investmentTransactionSchema>;
