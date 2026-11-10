@@ -739,3 +739,107 @@ model CardBillPayment {
   @@index([billId])
   @@map("card_bill_payments")
 }
+
+/// Posição de investimento AGORA (uma linha por (source, externalId); a API só dá a posição atual, sem histórico). Nunca é apagada: sumiu da lista ou TOTAL_WITHDRAWAL vira `archivedAt`. Dinheiro em centavos inteiros; quantidade, cota e taxas em NUMERIC (nunca float).
+model Investment {
+  id                   String    @id @default(cuid())
+  /// De onde veio ("pluggy").
+  source               String
+  /// O id da posição na fonte.
+  externalId           String    @map("external_id")
+  /// A conexão (itemId do Pluggy) que a trouxe. Sem chave estrangeira: remover a conexão não apaga o histórico.
+  connectionId         String?   @map("connection_id")
+  type                 String?
+  subtype              String?
+  name                 String?
+  code                 String?
+  isin                 String?
+  currency             String?
+  /// "ACTIVE", "PENDING", "TOTAL_WITHDRAWAL"…
+  status               String?
+  /// Saldo líquido atual.
+  balanceCents         Int?      @map("balance_cents")
+  /// Valor bruto.
+  grossCents           Int?      @map("gross_cents")
+  /// Valor aplicado (`amountOriginal`).
+  investedCents        Int?      @map("invested_cents")
+  /// Rendimento que o BANCO informou (costuma vir nulo: o engine deriva).
+  profitCents          Int?      @map("profit_cents")
+  withdrawableCents    Int?      @map("withdrawable_cents")
+  incomeTaxCents       Int?      @map("income_tax_cents")
+  financialTaxCents    Int?      @map("financial_tax_cents")
+  quantity             Decimal?  @db.Decimal(28, 8)
+  unitValue            Decimal?  @map("unit_value") @db.Decimal(28, 8)
+  rate                 Decimal?  @db.Decimal(28, 8)
+  rateType             String?   @map("rate_type")
+  fixedAnnualRate      Decimal?  @map("fixed_annual_rate") @db.Decimal(28, 8)
+  annualRate           Decimal?  @map("annual_rate") @db.Decimal(28, 8)
+  lastMonthRate        Decimal?  @map("last_month_rate") @db.Decimal(28, 8)
+  lastTwelveMonthsRate Decimal?  @map("last_twelve_months_rate") @db.Decimal(28, 8)
+  /// Data de referência do valor.
+  positionDate         DateTime? @map("position_date") @db.Date
+  dueDate              DateTime? @map("due_date") @db.Date
+  issueDate            DateTime? @map("issue_date") @db.Date
+  purchaseDate         DateTime? @map("purchase_date") @db.Date
+  issuer               String?
+  /// Última vez que a sincronização viu esta posição na lista.
+  syncedAt             DateTime  @map("synced_at")
+  archivedAt           DateTime? @map("archived_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  snapshots    InvestmentSnapshot[]
+  transactions InvestmentTransaction[]
+
+  @@unique([source, externalId])
+  @@index([connectionId])
+  @@map("investments")
+}
+
+/// Retrato diário da posição (dia em America/Sao_Paulo): é o único histórico de saldo que existe, porque o Pluggy só dá a posição de agora. Só grava com saldo não nulo; refazer no mesmo dia sobrescreve.
+model InvestmentSnapshot {
+  id            String   @id @default(cuid())
+  investmentId  String   @map("investment_id")
+  day           DateTime @db.Date
+  balanceCents  Int      @map("balance_cents")
+  grossCents    Int?     @map("gross_cents")
+  investedCents Int?     @map("invested_cents")
+  quantity      Decimal? @db.Decimal(28, 8)
+  unitValue     Decimal? @map("unit_value") @db.Decimal(28, 8)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  investment Investment @relation(fields: [investmentId], references: [id], onDelete: Cascade)
+
+  @@unique([investmentId, day])
+  @@index([day])
+  @@map("investment_snapshots")
+}
+
+/// Movimentação de uma posição (aplicação, resgate, compra, venda…). A API não filtra por data: a idempotência é pelo (source, externalId).
+model InvestmentTransaction {
+  id             String    @id @default(cuid())
+  investmentId   String    @map("investment_id")
+  source         String
+  externalId     String    @map("external_id")
+  /// BUY, SELL, TAX, TRANSFER, INTEREST, AMORTIZATION.
+  type           String?
+  /// CREDIT ou DEBIT.
+  movementType   String?   @map("movement_type")
+  date           DateTime? @db.Date
+  tradeDate      DateTime? @map("trade_date") @db.Date
+  /// Valor bruto da operação, sem sinal (o sentido está em type/movementType).
+  amountCents    Int?      @map("amount_cents")
+  netAmountCents Int?      @map("net_amount_cents")
+  quantity       Decimal?  @db.Decimal(28, 8)
+  unitValue      Decimal?  @map("unit_value") @db.Decimal(28, 8)
+  /// Texto do banco: dado, nunca instrução.
+  description    String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  investment Investment @relation(fields: [investmentId], references: [id], onDelete: Cascade)
+
+  @@unique([source, externalId])
+  @@index([investmentId, date])
+  @@map("investment_transactions")
+}
