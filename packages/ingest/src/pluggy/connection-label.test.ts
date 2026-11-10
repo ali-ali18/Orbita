@@ -3,6 +3,7 @@ import {
 	chooseConnectionLabel,
 	isAutoLabel,
 	labelFromAccounts,
+	labelFromIssuers,
 	labelIsReplaceable,
 } from "./connection-label.ts";
 import type { PluggyAccount } from "./schemas.ts";
@@ -176,5 +177,34 @@ describe("chooseConnectionLabel", () => {
 	it("sem contas fica como está: não há pista do banco", () => {
 		expect(chooseConnectionLabel({ ...base, current: "MeuPluggy", accounts: [] })).toBeNull();
 		expect(chooseConnectionLabel({ ...base, current: null, accounts: [] })).toBeNull();
+	});
+});
+
+describe("labelFromIssuers", () => {
+	it("todos os emissores são o mesmo banco conhecido: o nome dele", () => {
+		expect(labelFromIssuers(["BANCO C6 S.A."])).toBe("C6 Bank");
+		expect(labelFromIssuers(["BANCO C6 S.A.", "Banco C6 S/A"])).toBe("C6 Bank");
+		expect(labelFromIssuers(["BANCO INTER S.A."])).toBe("Inter");
+	});
+	it("sem emissor, diferentes ou desconhecidos: sem nome", () => {
+		expect(labelFromIssuers([])).toBeNull();
+		expect(labelFromIssuers(["BANCO C6 S.A.", "BANCO INTER S.A."])).toBeNull();
+		expect(labelFromIssuers(["BANCO C6 S.A.", null])).toBeNull();
+		expect(labelFromIssuers(["BANCO C6 S.A.", "BANCO FICTICIO S/A"])).toBeNull();
+		expect(labelFromIssuers(["BANCO FICTICIO S/A"])).toBeNull();
+	});
+	it("chooseConnectionLabel usa o emissor só sem conta nenhuma, depois das contas", () => {
+		const base = { connectorName: "MeuPluggy", editedByOwner: false, current: "MeuPluggy" };
+		expect(chooseConnectionLabel({ ...base, accounts: [], investmentIssuers: ["BANCO C6 S.A."] })).toBe(
+			"C6 Bank",
+		);
+		expect(
+			chooseConnectionLabel({
+				...base,
+				accounts: [acc({ id: "1", name: "BANCO INTER" })],
+				investmentIssuers: ["BANCO C6 S.A."],
+			}),
+		).toBe("Inter");
+		expect(chooseConnectionLabel({ ...base, accounts: [], investmentIssuers: [] })).toBeNull();
 	});
 });

@@ -90,6 +90,18 @@ export function labelFromAccounts(input: {
 }
 
 /**
+ * O nome pelo emissor dos investimentos, para a conexão que não trouxe conta nem cartão (só uma posição de renda
+ * fixa: `issuer` "BANCO C6 S.A." → "C6 Bank"). Só vale quando TODAS as posições têm emissor e todos são o mesmo banco
+ * que o Órbita conhece; emissor ausente, diferente ou desconhecido não dá nome (`null`).
+ */
+export function labelFromIssuers(issuers: readonly (string | null | undefined)[]): string | null {
+	if (issuers.length === 0) return null;
+	const banks = new Set<string | null>(issuers.map((i) => findKnownBank(i)));
+	const [only] = banks;
+	return banks.size === 1 && only ? bankDisplayName(only) : null;
+}
+
+/**
  * O nome gravado é um dos que a própria sincronização já deu (e pode ser refeito)? As versões antigas juntavam o nome
  * das contas ("Inter, GOLD", "Nu Pagamentos S.A. - Ins…, Gold", "Conta, Cartão +2"). Vale quando CADA pedaço é: um nome
  * cortado com "…" (só o rótulo antigo cortava assim), só bandeira/nível de cartão ("Gold"), ou igual ao nome de uma
@@ -147,11 +159,16 @@ export function chooseConnectionLabel(input: {
 	connectorName: string | null | undefined;
 	editedByOwner: boolean;
 	accounts: readonly PluggyAccount[];
+	/** `issuer` de cada investimento da conexão; só lido quando ela não tem conta nenhuma (ver `labelFromIssuers`). */
+	investmentIssuers?: readonly (string | null | undefined)[];
 }): string | null {
 	if (!labelIsReplaceable(input.current, input.connectorName, input.editedByOwner, input.accounts)) {
 		return null;
 	}
-	const next = labelFromAccounts(input);
+	// Depois das contas e antes de desistir: o emissor dos investimentos (conexão que só trouxe posições).
+	const next =
+		labelFromAccounts(input) ??
+		(input.accounts.length === 0 ? labelFromIssuers(input.investmentIssuers ?? []) : null);
 	// Sem pista do banco, o nome do conector "MeuPluggy" não é nome: fica como está (o app mostra a situação).
 	if (next === null || isMeuPluggyConnector(next)) return null;
 	return next !== input.current ? next : null;

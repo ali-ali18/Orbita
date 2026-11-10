@@ -1,4 +1,4 @@
-import type { PluggyConnectionDto, PluggyStatusResponse } from "@orbita/shared";
+import { PLUGGY_FIRST_SYNC_DAYS, type PluggyConnectionDto, type PluggyStatusResponse } from "@orbita/shared";
 import { connectionName } from "./banks-model.ts";
 
 /*
@@ -37,7 +37,19 @@ export function connectedTitle(connection: Pick<PluggyConnectionDto, "label">): 
 	return `${connectionName(connection)} conectado`;
 }
 
-export const CONNECTED_SUBTITLE = "Trouxe os últimos 90 dias. Já separei em categorias.";
+const DAYS_PER_MONTH = 30.44;
+
+/** "6 meses": o tempo que a primeira sincronização busca (`PLUGGY_FIRST_SYNC_DAYS`, o mesmo número do servidor). */
+export function firstSyncSpanText(days: number = PLUGGY_FIRST_SYNC_DAYS): string {
+	const months = Math.max(1, Math.round(days / DAYS_PER_MONTH));
+	return months === 1 ? "1 mês" : `${months} meses`;
+}
+
+export const CONNECTED_SUBTITLE = `Trouxe os últimos ${firstSyncSpanText()}. Já separei em categorias.`;
+
+/** Rótulo do total de lançamentos do Pluggy: com mais de uma conexão ele soma todas, então não diz "importados". */
+export const IMPORTED_ROW_LABEL = "Lançamentos importados";
+export const IMPORTED_ALL_BANKS_LABEL = "Lançamentos de todos os bancos";
 
 export interface ConnectedRow {
 	label: string;
@@ -47,8 +59,11 @@ export interface ConnectedRow {
 /** Linhas da tabela. Contas e cartões só aparecem se vieram; lançamentos e pendentes sempre (zero também é resposta). */
 export function connectedRows(input: {
 	summary: PluggyConnectionDto["summary"];
+	/** Total de lançamentos do Pluggy no Órbita: soma TODAS as conexões, não só a nova. */
 	imported: number | null;
 	pending: number | null;
+	/** Quantas conexões do Pluggy existem. Mais de uma: o total não é só desta, e o rótulo diz isso. */
+	connections?: number;
 }): ConnectedRow[] {
 	const rows: ConnectedRow[] = [];
 	if (input.summary.accounts > 0) {
@@ -57,7 +72,10 @@ export function connectedRows(input: {
 	if (input.summary.cards > 0) {
 		rows.push({ label: input.summary.cards === 1 ? "Cartão" : "Cartões", value: input.summary.cards });
 	}
-	if (input.imported !== null) rows.push({ label: "Lançamentos importados", value: input.imported });
+	if (input.imported !== null) {
+		const label = (input.connections ?? 1) > 1 ? IMPORTED_ALL_BANKS_LABEL : IMPORTED_ROW_LABEL;
+		rows.push({ label, value: input.imported });
+	}
 	if (input.pending !== null) rows.push({ label: "Para você revisar", value: input.pending });
 	return rows;
 }
