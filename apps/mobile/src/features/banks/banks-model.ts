@@ -55,15 +55,17 @@ export function connectionName(c: Pick<PluggyConnectionDto, "label">): string {
 
 export const UPDATING_LINE = "Atualizando no banco…";
 export const NO_ACCOUNTS_LINE = "Conectado, mas o banco ainda não enviou contas";
+export const NO_DATA_LINE = "Conectado, mas o banco ainda não enviou lançamentos";
 
 /**
  * A conexão espera o banco? "updating": o item do Pluggy ainda atualiza. "no_accounts": sem conta nem cartão, seja
  * porque o servidor avisou, seja porque gravou "ok" com a lista vazia (servidor antigo): "Sincronizado" aí engana.
  * Quem já tem contas e veio vazio desta vez não entra: cai em "Sincronizou em parte".
  */
-function waitingKind(c: PluggyConnectionDto): "updating" | "no_accounts" | null {
+function waitingKind(c: PluggyConnectionDto): "updating" | "no_accounts" | "no_data" | null {
 	const waiting = pluggyWaitingFor(c);
 	if (waiting === "updating") return "updating";
+	if (waiting === "no_data") return "no_data";
 	const empty = c.summary.accounts + c.summary.cards === 0;
 	return empty && (waiting === "no_accounts" || c.lastStatus === "ok") ? "no_accounts" : null;
 }
@@ -87,6 +89,7 @@ export function connectionStatusLine(c: PluggyConnectionDto, now: Date): string 
 	const waiting = waitingKind(c);
 	if (waiting === "updating") return UPDATING_LINE;
 	if (waiting === "no_accounts") return NO_ACCOUNTS_LINE;
+	if (waiting === "no_data") return NO_DATA_LINE;
 	switch (c.lastStatus) {
 		case "ok":
 			return good ?? "Sincronizado";
@@ -108,6 +111,9 @@ export function connectionStatusDetail(c: PluggyConnectionDto): string | null {
 	const waiting = waitingKind(c);
 	if (waiting === "updating") {
 		return "O Pluggy ainda está buscando os dados neste banco. O Órbita tenta de novo sozinho em alguns minutos.";
+	}
+	if (waiting === "no_data") {
+		return "O Pluggy já entregou a conta, mas ainda não os lançamentos deste banco. O Órbita tenta de novo sozinho e busca os 6 meses quando eles chegarem.";
 	}
 	if (waiting === "no_accounts") {
 		return "O Pluggy confirma a conexão, mas ainda não entregou nenhuma conta nem cartão deste banco. O Órbita tenta de novo sozinho; se amanhã continuar assim, confira no Meu Pluggy se o banco aparece atualizado por lá.";

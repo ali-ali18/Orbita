@@ -2,6 +2,7 @@ import { createMemoryStores } from "@orbita/db";
 import {
 	formatPluggyDiagnostics,
 	PLUGGY_NO_ACCOUNTS_PREFIX,
+	PLUGGY_NO_DATA_PREFIX,
 	PLUGGY_RECONNECT_MESSAGE,
 	PLUGGY_UPDATING_PREFIX,
 	pluggyWaitingFor,
@@ -449,7 +450,7 @@ describe("conexão partial que não se resolve sozinha", () => {
 	const withBadRow: FakePluggyOptions = {
 		item: { connector: MEU },
 		accounts: [bankAccount, { type: "CREDIT", name: "Cartão sem id" }],
-		transactions: { [BANK_ACCOUNT_ID]: [] },
+		transactions: { [BANK_ACCOUNT_ID]: [tx("a", { amount: -5 })] },
 	};
 	const froms = async (t: ReturnType<typeof setup>) =>
 		(await t.fakeRequests())
@@ -497,6 +498,107 @@ describe("conexão partial que não se resolve sozinha", () => {
 		});
 		await t.run();
 		expect(await froms(t)).toEqual(["2026-05-13"]);
+	});
+});
+
+describe("espelho do MeuPluggy ainda vazio (conta sem lançamento nenhum)", () => {
+	const froms = async (t: ReturnType<typeof setup>) =>
+		(await t.fakeRequests())
+			.filter((r) => r.url.pathname === "/v2/transactions")
+			.map((r) => r.url.searchParams.get("dateFrom"));
+	const noTx = { [BANK_ACCOUNT_ID]: [] };
+
+	it("1 conta e 0 lançamentos no primeiro sync: quando os lançamentos chegam, busca os 6 meses", async () => {
+		const t = setup({ item: { connector: MEU }, accounts: [bankAccount], transactions: noTx });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		t.set({
+			item: { connector: MEU },
+			accounts: [bankAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [tx("antigo", { amount: -10, date: "2026-06-01T00:00:00.000Z" })] },
+		});
+		t.setNow(new Date("2026-11-13T09:00:00Z"));
+		await t.run();
+		expect((await froms(t)).at(-1)).toBe("2026-05-14");
+		const all = await t.stores.transactions.listRecent({ limit: 50 });
+		expect(all.map((r) => r.externalId)).toContain("antigo");
+	});
+
+	it("conexão com lançamentos importados segue a janela de rotina", async () => {
+		const t = setup({
+			item: { connector: MEU },
+			accounts: [bankAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [tx("a", { amount: -5 })] },
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		await t.run();
+		t.setNow(new Date("2026-11-13T09:00:00Z"));
+		await t.run();
+		expect((await froms(t)).at(-1)).toBe("2026-07-14");
+	});
+
+	it("conta com lançamentos só antigos (fora dos 45 dias do Diagnóstico) é legítima: ok, sem espera", async () => {
+		const t = setup({
+			item: {
+				connector: MEU,
+				lastUpdatedAt: "2026-11-12T08:59:00.000Z",
+				consentExpiresAt: "2027-11-12T08:59:25.000Z",
+			},
+			accounts: [bankAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [tx("julho", { amount: -5, date: "2026-07-10T00:00:00.000Z" })] },
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		const result = await t.run();
+		expect(result.connections[0]).toMatchObject({ status: "ok" });
+		expect(result.connections[0]?.retry).toBeUndefined();
+	});
+
+	it("conexão com mais de 3 dias e conta sem movimento não fica esperando nem pede nova tentativa", async () => {
+		const t = setup({
+			item: {
+				connector: MEU,
+				lastUpdatedAt: "2026-11-12T08:59:00.000Z",
+				consentExpiresAt: "2027-11-12T08:59:25.000Z",
+			},
+			accounts: [bankAccount],
+			transactions: noTx,
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		t.setNow(new Date("2026-11-20T09:00:00Z"));
+		const result = await t.run();
+		expect(result.connections[0]).toMatchObject({ status: "ok" });
+		expect(result.connections[0]?.retry).toBeUndefined();
+	});
+
+	it("item atualizado ANTES da autorização e nada importado: espera o banco, sem avançar a janela", async () => {
+		const t = setup({
+			item: {
+				connector: MEU,
+				lastUpdatedAt: "2026-11-12T08:59:00.000Z",
+				consentExpiresAt: "2027-11-12T08:59:25.000Z",
+			},
+			accounts: [bankAccount],
+			transactions: noTx,
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		const result = await t.run();
+		const c = await t.stores.pluggyConnections.get(ITEM_ID);
+		expect(c).toMatchObject({ lastStatus: "partial", lastSyncAt: null, accountCount: 1 });
+		expect(c?.lastError?.startsWith(PLUGGY_NO_DATA_PREFIX)).toBe(true);
+		expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBe("no_data");
+		expect(result.connections[0]?.retry?.reason).toBe("no_data");
+		// Item atualizado depois da autorização, mesmo sem lançamento: é conta vazia de verdade, termina ok.
+		t.set({
+			item: {
+				connector: MEU,
+				lastUpdatedAt: "2026-11-13T08:59:00.000Z",
+				consentExpiresAt: "2027-11-12T08:59:25.000Z",
+			},
+			accounts: [bankAccount],
+			transactions: noTx,
+		});
+		await t.run();
+		expect((await t.stores.pluggyConnections.get(ITEM_ID))?.lastStatus).toBe("ok");
 	});
 });
 
