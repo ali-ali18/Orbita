@@ -233,7 +233,7 @@ async function diagnoseAccount(deps: AccountDeps, a: PluggyAccount): Promise<Dia
 		subtype: safeText(a.subtype, 60),
 		name: safeText(a.name) ?? "?",
 		marketingName: safeText(a.marketingName),
-		numberLast4: a.numberLast4 ?? lastDigits(a.number, 4),
+		numberLast4: a.numberLast4 ? `•••${a.numberLast4}` : lastDigits(a.number, 4),
 		balance: money(a.balance),
 		currencyCode: safeText(a.currencyCode, 10),
 		credit: c
