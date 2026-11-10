@@ -2,7 +2,7 @@ import { addDays, type LocalDate } from "@orbita/core";
 import type { TransactionRecord, TransactionStore, UpsertByExternalInput } from "@orbita/db";
 import { normalizeMerchantName } from "@orbita/shared";
 import { UNCERTAIN_TARGET_NOTE } from "../notification/notes.ts";
-import { UNCONFIRMED_NOTE } from "../notification/reconcile.ts";
+import { UNCONFIRMED_NOTE, UNCONFIRMED_REVIEW_NOTE } from "../notification/reconcile.ts";
 import type { MappedTransaction } from "./mapping.ts";
 
 /*
@@ -116,17 +116,24 @@ export async function clearUnconfirmed(
 	transactions: Pick<TransactionStore, "update">,
 	t: TransactionRecord,
 ): Promise<TransactionRecord> {
-	if (t.note !== UNCONFIRMED_NOTE || t.editedByOwner) return t;
-	return transactions.update(t.id, { status: "confirmed", note: null });
+	if (t.editedByOwner) return t;
+	// Volta ao que era antes de ser sinalizada: confirmada, ou em Para revisar por "confirmar antes" (pedido do dono).
+	if (t.note === UNCONFIRMED_NOTE) return transactions.update(t.id, { status: "confirmed", note: null });
+	if (t.note === UNCONFIRMED_REVIEW_NOTE) return transactions.update(t.id, { status: "pending", note: null });
+	return t;
 }
 
 /** 2 = mesmo nome, 1 = um contém o outro, 0 = sem relação (ou sem nome). */
-function nameScore(t: TransactionRecord, input: UpsertByExternalInput): number {
-	const a = normalizeMerchantName(t.merchantName ?? t.description);
-	const b = normalizeMerchantName(input.merchantName ?? input.description);
+export function nameSimilarity(x: string, y: string): number {
+	const a = normalizeMerchantName(x);
+	const b = normalizeMerchantName(y);
 	if (a === "" || b === "") return 0;
 	if (a === b) return 2;
 	return a.includes(b) || b.includes(a) ? 1 : 0;
+}
+
+function nameScore(t: TransactionRecord, input: UpsertByExternalInput): number {
+	return nameSimilarity(t.merchantName ?? t.description, input.merchantName ?? input.description);
 }
 
 /**
@@ -165,7 +172,9 @@ async function replaceUncertainNotification(
 		.sort(
 			(a, b) => a.gap - b.gap || b.score - a.score || a.t.createdAt.getTime() - b.t.createdAt.getTime(),
 		)[0];
-	if (best) await transactions.softDelete(best.t.id);
+	// Só remove com sinal de que é a mesma compra: mesmo dia, ou nome igual/contido. Valor igual sozinho não basta (duas
+	// compras sem relação de R$ 42,10 em dias diferentes): a linha fica em Para revisar para o dono decidir.
+	if (best && (best.gap === 0 || best.score >= 1)) await transactions.softDelete(best.t.id);
 }
 
 const parcelOfNote = (note: string | null | undefined) => {

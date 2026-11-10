@@ -173,6 +173,8 @@ function cleanName(raw: string | undefined): string | null {
 	const text = cleanNotificationText(raw, 100)
 		.replace(/^\d{1,2}\/\d{1,2}(?:\/\d{2,4})?(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\s+/, "")
 		.replace(/\s+em\s+\d{1,2}\s?x$/i, "")
+		// Um valor em R$ no meio do nome é texto de terceiro: o nome acaba antes dele.
+		.replace(/\s*R\$\s*\d.*$/i, "")
 		.replace(/^[\s.,;:!\-–—]+|[\s.,;:!\-–—]+$/g, "")
 		.trim();
 	return text === "" ? null : text;

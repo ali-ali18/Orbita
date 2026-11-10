@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { DataError, invalid, notFound } from "./errors.ts";
 import type { GoalRecord, GoalStore } from "./goal-store.ts";
 import { assertRefs, byCreated, type MemoryState } from "./memory-state.ts";
-import { GOAL_ARCHIVED_MESSAGE, GOAL_TRANSACTION_MESSAGE } from "./messages.ts";
+import { GOAL_ARCHIVED_MESSAGE, GOAL_TRANSACTION_MESSAGE, ID_EXISTS_MESSAGE } from "./messages.ts";
 import { applyPatch, cleanCents, cleanLocalDate, normalizeGoal } from "./rules.ts";
 
 export function createMemoryGoalStore(state: MemoryState): GoalStore {
@@ -19,6 +19,8 @@ export function createMemoryGoalStore(state: MemoryState): GoalStore {
 	return {
 		async create(input) {
 			const data = normalizeGoal(input);
+			if (input.id !== undefined && state.goals.has(input.id))
+				throw new DataError("duplicate", ID_EXISTS_MESSAGE);
 			const accountId = input.accountId ?? null;
 			assertRefs(state, { accountIds: [accountId] });
 			const now = state.now();

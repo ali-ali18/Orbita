@@ -25,3 +25,6 @@ export const POSTING_MONTH_MESSAGE =
 	"O mês do orçamento do lançamento não é o mês que a recorrência está cumprindo.";
 export const EXTERNAL_TAKEN_MESSAGE = "Já existe um cadastro desta origem com o mesmo identificador externo.";
 export const PLUGGY_CONNECTION_TAKEN_MESSAGE = "Esta conexão do Meu Pluggy já está cadastrada.";
+
+/** Criar com um `id` que já existe (só quem escolhe o id, como o Desfazer, passa por aqui). */
+export const ID_EXISTS_MESSAGE = "Já existe um registro com este identificador.";
