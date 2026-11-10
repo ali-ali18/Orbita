@@ -289,6 +289,41 @@ describe("fluxo de caixa", () => {
 	});
 });
 
+describe("fluxo de caixa e saldo com conta arquivada por conexão removida", () => {
+	it("os lançamentos dela seguem no caixa do mês e só o saldo sai", async () => {
+		const stores = newStores();
+		const gone = await stores.accounts.create({
+			name: "Itaú",
+			kind: "checking",
+			source: "pluggy",
+			externalId: "a1",
+		});
+		const owner = await stores.accounts.create({ name: "Manual", kind: "checking" });
+		await stores.accounts.linkConnection(gone.id, "conn");
+		await stores.accounts.recordBalance(gone.id, 10000, SYNCED);
+		await stores.accounts.recordBalance(owner.id, 500, SYNCED);
+		const tx = (accountId: string, amountCents: number) =>
+			stores.transactions.create({
+				date: "2026-11-05",
+				description: "x",
+				kind: "expense",
+				accountId,
+				amountCents,
+			} as never);
+		await tx(gone.id, 4000);
+		await tx(owner.id, 1000);
+		await stores.accounts.archiveByConnection("conn");
+		const flow = await cashFlow(stores, "2026-11");
+		expect(flow.out.expenseCents).toBe(5000);
+		const balances = await accountBalances(stores);
+		expect(balances.accounts.map((a) => a.name)).toEqual(["Manual"]);
+		expect(balances.totalCents).toBe(500);
+		// Conta arquivada pelo dono (não por conexão) segue fora do caixa, como antes.
+		await stores.accounts.archive(owner.id);
+		expect((await cashFlow(stores, "2026-11")).out.expenseCents).toBe(4000);
+	});
+});
+
 describe("parcelas: pela parcela vista", () => {
 	it("11 de 21 de R$ 86,87: 10 pagas (estimadas), 11 faltam, última em set/2027", async () => {
 		const stores = newStores();

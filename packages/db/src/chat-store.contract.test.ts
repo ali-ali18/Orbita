@@ -165,10 +165,10 @@ describe.each(contractSuites())("ChatStore (%s)", (_name, make) => {
 	it("gravações simultâneas ganham seq diferentes e seguidos", async () => {
 		const c = await stores.chat.createConversation("Conversa");
 		await Promise.all(
-			Array.from({ length: 6 }, (_, i) => stores.chat.appendMessage(c.id, { role: "user", text: `m${i}` })),
+			Array.from({ length: 20 }, (_, i) => stores.chat.appendMessage(c.id, { role: "user", text: `m${i}` })),
 		);
 		const seqs = (await stores.chat.listMessages(c.id)).map((m) => m.seq);
-		expect(seqs).toEqual([1, 2, 3, 4, 5, 6]);
+		expect(seqs).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
 	});
 
 	it("apagar a conversa leva mensagens e propostas", async () => {

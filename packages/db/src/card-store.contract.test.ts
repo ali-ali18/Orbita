@@ -194,4 +194,93 @@ describe.each(contractSuites())("CardStore: cadastro de fora (%s)", (_name, make
 		await expect(stores.cards.recordAvailable("nada", 1, at)).rejects.toMatchObject({ code: "not_found" });
 		await expect(stores.cards.recordAvailable(c.id, 1.5, at)).rejects.toMatchObject({ code: "invalid" });
 	});
+
+	it("a conexão que sai arquiva as vivas dela (motivo) e deixa as outras; reconectar desarquiva só esse arquivamento", async () => {
+		const a = await stores.cards.create({
+			name: "A",
+			closingDay: 10,
+			dueDay: 17,
+			source: "pluggy",
+			externalId: "a",
+		});
+		const b = await stores.cards.create({
+			name: "B",
+			closingDay: 10,
+			dueDay: 17,
+			source: "pluggy",
+			externalId: "b",
+		});
+		const manual = await stores.cards.create({ name: "M", closingDay: 10, dueDay: 17 });
+		expect(a).toMatchObject({ connectionId: null, archiveReason: null });
+		expect(await stores.cards.linkConnection(a.id, "conn-1")).toMatchObject({ connectionId: "conn-1" });
+		await stores.cards.linkConnection(b.id, "conn-2");
+		expect(await stores.cards.linkConnection(manual.id, "conn-1")).toBeNull();
+		expect(await stores.cards.linkConnection("nada", "conn-1")).toBeNull();
+		expect(await stores.cards.archiveByConnection("conn-1")).toBe(1);
+		expect(await stores.cards.archiveByConnection("conn-1")).toBe(0);
+		expect((await stores.cards.list()).map((x) => x.id)).toEqual([b.id, manual.id]);
+		expect(await stores.cards.get(a.id)).toMatchObject({
+			archiveReason: "connection_removed",
+			connectionId: "conn-1",
+		});
+		expect((await stores.cards.get(a.id))?.archivedAt).toBeInstanceOf(Date);
+		expect((await stores.cards.listRemovedByConnection()).map((x) => x.id)).toEqual([a.id]);
+		const back = await stores.cards.restoreFromConnection(a.id);
+		expect(back).toMatchObject({ archivedAt: null, archiveReason: null, connectionId: "conn-1" });
+		expect((await stores.cards.list()).map((x) => x.id)).toEqual([a.id, b.id, manual.id]);
+		expect(await stores.cards.listRemovedByConnection()).toEqual([]);
+		expect(await stores.cards.restoreFromConnection("nada")).toBeNull();
+	});
+
+	it("arquivamento do dono não é desfeito por reconexão", async () => {
+		const a = await stores.cards.create({
+			name: "A",
+			closingDay: 10,
+			dueDay: 17,
+			source: "pluggy",
+			externalId: "a",
+		});
+		await stores.cards.linkConnection(a.id, "conn-1");
+		await stores.cards.archive(a.id);
+		const kept = await stores.cards.restoreFromConnection(a.id);
+		expect(kept?.archivedAt).toBeInstanceOf(Date);
+		expect(kept?.archiveReason).toBeNull();
+		expect(await stores.cards.archiveByConnection("conn-1")).toBe(0);
+	});
+
+	it("archiveOrphans: conexão que não está entre as vivas; sem vínculo só com 'strike' (2 seguidas) ou 'all'; manual nunca", async () => {
+		const mk = (name: string, externalId: string) =>
+			stores.cards.create({ name, closingDay: 10, dueDay: 17, source: "pluggy", externalId });
+		const live = await mk("viva", "1");
+		const gone = await mk("saiu", "2");
+		const legacy = await mk("antiga", "3");
+		const manual = await stores.cards.create({ name: "M", closingDay: 10, dueDay: 17 });
+		await stores.cards.linkConnection(live.id, "conn-live");
+		await stores.cards.linkConnection(gone.id, "conn-gone");
+		expect(await stores.cards.archiveOrphans(["conn-live"], { unlinked: "ignore" })).toBe(1);
+		expect((await stores.cards.list()).map((x) => x.id)).toEqual([live.id, legacy.id, manual.id]);
+		// Uma ausência só não arquiva; a segunda seguida sim.
+		expect(await stores.cards.archiveOrphans(["conn-live"], { unlinked: "strike" })).toBe(0);
+		expect((await stores.cards.get(legacy.id))?.unlinkedMisses).toBe(1);
+		expect(await stores.cards.archiveOrphans(["conn-live"], { unlinked: "strike" })).toBe(1);
+		expect((await stores.cards.list()).map((x) => x.id)).toEqual([live.id, manual.id]);
+		expect(await stores.cards.archiveOrphans([], { unlinked: "all" })).toBe(1);
+		expect((await stores.cards.list()).map((x) => x.id)).toEqual([manual.id]);
+	});
+
+	it("archiveExternalAsRemoved arquiva o vivo do Pluggy pelo id externo, com o motivo, e é idempotente", async () => {
+		const a = await stores.cards.create({
+			name: "A",
+			closingDay: 10,
+			dueDay: 17,
+			source: "pluggy",
+			externalId: "x1",
+		});
+		await stores.cards.create({ name: "M", closingDay: 10, dueDay: 17 });
+		expect(await stores.cards.archiveExternalAsRemoved("x1")).toBe(true);
+		expect(await stores.cards.archiveExternalAsRemoved("x1")).toBe(false);
+		expect(await stores.cards.archiveExternalAsRemoved("nada")).toBe(false);
+		expect(await stores.cards.get(a.id)).toMatchObject({ archiveReason: "connection_removed" });
+		expect((await stores.cards.restoreFromConnection(a.id))?.archivedAt).toBeNull();
+	});
 });

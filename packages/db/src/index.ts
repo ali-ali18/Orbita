@@ -1,4 +1,10 @@
-export type { AccountInput, AccountPatch, AccountRecord, AccountStore } from "./account-store.ts";
+export type {
+	AccountInput,
+	AccountPatch,
+	AccountRecord,
+	AccountStore,
+} from "./account-store.ts";
+export { ARCHIVE_CONNECTION_REMOVED } from "./account-store.ts";
 export type {
 	ActivityDraft,
 	ActivityQuery,

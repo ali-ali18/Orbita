@@ -59,6 +59,70 @@ export function createPrismaAccountStore(db: Db, now: Clock): AccountStore {
 				throw t;
 			}
 		},
+		async linkConnection(id, connectionId) {
+			const current = await db.account.findUnique({ where: { id } });
+			if (!current || current.source === "manual") return null;
+			if (current.connectionId === connectionId) return current;
+			// `updatedAt` explícito: ligar a conexão não é edição do dono.
+			return db.account.update({ where: { id }, data: { connectionId, updatedAt: current.updatedAt } });
+		},
+		async archiveByConnection(connectionId) {
+			const at = now();
+			const { count } = await db.account.updateMany({
+				where: { connectionId, archivedAt: null },
+				data: { archivedAt: at, archiveReason: "connection_removed", updatedAt: at },
+			});
+			return count;
+		},
+		async archiveOrphans(liveConnectionIds, { unlinked }) {
+			const at = now();
+			const data = { archivedAt: at, archiveReason: "connection_removed", updatedAt: at };
+			const live = { source: "pluggy" as const, archivedAt: null };
+			let count = (
+				await db.account.updateMany({
+					where: { ...live, connectionId: { notIn: [...liveConnectionIds] } },
+					data,
+				})
+			).count;
+			if (unlinked === "all") {
+				count += (await db.account.updateMany({ where: { ...live, connectionId: null }, data })).count;
+			} else if (unlinked === "strike") {
+				await db.account.updateMany({
+					where: { ...live, connectionId: null },
+					data: { unlinkedMisses: { increment: 1 } },
+				});
+				count += (
+					await db.account.updateMany({
+						where: { ...live, connectionId: null, unlinkedMisses: { gte: 2 } },
+						data,
+					})
+				).count;
+			}
+			return count;
+		},
+		async archiveExternalAsRemoved(externalId) {
+			const at = now();
+			const { count } = await db.account.updateMany({
+				where: { source: "pluggy", externalId, archivedAt: null },
+				data: { archivedAt: at, archiveReason: "connection_removed", updatedAt: at },
+			});
+			return count > 0;
+		},
+		listRemovedByConnection() {
+			return db.account.findMany({
+				where: { archiveReason: "connection_removed", archivedAt: { not: null } },
+				orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+			});
+		},
+		async restoreFromConnection(id) {
+			const current = await db.account.findUnique({ where: { id } });
+			if (!current) return null;
+			if (current.archivedAt === null || current.archiveReason !== "connection_removed") return current;
+			return db.account.update({
+				where: { id },
+				data: { archivedAt: null, archiveReason: null, updatedAt: now() },
+			});
+		},
 		async recordBalance(id, balanceCents, syncedAt) {
 			const current = await need(id);
 			// `updatedAt` explícito: o `@updatedAt` do Prisma o moveria, e isto não é edição do dono.

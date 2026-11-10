@@ -106,6 +106,12 @@ model Account {
   balanceCents    Int?              @map("balance_cents")
   balanceSyncedAt DateTime?         @map("balance_synced_at")
   archivedAt      DateTime?         @map("archived_at")
+  /// Conexão do Meu Pluggy (itemId) que a sincronização ligou a esta conta. Sem chave estrangeira de propósito: a conexão pode sumir e a conta fica. Nulo: ligada antes desta coluna, ou manual.
+  connectionId    String?           @map("connection_id")
+  /// Por que está arquivada, quando não foi o dono: "connection_removed" (a conexão saiu). Só esse motivo permite desarquivar ao reconectar.
+  archiveReason   String?           @map("archive_reason")
+  /// Sincronizações completas seguidas em que esta conta, sem conexão gravada, não apareceu em nenhuma conexão viva. Com 2 é arquivada (evidência de que a conexão dela saiu).
+  unlinkedMisses  Int               @default(0) @map("unlinked_misses")
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
 
@@ -141,6 +147,12 @@ model Card {
   source            TransactionSource @default(manual)
   externalId        String?           @map("external_id")
   archivedAt        DateTime?         @map("archived_at")
+  /// Conexão do Meu Pluggy (itemId) que a sincronização ligou a este cartão. Sem chave estrangeira de propósito: a conexão pode sumir e o cartão fica. Nulo: ligada antes desta coluna, ou manual.
+  connectionId      String?           @map("connection_id")
+  /// Por que está arquivada, quando não foi o dono: "connection_removed" (a conexão saiu). Só esse motivo permite desarquivar ao reconectar.
+  archiveReason     String?           @map("archive_reason")
+  /// Sincronizações completas seguidas em que este cartão, sem conexão gravada, não apareceu em nenhuma conexão viva. Com 2 é arquivada (evidência de que a conexão dela saiu).
+  unlinkedMisses    Int               @default(0) @map("unlinked_misses")
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
 

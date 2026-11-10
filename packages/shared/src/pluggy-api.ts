@@ -34,6 +34,20 @@ export type PluggySyncStatus = (typeof PLUGGY_SYNC_STATUSES)[number];
 export const PLUGGY_RECONNECT_PREFIX = "O banco pediu para você reconectar.";
 export const PLUGGY_RECONNECT_MESSAGE = `${PLUGGY_RECONNECT_PREFIX} Toque em Reconectar no app e sincronize de novo.`;
 
+/**
+ * `lastError` do PRIMEIRO 404 de uma conexão que já sincronizou: ainda não é remoção (chave trocada ou falha do
+ * Pluggy dão o mesmo 404), então nada é arquivado. O segundo 404 seguido, com outro item respondendo, é a remoção.
+ */
+export const PLUGGY_MISSING_PREFIX = "Não encontrei esta conexão no Meu Pluggy.";
+export const PLUGGY_MISSING_MESSAGE = `${PLUGGY_MISSING_PREFIX} Confiro de novo na próxima sincronização.`;
+
+/**
+ * `lastError` de uma conexão cujo item sumiu do Meu Pluggy (404): o dono a removeu lá. O Órbita arquiva as contas e
+ * cartões dela (saem do saldo e das contagens) e mantém os lançamentos no histórico.
+ */
+export const PLUGGY_REMOVED_PREFIX = "Conexão removida no Meu Pluggy.";
+export const PLUGGY_REMOVED_MESSAGE = `${PLUGGY_REMOVED_PREFIX} As contas dela saíram do saldo e os lançamentos continuam no histórico. Conecte o banco de novo ou remova esta conexão.`;
+
 /** A conexão precisa de login novo no banco (não é falha do Pluggy nem das chaves). */
 export function needsReconnect(c: {
 	lastStatus: PluggySyncStatus | null;

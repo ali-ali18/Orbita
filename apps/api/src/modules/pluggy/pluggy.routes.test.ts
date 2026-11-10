@@ -12,11 +12,23 @@ const API_KEY = "eyJhbGciOiJIUzI1NiJ9.fake-api-key-payload.fake-signature";
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 /** Pluggy falso: só conhece o ITEM. */
-function pluggyFetch(calls: string[] = []) {
+function pluggyFetch(calls: string[] = [], accountIds: string[] = []) {
 	return async (url: string, init: RequestInit): Promise<Response> => {
 		const u = new URL(url);
 		calls.push(`${init.method} ${u.host}${u.pathname}`);
 		if (u.pathname === "/auth") return json({ apiKey: API_KEY });
+		if (u.pathname === "/accounts" && u.searchParams.get("itemId") === ITEM) {
+			const results = accountIds.map((id) => ({
+				id,
+				type: "BANK",
+				subtype: "CHECKING_ACCOUNT",
+				name: "Conta",
+				balance: 1,
+				currencyCode: "BRL",
+				itemId: ITEM,
+			}));
+			return json({ total: results.length, totalPages: 1, page: 1, results });
+		}
 		if (u.pathname === `/items/${ITEM}`) {
 			return json({ id: ITEM, status: "UPDATED", connector: { name: "Nubank" } });
 		}
@@ -93,6 +105,112 @@ describe("conexões", () => {
 		expect(removed.body.connection.id).toBe(ITEM);
 		expect((await api.delete(`/v1/pluggy/connections/${ITEM}`)).status).toBe(404);
 		expect((await api.get("/v1/pluggy/connections")).body.connections).toEqual([]);
+	});
+
+	it("remover a conexão tira as contas dela do saldo e das contagens e mantém os lançamentos", async () => {
+		const stores = createMemoryStores({ now: () => new Date(NOW) });
+		const q = fakeQueue();
+		const t = await setupFinance(NOW, () => stores, { pluggySyncQueue: q.queue, pluggyFetch: pluggyFetch() });
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		await t.api.post("/v1/pluggy/connections", { itemId: OTHER });
+		const mk = async (name: string, externalId: string, connectionId: string) => {
+			const a = await stores.accounts.create({ name, kind: "checking", source: "pluggy", externalId });
+			await stores.accounts.linkConnection(a.id, connectionId);
+			await stores.accounts.recordBalance(a.id, 10_000, new Date(NOW));
+			return a;
+		};
+		const gone = await mk("Itaú · Conta corrente", "a1", ITEM);
+		await mk("Azul · Conta", "a2", OTHER);
+		await stores.transactions.upsertByExternal("pluggy", "p1", {
+			kind: "expense",
+			amountCents: 1000,
+			date: "2026-11-05",
+			accountId: gone.id,
+			description: "Mercado",
+		});
+		expect((await t.api.get("/v1/accounts/balances")).body.accounts).toHaveLength(2);
+
+		expect((await t.api.delete(`/v1/pluggy/connections/${ITEM}`)).status).toBe(200);
+
+		const balances = (await t.api.get("/v1/accounts/balances")).body;
+		expect(balances.accounts.map((a: { name: string }) => a.name)).toEqual(["Azul · Conta"]);
+		expect(balances.totalCents).toBe(10_000);
+		expect((await t.api.get("/v1/accounts")).body.accounts).toHaveLength(1);
+		// O lançamento importado continua no histórico.
+		const list = (await t.api.get("/v1/transactions")).body;
+		expect(list.transactions.map((x: { description: string }) => x.description)).toEqual(["Mercado"]);
+		// Tudo ligado à conexão já foi arquivado: não precisa de nova sincronização para isso.
+		expect(q.calls).toEqual([]);
+	});
+
+	it("remover conexão com contas sem vínculo gravado arquiva as que o Pluggy ainda lista para o item", async () => {
+		const stores = createMemoryStores({ now: () => new Date(NOW) });
+		const q = fakeQueue();
+		const t = await setupFinance(NOW, () => stores, {
+			pluggySyncQueue: q.queue,
+			pluggyFetch: pluggyFetch([], ["a1", "c1"]),
+		});
+		await withKeys(t.api);
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		const mine = await stores.accounts.create({
+			name: "Itaú",
+			kind: "checking",
+			source: "pluggy",
+			externalId: "a1",
+		});
+		const card = await stores.cards.create({
+			name: "Cartão",
+			closingDay: 5,
+			dueDay: 12,
+			source: "pluggy",
+			externalId: "c1",
+		});
+		// Outra conexão (o Pluggy não lista a conta dela para este item): fica.
+		const other = await stores.accounts.create({
+			name: "Outra",
+			kind: "checking",
+			source: "pluggy",
+			externalId: "z9",
+		});
+		// Um vínculo gravado + um legado: o plano B pega o legado mesmo com `archived > 0`.
+		const linked = await stores.accounts.create({
+			name: "Ligada",
+			kind: "checking",
+			source: "pluggy",
+			externalId: "l1",
+		});
+		await stores.accounts.linkConnection(linked.id, ITEM);
+
+		expect((await t.api.delete(`/v1/pluggy/connections/${ITEM}`)).status).toBe(200);
+
+		expect((await stores.accounts.get(mine.id))?.archiveReason).toBe("connection_removed");
+		expect((await stores.cards.get(card.id))?.archiveReason).toBe("connection_removed");
+		expect((await stores.accounts.get(linked.id))?.archivedAt).not.toBeNull();
+		expect((await stores.accounts.get(other.id))?.archivedAt).toBeNull();
+	});
+
+	it("o plano B nunca derruba a remoção (Pluggy fora do ar): remove e segue", async () => {
+		const stores = createMemoryStores({ now: () => new Date(NOW) });
+		const q = fakeQueue();
+		const t = await setupFinance(NOW, () => stores, {
+			pluggySyncQueue: q.queue,
+			pluggyFetch: async (url, init) =>
+				new URL(url).pathname === "/accounts" ? json({}, 500) : pluggyFetch()(url, init),
+		});
+		await withKeys(t.api);
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		expect((await t.api.delete(`/v1/pluggy/connections/${ITEM}`)).status).toBe(200);
+		expect((await t.api.get("/v1/pluggy/connections")).body.connections).toEqual([]);
+	});
+
+	it("remover conexão sem vínculo gravado pede uma sincronização, que arquiva as órfãs", async () => {
+		const stores = createMemoryStores({ now: () => new Date(NOW) });
+		const q = fakeQueue();
+		const t = await setupFinance(NOW, () => stores, { pluggySyncQueue: q.queue, pluggyFetch: pluggyFetch() });
+		await t.api.post("/v1/pluggy/connections", { itemId: ITEM });
+		await stores.accounts.create({ name: "Antiga", kind: "checking", source: "pluggy", externalId: "a1" });
+		expect((await t.api.delete(`/v1/pluggy/connections/${ITEM}`)).status).toBe(200);
+		expect(q.calls).toEqual(["enqueue"]);
 	});
 
 	it("valida o corpo: UUID, nome, campos extras", async () => {

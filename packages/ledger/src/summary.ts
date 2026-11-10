@@ -326,7 +326,9 @@ export async function spendingBreakdown(
 		const own = rows.filter((r) => r.branch === branch);
 		return { branch, count: own.length, subtotalCents: sum(own.map((r) => r.deltaCents)) };
 	});
-	const cardList = await stores.cards.list();
+	// Inclui o cartão arquivado porque a conexão saiu: as compras dele no mês seguem nos totais, e a lista por cartão
+	// tem de bater com elas.
+	const cardList = [...(await stores.cards.list()), ...(await stores.cards.listRemovedByConnection())];
 	const cards = cardList.flatMap((card) => {
 		const own = rows.filter((r) => r.branch === "card" && r.cardId === card.id);
 		return own.length === 0
