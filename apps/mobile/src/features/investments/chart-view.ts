@@ -48,3 +48,17 @@ export function serializeChartViews(views: ChartViews): string {
 export function withChartView(views: ChartViews, target: ChartTarget, view: ChartView): ChartViews {
 	return views[target] === view ? views : { ...views, [target]: view };
 }
+
+/**
+ * O valor lido do aparelho chega depois de a pessoa já ter escolhido algo: vale a escolha nos gráficos que ela mexeu e
+ * o valor guardado nos outros (não descarta o que estava salvo dos demais).
+ */
+export function mergeLoaded(
+	loaded: ChartViews,
+	current: ChartViews,
+	chosen: ReadonlySet<ChartTarget>,
+): ChartViews {
+	const result: ChartViews = { ...loaded };
+	for (const target of chosen) result[target] = current[target];
+	return result;
+}

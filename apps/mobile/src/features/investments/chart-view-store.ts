@@ -5,6 +5,7 @@ import {
 	type ChartView,
 	type ChartViews,
 	DEFAULT_CHART_VIEWS,
+	mergeLoaded,
 	parseChartViews,
 	serializeChartViews,
 	withChartView,
@@ -13,7 +14,7 @@ import {
 /** A escolha de "Ver como" fora da tela: sobrevive a sair e voltar e vai para o aparelho (como o tema). */
 let state: ChartViews = DEFAULT_CHART_VIEWS;
 let loaded = false;
-let chosen = false;
+const chosen = new Set<ChartTarget>();
 const listeners = new Set<() => void>();
 
 const emit = () => {
@@ -25,16 +26,15 @@ function load() {
 	loaded = true;
 	getItem(KEYS.investChartViews)
 		.then((stored) => {
-			// Se a pessoa já escolheu enquanto lia, a escolha vale.
-			if (chosen) return;
-			state = parseChartViews(stored);
+			// O que a pessoa já escolheu enquanto lia vale; o salvo dos outros gráficos é mantido.
+			state = mergeLoaded(parseChartViews(stored), state, chosen);
 			emit();
 		})
 		.catch(() => {});
 }
 
 export function setChartView(target: ChartTarget, view: ChartView) {
-	chosen = true;
+	chosen.add(target);
 	const next = withChartView(state, target, view);
 	if (next === state) return;
 	state = next;

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CHART_VIEWS, parseChartViews, serializeChartViews, withChartView } from "./chart-view.ts";
+import {
+	DEFAULT_CHART_VIEWS,
+	mergeLoaded,
+	parseChartViews,
+	serializeChartViews,
+	withChartView,
+} from "./chart-view.ts";
 
 describe("Ver como (escolha guardada)", () => {
 	it("Instituições abre em barras e Classes em rosca", () => {
@@ -23,5 +29,15 @@ describe("Ver como (escolha guardada)", () => {
 			classes: "donut",
 			institutions: "hbars",
 		});
+	});
+
+	it("escolha feita antes da leitura vale só no gráfico mexido; o salvo dos outros é mantido", () => {
+		const loaded = { classes: "hbars", institutions: "donut" } as const;
+		const current = withChartView(DEFAULT_CHART_VIEWS, "institutions", "bars");
+		expect(mergeLoaded(loaded, current, new Set(["institutions"]))).toEqual({
+			classes: "hbars",
+			institutions: "bars",
+		});
+		expect(mergeLoaded(loaded, DEFAULT_CHART_VIEWS, new Set())).toEqual(loaded);
 	});
 });
