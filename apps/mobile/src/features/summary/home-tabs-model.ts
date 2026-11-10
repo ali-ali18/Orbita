@@ -52,3 +52,24 @@ export function tabsFade(scrollY: number, tabsHeight: number): number {
 export function tabsTouchable(opacity: number): boolean {
 	return opacity >= TABS_TOUCH_MIN_OPACITY;
 }
+
+/**
+ * Paradas do degradê do header (de cima para baixo, offsets pela altura total do overlay = barra de status + header +
+ * abas): opaco na barra de status, ~0,72 no centro do avatar e do olho, ~0,5 no centro das abas e 0 na base da zona
+ * das abas. O conteúdo que sobe vai sumindo; na barra de status quase não se vê.
+ */
+export function headerFadeStops(
+	safeTop: number,
+	headerHeight: number,
+	tabsHeight: number,
+): { offset: number; opacity: number }[] {
+	const total = safeTop + headerHeight + tabsHeight;
+	if (total <= 0) return [];
+	return [
+		{ offset: 0, opacity: 1 },
+		{ offset: safeTop / total, opacity: 1 },
+		{ offset: (safeTop + headerHeight / 2) / total, opacity: 0.72 },
+		{ offset: (safeTop + headerHeight + tabsHeight / 2) / total, opacity: 0.5 },
+		{ offset: 1, opacity: 0 },
+	];
+}

@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useClock } from "../../lib/clock.tsx";
 import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
@@ -35,7 +36,7 @@ import { useProfile } from "../settings/preferences-queries.ts";
 import { avatarInitial, greetWithName } from "../settings/profile-model.ts";
 import { HomeHeader } from "./HomeHeader.tsx";
 import {
-	HomeHeaderBackdrop,
+	HomeHeaderFade,
 	HomePager,
 	HomeTabsBar,
 	HomeTabsFade,
@@ -67,10 +68,12 @@ export function HomeScreen() {
 	const [refreshing, setRefreshing] = useState(false);
 	const bottomBarHeight = useBottomBarHeight();
 	const pager = useHomePager();
+	const insets = useSafeAreaInsets();
 	const tabsFade = useTabsFade(pager.page);
 	// A base do header fixo: o conteúdo começa abaixo dele (e do degradê) e o menu do widget usa como topo útil.
 	const headerBottom = sizes.homeHeader + sizes.homeTabs;
-	const contentTop = headerBottom + TOP_FADE;
+	const safeTop = Math.max(insets.top, sizes.statusBar);
+	const contentTop = safeTop + headerBottom + TOP_FADE;
 	// Widgets: o layout vem do servidor; segurar um widget abre o menu colado nele e cada escolha vale na hora.
 	const layoutQ = useHomeLayout();
 	const saveLayout = useSaveHomeLayout();
@@ -139,6 +142,8 @@ export function HomeScreen() {
 
 	return (
 		<Screen
+			// As páginas rolam até o topo da tela, por baixo da barra de status: o sumiço ali é do degradê, não de recorte.
+			style={{ paddingTop: 0 }}
 			footer={<BottomBar onNew={() => router.push("/novo")} onAsk={() => router.push("/chat")} />}
 			floatingFooter
 		>
@@ -269,16 +274,17 @@ export function HomeScreen() {
 			    abaixo das abas e sobe com o sumiço delas; as abas só mudam de opacidade, sem recorte. */}
 			<View
 				pointerEvents="box-none"
-				style={{ position: "absolute", top: 0, left: 0, right: 0, height: headerBottom }}
+				style={{
+					position: "absolute",
+					top: 0,
+					left: 0,
+					right: 0,
+					height: safeTop + headerBottom,
+					paddingTop: safeTop,
+				}}
 			>
-				<HomeHeaderBackdrop fade={tabsFade} />
-				<View
-					style={{
-						height: sizes.homeHeader,
-						paddingHorizontal: spacing.lg,
-						backgroundColor: colors.background,
-					}}
-				>
+				<HomeHeaderFade safeTop={safeTop} />
+				<View style={{ height: sizes.homeHeader, paddingHorizontal: spacing.lg }}>
 					<HomeHeader
 						height={sizes.homeHeader}
 						initial={avatarInitial(displayName)}

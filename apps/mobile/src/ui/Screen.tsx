@@ -1,5 +1,5 @@
 import { colors, layout, spacing } from "@orbita/tokens";
-import type { ReactNode } from "react";
+import { type ReactNode, useId } from "react";
 import { type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
@@ -15,7 +15,18 @@ export const TOP_FADE = spacing.xxl;
  * Degradê linear do fundo (opaco) para transparente, por cima do conteúdo e sem receber toques. `style` dá a posição e
  * a altura; o Início o usa na base do header fixo, para o conteúdo sumir suave ao passar por baixo dele.
  */
-export function FadeEdge({ style }: { style?: StyleProp<ViewStyle> }) {
+export function FadeEdge({
+	style,
+	topOpacity = 1,
+	stops,
+}: {
+	style?: StyleProp<ViewStyle>;
+	/** Opacidade do fundo na borda de cima (1 por padrão); embaixo é sempre 0. */
+	topOpacity?: number;
+	/** Paradas do degradê (offset 0..1 de cima para baixo e opacidade do fundo); manda sobre `topOpacity`. */
+	stops?: readonly { offset: number; opacity: number }[];
+}) {
+	const id = `fade-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
 	return (
 		<View
 			pointerEvents="none"
@@ -25,12 +36,23 @@ export function FadeEdge({ style }: { style?: StyleProp<ViewStyle> }) {
 		>
 			<Svg width="100%" height="100%" preserveAspectRatio="none">
 				<Defs>
-					<LinearGradient id="top-fade" x1="0" y1="0" x2="0" y2="1">
-						<Stop offset="0" stopColor={colors.background} stopOpacity={1} />
-						<Stop offset="1" stopColor={colors.background} stopOpacity={0} />
+					<LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+						{(
+							stops ?? [
+								{ offset: 0, opacity: topOpacity },
+								{ offset: 1, opacity: 0 },
+							]
+						).map((stop) => (
+							<Stop
+								key={stop.offset}
+								offset={stop.offset}
+								stopColor={colors.background}
+								stopOpacity={stop.opacity}
+							/>
+						))}
 					</LinearGradient>
 				</Defs>
-				<Rect width="100%" height="100%" fill="url(#top-fade)" />
+				<Rect width="100%" height="100%" fill={`url(#${id})`} />
 			</Svg>
 		</View>
 	);

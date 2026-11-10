@@ -12,9 +12,10 @@ import {
 	View,
 } from "react-native";
 import { useAccent } from "../../lib/theme.tsx";
-import { FadeEdge, Text, TOP_FADE } from "../../ui/index.ts";
+import { FadeEdge, Text } from "../../ui/index.ts";
 import {
 	HOME_TABS,
+	headerFadeStops,
 	offsetOfPage,
 	pageFromOffset,
 	resolvePage,
@@ -114,7 +115,7 @@ export function useTabsFade(activePage: number) {
 
 export type TabsFadeState = ReturnType<typeof useTabsFade>;
 
-/** Envolve as abas: só a opacidade muda (altura inteira, nada é cortado); invisíveis, não recebem toque nem leitor. */
+/** Envolve as abas: só a opacidade muda (altura inteira, nada é cortado, sem mover); invisíveis, não recebem toque nem leitor. */
 export function HomeTabsFade({ fade, children }: { fade: TabsFadeState; children: ReactNode }) {
 	if (!fade.opacity) return <>{children}</>;
 	return (
@@ -130,26 +131,22 @@ export function HomeTabsFade({ fade, children }: { fade: TabsFadeState; children
 }
 
 /**
- * O fundo sob as abas: uma faixa do fundo e, logo abaixo, o degradê linear. Ele SOBE junto com o sumiço das abas
- * (translação, sem recorte), até o degradê ficar logo abaixo do avatar e do olho. O que passa por baixo some em
- * gradiente; nunca há uma borda reta entre o header e o conteúdo.
+ * O degradê do header: um overlay só, do topo da tela (quase opaco) até a base da zona das abas (transparente), sobre o
+ * conteúdo e sob avatar, olho e abas. Não há faixa sólida: o conteúdo continua visível por baixo e vai se apagando
+ * conforme sobe, até por trás do avatar. Fica atrás dos botões e não recebe toque.
  */
-export function HomeHeaderBackdrop({ fade }: { fade: TabsFadeState }) {
-	const shift = fade.opacity?.interpolate({ inputRange: [0, 1], outputRange: [-layout.homeTabs, 0] });
+export function HomeHeaderFade({ safeTop }: { safeTop: number }) {
 	return (
-		<Animated.View
-			pointerEvents="none"
+		<FadeEdge
+			stops={headerFadeStops(safeTop, layout.homeHeader, layout.homeTabs)}
 			style={{
 				position: "absolute",
-				top: layout.homeHeader,
+				top: 0,
 				left: 0,
 				right: 0,
-				transform: shift ? [{ translateY: shift }] : [],
+				height: safeTop + layout.homeHeader + layout.homeTabs,
 			}}
-		>
-			<View style={{ height: layout.homeTabs, backgroundColor: colors.background }} />
-			<FadeEdge style={{ height: TOP_FADE }} />
-		</Animated.View>
+		/>
 	);
 }
 
