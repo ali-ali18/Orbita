@@ -7,10 +7,14 @@ import {
 	categorySchema,
 	connectTokenResponse,
 	cursorPage,
+	investmentSchema,
+	investmentTransactionSchema,
 	itemResponse,
 	type PluggyAccount,
 	type PluggyBill,
 	type PluggyCategory,
+	type PluggyInvestment,
+	type PluggyInvestmentTransaction,
 	type PluggyItem,
 	type PluggyTransaction,
 	page,
@@ -39,6 +43,17 @@ export interface PluggyTransactionsResult {
 	dropped: number;
 }
 
+/** Posições de investimento válidas e quantas linhas vieram fora do formato (descartadas uma a uma). */
+export interface PluggyInvestmentsResult {
+	investments: PluggyInvestment[];
+	dropped: number;
+}
+
+export interface PluggyInvestmentTransactionsResult {
+	transactions: PluggyInvestmentTransaction[];
+	dropped: number;
+}
+
 export interface PluggyClient {
 	/**
 	 * `POST /connect_token` com `clientUserId` fixo: o token de curta duração com que a página web abre o
@@ -59,6 +74,16 @@ export interface PluggyClient {
 	 * marcado como obsoleto no SDK): todas as páginas. Datas "AAAA-MM-DD".
 	 */
 	transactions(input: { accountId: string; from: string; to: string }): Promise<PluggyTransactionsResult>;
+	/**
+	 * `GET /investments?itemId=`: todas as páginas (docs.pluggy.ai/reference/investments-list). Lista vazia é resposta
+	 * válida. Conector sem o produto pode recusar (403/404): quem chama decide; use `readInvestments` para não lançar.
+	 */
+	investments(itemId: string): Promise<PluggyInvestmentsResult>;
+	/**
+	 * `GET /investments/{id}/transactions`: todas as páginas. A referência só documenta `page` e `pageSize` (não há
+	 * filtro por data), então vem o histórico inteiro que o Pluggy tiver.
+	 */
+	investmentTransactions(investmentId: string): Promise<PluggyInvestmentTransactionsResult>;
 }
 
 const PAGE_SIZE = 500;
@@ -220,6 +245,31 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 	}
 
 	/**
+	 * Como `allPages`, mas tolerante por linha: o envelope é rígido, cada linha é validada sozinha e a que não passa
+	 * é descartada e contada (nunca logada: o conteúdo é dado de terceiro).
+	 */
+	async function allPagesLenient<S extends z.ZodType>(
+		path: string,
+		params: Record<string, string>,
+		item: S,
+	): Promise<{ rows: z.infer<S>[]; dropped: number }> {
+		const rows: z.infer<S>[] = [];
+		let dropped = 0;
+		const schema = page(z.unknown());
+		for (let n = 1; n <= MAX_PAGES; n++) {
+			const query = new URLSearchParams({ ...params, page: String(n), pageSize: String(PAGE_SIZE) });
+			const body = parse(schema, await get(`${path}?${query}`));
+			for (const raw of body.results) {
+				const row = item.safeParse(raw);
+				if (row.success) rows.push(row.data);
+				else dropped += 1;
+			}
+			if (n >= body.totalPages || body.results.length === 0) return { rows, dropped };
+		}
+		throw pluggyError("too_large");
+	}
+
+	/**
 	 * Todas as páginas de um endpoint por cursor. Só o parâmetro `after` do `next` é aproveitado: o host nunca vem da
 	 * resposta. O envelope (`results`, `next`) é rígido; cada linha é validada sozinha e a que não passa é descartada
 	 * e contada (nunca logada: o conteúdo é dado de terceiro).
@@ -292,6 +342,22 @@ export function createPluggyClient(options: PluggyClientOptions): PluggyClient {
 				"/v2/transactions",
 				{ accountId: needSafeId(accountId), dateFrom: from, dateTo: to },
 				transactionSchema,
+			);
+			return { transactions: rows, dropped };
+		},
+		async investments(itemId) {
+			const { rows, dropped } = await allPagesLenient(
+				"/investments",
+				{ itemId: needUuid(itemId) },
+				investmentSchema,
+			);
+			return { investments: rows, dropped };
+		},
+		async investmentTransactions(investmentId) {
+			const { rows, dropped } = await allPagesLenient(
+				`/investments/${needSafeId(investmentId)}/transactions`,
+				{},
+				investmentTransactionSchema,
 			);
 			return { transactions: rows, dropped };
 		},

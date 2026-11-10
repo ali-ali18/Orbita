@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { createUpdateChecker, isSameServer, type UpdatesPort } from "./updates.ts";
+import { createUpdateChecker, isSameServer, MIN_AWAY_TO_APPLY_MS, type UpdatesPort } from "./updates.ts";
 
 function fakePort(over: Partial<UpdatesPort> = {}) {
 	return {
 		isEnabled: true,
 		check: vi.fn(async () => ({ isAvailable: true })),
 		download: vi.fn(async () => ({ isNew: true })),
+		reload: vi.fn(async () => {}),
 		...over,
 	} satisfies UpdatesPort;
 }
@@ -76,15 +77,49 @@ describe("createUpdateChecker", () => {
 		expect(port.check).toHaveBeenCalledTimes(2);
 	});
 
-	it("nunca lança: erro vira 'error' e o intervalo é respeitado", async () => {
+	it("nunca lança: erro vira 'error', com a mensagem guardada para o Diagnóstico", async () => {
 		const port = fakePort({
 			check: vi.fn(async () => {
 				throw new Error("rede");
 			}),
 		});
-		const c = checker(port, { now: () => 0 });
+		const c = checker(port, { now: () => 5 });
 		expect(await c.run(BASE)).toBe("error");
+		expect(c.state().last).toEqual({ result: "error", at: 5, error: "rede" });
+	});
+
+	// Defeito real: o servidor reiniciando no redeploy devolvia erro e o app ficava 15 minutos sem tentar de novo.
+	it("depois de um erro, tenta de novo em 1 minuto em vez de esperar o intervalo inteiro", async () => {
+		let t = 0;
+		const check = vi
+			.fn<UpdatesPort["check"]>()
+			.mockRejectedValueOnce(new Error("502"))
+			.mockResolvedValue({ isAvailable: true });
+		const c = checker(fakePort({ check }), { now: () => t });
+		expect(await c.run(BASE)).toBe("error");
+		t = 59_000;
 		expect(await c.run(BASE)).toBe("throttled");
+		t = 60_000;
+		expect(await c.run(BASE)).toBe("downloaded");
+	});
+
+	it("'Procurar atualização agora' (force) ignora o intervalo", async () => {
+		const port = fakePort({ check: vi.fn(async () => ({ isAvailable: false })) });
+		const c = checker(port, { now: () => 0 });
+		expect(await c.run(BASE)).toBe("up-to-date");
+		expect(await c.run(BASE)).toBe("throttled");
+		expect(await c.run(BASE, { force: true })).toBe("up-to-date");
+		expect(port.check).toHaveBeenCalledTimes(2);
+	});
+
+	it("guarda a última checagem de verdade; 'throttled' não apaga o resultado anterior", async () => {
+		let t = 100;
+		const c = checker(fakePort({ check: vi.fn(async () => ({ isAvailable: false })) }), { now: () => t });
+		expect(c.state()).toEqual({ last: null, pending: false });
+		await c.run(BASE);
+		t = 200;
+		expect(await c.run(BASE)).toBe("throttled");
+		expect(c.state().last).toEqual({ result: "up-to-date", at: 100, error: null });
 	});
 
 	it("chamadas simultâneas dividem uma execução só", async () => {
@@ -96,5 +131,80 @@ describe("createUpdateChecker", () => {
 			"downloaded",
 		]);
 		expect(port.check).toHaveBeenCalledOnce();
+	});
+});
+
+// Defeito real (o dono abriu o app várias vezes e a interface continuou a antiga): a atualização era baixada, mas
+// só entrava em uso num início a frio do processo, e no Android "abrir o app" quase sempre só o traz de volta.
+describe("aplicar a atualização baixada", () => {
+	async function downloaded(over: Partial<UpdatesPort> = {}) {
+		const clock = { t: 0 };
+		const port = fakePort(over);
+		const c = checker(port, { now: () => clock.t });
+		expect(await c.run(BASE)).toBe("downloaded");
+		/** Sai do app e volta `ms` depois. */
+		const awayFor = async (ms: number) => {
+			c.noteBackground();
+			clock.t += ms;
+			return c.applyPending();
+		};
+		return { c, port, clock, awayFor };
+	}
+
+	it("volta depois de 2 minutos fora: reinicia o JavaScript na versão nova", async () => {
+		const { c, port, awayFor } = await downloaded();
+		expect(c.state().pending).toBe(true);
+		expect(await awayFor(120_000)).toBe(true);
+		expect(port.reload).toHaveBeenCalledOnce();
+	});
+
+	// Ir ao app do banco no meio de um lançamento e voltar em segundos não pode custar o rascunho.
+	it("volta em 10 segundos: não reinicia e a atualização continua pendente", async () => {
+		const { c, port, awayFor } = await downloaded();
+		expect(await awayFor(10_000)).toBe(false);
+		expect(port.reload).not.toHaveBeenCalled();
+		expect(c.state().pending).toBe(true);
+	});
+
+	it("o limite é o tempo mínimo fora (60 s), contado de cada saída", async () => {
+		const { port, awayFor } = await downloaded();
+		expect(await awayFor(MIN_AWAY_TO_APPLY_MS - 1)).toBe(false);
+		expect(await awayFor(MIN_AWAY_TO_APPLY_MS)).toBe(true);
+		expect(port.reload).toHaveBeenCalledOnce();
+	});
+
+	it("duas voltas curtas seguidas de uma longa: reinicia uma vez só", async () => {
+		const { port, clock, awayFor } = await downloaded();
+		expect(await awayFor(10_000)).toBe(false);
+		clock.t += 300_000; // usando o app: tempo na tela não conta como tempo fora
+		expect(await awayFor(20_000)).toBe(false);
+		expect(await awayFor(120_000)).toBe(true);
+		expect(port.reload).toHaveBeenCalledOnce();
+	});
+
+	it("sem ter saído do app, não reinicia; o botão do Diagnóstico (force) reinicia na hora", async () => {
+		const { c, port } = await downloaded();
+		expect(await c.applyPending()).toBe(false);
+		expect(await c.applyPending({ force: true })).toBe(true);
+		expect(port.reload).toHaveBeenCalledOnce();
+	});
+
+	it("sem atualização baixada, não reinicia nada, nem com force", async () => {
+		const port = fakePort({ check: vi.fn(async () => ({ isAvailable: false })) });
+		const c = checker(port);
+		await c.run(BASE);
+		c.noteBackground();
+		expect(await c.applyPending({ force: true })).toBe(false);
+		expect(port.reload).not.toHaveBeenCalled();
+	});
+
+	it("se o reinício falhar, não lança e a atualização continua pendente", async () => {
+		const { c, awayFor } = await downloaded({
+			reload: vi.fn(async () => {
+				throw new Error("falhou");
+			}),
+		});
+		expect(await awayFor(120_000)).toBe(false);
+		expect(c.state().pending).toBe(true);
 	});
 });

@@ -96,6 +96,95 @@ export interface DiagAccount {
 	};
 }
 
+export interface DiagInvestmentTransaction {
+	date: string | null;
+	type: string | null;
+	movementType: string | null;
+	amount: DiagMoney;
+	quantity: DiagMoney;
+	value: DiagMoney;
+	description: string | null;
+}
+
+/** Uma posição, com os campos como o Pluggy mandou (reais; `null` = não veio). */
+export interface DiagInvestment {
+	idStart: string;
+	type: string | null;
+	subtype: string | null;
+	name: string | null;
+	code: string | null;
+	isin: string | null;
+	currencyCode: string | null;
+	/** Saldo líquido. */
+	balance: DiagMoney;
+	/** Valor bruto. */
+	amount: DiagMoney;
+	/** Valor aplicado. */
+	amountOriginal: DiagMoney;
+	/** Rendimento informado pelo banco. */
+	amountProfit: DiagMoney;
+	amountWithdrawal: DiagMoney;
+	taxes: DiagMoney;
+	taxes2: DiagMoney;
+	quantity: DiagMoney;
+	/** Valor da cota / preço unitário. */
+	value: DiagMoney;
+	rate: DiagMoney;
+	rateType: string | null;
+	fixedAnnualRate: DiagMoney;
+	annualRate: DiagMoney;
+	lastMonthRate: DiagMoney;
+	lastTwelveMonthsRate: DiagMoney;
+	/** Data da posição (referência do valor). */
+	date: string | null;
+	dueDate: string | null;
+	issueDate: string | null;
+	purchaseDate: string | null;
+	status: string | null;
+	issuer: string | null;
+	institutionName: string | null;
+	/** NOMES de outros campos que vieram preenchidos e o Órbita ainda não lê (nunca os valores). */
+	otherFields: string[];
+	/** `null` = não consultado (passou do teto de posições com movimentações). */
+	transactions: {
+		outcome: "ok" | "unavailable" | "error";
+		error: DiagError | null;
+		count: number;
+		dropped: number;
+		firstDate: string | null;
+		lastDate: string | null;
+		/** Quantas por tipo (BUY, SELL, INTEREST…). */
+		byType: { type: string; count: number }[];
+		recent: DiagInvestmentTransaction[];
+	} | null;
+}
+
+/**
+ * Investimentos de uma conexão. `outcome`: "ok" (vieram posições), "empty" (o endpoint respondeu com lista vazia),
+ * "unavailable" (o endpoint recusou com 403/404: o conector não entrega o produto) ou "error" (rede, timeout, 5xx…).
+ */
+export interface DiagInvestments {
+	outcome: "ok" | "empty" | "unavailable" | "error";
+	error: DiagError | null;
+	/** Posições que vieram (todas, mesmo as não listadas em `positions`). */
+	count: number;
+	dropped: number;
+	/** Soma dos saldos em BRL, já formatada; `null` se não há saldo legível. */
+	balanceTotal: string | null;
+	/** "INVESTMENTS" está nos produtos pedidos para o item? `null` = o item não informa. */
+	productRequested: boolean | null;
+	transactionsProductRequested: boolean | null;
+	/** A autorização do item (`consentExpiresAt`) já venceu? A doc diz que aí as leituras voltam vazias. */
+	consentExpired: boolean | null;
+	/** Avisos de investimentos no `statusDetail` do item. */
+	warnings: string[];
+	positions: DiagInvestment[];
+	/** Soma das movimentações de todas as posições consultadas e o intervalo de datas. */
+	transactionsCount: number;
+	transactionsFirstDate: string | null;
+	transactionsLastDate: string | null;
+}
+
 export interface DiagConnection {
 	/** Rótulo que o dono deu no Órbita. */
 	label: string | null;
@@ -114,6 +203,8 @@ export interface DiagConnection {
 	/** Falha ao ler o item ou as contas (a conexão inteira). */
 	error: DiagError | null;
 	accounts: DiagAccount[];
+	/** `null` quando nem o item pôde ser lido. */
+	investments: DiagInvestments | null;
 }
 
 export interface PluggyDiagnosticsResponse {
@@ -207,6 +298,95 @@ export function formatDiagAccount(a: DiagAccount): string {
 	return out.join("\n");
 }
 
+/** Por que não veio posição nenhuma: só o que foi OBSERVADO na resposta, sem adivinhar. */
+export function diagInvestmentsReason(i: DiagInvestments): string | null {
+	if (i.outcome === "ok") return null;
+	if (i.outcome === "unavailable") {
+		return `produto não suportado pelo conector: o endpoint recusou${i.error?.status ? ` (HTTP ${i.error.status})` : ""}`;
+	}
+	if (i.outcome === "error") return `erro ao consultar${i.error ? `: ${errorLine(i.error)}` : ""}`;
+	const hints: string[] = [];
+	if (i.consentExpired) hints.push("a autorização do item venceu (consentExpiresAt no passado)");
+	if (i.productRequested === false) hints.push("INVESTMENTS não está nos produtos do item");
+	if (i.warnings.length) hints.push(`avisos do item: ${i.warnings.join(" | ")}`);
+	if (i.dropped) hints.push(`${i.dropped} posição(ões) fora do formato foram descartadas`);
+	return `endpoint vazio: respondeu sem nenhuma posição${hints.length ? ` · ${hints.join(" · ")}` : ""}`;
+}
+
+const field = (label: string, v: unknown) =>
+	v === null || v === undefined || v === "" ? null : `${label} ${v}`;
+
+function formatDiagInvestment(p: DiagInvestment): string[] {
+	const out = [`• ${show(p.type)}/${show(p.subtype)} · ${show(p.name)} (${p.idStart}…)`];
+	out.push(
+		`  saldo ${show(p.balance)} · bruto ${show(p.amount)} · aplicado ${show(p.amountOriginal)} · rendimento ${show(p.amountProfit)} · ${show(p.currencyCode)}`,
+	);
+	out.push(
+		`  quantidade ${show(p.quantity)} · cota/preço ${show(p.value)} · taxa ${show(p.rate)}${p.rateType ? ` ${p.rateType}` : ""} · fixa a.a. ${show(p.fixedAnnualRate)}`,
+	);
+	out.push(`  vencimento ${show(p.dueDate)} · data da posição ${show(p.date)} · status ${show(p.status)}`);
+	const extra = [
+		field("código", p.code),
+		field("ISIN", p.isin),
+		field("resgatável", p.amountWithdrawal),
+		field("IR", p.taxes),
+		field("IOF", p.taxes2),
+		field("rent. mês", p.lastMonthRate),
+		field("rent. ano", p.annualRate),
+		field("rent. 12m", p.lastTwelveMonthsRate),
+		field("emissão", p.issueDate),
+		field("compra", p.purchaseDate),
+		field("emissor", p.issuer),
+		field("instituição", p.institutionName),
+	].filter(Boolean);
+	if (extra.length) out.push(`  ${extra.join(" · ")}`);
+	if (p.otherFields.length) out.push(`  outros campos preenchidos: ${p.otherFields.join(", ")}`);
+	const t = p.transactions;
+	if (!t) out.push("  movimentações: não consultadas");
+	else if (t.outcome !== "ok") {
+		out.push(
+			`  movimentações: ${t.outcome === "unavailable" ? "não disponíveis · " : ""}${t.error ? errorLine(t.error) : "—"}`,
+		);
+	} else {
+		const types = t.byType.map((x) => `${x.count} ${x.type}`).join(" · ");
+		out.push(
+			`  movimentações: ${t.count}${t.count ? ` · de ${show(t.firstDate)} a ${show(t.lastDate)} · ${types}` : ""}${t.dropped ? ` · ${t.dropped} fora do formato` : ""}`,
+		);
+		for (const x of t.recent) {
+			out.push(
+				`    ${show(x.date)} · ${show(x.type)}${x.movementType ? `/${x.movementType}` : ""} · ${show(x.amount)}${x.quantity === null ? "" : ` · qtd ${x.quantity}`}${x.value === null ? "" : ` · preço ${x.value}`}${x.description ? ` · ${x.description}` : ""}`,
+			);
+		}
+	}
+	return out;
+}
+
+/** A seção "Investimentos" de uma conexão: se o endpoint respondeu, as posições e as movimentações, ou o motivo. */
+export function formatDiagInvestments(i: DiagInvestments | null | undefined): string {
+	if (!i) return "Não consultado (o item não pôde ser lido ou o servidor ainda não tem esta seção).";
+	const out: string[] = [];
+	const answered = i.outcome === "ok" || i.outcome === "empty";
+	out.push(
+		`Endpoint /investments: ${answered ? "respondeu" : i.outcome === "unavailable" ? "recusou" : "falhou"} · ${i.count} ${i.count === 1 ? "posição" : "posições"}${i.outcome === "ok" && i.dropped ? ` · ${i.dropped} fora do formato` : ""}`,
+	);
+	const reason = diagInvestmentsReason(i);
+	if (reason) out.push(`Motivo observado: ${reason}`);
+	out.push(
+		`Produtos do item: INVESTMENTS ${show(i.productRequested)} · INVESTMENTS_TRANSACTIONS ${show(i.transactionsProductRequested)}`,
+	);
+	if (i.outcome === "ok") {
+		if (i.warnings.length) out.push(`Avisos do item: ${i.warnings.join(" | ")}`);
+		out.push(`Soma dos saldos (BRL): ${show(i.balanceTotal)}`);
+		out.push(
+			`Movimentações: ${i.transactionsCount}${i.transactionsCount ? ` · de ${show(i.transactionsFirstDate)} a ${show(i.transactionsLastDate)}` : ""}`,
+		);
+		if (i.positions.length < i.count) out.push(`Mostrando ${i.positions.length} de ${i.count} posições.`);
+		for (const p of i.positions) out.push("", ...formatDiagInvestment(p));
+	}
+	return out.join("\n");
+}
+
+export const diagInvestmentsTitle = (c: DiagConnection) => `Investimentos · ${show(c.label)}`;
 export const diagAccountTitle = (a: DiagAccount) =>
 	`Conta ${a.idStart}… · ${a.type}/${show(a.subtype)} · ${a.name}`;
 export const diagConnectionTitle = (c: DiagConnection) => `Conexão ${show(c.label)} (item ${c.itemIdStart}…)`;
@@ -218,6 +398,7 @@ export function formatPluggyDiagnostics(d: PluggyDiagnosticsResponse): string {
 	for (const c of d.connections) {
 		out.push("", `== ${diagConnectionTitle(c)} ==`, formatDiagConnectionHead(c));
 		for (const a of c.accounts) out.push("", `-- ${diagAccountTitle(a)}`, formatDiagAccount(a));
+		out.push("", `-- ${diagInvestmentsTitle(c)}`, formatDiagInvestments(c.investments));
 	}
 	return out.join("\n");
 }

@@ -24,8 +24,23 @@ export {
 } from "./pluggy/client.ts";
 export { type DiagnoseDeps, diagnoseConnection, lastDigits, safeText } from "./pluggy/diagnostics.ts";
 export { PluggyError, type PluggyErrorCode } from "./pluggy/errors.ts";
+export {
+	type InvestmentMovement,
+	type InvestmentPosition,
+	type InvestmentsRead,
+	readInvestments,
+	readInvestmentTransactions,
+	toInvestmentMovement,
+	toInvestmentPosition,
+} from "./pluggy/investments.ts";
 export { PAYMENT_REVIEW_NOTE } from "./pluggy/mapping.ts";
-export type { PluggyAccount, PluggyItem, PluggyTransaction } from "./pluggy/schemas.ts";
+export type {
+	PluggyAccount,
+	PluggyInvestment,
+	PluggyInvestmentTransaction,
+	PluggyItem,
+	PluggyTransaction,
+} from "./pluggy/schemas.ts";
 export {
 	PLUGGY_DAILY_JOB,
 	PLUGGY_MANUAL_JOB,

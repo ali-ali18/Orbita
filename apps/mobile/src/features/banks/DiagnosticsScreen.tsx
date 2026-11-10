@@ -1,8 +1,10 @@
 import {
 	diagAccountTitle,
 	diagConnectionTitle,
+	diagInvestmentsTitle,
 	formatDiagAccount,
 	formatDiagConnectionHead,
+	formatDiagInvestments,
 	formatPluggyDiagnostics,
 	type PluggyDiagnosticsResponse,
 } from "@orbita/shared";
@@ -10,9 +12,11 @@ import { colors, radius, spacing } from "@orbita/tokens";
 import { useState } from "react";
 import { Share, View } from "react-native";
 import { toLoadable } from "../../lib/loadable.ts";
+import { APP_UPDATE_TITLE } from "../../lib/update-diagnostics.ts";
 import { Button, ErrorState, Skeleton, Text } from "../../ui/index.ts";
 import { SubScreen } from "../settings/parts.tsx";
 import { usePluggyDiagnostics } from "./queries.ts";
+import { useAppUpdate } from "./use-app-update.ts";
 
 function Block({ title, body }: { title: string; body: string }) {
 	return (
@@ -51,6 +55,8 @@ function Report({ data }: { data: PluggyDiagnosticsResponse }) {
 					{c.accounts.map((a) => (
 						<Block key={a.idStart} title={diagAccountTitle(a)} body={formatDiagAccount(a)} />
 					))}
+					{/* Servidor antigo não manda a seção: o texto diz "não consultado". */}
+					<Block title={diagInvestmentsTitle(c)} body={formatDiagInvestments(c.investments)} />
 				</View>
 			))}
 		</>
@@ -58,18 +64,47 @@ function Report({ data }: { data: PluggyDiagnosticsResponse }) {
 }
 
 /**
+ * "Atualização do app": APK, JavaScript em uso, runtimeVersion, o que o servidor oferece e a última checagem.
+ * Aparece sempre, mesmo sem chaves do Pluggy: é aqui que o dono vê por que uma atualização chegou ou não.
+ */
+function AppUpdate({ update }: { update: ReturnType<typeof useAppUpdate> }) {
+	return (
+		<View style={{ gap: spacing.md }}>
+			<Block title={APP_UPDATE_TITLE} body={update.text} />
+			<Button
+				label={update.checking ? "Procurando…" : "Procurar atualização agora"}
+				variant="secondary"
+				disabled={update.checking}
+				onPress={() => void update.checkNow()}
+			/>
+			{update.pending ? (
+				<Button label="Reiniciar o app para aplicar" onPress={() => void update.applyNow()} />
+			) : null}
+			{update.message ? (
+				<Text variant="caption" tone="secondary" accessibilityLiveRegion="polite">
+					{update.message}
+				</Text>
+			) : null}
+		</View>
+	);
+}
+
+/**
  * "Diagnóstico da conexão": o que o Pluggy devolve agora (consulta ao vivo, só leitura), já sem CPF/CNPJ nem número
- * de conta ou cartão. O texto é selecionável e o botão abre o menu do sistema (Copiar, WhatsApp…) com o relatório inteiro.
+ * de conta ou cartão, mais o bloco "Atualização do app". O texto é selecionável e o botão abre o menu do sistema
+ * (Copiar, WhatsApp…) com o relatório inteiro.
  */
 export function DiagnosticsScreen() {
 	const q = usePluggyDiagnostics();
 	const view = toLoadable(q);
+	const update = useAppUpdate();
 	const [message, setMessage] = useState<string | null>(null);
 
-	const share = async (data: PluggyDiagnosticsResponse) => {
+	const share = async (data: PluggyDiagnosticsResponse | null) => {
 		setMessage(null);
 		try {
-			await Share.share({ message: formatPluggyDiagnostics(data) });
+			const parts = [`${APP_UPDATE_TITLE}\n${update.text}`, ...(data ? [formatPluggyDiagnostics(data)] : [])];
+			await Share.share({ message: parts.join("\n\n") });
 		} catch {
 			setMessage("Não deu para abrir o menu de compartilhar.");
 		}
@@ -78,8 +113,18 @@ export function DiagnosticsScreen() {
 	return (
 		<SubScreen
 			title="Diagnóstico da conexão"
-			subtitle="O que o Pluggy devolve agora, sem CPF nem números completos. Dá para tirar print ou copiar o texto."
+			subtitle="O que o Pluggy devolve agora, sem CPF nem números completos, e a situação da atualização do app. Dá para tirar print ou copiar o texto."
 		>
+			<Button
+				label="Copiar como texto"
+				onPress={() => void share(view.phase === "ready" ? view.data : null)}
+			/>
+			{message ? (
+				<Text variant="caption" tone="secondary" accessibilityRole="alert">
+					{message}
+				</Text>
+			) : null}
+			<AppUpdate update={update} />
 			{view.phase === "loading" ? (
 				<>
 					<Text variant="caption" tone="secondary" accessibilityLiveRegion="polite">
@@ -92,12 +137,6 @@ export function DiagnosticsScreen() {
 			{view.phase === "error" ? <ErrorState message={view.message} onRetry={view.retry} /> : null}
 			{view.phase === "ready" ? (
 				<>
-					<Button label="Copiar como texto" onPress={() => void share(view.data)} />
-					{message ? (
-						<Text variant="caption" tone="secondary" accessibilityRole="alert">
-							{message}
-						</Text>
-					) : null}
 					<Report data={view.data} />
 					<Button
 						label={q.isFetching ? "Consultando…" : "Consultar de novo"}

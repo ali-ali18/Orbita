@@ -126,6 +126,9 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           node packages/ota/src/cli.ts prepare --work "$RUNNER_TEMP/ota-work"
+          # Tem de ser igual ao do passo "Fixar o runtimeVersion do OTA" do app-android.yml (e ao que o app mostra
+          # em Diagnóstico → Atualização do app); só APK com este valor recebe esta atualização.
+          echo "runtimeVersion da atualização OTA: $(cat "$RUNNER_TEMP/ota-work/runtime-version.txt")"
       - id: final
         run: |
           if [ "${{ steps.prepare.outcome }}" = "success" ]; then

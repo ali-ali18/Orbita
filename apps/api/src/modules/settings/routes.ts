@@ -23,6 +23,7 @@ import { apiError } from "../../http/errors.ts";
 import type { ModuleDeps } from "../../http/module-deps.ts";
 import type { AppEnv } from "../../http/require-device.ts";
 import { validate } from "../../http/validate.ts";
+import { describeOffer, type OtaStore } from "../updates/service.ts";
 
 export type SettingsRoutesDeps = ModuleDeps & {
 	vault: SecretVault;
@@ -30,12 +31,14 @@ export type SettingsRoutesDeps = ModuleDeps & {
 	version: string;
 	/** Modelos padrão do servidor (variáveis de ambiente); o que o dono salva no app vence. */
 	chatModels: ChatModelConfig;
+	/** De onde vêm as atualizações OTA: `GET /v1/server` conta ao app o que o servidor está oferecendo. */
+	ota: OtaStore;
 };
 
 type SecretEnv = AppEnv & { Variables: { secretName: SecretName } };
 
 /** Tela "Servidor e chaves". Nenhuma rota devolve o valor de uma chave, nem parte dele. */
-export function routes({ vault, version, requireDevice, stores, now, chatModels }: SettingsRoutesDeps) {
+export function routes({ vault, version, requireDevice, stores, now, chatModels, ota }: SettingsRoutesDeps) {
 	// Nome fora da lista = 404, antes de olhar o corpo.
 	const knownName = createMiddleware<SecretEnv>(async (c, next) => {
 		const name = c.req.param("name") ?? "";
@@ -88,9 +91,14 @@ export function routes({ vault, version, requireDevice, stores, now, chatModels 
 	return new Hono<SecretEnv>()
 		.use("/v1/server", requireDevice)
 		.use("/v1/settings/*", requireDevice)
-		.get("/v1/server", (c) => {
+		.get("/v1/server", async (c) => {
 			const device = c.get("device");
-			return c.json({ version, device: { name: device.name, pairedAt: device.createdAt.toISOString() } });
+			return c.json({
+				version,
+				device: { name: device.name, pairedAt: device.createdAt.toISOString() },
+				// Diagnóstico do app: "servidor oferece X · app roda Y". `null` = imagem sem atualização.
+				ota: await describeOffer(ota, "android"),
+			});
 		})
 		.get("/v1/settings/secrets", async (c) => c.json({ secrets: await vault.status() }))
 		.put("/v1/settings/secrets/:name", knownName, validate("json", secretPutBody), async (c) => {

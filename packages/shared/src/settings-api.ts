@@ -81,5 +81,10 @@ export type SecretResponse = z.infer<typeof secretResponse>;
 export const serverInfoResponse = z.object({
 	version: z.string(),
 	device: z.object({ name: z.string(), pairedAt: z.string() }),
+	/** Atualização OTA que o servidor está oferecendo (`null` = nenhuma). Servidor antigo não manda o campo. */
+	ota: z
+		.object({ id: z.string(), runtimeVersion: z.string(), createdAt: z.string().nullable() })
+		.nullable()
+		.optional(),
 });
 export type ServerInfoResponse = z.infer<typeof serverInfoResponse>;

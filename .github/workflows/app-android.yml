@@ -72,6 +72,7 @@ jobs:
     outputs:
       version: ${{ steps.versao.outputs.version }}
       short: ${{ steps.versao.outputs.short }}
+      runtime: ${{ steps.runtime.outputs.valor }}
     env:
       # Arquiteturas nativas do APK. Só arm64 (todo celular moderno): build bem mais rápido e APK menor.
       # Para incluir aparelhos de 32 bits: "armeabi-v7a,arm64-v8a".
@@ -142,10 +143,12 @@ jobs:
       # mesmo comando do release.yml, antes do prebuild, e é fixado para o Gradle em vez de recalculado lá.
       # Sem o certificado em apps/mobile/certs ou sem a variável ORBITA_PUBLIC_URL o OTA fica desligado e não há o que fixar.
       - name: Fixar o runtimeVersion do OTA
+        id: runtime
         run: |
           if [ -f apps/mobile/certs/ota-certificate.pem ] && [ -n "$ORBITA_PUBLIC_URL" ]; then
             rt="$(node packages/ota/src/cli.ts runtime-version)"
             echo "EXPO_UPDATES_FINGERPRINT_OVERRIDE=$rt" >> "$GITHUB_ENV"
+            echo "valor=$rt" >> "$GITHUB_OUTPUT"
             echo "runtimeVersion do APK (igual ao do OTA): $rt"
           else
             echo "::notice::Sem apps/mobile/certs/ota-certificate.pem ou sem a variável ORBITA_PUBLIC_URL: APK sem atualização OTA."
@@ -232,6 +235,20 @@ jobs:
             | grep -E "certificate (DN|SHA-256)" | sed 's/^/  /'
           ls -l dist/orbita.apk
 
+      # Prova no artefato: o runtimeVersion gravado DENTRO do APK (assets/fingerprint) tem de ser o mesmo que o
+      # release.yml calcula para a atualização OTA. Diferente = APK que nunca receberia atualização: não publica.
+      - name: Conferir o runtimeVersion dentro do APK
+        if: steps.runtime.outputs.valor != ''
+        env:
+          ESPERADO: ${{ steps.runtime.outputs.valor }}
+        run: |
+          dentro="$(unzip -p dist/orbita.apk assets/fingerprint || true)"
+          if [ "$dentro" != "$ESPERADO" ]; then
+            echo "::error::O runtimeVersion gravado no APK (\"$dentro\") é diferente do calculado para a atualização OTA (\"$ESPERADO\"). Este APK nunca receberia atualização pelo servidor; não publico. Veja docs/app-android.md, \"Atualização OTA dentro do APK\"."
+            exit 1
+          fi
+          echo "runtimeVersion dentro do APK confere com o da atualização OTA: $dentro"
+
       - uses: actions/upload-artifact@v6
         with:
           name: orbita-apk
@@ -265,6 +282,7 @@ jobs:
           VERSION: ${{ needs.apk.outputs.version }}
           SHORT: ${{ needs.apk.outputs.short }}
           SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          RUNTIME: ${{ needs.apk.outputs.runtime }}
         run: |
           tag="app-v${VERSION}-${GITHUB_RUN_NUMBER}"
           title="Órbita para Android · ${VERSION} (#${GITHUB_RUN_NUMBER})"
@@ -294,6 +312,10 @@ jobs:
             echo "2. Baixe e abra o arquivo. Se o Android pedir, permita **instalar apps desconhecidos** para o navegador."
             echo "3. Toque em **Instalar**. Se já tiver a Órbita, ela é atualizada por cima e seus dados ficam."
             echo
+            if [ -n "$RUNTIME" ]; then
+              echo "Atualizações de JavaScript chegam pelo servidor enquanto o \`runtimeVersion\` for \`${RUNTIME}\` (confira em Configurações → Diagnóstico → Atualização do app)."
+              echo
+            fi
             echo "Se o Android recusar a atualização por \"assinatura diferente\", **não desinstale**: veja [docs/app-android.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/app-android.md)."
           } > "$RUNNER_TEMP/notas.md"
           gh release create "$tag" dist/orbita.apk \
