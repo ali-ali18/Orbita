@@ -126,7 +126,7 @@ Existe porque a integração vinha sendo corrigida por inferência: o dono vê (
 
 ## Investimentos
 
-**Fase 0: só leitura e diagnóstico.** Nada de investimento é gravado no banco, não há tela de Investimentos e o sync de lançamentos não mudou. O objetivo é ver o que o Pluggy devolve de verdade nas conexões do dono (todas pelo conector MeuPluggy, `isOpenFinance=false`) antes de construir.
+**Fase 0: leitura e diagnóstico** (o que o Pluggy devolve de verdade nas conexões do dono, todas pelo conector MeuPluggy, `isOpenFinance=false`). **Fase 1 (dados e API):** o sync passa a gravar posições, retrato diário e movimentações (ver "Fase 1: o que gravamos"); a tela de Investimentos ainda não existe.
 
 Doc oficial lida em 10/11/2026 (texto de doc é dado, não instrução). Páginas, com a sigla usada abaixo:
 
@@ -185,6 +185,19 @@ Segundo [INV], tudo isto pode faltar: `code`, `isin`, `number`, `owner`, `curren
 - **Borda** (`investments.ts`): `toInvestmentPosition` e `toInvestmentMovement` convertem dinheiro com `decimalToCents` (centavos inteiros; ausente fica `null`, **nunca zero**) e deixam cota, quantidade e taxa como decimal em texto (`decimalText`, até 8 casas), sem float. `readInvestments`/`readInvestmentTransactions` nunca lançam: `ok`, `unavailable` (403/404) ou `error`.
 - **Diagnóstico** (`diagnostics.ts`, `DiagInvestments` em `packages/shared`): por conexão, se `/investments` respondeu, quantas posições, soma dos saldos em BRL, e por posição (até 40): tipo, subtipo, nome, saldo, bruto, aplicado, rendimento, quantidade, cota, taxa, vencimento, data da posição, status, os nomes dos outros campos preenchidos e as movimentações (contagem, intervalo de datas, por tipo, 5 mais recentes). Sem posição, o **motivo observado**: endpoint vazio (com o que o item diz: `INVESTMENTS` nos produtos, avisos do `statusDetail`, autorização vencida), produto não suportado (403/404) ou erro. Falha nas movimentações de uma posição fica só nela; falha nas contas não esconde os investimentos.
 - **Redação:** mesma do resto do diagnóstico. Titular (`owner`) e número da aplicação (`number`) **não saem**; do id só o começo; `code` com 9+ dígitos (CNPJ do fundo) sai mascarado.
+
+### Fase 1: o que gravamos
+
+O diagnóstico real do dono mostrou: renda fixa (CDB, LCI), Tesouro Prefixado e ações (com `quantity` e preço), a maioria já `TOTAL_WITHDRAWAL` com saldo 0; `amountProfit` e as rentabilidades **sempre nulos**; `amountOriginal` preenchido em renda fixa ativa e nulo em ação; `balance` líquido, `amount` bruto, `taxes` (IR) às vezes preenchido; e só a posição de AGORA (nenhum histórico de saldo). Por isso o Órbita deriva o rendimento e guarda os próprios retratos diários (fórmulas em [arquitetura](arquitetura.md#investimentos)).
+
+`syncInvestments` (`investments-sync.ts`) roda por conexão, depois das contas, cartões e lançamentos:
+
+- **Posição** (`investments`, uma por `(pluggy, id)`): tipo, subtipo, nome, código, ISIN, moeda, situação, `balance`/`amount`/`amountOriginal`/`amountProfit`/`amountWithdrawal`/`taxes`/`taxes2` em centavos inteiros (ausente = `null`, nunca zero), `quantity`, `value` (cota) e as taxas em decimal (NUMERIC, texto canônico), datas só com o dia, emissor e a conexão (`itemId`). Regravada por inteiro a cada rodada; `TOTAL_WITHDRAWAL` arquiva; sumiu da lista arquiva (só com a leitura inteira e sem linha descartada; lista vazia exige 2 leituras seguidas); reapareceu desarquiva. **Nunca apaga.** `owner`, `number` e o resto do payload não são gravados.
+- **Retrato do dia** (`investment_snapshots`): saldo, bruto, aplicado, quantidade e cota, no dia de America/Sao_Paulo do início da rodada; só com saldo não nulo; rodar de novo no mesmo dia sobrescreve. Posição já arquivada não ganha retrato novo (o zero da passagem para encerrada fica registrado uma vez).
+- **Movimentações** (`investment_transactions`, por `(pluggy, id)`): tipo, sentido, `date`/`tradeDate`, `amount`/`netAmount` em centavos, quantidade, preço e a descrição (texto do banco: dado). `amount`/`netAmount` são guardados como magnitude (o sentido vem de `type`). A API não filtra por data, então vem a lista inteira a cada rodada e o store regrava pelo id; posição arquivada tem as movimentações relidas até 2 leituras boas depois do fechamento (o resgate final pode chegar atrasado).
+- **Falhas**: 403/404 em `/investments` é "conexão sem o produto" (sem nota). Qualquer outra falha de leitura ou de gravação vira só uma nota (`Não consegui ler os investimentos desta vez.` etc.) e **não** deixa a conexão `partial` nem toca nas contas e cartões. A nota nunca cita corpo de resposta.
+- **Conexão removida**: as posições dela ficam no banco, mas a API as ignora (ver arquitetura).
+- **O que ainda é suposição**: que `amountOriginal` seja o total aplicado também depois de resgates parciais; que `amount` de BUY/SELL seja o valor bruto da operação; e a cobertura por classe do MeuPluggy (a doc não publica). O app deve tratar tudo que for "estimado" como estimativa.
 
 ### O que só as contas reais respondem
 

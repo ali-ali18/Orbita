@@ -247,7 +247,7 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBe("unread_products");
 	});
 
-	it("sem conta e sem investimento continua 'ainda não enviou contas'; com conta, /investments nem é lido", async () => {
+	it("sem conta e sem investimento continua 'ainda não enviou contas'; com conta, os investimentos não servem de pista do nome", async () => {
 		const none = setup(empty);
 		await none.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
 		await none.run();
@@ -273,8 +273,10 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		});
 		await withAccounts.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
 		await withAccounts.run();
-		const paths = (await withAccounts.fakeRequests()).map((r) => r.url.pathname);
-		expect(paths).not.toContain("/investments");
+		// /investments agora é lido pelo sync de investimentos (para gravar as posições), mas não vira pista do nome:
+		// com conta, quem dá o nome é a conta.
+		const named = await withAccounts.stores.pluggyConnections.get(ITEM_ID);
+		expect(named?.label).not.toBe("MeuPluggy");
 	});
 
 	it("conexão só com investimentos de um mesmo banco reconhecido ganha o nome dele (BANCO C6 S.A. → C6 Bank)", async () => {
@@ -376,7 +378,7 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		expect(await arrive([{ ...bankAccount, name: "BANCO INTER" }], true)).toBe("C6 Bank");
 	});
 
-	it("conexão que já teve conta e veio vazia com investimentos segue 'ainda não enviou contas' (partial), sem ler /investments", async () => {
+	it("conexão que já teve conta e veio vazia com investimentos segue 'ainda não enviou contas' (partial), mesmo com investimentos", async () => {
 		const t = setup({ ...empty, investments: { [ITEM_ID]: [cdbInvestment] } });
 		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "Santander" });
 		await t.stores.pluggyConnections.recordSync(ITEM_ID, {
@@ -389,7 +391,8 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		const c = await t.stores.pluggyConnections.get(ITEM_ID);
 		expect(c?.lastStatus).toBe("partial");
 		expect(c?.lastError?.startsWith(PLUGGY_NO_ACCOUNTS_PREFIX)).toBe(true);
-		expect((await t.fakeRequests()).map((r) => r.url.pathname)).not.toContain("/investments");
+		// As posições são gravadas pelo sync de investimentos, mas isso não troca o estado da conexão.
+		expect((await t.stores.investments.list()).length).toBe(1);
 	});
 
 	it("falha ao ler os investimentos (429, 5xx) deixa uma nota e não muda o estado", async () => {

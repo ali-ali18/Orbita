@@ -84,6 +84,20 @@ export type {
 	IncomeSourceRecord,
 	IncomeSourceStore,
 } from "./income-source-store.ts";
+export { CLOSED_STATUS as INVESTMENT_CLOSED_STATUS } from "./investment-rules.ts";
+export type {
+	InvestmentFields,
+	InvestmentInput,
+	InvestmentListFilter,
+	InvestmentMovementFilter,
+	InvestmentMovementInput,
+	InvestmentMovementRecord,
+	InvestmentRecord,
+	InvestmentSnapshotFilter,
+	InvestmentSnapshotInput,
+	InvestmentSnapshotRecord,
+	InvestmentStore,
+} from "./investment-store.ts";
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
 export {

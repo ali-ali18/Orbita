@@ -334,3 +334,24 @@ describe("conversão na borda", () => {
 		expect(decimalText(null)).toBeNull();
 	});
 });
+
+describe("movimentação: valor na borda", () => {
+	it("o valor vira magnitude (SELL com valor negativo na fonte); o sentido está em type", () => {
+		const row = {
+			id: "x",
+			type: "SELL",
+			movementType: "DEBIT",
+			amount: -500.5,
+			netAmount: -499.9,
+			value: 10,
+			quantity: 50,
+			date: "2026-05-10T00:00:00.000Z",
+		};
+		expect(toInvestmentMovement(row as never)).toMatchObject({
+			type: "SELL",
+			amountCents: 50050,
+			netAmountCents: 49990,
+		});
+		expect(toInvestmentMovement({ id: "y", amount: null } as never).amountCents).toBeNull();
+	});
+});

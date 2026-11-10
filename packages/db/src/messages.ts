@@ -28,3 +28,7 @@ export const PLUGGY_CONNECTION_TAKEN_MESSAGE = "Esta conexão do Meu Pluggy já 
 
 /** Criar com um `id` que já existe (só quem escolhe o id, como o Desfazer, passa por aqui). */
 export const ID_EXISTS_MESSAGE = "Já existe um registro com este identificador.";
+
+/** Movimentação de investimento que o banco já ligou a OUTRA posição. */
+export const INVESTMENT_MOVEMENT_OWNER_MESSAGE =
+	"Esta movimentação já pertence a outra posição de investimento.";
