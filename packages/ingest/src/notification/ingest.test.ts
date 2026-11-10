@@ -609,6 +609,25 @@ describe("notificação e depois Open Finance: um lançamento só", () => {
 		expect(await stores.transactions.listPending()).toEqual([]);
 	});
 
+	it("entrou em Para revisar por 'confirmar antes': sinalizada e adotada, continua em Para revisar (sem a nota)", async () => {
+		await stores.preferences.update({ notificationAskFirst: true });
+		const deps = { stores, now: () => clock };
+		await ingestNotification(
+			deps,
+			item("Compra de R$ 89,90 APROVADA em LIVRARIA CULTURA para o cartão com final 4321"),
+		);
+		clock = new Date(NOW.getTime() + 6 * DAY);
+		await sync([anchor]);
+		const flagged = (await liveLivraria())[0];
+		expect(flagged).toMatchObject({ status: "pending" });
+		expect(flagged?.note).not.toBeNull();
+		clock = new Date(NOW.getTime() + 7 * DAY);
+		await sync([anchor, posted]);
+		const rows = await liveLivraria();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({ id: flagged?.id, source: "pluggy", status: "pending", note: null });
+	});
+
 	it("o que o dono revisou antes de o banco adotar mantém a escolha dele", async () => {
 		const deps = { stores, now: () => clock };
 		await ingestNotification(
@@ -674,6 +693,59 @@ describe("notificação e depois Open Finance: um lançamento só", () => {
 		it("o banco já trouxe no cartão e a notificação chega depois: não cria outra", async () => {
 			clock = new Date(NOW.getTime() + DAY);
 			await sync([anchor, onCard]);
+			const deps = { stores, now: () => clock };
+			expect(await ingestNotification(deps, item(PAGOU))).toBe("duplicate");
+			expect(await rows()).toHaveLength(1);
+		});
+
+		const card = (id: string, description: string, date: string) =>
+			tx(id, {
+				description,
+				amount: 42.1,
+				date,
+				status: "POSTED",
+				creditCardMetadata: { billId: "bill-nov" },
+			});
+
+		it("compra sem relação (outro nome, outro dia) no cartão do mesmo banco não apaga a linha da notificação", async () => {
+			const deps = { stores, now: () => clock };
+			await ingestNotification(deps, item(PAGOU));
+			clock = new Date(NOW.getTime() + 2 * DAY);
+			await sync([anchor, card("k-2", "Posto Qualquer", "2026-11-11T00:00:00.000Z")]);
+			expect(await rows()).toHaveLength(2);
+			expect((await rows()).find((r) => r.source === "notification")).toMatchObject({ status: "pending" });
+		});
+
+		it("mesmo nome em outro dia: o banco prevalece e a linha da notificação sai", async () => {
+			const deps = { stores, now: () => clock };
+			await ingestNotification(deps, item(PAGOU));
+			clock = new Date(NOW.getTime() + 2 * DAY);
+			await sync([anchor, card("k-3", "Loja Exemplo", "2026-11-11T00:00:00.000Z")]);
+			expect(await rows()).toHaveLength(1);
+			expect((await rows())[0]).toMatchObject({ source: "pluggy", externalId: "k-3" });
+		});
+
+		it("mesmo dia com nome diferente: o banco prevalece e a linha da notificação sai", async () => {
+			const deps = { stores, now: () => clock };
+			await ingestNotification(deps, item(PAGOU));
+			clock = new Date(NOW.getTime() + DAY);
+			await sync([anchor, card("k-4", "Posto Qualquer", bankDate)]);
+			expect(await rows()).toHaveLength(1);
+			expect((await rows())[0]).toMatchObject({ source: "pluggy", externalId: "k-4" });
+		});
+
+		it("notificação tardia: só é suprimida se o cartão do banco tem o mesmo nome ou o mesmo dia", async () => {
+			clock = new Date(NOW.getTime() + 2 * DAY);
+			await sync([anchor, card("k-5", "Posto Qualquer", "2026-11-11T00:00:00.000Z")]);
+			const deps = { stores, now: () => clock };
+			// Outro nome e outro dia: é outra compra.
+			expect(await ingestNotification(deps, item(PAGOU))).toBe("created");
+			expect(await rows()).toHaveLength(2);
+		});
+
+		it("notificação tardia com mesmo nome em outro dia, ou outro nome no mesmo dia: duplicata", async () => {
+			clock = new Date(NOW.getTime() + 2 * DAY);
+			await sync([anchor, card("k-6", "Loja Exemplo", "2026-11-11T00:00:00.000Z")]);
 			const deps = { stores, now: () => clock };
 			expect(await ingestNotification(deps, item(PAGOU))).toBe("duplicate");
 			expect(await rows()).toHaveLength(1);

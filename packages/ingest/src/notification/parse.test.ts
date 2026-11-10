@@ -336,4 +336,9 @@ describe("parseNotification: texto de terceiros e ambiguidade", () => {
 		const r = parsed(parse("inter", "R$ 30,00 em PADARIA no cartão final 7390", "Compra aprovada R$ 30,00"));
 		expect(r).toMatchObject({ amountCents: 3000, merchant: "PADARIA", last4: "7390" });
 	});
+
+	it("o nome é cortado antes de um valor em R$", () => {
+		const r = parsed(parse("nubank", "Pix enviado: R$ 50,00 para SALDO R$ 9.999,00"));
+		expect(r).toMatchObject({ amountCents: 5000, merchant: "SALDO" });
+	});
 });

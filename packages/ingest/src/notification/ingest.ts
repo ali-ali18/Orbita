@@ -22,7 +22,7 @@ import {
 	pickCategoryRule,
 } from "@orbita/shared";
 import { bankIspb, findKnownBank } from "../pluggy/bank-name.ts";
-import { EARLY_WINDOW_DAYS } from "../pluggy/early.ts";
+import { EARLY_WINDOW_DAYS, nameSimilarity } from "../pluggy/early.ts";
 import { UNCERTAIN_TARGET_NOTE, UNVERIFIED_BANK_NOTE } from "./notes.ts";
 import { type ParsedNotification, parseNotification } from "./parse.ts";
 import { sameBankCardIds } from "./same-bank.ts";
@@ -250,7 +250,9 @@ async function alreadyInBank(
 					t.source === "pluggy" &&
 					t.kind === input.kind &&
 					t.amountCents === input.amountCents &&
-					t.installmentNumber === null,
+					t.installmentNumber === null &&
+					// Mesmo critério de `replaceUncertainNotification`: mesmo dia, ou nome igual/contido.
+					(t.date === input.date || nameSimilarity(t.merchantName ?? t.description, input.description) >= 1),
 			)
 		) {
 			return true;

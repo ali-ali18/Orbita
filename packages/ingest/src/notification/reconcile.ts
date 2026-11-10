@@ -10,8 +10,13 @@ import type { TransactionStore } from "@orbita/db";
  */
 
 export const UNCONFIRMED_AFTER_DAYS = 5;
+/**
+ * Duas notas, uma por situação de origem, para a adoção devolver a linha ao que ela era sem adivinhar: `UNCONFIRMED_NOTE`
+ * (estava confirmada, "aguardando o banco") e `UNCONFIRMED_REVIEW_NOTE` (já estava em Para revisar por "confirmar antes").
+ */
 export const UNCONFIRMED_NOTE =
 	"O banco não confirmou esta compra. Confira se ela aconteceu: confirme ou apague.";
+export const UNCONFIRMED_REVIEW_NOTE = `${UNCONFIRMED_NOTE} (Você pediu para confirmar antes de lançar.)`;
 /** Quanto para trás se procura (notificação mais velha que isto já passou de qualquer revisão útil). */
 const LOOKBACK_DAYS = 90;
 
@@ -31,7 +36,10 @@ export async function flagUnconfirmedNotifications(
 	for (const t of rows) {
 		if (t.source !== "notification" || !t.bankPending || t.editedByOwner || t.note !== null) continue;
 		if (t.createdAt.getTime() > oldEnough) continue;
-		await transactions.update(t.id, { status: "pending", note: UNCONFIRMED_NOTE });
+		await transactions.update(t.id, {
+			status: "pending",
+			note: t.status === "pending" ? UNCONFIRMED_REVIEW_NOTE : UNCONFIRMED_NOTE,
+		});
 		flagged++;
 	}
 	return flagged;
