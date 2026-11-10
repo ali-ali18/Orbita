@@ -29,7 +29,7 @@ export function incompleteDaysLabel(n: number): string {
 
 /**
  * Estado vazio de um número que não existe: ícone do app num disco discreto e duas linhas curtas (o que acontece e o
- * que falta), em cor secundária. Nunca traço, nunca zero. `compact` é a versão de uma linha de altura (cartões).
+ * que falta), em cor secundária. Nunca traço, nunca zero.
  */
 export function EmptyNote({ empty, align = "start" }: { empty: YieldEmpty; align?: "start" | "center" }) {
 	return (

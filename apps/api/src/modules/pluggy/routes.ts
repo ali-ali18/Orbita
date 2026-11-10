@@ -27,6 +27,7 @@ import type { AppEnv } from "../../http/require-device.ts";
 import { validate } from "../../http/validate.ts";
 import { connectPagePath, createConnectSession } from "./connect/session.ts";
 import { toPluggyConnectionDto } from "./dto.ts";
+import type { PluggySyncQueue } from "./queue.ts";
 
 /** As conexões com as posições de investimento que cada uma trouxe. */
 async function listDtos(stores: Stores): Promise<PluggyConnectionDto[]> {
@@ -40,8 +41,6 @@ async function listDtos(stores: Stores): Promise<PluggyConnectionDto[]> {
 async function oneDto(stores: Stores, c: PluggyConnectionRecord): Promise<PluggyConnectionDto> {
 	return toPluggyConnectionDto(c, (await connectionInvestmentCounts(stores)).get(c.id));
 }
-
-import type { PluggySyncQueue } from "./queue.ts";
 
 export type PluggyRoutesDeps = ModuleDeps & {
 	vault: SecretVault;

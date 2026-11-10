@@ -97,7 +97,11 @@ describe("conexões", () => {
 			lastSyncAt: null,
 			lastStatus: null,
 			lastError: null,
-			summary: { accounts: 0, cards: 0, investments: { active: 0, closed: 0 } },
+			summary: {
+				accounts: 0,
+				cards: 0,
+				investments: { active: 0, noBalance: 0, closed: 0, foreignCurrency: 0 },
+			},
 		});
 		expect((await api.get("/v1/pluggy/connections")).body.connections).toHaveLength(1);
 		const removed = await api.delete(`/v1/pluggy/connections/${ITEM}`);
@@ -107,7 +111,7 @@ describe("conexões", () => {
 		expect((await api.get("/v1/pluggy/connections")).body.connections).toEqual([]);
 	});
 
-	it("a linha da conexão traz quantos investimentos ela tem (ativos e encerrados)", async () => {
+	it("a linha da conexão traz quantos investimentos ela tem (ativos, sem saldo, encerrados)", async () => {
 		const stores = createMemoryStores({ now: () => new Date(NOW) });
 		const t = await setupFinance(NOW, () => stores, {
 			pluggySyncQueue: fakeQueue().queue,
@@ -133,16 +137,22 @@ describe("conexões", () => {
 		const list = (await t.api.get("/v1/pluggy/connections")).body.connections;
 		expect(list.find((c: { id: string }) => c.id === ITEM).summary.investments).toEqual({
 			active: 1,
+			noBalance: 0,
 			closed: 1,
+			foreignCurrency: 0,
 		});
 		expect(list.find((c: { id: string }) => c.id === OTHER).summary.investments).toEqual({
 			active: 0,
+			noBalance: 0,
 			closed: 0,
+			foreignCurrency: 0,
 		});
 		const status = (await t.api.get("/v1/pluggy/status")).body.connections;
 		expect(status.find((c: { id: string }) => c.id === ITEM).summary.investments).toEqual({
 			active: 1,
+			noBalance: 0,
 			closed: 1,
+			foreignCurrency: 0,
 		});
 	});
 

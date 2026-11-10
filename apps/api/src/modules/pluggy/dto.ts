@@ -5,7 +5,7 @@ import type { PluggyConnectionDto } from "@orbita/shared";
 /** Só estado e mensagem sanitizada; nada de chave. */
 export function toPluggyConnectionDto(
 	c: PluggyConnectionRecord,
-	investments: ConnectionInvestmentCounts = { active: 0, closed: 0 },
+	investments: ConnectionInvestmentCounts = { active: 0, noBalance: 0, closed: 0, foreignCurrency: 0 },
 ): PluggyConnectionDto {
 	return {
 		id: c.id,

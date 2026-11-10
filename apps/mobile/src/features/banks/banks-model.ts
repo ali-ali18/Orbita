@@ -3,6 +3,7 @@ import {
 	needsReconnect,
 	PLUGGY_LABEL_MAX,
 	PLUGGY_ONLY_INVESTMENTS_PREFIX,
+	PLUGGY_UNREAD_PRODUCTS_PREFIX,
 	type PluggyConnectionDto,
 	type PluggyStatusResponse,
 	pluggyConnectionCreateBody,
@@ -57,6 +58,8 @@ export function connectionName(c: Pick<PluggyConnectionDto, "label">): string {
 export const UPDATING_LINE = "Atualizando no banco…";
 export const NO_ACCOUNTS_LINE = "Conectado, mas o banco ainda não enviou contas";
 export const UNREAD_PRODUCTS_LINE = "Só produtos que o Órbita ainda não lê";
+/** Banco mandou produto que o Órbita não lê e também investimentos, que ele lê. */
+export const READ_PLUS_UNREAD_LINE = "Produtos que o Órbita ainda não lê";
 export const NO_DATA_LINE = "Conectado, mas o banco ainda não enviou lançamentos";
 
 /**
@@ -64,6 +67,9 @@ export const NO_DATA_LINE = "Conectado, mas o banco ainda não enviou lançament
  * porque o servidor avisou, seja porque gravou "ok" com a lista vazia (servidor antigo): "Sincronizado" aí engana.
  * Quem já tem contas e veio vazio desta vez não entra: cai em "Sincronizou em parte".
  */
+type InvestmentCounts = NonNullable<PluggyConnectionDto["summary"]["investments"]>;
+const investmentsTotal = (i: InvestmentCounts) => i.active + i.noBalance + i.closed + i.foreignCurrency;
+
 function waitingKind(
 	c: PluggyConnectionDto,
 ): "updating" | "no_accounts" | "no_data" | "unread_products" | "only_investments" | null {
@@ -73,7 +79,14 @@ function waitingKind(
 	const empty = c.summary.accounts + c.summary.cards === 0;
 	// Só investimentos, e o Órbita os lê: não é "produto que ele não lê" nem "ainda não enviou contas".
 	const inv = c.summary.investments;
-	if (empty && inv !== undefined && inv.active + inv.closed > 0 && c.lastStatus === "ok") {
+	if (
+		empty &&
+		inv !== undefined &&
+		investmentsTotal(inv) > 0 &&
+		c.lastStatus === "ok" &&
+		// O banco mandou também produto que o Órbita não lê (contas de tipo que não importa): mantém esse aviso.
+		!c.lastError?.startsWith(PLUGGY_UNREAD_PRODUCTS_PREFIX)
+	) {
 		return "only_investments";
 	}
 	if (waiting === "unread_products") return "unread_products";
@@ -100,7 +113,10 @@ export function connectionStatusLine(c: PluggyConnectionDto, now: Date): string 
 	if (waiting === "updating") return UPDATING_LINE;
 	if (waiting === "no_accounts") return NO_ACCOUNTS_LINE;
 	if (waiting === "no_data") return NO_DATA_LINE;
-	if (waiting === "unread_products") return UNREAD_PRODUCTS_LINE;
+	if (waiting === "unread_products") {
+		const inv = c.summary.investments;
+		return inv !== undefined && investmentsTotal(inv) > 0 ? READ_PLUS_UNREAD_LINE : UNREAD_PRODUCTS_LINE;
+	}
 	if (waiting === "only_investments") return good ?? "Sincronizado";
 	switch (c.lastStatus) {
 		case "ok":
@@ -118,25 +134,30 @@ export function connectionStatusLine(c: PluggyConnectionDto, now: Date): string 
 	}
 }
 
+/** Uma frase curta para a conexão que só enviou investimentos; o que mais importa primeiro. */
+function onlyInvestmentsDetail(inv: InvestmentCounts): string {
+	if (inv.active > 0) return "Só investimentos por enquanto.";
+	if (inv.noBalance > 0) return "Sem saldo no momento. O banco atualiza 1 vez por dia.";
+	if (inv.closed > 0) return inv.closed === 1 ? "Investimento encerrado." : "Investimentos encerrados.";
+	return "Em outra moeda, fora do patrimônio.";
+}
+
 /** Explicação da situação "esperando o banco", para a gaveta da conexão; `null` nas outras situações. */
 export function connectionStatusDetail(c: PluggyConnectionDto): string | null {
 	const waiting = waitingKind(c);
 	if (waiting === "updating") {
 		return "O Pluggy ainda está buscando os dados neste banco. O Órbita tenta de novo sozinho em alguns minutos.";
 	}
-	if (waiting === "only_investments") {
-		const inv = c.summary.investments ?? { active: 0, closed: 0 };
-		const retrying = c.lastError?.includes("tenta de novo sozinho") ?? false;
-		const closedOnly =
-			inv.active === 0
-				? inv.closed === 1
-					? " O investimento que ele enviou está encerrado, por isso não entra no patrimônio."
-					: " Os investimentos que ele enviou estão encerrados, por isso não entram no patrimônio."
-				: "";
-		return `Este banco enviou só investimentos. Conta e cartão aparecem aqui se o banco enviar.${retrying ? " O Órbita ainda tenta de novo sozinho." : ""}${closedOnly}`;
+	if (waiting === "only_investments") return onlyInvestmentsDetail(c.summary.investments as InvestmentCounts);
+	if (waiting === "unread_products") {
+		const inv = c.summary.investments;
+		const n = inv === undefined ? 0 : investmentsTotal(inv);
+		if (n > 0) {
+			return `O banco enviou produtos que o Órbita não lê, além de ${n} ${n === 1 ? "investimento que ele lê" : "investimentos que ele lê"}.`;
+		}
 	}
 	if (waiting === "unread_products" && c.lastError?.startsWith(PLUGGY_ONLY_INVESTMENTS_PREFIX)) {
-		return "O banco enviou só investimentos por enquanto. Pode ser que ele ainda esteja preenchendo o resto: o Órbita tenta de novo sozinho, e conta ou cartão aparecem aqui quando vierem.";
+		return "Só investimentos por enquanto. O Órbita tenta de novo sozinho.";
 	}
 	if (waiting === "unread_products") {
 		return "O banco só enviou produtos que o Órbita ainda não lê (investimentos, por exemplo). Não é erro: quando ele enviar conta ou cartão, aparecem aqui.";
@@ -156,13 +177,21 @@ export function connectionSummaryText(summary: PluggyConnectionDto["summary"]): 
 	if (summary.accounts > 0) parts.push(`${summary.accounts} ${summary.accounts === 1 ? "conta" : "contas"}`);
 	if (summary.cards > 0) parts.push(`${summary.cards} ${summary.cards === 1 ? "cartão" : "cartões"}`);
 	const inv = summary.investments;
-	if (inv !== undefined && inv.active + inv.closed > 0) {
-		if (inv.active > 0) {
-			parts.push(`${inv.active} ${inv.active === 1 ? "investimento" : "investimentos"}`);
-			if (inv.closed > 0) parts.push(`${inv.closed} ${inv.closed === 1 ? "encerrado" : "encerrados"}`);
-		} else {
-			parts.push(inv.closed === 1 ? "1 investimento encerrado" : `${inv.closed} investimentos encerrados`);
-		}
+	if (inv !== undefined && investmentsTotal(inv) > 0) {
+		const word = (n: number) => (n === 1 ? "investimento" : "investimentos");
+		const kinds: Array<[number, string, string]> = [
+			[inv.active, "", ""],
+			[inv.noBalance, "sem saldo", "sem saldo"],
+			[inv.closed, "encerrado", "encerrados"],
+			[inv.foreignCurrency, "em outra moeda", "em outra moeda"],
+		];
+		const present = kinds.filter(([n]) => n > 0);
+		present.forEach(([n, one, many], i) => {
+			if (i === 0) {
+				const tail = one === "" ? "" : ` ${n === 1 ? one : many}`;
+				parts.push(`${n} ${word(n)}${tail}`);
+			} else parts.push(`${n} ${n === 1 ? one : many}`);
+		});
 	}
 	return parts.length > 0 ? parts.join(" · ") : null;
 }

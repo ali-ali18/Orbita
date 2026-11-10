@@ -131,12 +131,20 @@ export const pluggyConnectionDto = z.object({
 	lastError: z.string().nullable(),
 	/**
 	 * O que a última sincronização trouxe desta conexão: contas e cartões do Órbita ligados a ela e as posições de
-	 * investimento (`active`: entram no patrimônio; `closed`: encerradas ou sem saldo). Ausente (servidor antigo) = não se sabe.
+	 * investimento (`active`: entram no patrimônio; `noBalance`: ativas com saldo zero; `closed`: encerradas;
+	 * `foreignCurrency`: em outra moeda). Ausente (servidor antigo) = não se sabe.
 	 */
 	summary: z.object({
 		accounts: z.number().int().min(0),
 		cards: z.number().int().min(0),
-		investments: z.object({ active: z.number().int().min(0), closed: z.number().int().min(0) }).optional(),
+		investments: z
+			.object({
+				active: z.number().int().min(0),
+				noBalance: z.number().int().min(0),
+				closed: z.number().int().min(0),
+				foreignCurrency: z.number().int().min(0),
+			})
+			.optional(),
 	}),
 });
 export type PluggyConnectionDto = z.infer<typeof pluggyConnectionDto>;
