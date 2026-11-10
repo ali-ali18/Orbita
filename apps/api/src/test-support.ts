@@ -18,7 +18,13 @@ export async function setupFinance(
 	extraDeps: Partial<
 		Pick<
 			AppDeps,
-			"pluggySyncQueue" | "pluggyFetch" | "pluggyConnectAsset" | "chatClient" | "chatModels" | "chatRateLimit"
+			| "pluggySyncQueue"
+			| "pluggyFetch"
+			| "pluggyConnectAsset"
+			| "chatClient"
+			| "chatModels"
+			| "chatRateLimit"
+			| "ota"
 		>
 	> = {},
 ) {

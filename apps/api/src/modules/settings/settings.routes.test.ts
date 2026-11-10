@@ -2,6 +2,7 @@ import { createSecretVault } from "@orbita/db";
 import { createSecretBox } from "@orbita/security";
 import { describe, expect, it } from "vitest";
 import { type Json, setupFinance } from "../../test-support.ts";
+import { createMemoryOtaStore } from "../updates/store.ts";
 
 const ANTHROPIC = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
 const PLUGGY_ID = "123e4567-e89b-42d3-a456-426614174000";
@@ -17,6 +18,26 @@ describe("GET /v1/server", () => {
 		expect(res.body).toEqual({
 			version: "0.0.0-test",
 			device: { name: "Teste", pairedAt: expect.stringMatching(/^2026-11-15T15:00:00/) },
+			ota: null,
+		});
+	});
+
+	it("conta qual atualização OTA o servidor está oferecendo (para o Diagnóstico do app)", async () => {
+		const { api } = await setupFinance(undefined, undefined, {
+			ota: createMemoryOtaStore({
+				android: {
+					id: "7424256b-5e41-4a79-96b7-407ec7f7b4de",
+					runtimeVersion: "rt-do-servidor",
+					createdAt: "2026-11-10T13:40:21.284Z",
+					manifest: new Uint8Array(),
+					signatureHeader: "x",
+				},
+			}),
+		});
+		expect((await api.get("/v1/server")).body.ota).toEqual({
+			id: "7424256b-5e41-4a79-96b7-407ec7f7b4de",
+			runtimeVersion: "rt-do-servidor",
+			createdAt: "2026-11-10T13:40:21.284Z",
 		});
 	});
 });

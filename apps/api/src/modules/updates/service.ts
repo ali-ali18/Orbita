@@ -5,6 +5,8 @@ import { isOtaPlatform } from "@orbita/ota";
 export type StoredUpdate = {
 	id: string;
 	runtimeVersion: string;
+	/** `createdAt` do manifesto (ISO 8601), só para o diagnóstico; `null` se o manifesto não trouxer. */
+	createdAt: string | null;
 	manifest: Uint8Array;
 	/** Valor do cabeçalho `expo-signature`. */
 	signatureHeader: string;
@@ -18,6 +20,21 @@ export interface OtaStore {
 	readUpdate(platform: OtaPlatform): Promise<StoredUpdate | null>;
 	/** `name` já foi validado por `isAssetFileName`. `null` se o arquivo não existe. */
 	openAsset(name: string): Promise<AssetStream | null>;
+}
+
+/** O que o servidor está oferecendo agora, para o Diagnóstico do app (`GET /v1/server`). Nada disto é segredo. */
+export type OtaOffer = { id: string; runtimeVersion: string; createdAt: string | null };
+
+/** Resumo da atualização publicada, ou `null` sem atualização. Nunca lança: diagnóstico não derruba a rota. */
+export async function describeOffer(store: OtaStore, platform: OtaPlatform): Promise<OtaOffer | null> {
+	try {
+		const update = await store.readUpdate(platform);
+		return update
+			? { id: update.id, runtimeVersion: update.runtimeVersion, createdAt: update.createdAt }
+			: null;
+	} catch {
+		return null;
+	}
 }
 
 export type ManifestRequest = {

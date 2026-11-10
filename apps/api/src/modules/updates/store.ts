@@ -17,13 +17,19 @@ function isMissing(e: unknown): boolean {
 	return code === "ENOENT" || code === "ENOTDIR";
 }
 
-/** Entende os dois campos do manifesto de que o servidor precisa; o resto vai intocado para o app. */
-function parseManifest(bytes: Uint8Array): { id: string; runtimeVersion: string } | null {
+/** Entende os campos do manifesto de que o servidor precisa; o resto vai intocado para o app. */
+function parseManifest(
+	bytes: Uint8Array,
+): { id: string; runtimeVersion: string; createdAt: string | null } | null {
 	try {
 		const json: unknown = JSON.parse(Buffer.from(bytes).toString("utf8"));
-		const { id, runtimeVersion } = (json ?? {}) as { id?: unknown; runtimeVersion?: unknown };
+		const { id, runtimeVersion, createdAt } = (json ?? {}) as {
+			id?: unknown;
+			runtimeVersion?: unknown;
+			createdAt?: unknown;
+		};
 		return typeof id === "string" && id && typeof runtimeVersion === "string" && runtimeVersion
-			? { id, runtimeVersion }
+			? { id, runtimeVersion, createdAt: typeof createdAt === "string" ? createdAt : null }
 			: null;
 	} catch {
 		return null;
