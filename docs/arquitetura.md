@@ -196,6 +196,8 @@ Dados e API (Fase 1); as telas vêm depois e só consomem o contrato de `package
 - **Engine** (`packages/core/src/investments.ts`, puro, sem relógio: o "hoje" entra por parâmetro) e **leitura** (`packages/ledger/src/investments.ts`, junta stores e engine e monta os DTOs). A IA nunca faz conta.
 - **API** (`apps/api/src/modules/investments/`, autenticada como as demais): `GET /v1/investments` (resumo), `GET /v1/investments/:id` (posição, movimentações e retratos; também abre a encerrada) e `GET /v1/investments/evolution?range=1m|6m|1y` (padrão `6m`).
 
+- **Telas** (`apps/mobile/src/features/investments`): o Início tem header fixo e abas **Contas | Investimentos** (`features/summary/HomePager.tsx`: `ScrollView` horizontal paginado do React Native, sem módulo nativo, então chega por OTA; cada aba tem a própria rolagem vertical e o sistema entrega o gesto ao eixo certo). A aba mostra patrimônio, rendimento do mês e total (com "estimado"/"parcial" e o motivo curto no lugar do número quando é `null`), Classes e Instituições, posições e a Evolução; o detalhe da posição e a Evolução são telas próprias. Segurar o gráfico abre "Ver como" (Barras, Barra horizontal, Rosca; Instituições abre em barras, Classes em rosca; a escolha fica guardada no aparelho). Toda formatação está em `investments-model.ts` (puro, testado): a tela nunca calcula, só mostra o que a API devolveu.
+
 ### Fórmulas (o que é exato e o que é estimado)
 
 - **Ativa** = não arquivada e situação diferente de `TOTAL_WITHDRAWAL`. **Patrimônio** = soma de `balance` (líquido) das ativas em BRL com saldo ≥ 0; sem saldo (ou negativo, dado ruim), ou em outra moeda, fica fora da soma e dos grupos e é contado (`withoutBalance`, `foreignCurrency`): total = soma dos grupos. Moeda vazia vale BRL.
