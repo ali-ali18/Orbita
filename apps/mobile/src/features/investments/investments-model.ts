@@ -15,6 +15,7 @@ import { chart, chartSeries } from "@orbita/tokens";
 import { dayMonth, money, monthShort } from "../../lib/format.ts";
 import type { BankBadge, IconName } from "../../ui/index.ts";
 import { bankBadge, bankColor } from "../summary/summary-model.ts";
+import { needsTerms } from "./terms-model.ts";
 
 /*
  * Do DTO de Investimentos para o que a tela mostra. A API devolve os números prontos; aqui só se FORMATA (texto, cor,
@@ -273,6 +274,8 @@ export interface PositionRow {
 	value: string;
 	yieldCard: YieldCard;
 	badge: BankBadge;
+	/** Falta taxa, valor aplicado ou data: a linha leva um ponto na cor de destaque. */
+	needsTerms: boolean;
 }
 
 /** "100% do CDI", "9,5% a.a."; `null` sem taxa contratada. Rentabilidade contratada, não medida. */
@@ -306,6 +309,7 @@ export function positionRow(p: InvestmentPositionDto, hidden: boolean): Position
 		value: p.balanceCents === null ? NO_BALANCE : money(p.balanceCents, hidden, { sign: "never" }),
 		yieldCard: positionYield(p.yield, hidden),
 		badge: bankBadge({ name: p.institutionLabel }),
+		needsTerms: needsTerms(p),
 	};
 }
 
