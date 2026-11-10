@@ -18,6 +18,7 @@ import {
 	connectionName,
 	connectionStatusDetail,
 	connectionStatusLine,
+	connectionSummaryText,
 	disconnectedConnections,
 	formatAgo,
 	homeRefreshDecision,
@@ -153,6 +154,59 @@ describe("situação da conexão", () => {
 		expect(connectionStatusLine(c, NOW)).toBe("Só produtos que o Órbita ainda não lê");
 		expect(connectionStatusDetail(c)).toContain("só investimentos por enquanto");
 		expect(connectionStatusDetail(c)).toContain("tenta de novo sozinho");
+	});
+	it("só investimentos que o Órbita lê: mostra a contagem e a hora, sem 'produtos que ainda não lê'", () => {
+		const c = conn({
+			lastStatus: "ok",
+			lastSyncAt: "2026-11-07T12:59:59.000Z",
+			lastError: `${PLUGGY_ONLY_INVESTMENTS_PREFIX} Conta e cartão aparecem aqui se o banco enviar.`,
+			summary: { accounts: 0, cards: 0, investments: { active: 1, closed: 0 } },
+		});
+		expect(connectionStatusLine(c, NOW)).toBe("Sincronizado há 2 h");
+		expect(connectionCaption(c, NOW)).toBe("1 investimento · Sincronizado há 2 h");
+		expect(connectionStatusDetail(c)).toBe(
+			"Este banco enviou só investimentos. Conta e cartão aparecem aqui se o banco enviar.",
+		);
+		// Nova tentativa automática (conexão nova): o texto continua dizendo.
+		const retrying = {
+			...c,
+			lastError: `${PLUGGY_ONLY_INVESTMENTS_PREFIX} O Órbita tenta de novo sozinho; quando vier conta ou cartão, aparecem aqui.`,
+		};
+		expect(connectionStatusDetail(retrying)).toBe(
+			"Este banco enviou só investimentos. Conta e cartão aparecem aqui se o banco enviar. O Órbita ainda tenta de novo sozinho.",
+		);
+		// Servidor antigo (texto "produtos que não lê") mas com investimentos contados: o app não repete a frase falsa.
+		const old = {
+			...c,
+			lastError: `${PLUGGY_UNREAD_PRODUCTS_PREFIX} Mande o Diagnóstico da conexão se faltar algo.`,
+		};
+		expect(connectionStatusLine(old, NOW)).toBe("Sincronizado há 2 h");
+		// Sem lastError nenhum (ok, sem conta, com investimento): também não é "ainda não enviou contas".
+		expect(connectionStatusLine({ ...c, lastError: null }, NOW)).toBe("Sincronizado há 2 h");
+	});
+	it("só investimento encerrado: diz que está encerrado e que não entra no patrimônio", () => {
+		const c = conn({
+			lastStatus: "ok",
+			lastSyncAt: "2026-11-07T12:59:59.000Z",
+			lastError: `${PLUGGY_ONLY_INVESTMENTS_PREFIX} Conta e cartão aparecem aqui se o banco enviar.`,
+			summary: { accounts: 0, cards: 0, investments: { active: 0, closed: 1 } },
+		});
+		expect(connectionCaption(c, NOW)).toBe("1 investimento encerrado · Sincronizado há 2 h");
+		expect(connectionStatusDetail(c)).toBe(
+			"Este banco enviou só investimentos. Conta e cartão aparecem aqui se o banco enviar. O investimento que ele enviou está encerrado, por isso não entra no patrimônio.",
+		);
+		const two = { ...c, summary: { accounts: 0, cards: 0, investments: { active: 0, closed: 2 } } };
+		expect(connectionCaption(two, NOW)).toBe("2 investimentos encerrados · Sincronizado há 2 h");
+		expect(connectionStatusDetail(two)).toContain("Os investimentos que ele enviou estão encerrados");
+	});
+	it("contagem mistura conta, cartão, investimentos ativos e encerrados", () => {
+		expect(connectionSummaryText({ accounts: 1, cards: 1, investments: { active: 2, closed: 1 } })).toBe(
+			"1 conta · 1 cartão · 2 investimentos · 1 encerrado",
+		);
+		expect(
+			connectionSummaryText({ accounts: 0, cards: 0, investments: { active: 0, closed: 0 } }),
+		).toBeNull();
+		expect(connectionSummaryText({ accounts: 2, cards: 0 })).toBe("2 contas");
 	});
 	it("item ainda atualizando no Pluggy", () => {
 		const c = conn({ lastStatus: "partial", lastError: `${PLUGGY_UPDATING_PREFIX} O Órbita tenta de novo.` });

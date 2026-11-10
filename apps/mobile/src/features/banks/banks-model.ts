@@ -66,12 +66,17 @@ export const NO_DATA_LINE = "Conectado, mas o banco ainda não enviou lançament
  */
 function waitingKind(
 	c: PluggyConnectionDto,
-): "updating" | "no_accounts" | "no_data" | "unread_products" | null {
+): "updating" | "no_accounts" | "no_data" | "unread_products" | "only_investments" | null {
 	const waiting = pluggyWaitingFor(c);
-	if (waiting === "unread_products") return "unread_products";
 	if (waiting === "updating") return "updating";
 	if (waiting === "no_data") return "no_data";
 	const empty = c.summary.accounts + c.summary.cards === 0;
+	// Só investimentos, e o Órbita os lê: não é "produto que ele não lê" nem "ainda não enviou contas".
+	const inv = c.summary.investments;
+	if (empty && inv !== undefined && inv.active + inv.closed > 0 && c.lastStatus === "ok") {
+		return "only_investments";
+	}
+	if (waiting === "unread_products") return "unread_products";
 	return empty && (waiting === "no_accounts" || c.lastStatus === "ok") ? "no_accounts" : null;
 }
 
@@ -96,6 +101,7 @@ export function connectionStatusLine(c: PluggyConnectionDto, now: Date): string 
 	if (waiting === "no_accounts") return NO_ACCOUNTS_LINE;
 	if (waiting === "no_data") return NO_DATA_LINE;
 	if (waiting === "unread_products") return UNREAD_PRODUCTS_LINE;
+	if (waiting === "only_investments") return good ?? "Sincronizado";
 	switch (c.lastStatus) {
 		case "ok":
 			return good ?? "Sincronizado";
@@ -118,6 +124,17 @@ export function connectionStatusDetail(c: PluggyConnectionDto): string | null {
 	if (waiting === "updating") {
 		return "O Pluggy ainda está buscando os dados neste banco. O Órbita tenta de novo sozinho em alguns minutos.";
 	}
+	if (waiting === "only_investments") {
+		const inv = c.summary.investments ?? { active: 0, closed: 0 };
+		const retrying = c.lastError?.includes("tenta de novo sozinho") ?? false;
+		const closedOnly =
+			inv.active === 0
+				? inv.closed === 1
+					? " O investimento que ele enviou está encerrado, por isso não entra no patrimônio."
+					: " Os investimentos que ele enviou estão encerrados, por isso não entram no patrimônio."
+				: "";
+		return `Este banco enviou só investimentos. Conta e cartão aparecem aqui se o banco enviar.${retrying ? " O Órbita ainda tenta de novo sozinho." : ""}${closedOnly}`;
+	}
 	if (waiting === "unread_products" && c.lastError?.startsWith(PLUGGY_ONLY_INVESTMENTS_PREFIX)) {
 		return "O banco enviou só investimentos por enquanto. Pode ser que ele ainda esteja preenchendo o resto: o Órbita tenta de novo sozinho, e conta ou cartão aparecem aqui quando vierem.";
 	}
@@ -133,11 +150,20 @@ export function connectionStatusDetail(c: PluggyConnectionDto): string | null {
 	return null;
 }
 
-/** "1 conta", "2 contas · 1 cartão"; `null` se a conexão ainda não trouxe nada. */
+/** "1 conta", "2 contas · 1 cartão · 1 investimento"; `null` se a conexão ainda não trouxe nada. */
 export function connectionSummaryText(summary: PluggyConnectionDto["summary"]): string | null {
 	const parts: string[] = [];
 	if (summary.accounts > 0) parts.push(`${summary.accounts} ${summary.accounts === 1 ? "conta" : "contas"}`);
 	if (summary.cards > 0) parts.push(`${summary.cards} ${summary.cards === 1 ? "cartão" : "cartões"}`);
+	const inv = summary.investments;
+	if (inv !== undefined && inv.active + inv.closed > 0) {
+		if (inv.active > 0) {
+			parts.push(`${inv.active} ${inv.active === 1 ? "investimento" : "investimentos"}`);
+			if (inv.closed > 0) parts.push(`${inv.closed} ${inv.closed === 1 ? "encerrado" : "encerrados"}`);
+		} else {
+			parts.push(inv.closed === 1 ? "1 investimento encerrado" : `${inv.closed} investimentos encerrados`);
+		}
+	}
 	return parts.length > 0 ? parts.join(" · ") : null;
 }
 
