@@ -1,6 +1,7 @@
 export * from "./agents-api.ts";
 export * from "./category-rules.ts";
 export * from "./chat-api.ts";
+export * from "./economy-api.ts";
 export * from "./export-api.ts";
 export * from "./finance.ts";
 export * from "./finance-api.ts";
@@ -9,6 +10,7 @@ export * from "./goals-api.ts";
 export * from "./home-layout.ts";
 export * from "./import-api.ts";
 export * from "./income-api.ts";
+export * from "./notification-capture.ts";
 export * from "./pairing.ts";
 export * from "./pluggy-api.ts";
 export * from "./pluggy-diagnostics.ts";

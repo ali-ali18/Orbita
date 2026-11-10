@@ -1,4 +1,5 @@
 import type { AccountStore } from "./account-store.ts";
+import type { AgentActivityStore } from "./agent-activity-store.ts";
 import type { AgentStore } from "./agent-store.ts";
 import type { AiUsageStore } from "./ai-usage-store.ts";
 import type { AuthStore } from "./auth-store.ts";
@@ -15,6 +16,7 @@ import type { IdempotencyStore } from "./idempotency-store.ts";
 import type { ImportBatchStore } from "./import-batch-store.ts";
 import type { IncomeSourceStore } from "./income-source-store.ts";
 import { createMemoryAccountStore } from "./memory-account-store.ts";
+import { createMemoryAgentActivityStore } from "./memory-agent-activity-store.ts";
 import { createMemoryAgentStore } from "./memory-agent-store.ts";
 import { createMemoryAiUsageStore } from "./memory-ai-usage-store.ts";
 import { createMemoryAuthStore } from "./memory-auth-store.ts";
@@ -29,6 +31,7 @@ import { createMemoryHomeLayoutStore } from "./memory-home-layout-store.ts";
 import { createMemoryIdempotencyStore } from "./memory-idempotency-store.ts";
 import { createMemoryImportBatchStore } from "./memory-import-batch-store.ts";
 import { createMemoryIncomeSourceStore } from "./memory-income-source-store.ts";
+import { createMemoryNotificationInboxStore } from "./memory-notification-inbox-store.ts";
 import { createMemoryPluggyConnectSessionStore } from "./memory-pluggy-connect-session-store.ts";
 import { createMemoryPluggyConnectionStore } from "./memory-pluggy-connection-store.ts";
 import { createMemoryPreferencesStore } from "./memory-preferences-store.ts";
@@ -36,10 +39,12 @@ import { createMemoryRecurrenceStore } from "./memory-recurrence-store.ts";
 import { createMemorySecretStore } from "./memory-secret-store.ts";
 import { type Clock, createMemoryState } from "./memory-state.ts";
 import { createMemoryTransactionStore } from "./memory-transaction-store.ts";
+import type { NotificationInboxStore } from "./notification-inbox-store.ts";
 import type { PluggyConnectSessionStore } from "./pluggy-connect-session-store.ts";
 import type { PluggyConnectionStore } from "./pluggy-connection-store.ts";
 import type { PreferencesStore } from "./preferences-store.ts";
 import { createPrismaAccountStore } from "./prisma-account-store.ts";
+import { createPrismaAgentActivityStore } from "./prisma-agent-activity-store.ts";
 import { createPrismaAgentStore } from "./prisma-agent-store.ts";
 import { createPrismaAiUsageStore } from "./prisma-ai-usage-store.ts";
 import { createPrismaAuthStore } from "./prisma-auth-store.ts";
@@ -54,6 +59,7 @@ import { createPrismaHomeLayoutStore } from "./prisma-home-layout-store.ts";
 import { createPrismaIdempotencyStore } from "./prisma-idempotency-store.ts";
 import { createPrismaImportBatchStore } from "./prisma-import-batch-store.ts";
 import { createPrismaIncomeSourceStore } from "./prisma-income-source-store.ts";
+import { createPrismaNotificationInboxStore } from "./prisma-notification-inbox-store.ts";
 import { createPrismaPluggyConnectSessionStore } from "./prisma-pluggy-connect-session-store.ts";
 import { createPrismaPluggyConnectionStore } from "./prisma-pluggy-connection-store.ts";
 import { createPrismaPreferencesStore } from "./prisma-preferences-store.ts";
@@ -80,12 +86,14 @@ export interface Stores {
 	idempotency: IdempotencyStore;
 	imports: ImportBatchStore;
 	preferences: PreferencesStore;
+	notificationInbox: NotificationInboxStore;
 	homeLayout: HomeLayoutStore;
 	goals: GoalStore;
 	incomeSources: IncomeSourceStore;
 	chat: ChatStore;
 	aiUsage: AiUsageStore;
 	agents: AgentStore;
+	agentActivity: AgentActivityStore;
 }
 
 export interface StoresOptions {
@@ -112,12 +120,14 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		idempotency: createPrismaIdempotencyStore(db),
 		imports: createPrismaImportBatchStore(db),
 		preferences: createPrismaPreferencesStore(db),
+		notificationInbox: createPrismaNotificationInboxStore(db, now),
 		homeLayout: createPrismaHomeLayoutStore(db),
 		goals: createPrismaGoalStore(db, now),
 		incomeSources: createPrismaIncomeSourceStore(db, now),
 		chat: createPrismaChatStore(db, now),
 		aiUsage: createPrismaAiUsageStore(db),
 		agents: createPrismaAgentStore(db, now),
+		agentActivity: createPrismaAgentActivityStore(db, now),
 	};
 }
 
@@ -140,11 +150,13 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		idempotency: createMemoryIdempotencyStore(),
 		imports: createMemoryImportBatchStore(),
 		preferences: createMemoryPreferencesStore(state),
+		notificationInbox: createMemoryNotificationInboxStore(state.now),
 		homeLayout: createMemoryHomeLayoutStore(),
 		goals: createMemoryGoalStore(state),
 		incomeSources: createMemoryIncomeSourceStore(state),
 		chat: createMemoryChatStore(state.now, (id) => state.agents.has(id)),
 		aiUsage: createMemoryAiUsageStore(),
 		agents: createMemoryAgentStore(state),
+		agentActivity: createMemoryAgentActivityStore(state),
 	};
 }

@@ -39,6 +39,14 @@ O app só checa atualização se o servidor pareado for o mesmo host de `ORBITA_
 
 **Permissões do chat:** `expo-image-picker` pede `CAMERA` (só ao tocar em _Tirar foto_; a galeria usa o seletor do sistema) e `expo-speech-recognition` pede `RECORD_AUDIO` (só ao tocar no microfone). Os textos de justificativa em pt-BR ficam nos plugins do `app.json`. Foram acrescentados os módulos nativos `expo-image-picker`, `expo-image-manipulator` e `expo-speech-recognition`: **o primeiro APK com anexos e ditado exige instalar o APK novo** (o `runtimeVersion` muda, então o APK antigo continua funcionando, mas não recebe este JS por OTA).
 
+## Leitura de notificações dos bancos
+
+Módulo Expo local `apps/mobile/modules/orbita-notifications` (Kotlin, autolinkado) + plugin `plugins/with-notification-listener.js`, que declara no AndroidManifest o serviço `OrbitaNotificationListener` (permissão `BIND_NOTIFICATION_LISTENER_SERVICE`) e o job `FlushJobService`. Escolhido em vez de `react-native-android-notification-listener` (sem release desde 2022, módulo antigo e tarefa headless de JS): o serviço lê, filtra, cifra e envia **sem JavaScript**, então funciona com o app fechado.
+
+- O dono liga em Configurações › Notificações do celular; o app abre Acesso a notificações do Android. Em APK instalado fora da loja (Android 13+) a chave pode vir esmaecida: Informações do app › ⋮ › Permitir configurações restritas.
+- Sem rede, a fila cifrada espera e o `JobScheduler` reenvia quando a rede volta (e ao abrir o app).
+- **Precisa de APK novo** (módulo nativo e serviço no manifesto; o `runtimeVersion` muda). Não testado em aparelho: ver riscos no relatório do PR.
+
 **Precisa de APK novo** quando muda algo nativo (dependência nativa, versão do Expo/React Native, permissões, ícone, plugin, certificado OTA): o `runtimeVersion` muda e o APK antigo para de receber o JS novo, mas continua funcionando. Mudou só JS? Basta o merge na `main`.
 
 ## Chave de assinatura

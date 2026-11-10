@@ -1,9 +1,11 @@
+import type { AgentDto } from "@orbita/shared";
 import { spacing } from "@orbita/tokens";
 import { View } from "react-native";
 import { errorMessage } from "../../lib/loadable.ts";
 import { Sheet, SheetGroup, SheetRow, Skeleton, Text } from "../../ui/index.ts";
+import { AgentAvatar } from "../agents/AgentAvatar.tsx";
 import { useRecentConversations } from "./chat-queries.ts";
-import { conversationTitle, RECENT_COUNT, showSeeAll } from "./conversations-model.ts";
+import { agentBadgeFor, conversationTitle, RECENT_COUNT, showSeeAll } from "./conversations-model.ts";
 
 /**
  * Gaveta do chat: "Nova conversa", as 3 conversas mais recentes e, só quando existem mais, "Ver todas" (a tela
@@ -11,12 +13,15 @@ import { conversationTitle, RECENT_COUNT, showSeeAll } from "./conversations-mod
  */
 export function ChatHistorySheet({
 	visible,
+	agents,
 	onClose,
 	onNew,
 	onPick,
 	onSeeAll,
 }: {
 	visible: boolean;
+	/** Para mostrar de qual agente é cada conversa (a Órbita não leva selo). */
+	agents: readonly Pick<AgentDto, "id" | "name" | "builtinKey">[];
 	onClose: () => void;
 	onNew: () => void;
 	onPick: (id: string) => void;
@@ -46,14 +51,22 @@ export function ChatHistorySheet({
 				<View style={{ paddingTop: spacing.md }}>
 					<SheetGroup gap={false}>
 						{[
-							...list.map((conversation) => (
-								<SheetRow
-									key={conversation.id}
-									icon="relogio"
-									label={conversationTitle(conversation.title)}
-									onPress={() => onPick(conversation.id)}
-								/>
-							)),
+							...list.map((conversation) => {
+								const badge = agentBadgeFor(conversation.agentId, agents);
+								return (
+									<SheetRow
+										key={conversation.id}
+										{...(badge
+											? {
+													leading: <AgentAvatar visual={badge.visual} size={24} name={badge.name} />,
+													caption: badge.name,
+												}
+											: { icon: "relogio" as const })}
+										label={conversationTitle(conversation.title)}
+										onPress={() => onPick(conversation.id)}
+									/>
+								);
+							}),
 							...(showSeeAll(q.data?.nextCursor)
 								? [<SheetRow key="see-all" icon="reticencias" label="Ver todas" onPress={onSeeAll} />]
 								: []),

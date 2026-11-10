@@ -69,7 +69,11 @@ Cada card do Início é um widget com tamanho `2x2` (quadrado de meia largura, 2
 
 ### Agentes
 
-`import { agents } from "@orbita/tokens"`: cada agente tem `color` (o rosto) e `tint` (o fundo do cartão dele). A cor vem da paleta dos gráficos (Vigia laranja, Fechamento azul, Metas amarelo, Caça-assinatura magenta, Cofrinho verde-água, agente do dono violeta; a Órbita é branca); o tom é a cor a 14% sobre o preto, em hex fixo. A cor fica no rosto e no fundo do cartão, nunca no texto. O rosto é uma forma simples com dois olhos escuros (`AgentAvatar`).
+`import { agents } from "@orbita/tokens"`: cada agente tem `color` (o rosto) e `tint` (o fundo do cartão dele). A cor vem da paleta dos gráficos (Vigia laranja, Fechamento azul, Metas amarelo, Caça-assinatura magenta, Cofrinho verde-água, Economia verde-lima, agente do dono violeta; a Órbita é branca); o tom é a cor a 14% sobre o preto, em hex fixo. A cor fica no rosto e no fundo do cartão, nunca no texto. O rosto é uma forma simples com dois olhos escuros (`AgentAvatar`).
+
+### Economia (tela do agente)
+
+A tela do agente Economia segue "Menos texto": o seletor **Autonomia** (duas opções em rádio; a segunda pede confirmação), **Onde cortar** (um número no topo, "Dá para cortar até R$ X por mês", e cartões `surface` com título, valor por mês, uma linha de texto, a confiança em `Chip` e no máximo uma ação de um toque mais "Ignorar", `compact`; só os 4 primeiros, o resto em "Ver todos") e **O que fiz sozinho** (o quê, por quê, quantos lançamentos de evidência e **Desfazer**; o desfeito troca o botão pela nota). O achado que não soma no total leva uma linha curta dizendo isso. Valores seguem o olho fechado. Lógica em `features/agents/economy-model.ts`.
 
 ### Bancos
 

@@ -22,6 +22,8 @@ import {
 	type UpsertByExternalInput,
 } from "@orbita/db";
 import { PLUGGY_RECONNECT_MESSAGE, type PluggySyncStatus, type SecretName } from "@orbita/shared";
+import { flagUnconfirmedNotifications } from "../notification/reconcile.ts";
+import { sameBankAccountIds } from "../notification/same-bank.ts";
 import { type BankNumbersResult, recordBankNumbers, recordBills } from "./balances.ts";
 import {
 	detectBankName,
@@ -1090,6 +1092,13 @@ async function storeTransactions(
 	},
 ): Promise<void> {
 	const { transactions } = deps.stores;
+	// Contas do mesmo banco deste cartão (uma vez por rodada): notificação "Você pagou…" de alvo incerto pode ter ido
+	// para uma delas, e o banco sabe que foi no cartão.
+	let sameBank: string[] | undefined;
+	const bankAccounts = async () => {
+		if (sameBank === undefined) sameBank = ctx.card ? await sameBankAccountIds(deps.stores, ctx.card.id) : [];
+		return sameBank;
+	};
 	// Estornos por último: assim a compra original, se veio na mesma resposta, já está gravada.
 	const mappedAll = txs.map((tx) => ({ tx, mapped: safeMap(tx, ctx) }));
 	// Quantos do banco têm a mesma identidade (valor, dia, descrição…): casam um a um com os do item antigo.
@@ -1169,7 +1178,12 @@ async function storeTransactions(
 				const relinkedTx = await rekey(mapped);
 				const early =
 					relinkedTx.outcome === "none"
-						? await adoptEarlyEntry(transactions, PLUGGY_SOURCE, mapped)
+						? await adoptEarlyEntry(
+								transactions,
+								PLUGGY_SOURCE,
+								mapped,
+								mapped.input.cardId ? await bankAccounts() : [],
+							)
 						: relinkedTx.outcome === "ambiguous"
 							? relinkedTx
 							: ({ outcome: "none" } as const);
@@ -1403,6 +1417,12 @@ async function trackPresence(
 		from: when.from,
 		today: when.today,
 		now: when.startedAt,
+	});
+	// Notificação que o banco nunca confirmou (cartão/conta lidos por inteiro agora): vai para revisão, nunca some.
+	await flagUnconfirmedNotifications(transactions, {
+		target: target.account ? { accountId: owner.id } : { cardId: owner.id },
+		today: when.today,
+		syncedAt: when.startedAt,
 	});
 	if (done.removed > 0) result.removedByBank = (result.removedByBank ?? 0) + done.removed;
 	if (done.flagged > 0) result.flaggedMissing = (result.flaggedMissing ?? 0) + done.flagged;

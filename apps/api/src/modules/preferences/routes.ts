@@ -25,17 +25,19 @@ const toPreferences = (p: PreferencesRecord): PreferencesDto => ({
 	leftoverGoalId: p.leftoverGoalId,
 });
 
-/** `active` é sempre `false`: a leitura das notificações do banco ainda não existe (o app avisa na tela). */
-const toNotifications = (p: PreferencesRecord): NotificationSettingsDto => ({
+/** `active`: a leitura vale (ligada e com algum banco escolhido). Se o Android deu o acesso, só o aparelho sabe. */
+const toNotifications = (p: PreferencesRecord, inbox: number): NotificationSettingsDto => ({
 	capture: p.notificationCapture,
 	apps: p.notificationApps,
 	toReview: p.notificationToReview,
-	active: false,
+	askFirst: p.notificationAskFirst,
+	active: p.notificationCapture && p.notificationApps.length > 0,
+	inbox,
 });
 
 /** Perfil (nome e aparelho), preferências e notificações do celular. Só configuração, nada financeiro. */
 export function routes({ stores, requireDevice }: ModuleDeps) {
-	const { preferences, auth } = stores;
+	const { preferences, auth, notificationInbox } = stores;
 	return new Hono<AppEnv>()
 		.use("/v1/profile", requireDevice)
 		.use("/v1/preferences", requireDevice)
@@ -64,15 +66,18 @@ export function routes({ stores, requireDevice }: ModuleDeps) {
 			c.json({ preferences: toPreferences(await preferences.update(defined(c.req.valid("json")))) }),
 		)
 		.get("/v1/notification-settings", async (c) =>
-			c.json({ notifications: toNotifications(await preferences.get()) }),
+			c.json({ notifications: toNotifications(await preferences.get(), await notificationInbox.count()) }),
 		)
 		.patch("/v1/notification-settings", validate("json", notificationSettingsPatchBody), async (c) => {
-			const { capture, apps, toReview } = c.req.valid("json");
+			const { capture, apps, toReview, askFirst } = c.req.valid("json");
 			const patch = defined({
 				notificationCapture: capture,
 				notificationApps: apps,
 				notificationToReview: toReview,
+				notificationAskFirst: askFirst,
 			});
-			return c.json({ notifications: toNotifications(await preferences.update(patch)) });
+			return c.json({
+				notifications: toNotifications(await preferences.update(patch), await notificationInbox.count()),
+			});
 		});
 }

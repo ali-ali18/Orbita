@@ -9,6 +9,18 @@ export { accountBalances } from "./balances.ts";
 export { cashFlow } from "./cash-flow.ts";
 export { toCardDto, toPostingDto, toRecurrenceDto, toTransactionDto } from "./dto.ts";
 export {
+	type EconomyRunResult,
+	runEconomyActions,
+	type UndoResult,
+	undoActivity,
+} from "./economy/actions.ts";
+export {
+	economySettings,
+	findEconomyAgent,
+	loadSavingsInput,
+	savingsOpportunities,
+} from "./economy/savings.ts";
+export {
 	type GoalClock,
 	goalDetail,
 	listGoals,

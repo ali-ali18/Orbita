@@ -43,6 +43,9 @@ function Shape({ kind, color }: { kind: AgentVisualKey; color: string }) {
 			return <Rect x={8} y={8} width={84} height={84} rx={28} fill={color} />;
 		case "cofrinho":
 			return <Path d={LEAF} fill={color} stroke={color} strokeWidth={8} strokeLinejoin="round" />;
+		case "economia":
+			// Losango de cantos arredondados: um "selo" de economia.
+			return <Rect x={16} y={16} width={68} height={68} rx={20} fill={color} transform="rotate(45 50 50)" />;
 		default:
 			return <Circle cx={50} cy={50} r={44} fill={color} />;
 	}

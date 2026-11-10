@@ -79,7 +79,7 @@ describe("fatura", () => {
 describe("lançamentos", () => {
 	const sources = {
 		accounts: new Map([["a1", { name: "Inter" }]]),
-		cards: new Map([["c1", { name: "Nubank", last4: "0695" }]]),
+		cards: new Map([["c1", { name: "Nubank", last4: "4821" }]]),
 	};
 	const base = {
 		kind: "expense",
@@ -92,7 +92,7 @@ describe("lançamentos", () => {
 		status: "confirmed",
 	} as const;
 	it("legenda com cartão, parcela e pendência", () => {
-		expect(transactionCaption(base, "2026-11-06", sources)).toBe("Ontem · Nubank ••••0695 · 2/3");
+		expect(transactionCaption(base, "2026-11-06", sources)).toBe("Ontem · Nubank ••••4821 · 2/3");
 		expect(
 			transactionCaption(
 				{

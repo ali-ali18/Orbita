@@ -28,7 +28,7 @@ const accounts = [
 	{ id: "a2", name: "Antiga", bankCode: null, archivedAt: "2026-01-01T00:00:00Z" },
 ];
 const cards = [
-	{ id: "c1", name: "Nubank", bankCode: "18236120", last4: "0695", archivedAt: null },
+	{ id: "c1", name: "Nubank", bankCode: "18236120", last4: "4821", archivedAt: null },
 	{ id: "c2", name: "Velho", bankCode: null, last4: null, archivedAt: "2026-01-01T00:00:00Z" },
 ];
 const expenseOptions = sourceOptions("expense", accounts, cards);
@@ -75,7 +75,7 @@ describe("conta ou cartão", () => {
 	it("saída lista contas e cartões ativos; arquivados somem", () => {
 		expect(expenseOptions.map((o) => o.key)).toEqual(["account:a1", "card:c1"]);
 		expect(card.label).toBe("Nubank · crédito");
-		expect(card.detail).toBe("••••0695");
+		expect(card.detail).toBe("••••4821");
 		expect(account.label).toBe("Nubank");
 	});
 

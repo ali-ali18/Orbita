@@ -385,10 +385,13 @@ model AppPreferences {
   /// Ou uma meta ativa (nunca os dois ao mesmo tempo). Também só a escolha: nenhum dinheiro é movido.
   leftoverGoalId       String?  @map("leftover_goal_id")
   leftoverGoal         Goal?    @relation("LeftoverGoal", fields: [leftoverGoalId], references: [id], onDelete: SetNull)
-  /// Escolhas da tela Notificações do celular. A captura ainda não existe: são só preferências guardadas.
+  /// Escolhas da tela Notificações do celular (a leitura das notificações de banco, no Android).
   notificationCapture  Boolean  @default(false) @map("notification_capture")
   notificationApps     String[] @default([]) @map("notification_apps")
+  /// Guardar na lista "Não entendi" o que o parser não reconhece (desligado: descarta).
   notificationToReview Boolean  @default(true) @map("notification_to_review")
+  /// O que o parser entendeu vai para "Para revisar" (true) em vez de entrar direto como "aguardando o banco" (false).
+  notificationAskFirst Boolean  @default(false) @map("notification_ask_first")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   @@map("app_preferences")
@@ -496,6 +499,24 @@ model ImportBatch {
 
   @@unique([fileHash, targetKey])
   @@map("import_batches")
+}
+
+/// Notificação de banco que não virou lançamento: formato que o parser não entendeu, ou cartão/conta que não achei. Só
+/// estas guardam o texto (cortado e limpo); a que virou lançamento não deixa o texto no servidor. Idempotente por `key`
+/// (hash de pacote + texto + minuto), a mesma que o lançamento usa como `externalId`.
+model NotificationInbox {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  app       String
+  title     String
+  text      String
+  /// "format" (não entendi) ou "target" (entendi, mas não achei o cartão ou a conta).
+  reason    String
+  postedAt  DateTime @map("posted_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("notification_inbox")
 }
 
 /// Conversa com a Órbita (o chat). O histórico mora no servidor: o app só mostra.
@@ -619,6 +640,7 @@ model Agent {
   updatedAt    DateTime  @default(now()) @map("updated_at")
 
   alerts        Alert[]
+  activities    AgentActivity[]
   conversations ChatConversation[]
 
   @@map("agents")
@@ -652,6 +674,34 @@ model Alert {
   @@unique([agentId, dedupeKey])
   @@index([status, createdAt])
   @@map("alerts")
+}
+
+/// Registro de atividades do agente Economia: o que ele fez SOZINHO (categorizar, cadastrar assinatura, criar limite,
+/// marcar duplicata, criar meta), com o motivo, a evidência e o que o Desfazer precisa. `dedupeKey` identifica o achado:
+/// o par (agente, chave) é único, então o mesmo achado nunca vira duas ações, e o que o dono desfez não volta sozinho.
+model AgentActivity {
+  id        String    @id @default(cuid())
+  agentId   String    @map("agent_id")
+  /// "categorize_transaction" | "register_subscription" | "set_budget_limit" | "flag_duplicate" | "create_savings_goal".
+  kind      String
+  dedupeKey String    @map("dedupe_key")
+  summary   String
+  reason    String
+  /// { transactionIds: string[] }
+  evidence  Json      @default("{}")
+  /// Estado anterior e ids criados, para o Desfazer.
+  undo      Json      @default("{}")
+  /// "done" | "undone".
+  status    String    @default("done")
+  createdAt DateTime  @default(now()) @map("created_at")
+  undoneAt  DateTime? @map("undone_at")
+  undoNote  String?   @map("undo_note")
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, dedupeKey])
+  @@index([createdAt])
+  @@map("agent_activities")
 }
 
 /// Fatura do cartão como o banco a informou (`GET /bills` da Pluggy). Gravada a cada sincronização, idempotente por (source, externalId).

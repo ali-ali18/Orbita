@@ -4,6 +4,7 @@ import {
 	type ChatAction,
 	type ChatState,
 	chatReducer,
+	chatStateFor,
 	conversationLabel,
 	initialChatState,
 	proposalAmount,
@@ -134,11 +135,15 @@ describe("estado do chat", () => {
 			{ id: "m1", role: "user", text: "oi", cards: [], createdAt: "2026-11-15T12:00:00.000Z" },
 			{ id: "m2", role: "assistant", text: "Olá!", cards: [rowsCard], createdAt: "2026-11-15T12:00:01.000Z" },
 		];
-		const loaded = run([{ type: "loaded", conversationId: "c9", messages }]);
+		const loaded = run([{ type: "loaded", conversationId: "c9", agentId: "a-vigia", messages }]);
 		expect(loaded.conversationId).toBe("c9");
+		expect(loaded.agentId).toBe("a-vigia");
 		expect(loaded.bubbles).toHaveLength(2);
 		expect(loaded.bubbles[1]).toMatchObject({ kind: "assistant", streaming: false, cards: [rowsCard] });
-		expect(run([{ type: "reset" }], loaded)).toEqual(initialChatState);
+		// Nova conversa segue com o agente atual; na Órbita volta ao estado inicial.
+		expect(run([{ type: "reset" }], loaded)).toEqual(chatStateFor("a-vigia"));
+		const orbita = run([{ type: "loaded", conversationId: "c1", agentId: null, messages }]);
+		expect(run([{ type: "reset" }], orbita)).toEqual(initialChatState);
 	});
 
 	it("mensagens locais (comprovante, foto) e avisos entram sem travar o envio", () => {

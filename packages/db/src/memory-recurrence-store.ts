@@ -3,6 +3,7 @@ import { badReference, DataError, invalid, notFound } from "./errors.ts";
 import { assertRefs, byCreated, type MemoryState } from "./memory-state.ts";
 import { createMemoryTransactionStore } from "./memory-transaction-store.ts";
 import {
+	ID_EXISTS_MESSAGE,
 	POSTING_DELETED_MESSAGE,
 	POSTING_EXISTS_MESSAGE,
 	POSTING_KIND_MESSAGE,
@@ -30,9 +31,18 @@ export function createMemoryRecurrenceStore(state: MemoryState): RecurrenceStore
 				cardId: input.cardId ?? null,
 				remindDayBefore: input.remindDayBefore ?? false,
 			});
+			if (input.id !== undefined && state.recurrences.has(input.id)) {
+				throw new DataError("duplicate", ID_EXISTS_MESSAGE);
+			}
 			assertRefs(state, { accountIds: [data.accountId], cardId: data.cardId, categoryId: data.categoryId });
 			const now = state.now();
-			const record = { id: randomUUID(), ...data, archivedAt: null, createdAt: now, updatedAt: now };
+			const record = {
+				id: input.id ?? randomUUID(),
+				...data,
+				archivedAt: null,
+				createdAt: now,
+				updatedAt: now,
+			};
 			state.recurrences.set(record.id, record);
 			return { ...record };
 		},

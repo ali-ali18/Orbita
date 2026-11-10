@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { idSchema, MAX_CENTS, timestampSchema } from "./finance-primitives.ts";
 
+/** Níveis de autonomia do agente Economia (o padrão é só avisar). Os mesmos de `@orbita/core`; um teste confere. */
+export const AUTONOMY_LEVEL_VALUES = ["notify", "reversible"] as const;
+
 /*
  * Agentes e avisos. Os avisos são decididos por funções puras do engine (`@orbita/core`) e gravados pelo worker;
  * a IA só escreve o texto em cima de números prontos. O app mostra, liga e desliga, e abre a conversa.
@@ -15,6 +18,7 @@ export const BUILTIN_AGENT_KEYS = [
 	"metas",
 	"caca_assinatura",
 	"cofrinho",
+	"economia",
 ] as const;
 export type BuiltinAgentKey = (typeof BUILTIN_AGENT_KEYS)[number];
 
@@ -33,6 +37,8 @@ export const ALERT_KINDS = [
 	"month_closing",
 	"goal_behind",
 	"saving_suggestion",
+	"savings_report",
+	"savings_opportunity",
 	"custom",
 ] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
@@ -60,6 +66,7 @@ export const AGENT_TOOL_OPTIONS = [
 	{ name: "income_plan", label: "Plano da renda" },
 	{ name: "analyze_history", label: "Análise do histórico" },
 	{ name: "list_catalog", label: "Contas, cartões e categorias" },
+	{ name: "list_savings_opportunities", label: "Onde cortar gastos" },
 ] as const;
 export const AGENT_TOOL_NAMES: readonly string[] = AGENT_TOOL_OPTIONS.map((t) => t.name);
 
@@ -120,6 +127,18 @@ export const agentSettingsSchemas = {
 	metas: z.object({ warnBehind: z.boolean() }).strict(),
 	caca_assinatura: z.object({ findRecurring: z.boolean(), priceIncrease: z.boolean() }).strict(),
 	cofrinho: z.object({ suggestSaving: z.boolean(), minCents: centsSetting }).strict(),
+	economia: z
+		.object({
+			/** "Só avisar" ou "Agir no que é reversível" (ver `@orbita/core` autonomy). */
+			autonomy: z.enum(AUTONOMY_LEVEL_VALUES, { error: "Nível de autonomia inválido." }),
+			/** Teto de ações sozinhas por execução. */
+			maxActionsPerRun: z.number().int().min(1, "De 1 a 20 ações.").max(20, "De 1 a 20 ações."),
+			/** Além da agenda, roda no dia seguinte ao fechamento de uma fatura. */
+			onInvoiceClose: z.boolean(),
+			/** Achados que o dono ignorou (`key` do engine): não voltam à lista nem viram aviso. */
+			ignored: z.array(z.string().min(1).max(200)).max(200),
+		})
+		.strict(),
 } as const satisfies Record<BuiltinAgentKey, z.ZodType>;
 
 export type AgentSettingsOf<K extends BuiltinAgentKey> = z.infer<(typeof agentSettingsSchemas)[K]>;
@@ -128,6 +147,7 @@ export type FechamentoSettings = AgentSettingsOf<"fechamento">;
 export type MetasSettings = AgentSettingsOf<"metas">;
 export type CacaSettings = AgentSettingsOf<"caca_assinatura">;
 export type CofrinhoSettings = AgentSettingsOf<"cofrinho">;
+export type EconomiaSettings = AgentSettingsOf<"economia">;
 
 export interface BuiltinAgentInfo {
 	key: BuiltinAgentKey;
@@ -212,6 +232,20 @@ export const BUILTIN_AGENTS: Readonly<Record<BuiltinAgentKey, BuiltinAgentInfo>>
 		defaultEnabled: false,
 		defaultSchedule: { frequency: "monthly", hour: 9, day: 5 },
 		defaultSettings: { suggestSaving: true, minCents: 10000 },
+		alwaysOn: false,
+	},
+	economia: {
+		key: "economia",
+		name: "Economia",
+		tagline: "Procura onde dá para cortar gastos. Você decide quanto ele pode fazer sozinho.",
+		watches: [
+			"Assinaturas repetidas ou que ficaram mais caras",
+			"Taxas, juros e compras pequenas que somam",
+			"Categoria acima da média e fatura sem saldo",
+		],
+		defaultEnabled: false,
+		defaultSchedule: { frequency: "weekly", hour: 9, day: 1 },
+		defaultSettings: { autonomy: "notify", maxActionsPerRun: 5, onInvoiceClose: true, ignored: [] },
 		alwaysOn: false,
 	},
 };

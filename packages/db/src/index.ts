@@ -1,5 +1,13 @@
 export type { AccountInput, AccountPatch, AccountRecord, AccountStore } from "./account-store.ts";
 export type {
+	ActivityDraft,
+	ActivityQuery,
+	ActivityRecord,
+	ActivityStatus,
+	AgentActivityStore,
+} from "./agent-activity-store.ts";
+export { ACTIVITY_MAX_ATTEMPTS } from "./agent-activity-store.ts";
+export type {
 	AgentPatch,
 	AgentRecord,
 	AgentStore,
@@ -72,6 +80,12 @@ export type {
 } from "./income-source-store.ts";
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
+export {
+	NOTIFICATION_INBOX_LIMIT,
+	type NotificationInboxInput,
+	type NotificationInboxRecord,
+	type NotificationInboxStore,
+} from "./notification-inbox-store.ts";
 export type {
 	PluggyConnectSessionRecord,
 	PluggyConnectSessionStore,

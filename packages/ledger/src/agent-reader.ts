@@ -2,6 +2,7 @@ import type { AgentReader } from "@orbita/agents";
 import { toLocalDate } from "@orbita/core";
 import type { Stores } from "@orbita/db";
 import { toCardDto, toRecurrenceDto, toTransactionDto } from "./dto.ts";
+import { savingsOpportunities } from "./economy/savings.ts";
 import { listGoals } from "./goals.ts";
 import { buildIncomePlan } from "./income-plan.ts";
 import { loadSetupAnalysis } from "./setup.ts";
@@ -76,5 +77,6 @@ export function createAgentReader(stores: Stores, now: () => Date): AgentReader 
 		goals: () => listGoals(stores, { today: today(), dayOf: (d) => toLocalDate(d) }),
 		incomePlan: (month, reservePercent) => buildIncomePlan(stores, month, today(), reservePercent),
 		setupAnalysis: () => loadSetupAnalysis(stores, today()),
+		savingsOpportunities: () => savingsOpportunities(stores, now),
 	};
 }

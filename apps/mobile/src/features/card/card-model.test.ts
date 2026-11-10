@@ -41,7 +41,7 @@ const santander: CardLike = {
 	id: "c1",
 	name: "Santander Free Visa",
 	bankCode: "90400888",
-	last4: "3143",
+	last4: "5512",
 	closingDay: 31,
 	dueDay: 7,
 	closingRule: "closing-day-next",
@@ -134,7 +134,7 @@ describe("faturas", () => {
 		).toBe("19/10 · 2/3");
 	});
 	it("rótulo do cartão sem os 4 dígitos usa o nome", () => {
-		expect(cardLabel(santander)).toBe("•••• 3143");
+		expect(cardLabel(santander)).toBe("•••• 5512");
 		expect(cardLabel({ name: "Inter Gold", last4: null })).toBe("Inter Gold");
 	});
 });

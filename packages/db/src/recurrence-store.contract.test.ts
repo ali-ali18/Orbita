@@ -21,6 +21,14 @@ describe.each(contractSuites())("RecurrenceStore (%s)", (_name, make) => {
 		accountId: b.checking.id,
 		...extra,
 	});
+	it("recusa criar com um id que já existe (duplicate), sem mexer no original", async () => {
+		const first = await stores.recurrences.create(rent({ id: "rec-fixa" }));
+		await expect(stores.recurrences.create(rent({ id: "rec-fixa", name: "Outra" }))).rejects.toMatchObject({
+			code: "duplicate",
+		});
+		expect((await stores.recurrences.get(first.id))?.name).toBe("Aluguel");
+	});
+
 	const payment = (description = "Aluguel", date = "2026-11-05") =>
 		stores.transactions.create({
 			kind: "expense",

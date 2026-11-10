@@ -9,9 +9,9 @@ import {
 	runCustomAgent,
 	wordAlerts,
 } from "@orbita/agents";
-import { isDue, latestOccurrence, monthOf, toLocalDate } from "@orbita/core";
+import { invoiceClosedSince, isDue, latestOccurrence, monthOf, toLocalDate } from "@orbita/core";
 import type { AgentRecord, Stores } from "@orbita/db";
-import { budgetBlock, createAgentReader } from "@orbita/ledger";
+import { budgetBlock, createAgentReader, economySettings, runEconomyActions } from "@orbita/ledger";
 import { builtinAgentSeeds } from "@orbita/shared";
 import { createFindingsPort } from "./alertas-port.ts";
 
@@ -49,6 +49,8 @@ export interface RunAgentsResult {
 	created: number;
 	/** Dos novos, quantos a IA reescreveu. */
 	worded: number;
+	/** Ações que o agente Economia fez sozinho (nível "Agir no que é reversível"); ficam no registro de atividades. */
+	actions: number;
 	/** Agentes que falharam (seguem para a próxima passada). */
 	failed: number;
 }
@@ -59,14 +61,24 @@ export async function runDueAgents(deps: RunAgentsDeps): Promise<RunAgentsResult
 	const { stores } = deps;
 	await stores.agents.ensureBuiltins(builtinAgentSeeds());
 	const now = deps.now();
+	// Dias de fechamento dos cartões ativos: o Economia também roda no dia seguinte ao fechamento de uma fatura.
+	const closingDays = (await stores.cards.list())
+		.filter((c) => c.archivedAt === null)
+		.map((c) => c.closingDay);
 	const due = (await stores.agents.list()).filter(
 		// A Órbita é só a conversa: não tem avisos próprios.
-		(a) => a.enabled && a.builtinKey !== "orbita" && isDue(scheduleOf(a), a.lastRunAt, now),
+		(a) =>
+			a.enabled &&
+			a.builtinKey !== "orbita" &&
+			(isDue(scheduleOf(a), a.lastRunAt, now) ||
+				(a.builtinKey === "economia" &&
+					economySettings(a).onInvoiceClose &&
+					invoiceClosedSince(closingDays, a.lastRunAt, now))),
 	);
-	const result: RunAgentsResult = { ran: 0, created: 0, worded: 0, failed: 0 };
+	const result: RunAgentsResult = { ran: 0, created: 0, worded: 0, failed: 0, actions: 0 };
 	if (due.length === 0) return result;
 
-	const port = await createFindingsPort(stores, deps.now);
+	let port = await createFindingsPort(stores, deps.now);
 	const models = resolveChatModels(deps.models, await stores.aiUsage.getModelChoice());
 	let clientPromise: Promise<ModelClient | null> | undefined;
 	// A chave só é aberta se alguém precisar de IA nesta passada; sem chave ou ilegível, é `null`.
@@ -97,6 +109,14 @@ export async function runDueAgents(deps: RunAgentsDeps): Promise<RunAgentsResult
 	for (const agent of due) {
 		try {
 			let candidates: AlertCandidate[] = [];
+			if (agent.builtinKey === "economia") {
+				// Primeiro age, no que o dono deixou (nível "Só avisar" não faz nada), e só depois avisa.
+				const acted = await runEconomyActions(stores, deps.now, agent, { reading: await port.savings() });
+				result.actions += acted.applied.length;
+				// O que o agente acabou de fazer muda o que se oferece (limite criado, assinatura cadastrada): lê de novo antes de avisar.
+				if (acted.applied.length > 0) port = await createFindingsPort(stores, deps.now);
+				if (acted.failed > 0) deps.log(`[agentes] ${agent.name}: ${acted.failed} ação(ões) falharam`);
+			}
 			if (agent.builtinKey !== null) {
 				candidates = await collectAlerts({ builtinKey: agent.builtinKey, settings: agent.settings }, port);
 			} else {

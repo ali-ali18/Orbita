@@ -74,24 +74,40 @@ describe("preferências", () => {
 });
 
 describe("notificações do celular", () => {
-	it("guarda as escolhas e diz que a captura ainda não está ativa", async () => {
+	it("guarda as escolhas; `active` vale quando a leitura está ligada e há banco escolhido", async () => {
 		const { api } = await setupFinance();
 		expect((await api.get("/v1/notification-settings")).body).toEqual({
-			notifications: { capture: false, apps: [], toReview: true, active: false },
+			notifications: { capture: false, apps: [], toReview: true, askFirst: false, active: false, inbox: 0 },
 		});
 		const res = await api.patch("/v1/notification-settings", {
 			capture: true,
 			apps: ["inter", "nubank", "inter"],
 		});
 		expect(res.body).toEqual({
-			notifications: { capture: true, apps: ["nubank", "inter"], toReview: true, active: false },
+			notifications: {
+				capture: true,
+				apps: ["nubank", "inter"],
+				toReview: true,
+				askFirst: false,
+				active: true,
+				inbox: 0,
+			},
 		});
 		expect((await api.patch("/v1/notification-settings", { toReview: false })).body.notifications).toEqual({
 			capture: true,
 			apps: ["nubank", "inter"],
 			toReview: false,
-			active: false,
+			askFirst: false,
+			active: true,
+			inbox: 0,
 		});
+		expect(
+			(await api.patch("/v1/notification-settings", { askFirst: true })).body.notifications.askFirst,
+		).toBe(true);
+		// Ligada, mas sem banco escolhido: nada é lido.
+		expect((await api.patch("/v1/notification-settings", { apps: [] })).body.notifications.active).toBe(
+			false,
+		);
 	});
 
 	it("recusa app desconhecido, tipo errado e corpo vazio; tentar ligar `active` é ignorado como campo extra", async () => {

@@ -28,6 +28,8 @@ import {
 	type GoalsListResponse,
 	type MonthSummaryResponse,
 } from "@orbita/shared";
+import type { SavingsReading } from "../backend.ts";
+import { opportunityActions, opportunityText, savingsReportText } from "../economy/text.ts";
 import {
 	type AlertText,
 	budgetThresholdText,
@@ -69,6 +71,8 @@ export interface FindingsPort {
 	/** Despesas (não apagadas, pendentes inclusive) com data no intervalo, inclusive. */
 	expenses(range: { from: LocalDate; to: LocalDate }): Promise<WatchedSpend[]>;
 	monthSummary(month: MonthKey): Promise<MonthSummaryResponse>;
+	/** Oportunidades de economia do dia (a mesma leitura da tela "Onde cortar" e da ferramenta do chat). */
+	savings(): Promise<SavingsReading>;
 	monthReport(month: MonthKey): Promise<MonthReport>;
 	goals(): Promise<GoalsListResponse>;
 	/** Assinaturas (recorrências de despesa) ativas. */
@@ -287,6 +291,47 @@ async function collectCofrinho(raw: Record<string, unknown>, port: FindingsPort)
 		: [candidate("saving_suggestion", `saving:${month}`, savingSuggestionText(saving), saving)];
 }
 
+/** Quantos achados viram aviso próprio (o relatório resume todos; os maiores ganham o seu). */
+export const ECONOMY_ALERT_TOP = 3;
+
+async function collectEconomia(port: FindingsPort): Promise<AlertCandidate[]> {
+	const reading = await port.savings();
+	const { result } = reading;
+	const categoryName = (id: string) => reading.categoryNames[id] ?? port.categoryName(id);
+	const state = {
+		remindingSubscriptionIds: new Set(reading.remindingSubscriptionIds),
+		limitedCategoryIds: new Set(reading.limitedCategoryIds),
+	};
+	const report = savingsReportText(result, categoryName);
+	if (report === null) return [];
+	const out: AlertCandidate[] = [
+		candidate("savings_report", `savings-report:${port.today}`, report, {
+			totalMonthlySavingsCents: result.totalMonthlySavingsCents,
+			opportunities: result.opportunities.length,
+		}),
+	];
+	for (const o of result.opportunities.slice(0, ECONOMY_ALERT_TOP)) {
+		out.push(
+			candidate(
+				"savings_opportunity",
+				`savings:${o.key}`,
+				opportunityText(o, categoryName),
+				{
+					type: o.type,
+					key: o.key,
+					monthlySavingsCents: o.monthlySavingsCents,
+					confidence: o.confidence,
+					evidence: o.evidence,
+					// As ações de um toque que ainda cabem (o limite que o agente acabou de criar não é mais oferecido).
+					actions: opportunityActions(o, state),
+				},
+				o.evidence.transactionIds[0] ?? null,
+			),
+		);
+	}
+	return out;
+}
+
 /** Os avisos de um agente da casa, decididos só pelo engine. A Órbita não tem avisos próprios. */
 export async function collectAlerts(
 	agent: { builtinKey: BuiltinAgentKey; settings: Record<string, unknown> },
@@ -303,6 +348,8 @@ export async function collectAlerts(
 			return collectCaca(agent.settings, port);
 		case "cofrinho":
 			return collectCofrinho(agent.settings, port);
+		case "economia":
+			return collectEconomia(port);
 		case "orbita":
 			return [];
 	}

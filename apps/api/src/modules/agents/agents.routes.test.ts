@@ -36,7 +36,7 @@ describe("agentes", () => {
 		}
 	});
 
-	it("lista os seis agentes da casa na ordem do catálogo, só a Órbita ligada e com as escolhas completas", async () => {
+	it("lista os sete agentes da casa na ordem do catálogo, só a Órbita ligada e com as escolhas completas", async () => {
 		const { api } = await setupFinance();
 		const { agents } = (await api.get("/v1/agents")).body;
 		expect(agents.map((a: Json) => [a.builtinKey, a.name, a.enabled, a.alwaysOn])).toEqual([
@@ -46,6 +46,7 @@ describe("agentes", () => {
 			["metas", "Metas", false, false],
 			["caca_assinatura", "Caça-assinatura", false, false],
 			["cofrinho", "Cofrinho", false, false],
+			["economia", "Economia", false, false],
 		]);
 		expect(agents[1]).toMatchObject({
 			schedule: { frequency: "daily", hour: 9, day: null },
@@ -58,7 +59,7 @@ describe("agentes", () => {
 		});
 		expect(agents[1].watches.length).toBeGreaterThan(0);
 		// Chamar de novo não duplica.
-		expect((await api.get("/v1/agents")).body.agents).toHaveLength(6);
+		expect((await api.get("/v1/agents")).body.agents).toHaveLength(7);
 	});
 
 	it("liga, desliga e ajusta escolhas do Vigia, juntando com as atuais e validando", async () => {

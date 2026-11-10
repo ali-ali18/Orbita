@@ -26,6 +26,8 @@ export function cleanPreferencesPatch(patch: PreferencesPatch): PreferencesPatch
 	if (patch.notificationCapture !== undefined) out.notificationCapture = patch.notificationCapture === true;
 	if (patch.notificationToReview !== undefined)
 		out.notificationToReview = patch.notificationToReview === true;
+	if (patch.notificationAskFirst !== undefined)
+		out.notificationAskFirst = patch.notificationAskFirst === true;
 	if (patch.notificationApps !== undefined) {
 		const known = new Set<string>(NOTIFICATION_APPS);
 		const apps = [...new Set<string>(patch.notificationApps)];

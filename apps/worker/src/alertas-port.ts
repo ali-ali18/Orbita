@@ -1,4 +1,4 @@
-import type { FindingsPort } from "@orbita/agents";
+import type { FindingsPort, SavingsReading } from "@orbita/agents";
 import {
 	addMonths,
 	type LocalDate,
@@ -14,6 +14,7 @@ import {
 	listGoals,
 	monthSummary,
 	reportForMonth,
+	savingsOpportunities,
 } from "@orbita/ledger";
 
 /**
@@ -33,6 +34,9 @@ export async function createFindingsPort(stores: Stores, now: () => Date): Promi
 		for (let m = monthOf(from); m <= monthOf(to); m = addMonths(m, 1)) out.push(m);
 		return out;
 	};
+
+	// A leitura de economia é cara (faturas, parcelas, 4 meses de lançamentos): feita uma vez por rodada.
+	let savings: Promise<SavingsReading> | undefined;
 
 	return {
 		today,
@@ -57,6 +61,10 @@ export async function createFindingsPort(stores: Stores, now: () => Date): Promi
 				);
 		},
 		monthSummary: (month) => monthSummary(stores, month, today),
+		savings: () => {
+			savings ??= savingsOpportunities(stores, now);
+			return savings;
+		},
 		monthReport: (month) => reportForMonth(stores, month, today),
 		goals: () => listGoals(stores, { today, dayOf: (d) => toLocalDate(d) }),
 		async subscriptions() {

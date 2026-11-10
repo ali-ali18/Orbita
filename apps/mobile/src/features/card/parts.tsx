@@ -74,7 +74,7 @@ export function BleedRow({
 	);
 }
 
-/** Chip de cartão: logo de 24 + "•••• 3143". `null` em `card` é o "Todos". */
+/** Chip de cartão: logo de 24 + "•••• 5512". `null` em `card` é o "Todos". */
 export function CardChip({
 	card,
 	selected,

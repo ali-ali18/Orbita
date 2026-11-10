@@ -13,6 +13,7 @@ type Row = {
 	notificationCapture: boolean;
 	notificationApps: string[];
 	notificationToReview: boolean;
+	notificationAskFirst: boolean;
 	budgetAlertPercent: number;
 	leftoverAccountId: string | null;
 	leftoverGoalId: string | null;
@@ -24,6 +25,7 @@ const toRecord = (row: Row): PreferencesRecord => ({
 	notificationCapture: row.notificationCapture,
 	notificationApps: row.notificationApps as NotificationApp[],
 	notificationToReview: row.notificationToReview,
+	notificationAskFirst: row.notificationAskFirst,
 	budgetAlertPercent: row.budgetAlertPercent,
 	leftoverAccountId: row.leftoverAccountId,
 	leftoverGoalId: row.leftoverGoalId,

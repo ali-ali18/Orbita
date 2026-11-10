@@ -12,6 +12,7 @@ import { READ_TOOLS } from "../read-tools.ts";
 import {
 	fakeReader,
 	MONTH,
+	savingsReading,
 	scriptedClient,
 	summary,
 	TODAY,
@@ -48,6 +49,7 @@ function port(over: Partial<FindingsPort> = {}): FindingsPort {
 		goals: async () => ({ goals: [], totals: { savedCents: 0, targetCents: 0 } }),
 		subscriptions: async () => [],
 		recurringTransactionIds: async () => new Set(),
+		savings: async () => savingsReading({ result: { opportunities: [], totalMonthlySavingsCents: 0 } }),
 		...over,
 	};
 }
@@ -263,7 +265,7 @@ describe("Caça-assinatura", () => {
 		nf("2026-08-10", 4490, "NETFLIX.COM"),
 		nf("2026-09-10", 4490, "NETFLIX.COM"),
 		nf("2026-10-10", 4490, "NETFLIX.COM"),
-		nf("2026-10-20", 3190, "SPOTIFY AB"),
+		nf("2026-10-20", 3470, "SPOTIFY AB"),
 	];
 	it("acha a cobrança mensal que não está cadastrada e o aumento de preço", async () => {
 		const out = await collectAlerts(
@@ -272,13 +274,13 @@ describe("Caça-assinatura", () => {
 		);
 		expect(out.map((a) => [a.kind, a.dedupeKey])).toEqual([
 			["new_subscription", "subscription:netflix"],
-			["price_increase", "price:s1:3190"],
+			["price_increase", "price:s1:3470"],
 		]);
 		expect(out[0]?.body).toBe(
 			"NETFLIX.COM cobra cerca de R$ 44,90 todo mês (3 cobranças, a última em 10/10) e ainda não está nas Assinaturas.",
 		);
 		expect(out[1]?.body).toBe(
-			"A última cobrança de Spotify foi R$ 31,90, contra R$ 21,90 cadastrados (R$ 10,00 a mais).",
+			"A última cobrança de Spotify foi R$ 34,70, contra R$ 21,90 cadastrados (R$ 12,80 a mais).",
 		);
 	});
 	it("cobrança que já nasceu de uma recorrência não conta", async () => {
@@ -488,7 +490,7 @@ describe("papéis dos agentes da casa", () => {
 		const orbita = resolvePersona({ builtinKey: "orbita", name: "Órbita", instructions: null, tools: [] });
 		expect(orbita.tools.some((t) => t.access === "write")).toBe(true);
 		expect(orbita.roleText).toBe("");
-		for (const key of ["vigia", "fechamento", "metas", "caca_assinatura", "cofrinho"] as const) {
+		for (const key of ["vigia", "fechamento", "metas", "caca_assinatura", "cofrinho", "economia"] as const) {
 			const persona = resolvePersona({ builtinKey: key, name: key, instructions: null, tools: [] });
 			expect(persona.tools.length).toBeGreaterThan(0);
 			expect(persona.tools.every((t) => t.access === "read")).toBe(true);

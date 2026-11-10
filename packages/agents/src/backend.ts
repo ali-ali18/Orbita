@@ -1,3 +1,4 @@
+import type { AutonomyLevel, MonthKey, SavingsResult } from "@orbita/core";
 import type {
 	BudgetBefore,
 	GoalsListResponse,
@@ -65,6 +66,20 @@ export interface InvoiceData {
 	transactions: TransactionDto[];
 }
 
+/** "Onde cortar": os achados do engine de oportunidades, sem os que o dono ignorou, e o que a tela precisa para as ações. */
+export interface SavingsReading {
+	month: MonthKey;
+	result: SavingsResult;
+	/** Nome das categorias (id → nome) citadas nos achados. */
+	categoryNames: Record<string, string>;
+	/** Assinaturas com "Lembrar 1 dia antes" ligado: só nelas "Cancelar lembrete" tem o que fazer. */
+	remindingSubscriptionIds: string[];
+	/** Categorias que já têm limite de orçamento (não se oferece "Criar limite" nelas). */
+	limitedCategoryIds: string[];
+	/** Quanto o agente Economia pode fazer sozinho (a escolha do dono; padrão: só avisar). */
+	autonomy: AutonomyLevel;
+}
+
 /** Leitura: tudo calculado pelo engine/stores do servidor. */
 export interface AgentReader {
 	catalog(): Promise<Catalog>;
@@ -81,6 +96,8 @@ export interface AgentReader {
 	incomePlan(month: string, reservePercent?: number): Promise<PlanDto>;
 	/** Análise do histórico do dono (engine): assinaturas, candidatos a regra e salário. Só números do engine. */
 	setupAnalysis(): Promise<SetupAnalysis>;
+	/** Oportunidades de economia (engine `findSavingsOpportunities`). Só números do engine. */
+	savingsOpportunities(): Promise<SavingsReading>;
 }
 
 /** Escrita: só é chamada depois que o dono confirma uma proposta (nunca direto por uma ferramenta). */

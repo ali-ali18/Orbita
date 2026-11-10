@@ -75,7 +75,7 @@ export interface SourceOption {
 	id: string;
 	name: string;
 	bankCode: string | null;
-	/** Cartão com os 4 últimos dígitos: "••••0695". */
+	/** Cartão com os 4 últimos dígitos: "••••4821". */
 	detail: string | null;
 	/** Como aparece no campo: "Nubank · crédito" para cartão. */
 	label: string;

@@ -54,7 +54,7 @@ export function amountSignMode(kind: TransactionLike["kind"]): "always" | "never
 	return kind === "transfer" || kind === "card_payment" ? "never" : "always";
 }
 
-/** "Hoje · Nubank ••••0695 · 2/3 · Para revisar". */
+/** "Hoje · Nubank ••••4821 · 2/3 · Para revisar". */
 export function transactionCaption(
 	t: TransactionLike,
 	today: LocalDate,

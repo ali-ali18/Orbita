@@ -1,3 +1,19 @@
+export {
+	INBOX_MAX_AGE_DAYS,
+	ingestNotification,
+	NOTIFICATION_SOURCE,
+	type NotificationDeps,
+	notificationKey,
+	pickAccount,
+	pickCard,
+	retryNotificationInbox,
+} from "./notification/ingest.ts";
+export {
+	type NotificationKind,
+	type ParsedNotification,
+	type ParseResult,
+	parseNotification,
+} from "./notification/parse.ts";
 export { suggestSpendingSlug } from "./pluggy/classify.ts";
 export {
 	createPluggyClient,

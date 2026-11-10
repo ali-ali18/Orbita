@@ -12,7 +12,9 @@ coverage/
 *.log
 .DS_Store
 
-android/
+/android/
+/apps/mobile/android/
+!/apps/mobile/modules/**/android/
 ios/
 *.apk
 *.aab
