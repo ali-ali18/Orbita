@@ -151,10 +151,11 @@ export function PillTabs<T extends string>({
 /** Linha de uma posição: marca do banco, nome, tipo e taxa, saldo e rendimento. */
 export function PositionLine({ row, onPress }: { row: PositionRow; onPress: () => void }) {
 	const y = row.yieldCard;
+	const { accent } = useAccent();
 	return (
 		<Pressable
 			accessibilityRole="button"
-			accessibilityLabel={`${row.title}, ${row.subtitle}, ${row.value}. ${y.a11y}`}
+			accessibilityLabel={`${row.title}, ${row.subtitle}, ${row.value}. ${y.a11y}${row.needsTerms ? ". A completar" : ""}`}
 			onPress={onPress}
 			style={({ pressed }) => ({
 				flexDirection: "row",
@@ -166,9 +167,21 @@ export function PositionLine({ row, onPress }: { row: PositionRow; onPress: () =
 		>
 			<BankLogo {...row.badge} size={layout.touchTarget} />
 			<View style={{ flex: 1 }}>
-				<Text variant="bodyStrong" numberOfLines={1}>
-					{row.title}
-				</Text>
+				<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+					<Text variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>
+						{row.title}
+					</Text>
+					{row.needsTerms ? (
+						<View
+							style={{
+								width: layout.statusDot,
+								height: layout.statusDot,
+								borderRadius: radius.pill,
+								backgroundColor: accent,
+							}}
+						/>
+					) : null}
+				</View>
 				<Text variant="caption" tone="secondary" numberOfLines={1}>
 					{row.subtitle}
 				</Text>
