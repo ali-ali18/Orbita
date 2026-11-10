@@ -152,23 +152,23 @@ export async function syncInvestments(
 				movementReadFailed = true;
 				continue;
 			}
-			if (moves.outcome === "ok") {
-				movementsDropped += moves.dropped;
-				if (moves.rows.length > 0) {
-					try {
-						const r = await store.upsertMovements(record.id, moves.rows.map(toInvestmentMovement));
-						out.movementsCreated += r.created;
-						out.movementsUpdated += r.updated;
-					} catch {
-						movementSaveFailed++;
-						continue;
-					}
+			if (moves.outcome === "unavailable") continue; // sem o produto: não é leitura completa e nada a gravar
+			movementsDropped += moves.dropped;
+			if (moves.rows.length > 0) {
+				try {
+					const r = await store.upsertMovements(record.id, moves.rows.map(toInvestmentMovement));
+					out.movementsCreated += r.created;
+					out.movementsUpdated += r.updated;
+				} catch {
+					movementSaveFailed++;
+					continue;
 				}
 			}
-			// Leitura boa (ou "sem o produto": não há o que buscar): conta para as posições arquivadas.
-			if (archivedNow) {
+			// Leitura boa: conta (no máximo uma por dia) para as posições arquivadas. 403/404 não conta.
+			// Linha descartada por formato pode ser justamente o resgate final: também não conta.
+			if (archivedNow && moves.dropped === 0) {
 				try {
-					await store.markMovementsRead(record.id);
+					await store.markMovementsRead(record.id, day);
 				} catch {
 					// só faria reler uma vez a mais
 				}

@@ -21,6 +21,7 @@ import {
 	portfolioYield,
 	positionYield,
 	roundedDiv,
+	toLocalDate,
 } from "@orbita/core";
 import type {
 	InvestmentMovementRecord,
@@ -103,6 +104,8 @@ function toPositionInput(r: InvestmentRecord, labels: ReadonlyMap<string, string
 		investedCents: r.investedCents,
 		// Conexão removida: a posição não é mais atualizada por ninguém, então não vale como ativa (o detalhe ainda abre).
 		archived: r.archivedAt !== null || (r.connectionId !== null && !labels.has(r.connectionId)),
+		archivedDay: r.archivedAt === null ? null : toLocalDate(r.archivedAt),
+		connectionRemoved: r.connectionId !== null && !labels.has(r.connectionId),
 		purchaseDate: r.purchaseDate,
 		issueDate: r.issueDate,
 		// Encerrada com as movimentações relidas o bastante depois do fechamento: o resgate final não deve faltar.

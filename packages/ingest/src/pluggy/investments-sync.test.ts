@@ -334,3 +334,38 @@ describe("sync de investimentos: resgate final atrasado e lista vazia", () => {
 		expect(await t.stores.investments.list()).toEqual([]);
 	});
 });
+
+let forbidMoves = false;
+
+describe("sync de investimentos: contagem das leituras de posição encerrada", () => {
+	const closedOf = async (stores: ReturnType<typeof setup>["stores"]) =>
+		(await stores.investments.list({ includeArchived: true })).find((i) => i.externalId === INV_CLOSED_ID);
+
+	it("syncs manuais no mesmo dia contam uma leitura só", async () => {
+		const t = setup();
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "Banco Fictício" });
+		await t.run();
+		await t.run();
+		await t.run();
+		expect((await closedOf(t.stores))?.movementsClosedReads).toBe(1);
+		t.setNow(DAY2);
+		await t.run();
+		expect((await closedOf(t.stores))?.movementsClosedReads).toBe(2);
+	});
+
+	it("403/404 nas movimentações não conta como leitura completa", async () => {
+		const t = setup({
+			override: (url) =>
+				forbidMoves && url.pathname === `/investments/${INV_CLOSED_ID}/transactions`
+					? new Response("{}", { status: 403 })
+					: undefined,
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "Banco Fictício" });
+		forbidMoves = true;
+		await t.run();
+		t.setNow(DAY2);
+		await t.run();
+		forbidMoves = false;
+		expect((await closedOf(t.stores))?.movementsClosedReads).toBe(0);
+	});
+});

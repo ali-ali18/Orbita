@@ -274,6 +274,10 @@ describe("revisão: encerrada e conexão removida", () => {
 		await stores.pluggyConnections.remove(ITEM_B);
 		const d = await investmentDetail(stores, acao.id);
 		expect(d?.position).toMatchObject({ active: false, institutionLabel: "Conexão removida" });
+		expect(d?.position.yield).toMatchObject({
+			cents: null,
+			reason: "conexão removida: sem dados atuais para calcular",
+		});
 	});
 
 	it("evolução expõe retratos carregados e posições faltando", async () => {
