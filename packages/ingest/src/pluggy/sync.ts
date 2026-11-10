@@ -25,6 +25,7 @@ import {
 	PLUGGY_NO_ACCOUNTS_PREFIX,
 	PLUGGY_NO_DATA_PREFIX,
 	PLUGGY_RECONNECT_MESSAGE,
+	PLUGGY_UNREAD_PRODUCTS_PREFIX,
 	PLUGGY_UPDATING_PREFIX,
 	type PluggySyncStatus,
 	type SecretName,
@@ -229,7 +230,10 @@ export async function syncPluggy(
 	const only = options.connectionIds
 		? new Set(options.connectionIds.map((id) => id.trim().toLowerCase()))
 		: null;
-	const connections = (await stores.pluggyConnections.list()).filter((c) => only === null || only.has(c.id));
+	// A lista completa é o que `createRelinkGuard` precisa para saber das outras conexões vivas; só o laço de
+	// sincronização é filtrado por `connectionIds`.
+	const everyConnection = await stores.pluggyConnections.list();
+	const connections = everyConnection.filter((c) => only === null || only.has(c.id));
 	if (connections.length === 0) return { status: "no_connections", connections: [] };
 
 	let clientId: string | null;
@@ -260,7 +264,7 @@ export async function syncPluggy(
 	const results: ConnectionSyncResult[] = [];
 	const shared: RunShared = { owners: new Map(), cards: [], bills: [], payments: [] };
 	for (const connection of connections) {
-		const guard = createRelinkGuard(client, connection, connections);
+		const guard = createRelinkGuard(client, connection, everyConnection);
 		const result = await syncConnection(deps, client, connection, startedAt, lookups, shared, guard);
 		results.push(
 			await finish(
@@ -275,7 +279,14 @@ export async function syncPluggy(
 			`pluggy: ${result.status} contas=${result.accounts} novos=${result.created} existentes=${result.existing}`,
 		);
 	}
-	await crossConnections(deps, shared, startedAt, results);
+	// Numa nova tentativa só de parte das conexões, os cartões e faturas das outras vêm do que já está gravado (sem
+	// chamar o Pluggy): o pagamento de fatura de um banco para o cartão de outro liga como no sync completo.
+	await crossConnections(
+		deps,
+		only === null ? shared : await withStoredCards(deps, shared),
+		startedAt,
+		results,
+	);
 	await labelSalary(deps, startedAt, log);
 	const statuses = new Set(results.map((r) => r.status));
 	const status: PluggySyncStatus = statuses.has("error")
@@ -319,6 +330,41 @@ interface RunShared {
 	bills: BillInfo[];
 	/** `payments[]` das faturas de todas as conexões vistas. */
 	payments: BillPayment[];
+}
+
+/**
+ * Completa o que a rodada viu com os cartões, faturas e pagamentos de fatura JÁ GRAVADOS dos cartões que a rodada não
+ * leu (os das conexões fora de `connectionIds`). Não inclui o que não é gravado: o titular das contas (`owner`) e a
+ * fatura aberta sintética (soma das compras PENDING), que só existem na rodada que lê o Pluggy; o sync completo diário
+ * os recoloca.
+ */
+async function withStoredCards(deps: SyncPluggyDeps, shared: RunShared): Promise<RunShared> {
+	const seen = new Set(shared.cards.map((c) => c.id));
+	const cards = [...shared.cards];
+	const bills = [...shared.bills];
+	const payments = [...shared.payments];
+	try {
+		for (const card of await deps.stores.cards.list()) {
+			if (seen.has(card.id) || card.archivedAt !== null || card.source !== PLUGGY_SOURCE) continue;
+			cards.push({ id: card.id, name: card.name, last4: card.last4 });
+			for (const bill of await deps.stores.bills.listByCard(card.id)) {
+				const paid = bill.payments.reduce((sum, p) => sum + p.amountCents, 0);
+				bills.push({
+					cardId: card.id,
+					totalCents: bill.totalAmountCents,
+					remainingCents: Math.max(bill.totalAmountCents - paid, 0),
+					dueDate: bill.dueDate,
+				});
+				for (const p of bill.payments) {
+					payments.push({ cardId: card.id, amountCents: p.amountCents, date: p.date });
+				}
+			}
+		}
+	} catch {
+		// Sem os gravados, vale o que a rodada viu (o sync completo corrige depois).
+		return shared;
+	}
+	return { owners: shared.owners, cards, bills, payments };
 }
 
 /** Passo final, com todas as conexões já gravadas: pagamento de fatura e transferência entre contas de conexões diferentes. */
@@ -444,6 +490,7 @@ async function syncConnection(
 	let lead: string | null = null;
 	// O motivo em `partial` que o `lead` já diz; os outros viram " · e mais N avisos" no `lastError`.
 	let leadReason: string | null = null;
+	let unreadProducts = false;
 	try {
 		const today = toLocalDate(startedAt);
 		let from = syncWindowStart(today, connection);
@@ -566,8 +613,8 @@ async function syncConnection(
 			for (const note of productWarnings(item.statusDetail)) result.notes.push(note);
 			if (ignored > 0) {
 				// O banco enviou linhas, mas todas de produto que o Órbita não lê (investimento…): esperar não muda isso, então
-				// sem "ainda não enviou contas" e sem nova tentativa.
-				partial.push("o banco só enviou produtos que o Órbita ainda não lê");
+				// sem "ainda não enviou contas", sem nova tentativa e sem falha: é informação (a conexão termina `ok`).
+				unreadProducts = true;
 			} else {
 				partial.push("o banco ainda não enviou contas");
 				if (lead === null) {
@@ -906,6 +953,8 @@ async function syncConnection(
 							others > 0 ? ` · e mais ${others} ${others === 1 ? "aviso" : "avisos"}` : ""
 						}`
 					: `${capitalize(partial.join("; "))}. Na próxima sincronização o Órbita tenta de novo.`;
+		} else if (unreadProducts) {
+			result.error = `${PLUGGY_UNREAD_PRODUCTS_PREFIX} Mande o Diagnóstico da conexão se faltar algo.`;
 		}
 		return result;
 	} catch (e) {

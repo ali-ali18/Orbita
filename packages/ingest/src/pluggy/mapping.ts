@@ -105,7 +105,7 @@ const NAME_MAX = 60;
 
 /**
  * Nome gerado quando a conta não trouxe nome legível: o banco e o tipo ("C6 Bank · conta"). Sem banco, só o tipo.
- * `isGeneratedAccountName` reconhece este formato (e o "Conta"/"Cartão" das versões antigas) para o sync trocá-lo
+ * `isGeneratedAccountName` reconhece este formato (só ele, não o "Conta"/"Cartão" soltos) para o sync trocá-lo
  * quando o nome vier depois.
  */
 export function generatedAccountName(bank: string | null | undefined, kind: "conta" | "cartão"): string {
@@ -114,10 +114,10 @@ export function generatedAccountName(bank: string | null | undefined, kind: "con
 	return `${label} · ${kind}`.slice(0, NAME_MAX).trim();
 }
 
-/** O nome gravado é um dos que `generatedAccountName` (ou a versão antiga, "Conta"/"Cartão") produz? */
+/** O nome gravado tem o formato "Banco · conta" / "Banco · cartão" que `generatedAccountName` grava? ("Conta"/"Cartão" soltos podem ser do dono.) */
 export function isGeneratedAccountName(name: string | null | undefined): boolean {
 	const text = (name ?? "").trim();
-	return text === "Conta" || text === "Cartão" || / · (conta|cartão)$/.test(text);
+	return /^\S.* · (conta|cartão)$/.test(text);
 }
 
 function displayName(

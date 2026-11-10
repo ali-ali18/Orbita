@@ -120,6 +120,13 @@ function readMoney(raw: unknown, path: string, problems: Problems): Money {
 	return null;
 }
 
+/** Moeda (já sabida como texto ou ausente): cortada em 10 letras, com `truncated` registrado. */
+function readCurrency(raw: string | null | undefined, problems: Problems): string | null {
+	if (typeof raw !== "string") return null;
+	if (raw.length > 10) problems.add("currencyCode", "truncated");
+	return raw.slice(0, 10);
+}
+
 /** Objeto opcional: ausente/`null` → `null`; outra coisa que não objeto → `null` e `invalid_type`. */
 function readObject(raw: unknown, path: string, problems: Problems): Record<string, unknown> | null {
 	if (raw === undefined || raw === null) return null;
@@ -204,7 +211,7 @@ export const accountSchema = accountFields.transform((raw): PluggyAccount => {
 		taxNumber: readText(raw.taxNumber, "taxNumber", 200, problems),
 		/** Nome do titular da conta. Serve (com o CPF) para reconhecer Pix entre contas do próprio dono. */
 		owner: readText(raw.owner, "owner", 200, problems),
-		currencyCode: typeof currencyCode === "string" ? currencyCode.slice(0, 10) : null,
+		currencyCode: readCurrency(currencyCode, problems),
 		/**
 		 * Saldo em reais (número JSON). Na conta BANK é o saldo da conta; no cartão, o que se deve. Nunca multiplique por
 		 * 100: use `decimalToCents`. Valor estranho vira `null`.

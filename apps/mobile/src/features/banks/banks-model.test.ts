@@ -1,6 +1,7 @@
 import {
 	PLUGGY_NO_ACCOUNTS_PREFIX,
 	PLUGGY_NO_DATA_PREFIX,
+	PLUGGY_UNREAD_PRODUCTS_PREFIX,
 	PLUGGY_UPDATING_PREFIX,
 	type PluggyConnectionDto,
 	type PluggyStatusResponse,
@@ -132,6 +133,15 @@ describe("situação da conexão", () => {
 		});
 		expect(connectionStatusLine(c, NOW)).toBe("Conectado, mas o banco ainda não enviou lançamentos");
 		expect(connectionStatusDetail(c)).toContain("6 meses");
+	});
+	it("só investimentos: informação, não 'Sincronizou em parte' nem 'ainda não enviou contas'", () => {
+		const c = conn({
+			lastStatus: "ok",
+			lastSyncAt: "2026-11-07T14:59:59.000Z",
+			lastError: `${PLUGGY_UNREAD_PRODUCTS_PREFIX} Mande o Diagnóstico se faltar algo.`,
+		});
+		expect(connectionStatusLine(c, NOW)).toBe("Só produtos que o Órbita ainda não lê");
+		expect(connectionStatusDetail(c)).toContain("investimentos");
 	});
 	it("item ainda atualizando no Pluggy", () => {
 		const c = conn({ lastStatus: "partial", lastError: `${PLUGGY_UPDATING_PREFIX} O Órbita tenta de novo.` });

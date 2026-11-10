@@ -14,7 +14,7 @@ import {
 	fakePluggy,
 	ITEM_ID,
 } from "./fake-pluggy.ts";
-import { mapPluggyAccount } from "./mapping.ts";
+import { isGeneratedAccountName, mapPluggyAccount } from "./mapping.ts";
 import { accountSchema } from "./schemas.ts";
 import { type SyncPluggyDeps, syncPluggy } from "./sync.ts";
 
@@ -88,6 +88,16 @@ describe("currencyCode: ausente vale BRL, presente e ilegível recusa", () => {
 		).toBe(true);
 		expect(JSON.stringify(result)).not.toContain("986");
 		expect(await t.stores.cards.list()).toHaveLength(0);
+	});
+});
+
+describe("currencyCode comprido", () => {
+	it("é cortado com 'currencyCode: truncated' e a conta segue recusada por moeda não suportada", () => {
+		const parsed = accountSchema.parse({ ...bankAccount, currencyCode: "XYZXYZXYZXYZ" });
+		expect(parsed.currencyCode).toHaveLength(10);
+		expect(parsed.fieldProblems).toContain("currencyCode: truncated");
+		expect(mapPluggyAccount(parsed, "MeuPluggy", [], null).kind).toBe("ignored");
+		expect(accountSchema.parse({ ...bankAccount, currencyCode: "BRL" }).fieldProblems).toEqual([]);
 	});
 });
 
@@ -166,6 +176,13 @@ describe("nome ilegível: banco + tipo, refeito quando o nome vier", () => {
 			input: { name: "C6 Bank · cartão" },
 		});
 		expect(mapPluggyAccount(nameless, "MeuPluggy", [], null)).toMatchObject({ input: { name: "Conta" } });
+	});
+
+	it("'Conta' e 'Cartão' exatos não contam como nome gerado; só o formato 'Banco · tipo'", () => {
+		expect(isGeneratedAccountName("Conta")).toBe(false);
+		expect(isGeneratedAccountName("Cartão")).toBe(false);
+		expect(isGeneratedAccountName("C6 Bank · conta")).toBe(true);
+		expect(isGeneratedAccountName("Itaú · cartão")).toBe(true);
 	});
 
 	it("no sync seguinte, com o nome presente, o nome gerado é trocado; o do dono não", async () => {

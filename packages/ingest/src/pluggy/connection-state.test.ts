@@ -4,6 +4,7 @@ import {
 	PLUGGY_NO_ACCOUNTS_PREFIX,
 	PLUGGY_NO_DATA_PREFIX,
 	PLUGGY_RECONNECT_MESSAGE,
+	PLUGGY_UNREAD_PRODUCTS_PREFIX,
 	PLUGGY_UPDATING_PREFIX,
 	pluggyWaitingFor,
 } from "@orbita/shared";
@@ -190,13 +191,13 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		});
 		await t.stores.pluggyConnections.add({ id: ITEM_ID });
 		const result = await t.run();
-		expect(result.connections[0]?.status).toBe("partial");
+		expect(result.connections[0]?.status).toBe("ok");
 		expect(result.connections[0]?.notes).toContain(
 			"O Pluggy devolveu 1 conta(s), mas nenhuma é conta ou cartão que o Órbita importa.",
 		);
 	});
 
-	it("só produtos que o Órbita não lê: texto próprio, sem 'ainda não enviou contas' e sem nova tentativa", async () => {
+	it("só produtos que o Órbita não lê: informação (ok), sem 'ainda não enviou contas' e sem nova tentativa", async () => {
 		const t = setup({
 			...empty,
 			accounts: [{ id: "inv-1", type: "INVESTMENT", subtype: "FUND", name: "Fundo Exemplo" }],
@@ -204,11 +205,13 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		await t.stores.pluggyConnections.add({ id: ITEM_ID });
 		const result = await t.run();
 		expect(result.connections[0]?.retry).toBeUndefined();
+		expect(result.status).toBe("ok");
 		const c = await t.stores.pluggyConnections.get(ITEM_ID);
-		expect(c?.lastStatus).toBe("partial");
+		expect(c?.lastStatus).toBe("ok");
 		expect(c?.lastError).toContain("O banco só enviou produtos que o Órbita ainda não lê");
 		expect(c?.lastError?.startsWith(PLUGGY_NO_ACCOUNTS_PREFIX)).toBe(false);
-		expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBeNull();
+		expect(c?.lastError?.startsWith(PLUGGY_UNREAD_PRODUCTS_PREFIX)).toBe(true);
+		expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBe("unread_products");
 	});
 
 	it("o motivo principal aparece primeiro e os outros viram ' · e mais N avisos'", async () => {

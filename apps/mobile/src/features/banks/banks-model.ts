@@ -55,6 +55,7 @@ export function connectionName(c: Pick<PluggyConnectionDto, "label">): string {
 
 export const UPDATING_LINE = "Atualizando no banco…";
 export const NO_ACCOUNTS_LINE = "Conectado, mas o banco ainda não enviou contas";
+export const UNREAD_PRODUCTS_LINE = "Só produtos que o Órbita ainda não lê";
 export const NO_DATA_LINE = "Conectado, mas o banco ainda não enviou lançamentos";
 
 /**
@@ -62,8 +63,11 @@ export const NO_DATA_LINE = "Conectado, mas o banco ainda não enviou lançament
  * porque o servidor avisou, seja porque gravou "ok" com a lista vazia (servidor antigo): "Sincronizado" aí engana.
  * Quem já tem contas e veio vazio desta vez não entra: cai em "Sincronizou em parte".
  */
-function waitingKind(c: PluggyConnectionDto): "updating" | "no_accounts" | "no_data" | null {
+function waitingKind(
+	c: PluggyConnectionDto,
+): "updating" | "no_accounts" | "no_data" | "unread_products" | null {
 	const waiting = pluggyWaitingFor(c);
+	if (waiting === "unread_products") return "unread_products";
 	if (waiting === "updating") return "updating";
 	if (waiting === "no_data") return "no_data";
 	const empty = c.summary.accounts + c.summary.cards === 0;
@@ -90,6 +94,7 @@ export function connectionStatusLine(c: PluggyConnectionDto, now: Date): string 
 	if (waiting === "updating") return UPDATING_LINE;
 	if (waiting === "no_accounts") return NO_ACCOUNTS_LINE;
 	if (waiting === "no_data") return NO_DATA_LINE;
+	if (waiting === "unread_products") return UNREAD_PRODUCTS_LINE;
 	switch (c.lastStatus) {
 		case "ok":
 			return good ?? "Sincronizado";
@@ -111,6 +116,9 @@ export function connectionStatusDetail(c: PluggyConnectionDto): string | null {
 	const waiting = waitingKind(c);
 	if (waiting === "updating") {
 		return "O Pluggy ainda está buscando os dados neste banco. O Órbita tenta de novo sozinho em alguns minutos.";
+	}
+	if (waiting === "unread_products") {
+		return "O banco só enviou produtos que o Órbita ainda não lê (investimentos, por exemplo). Não é erro: quando ele enviar conta ou cartão, aparecem aqui.";
 	}
 	if (waiting === "no_data") {
 		return "O Pluggy já entregou a conta, mas ainda não os lançamentos deste banco. O Órbita tenta de novo sozinho e busca os 6 meses quando eles chegarem.";

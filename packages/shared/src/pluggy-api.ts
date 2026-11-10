@@ -43,6 +43,8 @@ export function needsReconnect(c: {
  */
 export const PLUGGY_UPDATING_PREFIX = "O banco ainda está atualizando os dados no Pluggy.";
 export const PLUGGY_NO_ACCOUNTS_PREFIX = "Conectado, mas o banco ainda não enviou contas.";
+/** Só veio produto que o Órbita não lê (investimento): informação, não falha (`lastStatus` "ok"). */
+export const PLUGGY_UNREAD_PRODUCTS_PREFIX = "O banco só enviou produtos que o Órbita ainda não lê.";
 /** Veio conta, mas nenhum lançamento nem fatura, e o item foi atualizado antes da autorização (espelho ainda vazio). */
 export const PLUGGY_NO_DATA_PREFIX = "Conectado, mas o banco ainda não enviou lançamentos.";
 
@@ -50,7 +52,9 @@ export const PLUGGY_NO_DATA_PREFIX = "Conectado, mas o banco ainda não enviou l
 export function pluggyWaitingFor(c: {
 	lastStatus: PluggySyncStatus | null;
 	lastError: string | null;
-}): "updating" | "no_accounts" | "no_data" | null {
+}): "updating" | "no_accounts" | "no_data" | "unread_products" | null {
+	if (c.lastStatus === "ok" && c.lastError?.startsWith(PLUGGY_UNREAD_PRODUCTS_PREFIX))
+		return "unread_products";
 	if (c.lastStatus !== "partial") return null;
 	if (c.lastError?.startsWith(PLUGGY_UPDATING_PREFIX)) return "updating";
 	if (c.lastError?.startsWith(PLUGGY_NO_ACCOUNTS_PREFIX)) return "no_accounts";
