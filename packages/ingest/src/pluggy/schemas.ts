@@ -81,40 +81,101 @@ export const itemResponse = z.object({
 });
 export type PluggyItem = z.infer<typeof itemResponse>;
 
+/** Texto opcional que nunca recusa a linha: o que não é texto vira `null` e o que passa do tamanho é cortado. */
+const looseText = (max: number) =>
+	z
+		.string()
+		.nullish()
+		.catch(null)
+		.transform((v): string | null => (typeof v === "string" ? v.slice(0, max) : null));
+
 const creditData = z.object({
 	/** Fechamento e vencimento da fatura atual (data). O Órbita guarda só o dia. */
-	balanceCloseDate: z.string().max(40).nullish(),
-	balanceDueDate: z.string().max(40).nullish(),
-	creditLimit: money.nullish(),
+	balanceCloseDate: looseText(40),
+	balanceDueDate: looseText(40),
+	creditLimit: money.nullish().catch(null),
 	/** Limite ainda disponível (SDK 0.94.2: `availableCreditLimit`). Valor estranho vira `null`: não derruba a conta. */
 	availableCreditLimit: money.nullish().catch(null),
 	/** Só o diagnóstico lê estes três (o sync não usa). */
 	minimumPayment: money.nullish().catch(null),
-	brand: z.string().max(60).nullish().catch(null),
-	level: z.string().max(60).nullish().catch(null),
+	brand: looseText(60),
+	level: looseText(60),
 });
 
-export const accountSchema = z.object({
-	id,
-	/** "BANK" ou "CREDIT" (SDK: ACCOUNT_TYPES); outros valores chegam como texto e são ignorados no mapeamento. */
-	type: z.string().max(40),
-	subtype: z.string().max(60).nullish(),
-	name: text,
-	marketingName: text.nullish(),
-	number: z.string().max(60).nullish(),
-	/** CPF/CNPJ do titular. Serve para reconhecer transferência entre contas do próprio dono. */
-	taxNumber: z.string().max(40).nullish(),
-	/** Nome do titular da conta. Serve (com o CPF) para reconhecer Pix entre contas do próprio dono. */
-	owner: z.string().max(200).nullish(),
-	currencyCode: z.string().max(10).nullish(),
-	/**
-	 * Saldo em reais (número JSON). Na conta BANK é o saldo da conta; no cartão, o que se deve. Nunca multiplique por
-	 * 100: use `decimalToCents`. Valor estranho vira `null`.
-	 */
-	balance: money.nullish().catch(null),
-	creditData: creditData.nullish(),
-});
-export type PluggyAccount = z.infer<typeof accountSchema>;
+/**
+ * Conta do Pluggy. TOLERANTE de propósito: só `id` e `type` são exigidos. A doc marca `subtype`, `number`, `balance`,
+ * `currencyCode` e `name` como sempre presentes (docs.pluggy.ai/docs/products/accounts), mas cada banco preenche do
+ * seu jeito ("what arrives depends on what each institution exposes": /docs/connections/open-finance-vs-direct-fields)
+ * e um campo `null`, mais longo ou de outro tipo não pode fazer a conta sumir: vira `null` (ou é cortado). O que não
+ * tem nem `id` nem `type` é recusado e CONTADO pelo cliente (`accountsRead`), nunca descartado em silêncio.
+ * `.passthrough()`: o diagnóstico lista os NOMES dos campos que vieram e o Órbita não lê (nunca os valores).
+ */
+export const accountSchema = z
+	.object({
+		id,
+		/** "BANK" ou "CREDIT" (SDK: ACCOUNT_TYPES); outros valores chegam como texto e são ignorados no mapeamento, com aviso. */
+		type: z.string().min(1).max(40),
+		/** `CHECKING_ACCOUNT` / `SAVINGS_ACCOUNT` / `CREDIT_CARD` na doc; valor novo passa como texto. */
+		subtype: looseText(60),
+		/** Sem nome (ou com `null`) vira "": quem mostra usa "Conta"/"Cartão". */
+		name: z
+			.string()
+			.nullish()
+			.catch(null)
+			.transform((v): string => (typeof v === "string" ? v.slice(0, 500) : "")),
+		marketingName: looseText(500),
+		number: looseText(60),
+		/** CPF/CNPJ do titular. Serve para reconhecer transferência entre contas do próprio dono. */
+		taxNumber: looseText(40),
+		/** Nome do titular da conta. Serve (com o CPF) para reconhecer Pix entre contas do próprio dono. */
+		owner: looseText(200),
+		currencyCode: looseText(10),
+		/**
+		 * Saldo em reais (número JSON). Na conta BANK é o saldo da conta; no cartão, o que se deve. Nunca multiplique por
+		 * 100: use `decimalToCents`. Valor estranho vira `null`.
+		 */
+		balance: money.nullish().catch(null),
+		creditData: creditData.nullish().catch(null),
+		/**
+		 * `transferNumber`: "COMPE / Agência / Conta" (docs.pluggy.ai/docs/products/accounts, "Bank data"). O COMPE diz de
+		 * qual banco é a conta quando o nome não diz ("Conta Corrente"). Valor estranho vira `null`.
+		 */
+		bankData: z
+			.object({ transferNumber: looseText(60) })
+			.nullish()
+			.catch(null),
+	})
+	.passthrough();
+type Money = number | string | null;
+/**
+ * A conta já validada. Escrita à mão (e não `z.infer`) para os campos opcionais continuarem opcionais: o schema os
+ * devolve sempre (como `null` quando faltam), mas quem monta uma conta em teste não precisa repetir todos.
+ */
+export interface PluggyAccount {
+	id: string;
+	type: string;
+	name: string;
+	subtype?: string | null | undefined;
+	marketingName?: string | null | undefined;
+	number?: string | null | undefined;
+	taxNumber?: string | null | undefined;
+	owner?: string | null | undefined;
+	currencyCode?: string | null | undefined;
+	balance?: Money | undefined;
+	creditData?:
+		| {
+				balanceCloseDate?: string | null | undefined;
+				balanceDueDate?: string | null | undefined;
+				creditLimit?: Money | undefined;
+				availableCreditLimit?: Money | undefined;
+				minimumPayment?: Money | undefined;
+				brand?: string | null | undefined;
+				level?: string | null | undefined;
+		  }
+		| null
+		| undefined;
+	bankData?: { transferNumber?: string | null } | null | undefined;
+}
 
 const participant = z.object({
 	documentNumber: z.object({ value: z.string().max(40).nullish() }).nullish(),
@@ -203,10 +264,10 @@ export const cursorPage = <T extends z.ZodType>(item: T) =>
 export const billSchema = z.object({
 	id,
 	/** Vencimento: o mês dele é o mês da fatura no Órbita (`Invoice.month`). */
-	dueDate: z.string().max(40).nullish(),
+	dueDate: z.string().max(40).nullish().catch(null),
 	/** Fechamento da fatura (SDK 0.94.2: `billClosingDate`, `Date | null`). Com o vencimento, dá o dia de fechamento do cartão. */
-	billClosingDate: z.string().max(40).nullish(),
-	totalAmount: money.nullish(),
+	billClosingDate: z.string().max(40).nullish().catch(null),
+	totalAmount: money.nullish().catch(null),
 	/** Moeda do total (SDK: `totalAmountCurrencyCode`). Fatura que não é BRL não é gravada. */
 	totalAmountCurrencyCode: z.string().max(10).nullish().catch(null),
 	/** Pagamento mínimo (SDK: `minimumPaymentAmount`). Valor estranho vira `null`. */
