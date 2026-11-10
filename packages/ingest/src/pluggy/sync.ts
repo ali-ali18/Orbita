@@ -62,6 +62,7 @@ import {
 import { adoptEarlyEntry, POSSIBLE_DUPLICATE_NOTE } from "./early.ts";
 import { PluggyError, safeErrorMessage } from "./errors.ts";
 import { readInvestments } from "./investments.ts";
+import { type InvestmentSyncResult, syncInvestments } from "./investments-sync.ts";
 import {
 	assignBillPayments,
 	type BillInfo,
@@ -128,7 +129,8 @@ export interface SyncPluggyDeps {
 		Stores,
 		"accounts" | "cards" | "bills" | "categories" | "categoryRules" | "transactions" | "pluggyConnections"
 	> &
-		Partial<Pick<Stores, "incomeSources">>;
+		/** `investments` ausente: a conexão é sincronizada sem os investimentos (testes antigos, chamadores parciais). */
+		Partial<Pick<Stores, "incomeSources" | "investments">>;
 	/** Lê uma chave do cofre (`vault.read`). Devolve `null` se não cadastrada; pode lançar se não abre. */
 	readSecret: (
 		name: Extract<SecretName, "pluggy_client_id" | "pluggy_client_secret">,
@@ -190,6 +192,8 @@ export interface ConnectionSyncResult {
 	 * não ajuda, então ela avança como numa rodada `ok` (a conta recusada continua avisada a cada rodada).
 	 */
 	windowDone?: boolean;
+	/** O que a rodada gravou dos investimentos da conexão (ausente = não leu: sem a store ou sem chaves). */
+	investments?: Omit<InvestmentSyncResult, "notes">;
 	/** Avisos que não são erro (conta ignorada, por exemplo). Sem segredo. */
 	notes: string[];
 }
@@ -981,6 +985,16 @@ async function syncConnection(
 			result.notes.push(
 				`${unlinked} pagamento(s) de fatura não foram ligados a um cartão e ficaram de fora (o valor não bate com nenhuma fatura).`,
 			);
+		}
+
+		// Investimentos: posição de agora, retrato do dia e movimentações. Nunca lança e nunca vira `partial`: só nota.
+		if (deps.stores.investments) {
+			const { notes, ...done } = await syncInvestments(
+				{ client, store: deps.stores.investments, now: () => startedAt },
+				connection.id,
+			);
+			result.investments = done;
+			for (const note of notes) result.notes.push(note);
 		}
 
 		if (failedAccounts > 0) partial.push(`${failedAccounts} conta(s) não sincronizaram`);
