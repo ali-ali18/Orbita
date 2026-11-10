@@ -3,7 +3,7 @@ import { View } from "react-native";
 import { useClock } from "../../lib/clock.tsx";
 import { money } from "../../lib/format.ts";
 import { toLoadable } from "../../lib/loadable.ts";
-import { BankLogo, ErrorState, Ring, Skeleton, Text } from "../../ui/index.ts";
+import { BankLogo, CardHighlight, ErrorState, Ring, Skeleton, Text } from "../../ui/index.ts";
 import { useNow } from "../banks/use-now.ts";
 import { freshnessLabel } from "../summary/bank-cards-model.ts";
 import { useInvoicesOverview } from "../summary/queries.ts";
@@ -99,6 +99,7 @@ export function LimitsTab({ cards, hidden }: { cards: readonly CardLike[]; hidde
 							backgroundColor: colors.surface,
 						}}
 					>
+						<CardHighlight radius={radius.block} />
 						<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
 							<BankLogo {...bankBadge(line.card)} size={40} />
 							<View style={{ flex: 1, gap: 2 }}>

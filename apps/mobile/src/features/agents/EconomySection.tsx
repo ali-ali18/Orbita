@@ -6,7 +6,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { useAccent } from "../../lib/theme.tsx";
-import { Button, Chip, ConfirmDialog, ErrorState, Skeleton, Text } from "../../ui/index.ts";
+import { Button, CardHighlight, Chip, ConfirmDialog, ErrorState, Skeleton, Text } from "../../ui/index.ts";
 import {
 	ACTIVITY_EMPTY,
 	ACTIVITY_EMPTY_NOTIFY,
@@ -153,6 +153,7 @@ function OpportunityCard({
 				gap: spacing.sm,
 			}}
 		>
+			<CardHighlight radius={radius.inner} />
 			<View style={{ flexDirection: "row", alignItems: "flex-start", gap: spacing.md }}>
 				<Text variant="bodyStrong" style={{ flex: 1 }}>
 					{o.title}
