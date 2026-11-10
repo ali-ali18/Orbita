@@ -7,6 +7,7 @@ import type {
 	InvestmentMonthYieldDto,
 	InvestmentMovementDto,
 	InvestmentPositionDto,
+	InvestmentSnapshotDto,
 	InvestmentTotalYieldDto,
 	InvestmentYieldDto,
 } from "@orbita/shared";
@@ -115,7 +116,11 @@ export function monthYieldCard(y: InvestmentMonthYieldDto, hidden: boolean): Yie
 	return card(
 		"Rendimento no mês",
 		y.cents,
-		y.partial ? `de ${y.countedPositions} de ${y.countedPositions + y.missingPositions} posições` : "no mês",
+		y.partial
+			? `de ${y.countedPositions} de ${y.countedPositions + y.missingPositions} posições`
+			: y.baselineDay
+				? `desde ${dayMonth(y.baselineDay)}`
+				: "no mês",
 		y.partial ? "parcial" : null,
 		hidden,
 	);
@@ -387,6 +392,7 @@ export function evolutionChart(res: InvestmentEvolutionResponse): EvolutionChart
 	let current: EvolutionSegment | null = null;
 	let hidden = 0;
 	let yMax = 0;
+	let yMin = Number.POSITIVE_INFINITY;
 	for (const p of points) {
 		if (incomplete(p)) {
 			hidden++;
@@ -400,8 +406,18 @@ export function evolutionChart(res: InvestmentEvolutionResponse): EvolutionChart
 		const x = dayNumber(p.day) - origin;
 		current.balance.push({ x, y: p.balanceCents });
 		if (p.investedComplete) current.invested.push({ x, y: p.investedCents });
-		yMax = Math.max(yMax, p.balanceCents, p.investedComplete ? p.investedCents : 0);
+		const values = p.investedComplete ? [p.balanceCents, p.investedCents] : [p.balanceCents];
+		yMax = Math.max(yMax, ...values);
+		yMin = Math.min(yMin, ...values);
 	}
+	// A linha não parte do zero (ficaria reta): o chão do gráfico fica um pouco abaixo do menor valor. É só escala,
+	// o gráfico não tem números no eixo.
+	const floor = Math.max(0, yMin === Number.POSITIVE_INFINITY ? 0 : yMin - Math.round((yMax - yMin) * 0.25));
+	for (const s of segments) {
+		for (const point of s.balance) point.y -= floor;
+		for (const point of s.invested) point.y -= floor;
+	}
+	yMax -= floor;
 	const ticks: EvolutionChart["ticks"] = [];
 	let lastMonth = "";
 	for (const p of points) {
@@ -420,6 +436,29 @@ export function evolutionChart(res: InvestmentEvolutionResponse): EvolutionChart
 		lastBalanceCents: lastComplete?.balanceCents ?? null,
 		span: first.day === last.day ? dayMonth(first.day) : `de ${dayMonth(first.day)} a ${dayMonth(last.day)}`,
 	};
+}
+
+/** Os retratos diários de UMA posição no mesmo formato da evolução, para reaproveitar a linha. */
+export function snapshotsChart(snapshots: readonly InvestmentSnapshotDto[]): EvolutionChart {
+	const points: InvestmentEvolutionPointDto[] = snapshots.map((s) => ({
+		day: s.day,
+		balanceCents: s.balanceCents,
+		investedCents: s.investedCents ?? 0,
+		investedEstimated: false,
+		investedComplete: s.investedCents !== null,
+		positions: 1,
+		carriedPositions: 0,
+		missingPositions: 0,
+	}));
+	const first = points[0];
+	return evolutionChart({
+		range: "6m",
+		from: first?.day ?? "1970-01-01",
+		to: points.at(-1)?.day ?? "1970-01-01",
+		coveredFrom: first?.day ?? null,
+		points,
+		reason: null,
+	});
 }
 
 export const RANGE_OPTIONS = [

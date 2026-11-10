@@ -25,6 +25,7 @@ import {
 	shareLabel,
 	shortReason,
 	sinceLabel,
+	snapshotsChart,
 	totalYieldCard,
 } from "./investments-model.ts";
 
@@ -379,7 +380,9 @@ describe("evolução", () => {
 		expect(c.segments).toHaveLength(1);
 		expect(c.segments[0]?.balance.map((p) => p.x)).toEqual([0, 10, 40]);
 		expect(c.xMax).toBe(40);
-		expect(c.yMax).toBe(1300);
+		// Chão abaixo do menor valor (900 aplicado, menos 25% da amplitude): a linha não parte do zero.
+		expect(c.yMax).toBe(1300 - 800);
+		expect(c.segments[0]?.balance.map((p) => p.y)).toEqual([200, 300, 500]);
 		expect(c.ticks.map((t) => t.label)).toEqual(["out", "nov"]);
 		expect(c.lastBalanceCents).toBe(1300);
 		expect(c.span).toBe("de 1 de out a 10 de nov");
@@ -395,7 +398,8 @@ describe("evolução", () => {
 		);
 		expect(c.segments).toHaveLength(2);
 		expect(c.hiddenDays).toBe(1);
-		expect(c.yMax).toBe(1050);
+		// O dia incompleto (400) não puxa o chão para baixo.
+		expect(c.segments[0]?.balance[0]?.y).toBe(c.yMax - 50);
 	});
 
 	it("aplicado incompleto não entra na linha tracejada", () => {
@@ -452,5 +456,17 @@ describe("aportes e rendimento por mês", () => {
 		expect(barHeights([5000, 500, 0, null, 1], 100, 8)).toEqual([100, 10, 0, 0, 8]);
 		expect(barHeights([null, 0], 100, 8)).toEqual([0, 0]);
 		expect(barHeights([-200, 100], 100, 8)).toEqual([100, 50]);
+	});
+});
+
+describe("retratos de uma posição", () => {
+	it("viram a mesma linha da evolução; aplicado ausente não entra", () => {
+		const c = snapshotsChart([
+			{ day: "2026-11-01", balanceCents: 1000, investedCents: 900 },
+			{ day: "2026-11-03", balanceCents: 1020, investedCents: null },
+		]);
+		expect(c.segments[0]?.balance.map((p) => p.x)).toEqual([0, 2]);
+		expect(c.segments[0]?.invested).toHaveLength(1);
+		expect(snapshotsChart([]).segments).toEqual([]);
 	});
 });
