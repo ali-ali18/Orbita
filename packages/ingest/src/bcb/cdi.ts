@@ -1,4 +1,4 @@
-import { CDI_DAILY_MAX_E8, isValidLocalDate, type LocalDate } from "@orbita/core";
+import { CDI_DAILY_MAX_E8, CDI_DAILY_MIN_E8, isValidLocalDate, type LocalDate } from "@orbita/core";
 import { z } from "zod";
 
 /*
@@ -8,7 +8,7 @@ import { z } from "zod";
  *
  * ATENÇÃO: o formato acima vem da documentação pública do SGS e NÃO foi conferido contra uma resposta real (a rede da
  * sessão de desenvolvimento não alcançava api.bcb.gov.br). O parser é estrito de propósito: o que não casa é descartado
- * e contado, nunca "adivinhado". A resposta é dado NÃO confiável: validada com zod, taxa diária só de 0 a 0,2%.
+ * e contado, nunca "adivinhado". A resposta é dado NÃO confiável: validada com zod, taxa diária só de 0,001% a 0,2%.
  *
  * O servidor só FAZ a chamada (saída para api.bcb.gov.br:443); não manda nenhum dado do usuário.
  */
@@ -24,6 +24,7 @@ export type CdiFetch = (
 ) => Promise<{
 	ok: boolean;
 	status: number;
+	headers?: { get(name: string): string | null };
 	text(): Promise<string>;
 }>;
 
@@ -35,7 +36,7 @@ export interface CdiSeriesRow {
 
 export interface CdiSeriesRead {
 	rows: CdiSeriesRow[];
-	/** Linhas da resposta que não passaram na validação (formato, data, taxa fora de 0 a 0,2%, fora do período). */
+	/** Linhas da resposta que não passaram na validação (formato, data, taxa fora de 0,001% a 0,2%, fora do período). */
 	skipped: number;
 }
 
@@ -55,7 +56,7 @@ export const toBcbDate = (day: LocalDate): string =>
 
 /**
  * "0.055131" (% ao dia) para a fração × 10^8 (55131), sem float: % × 10^6. Aceita até 12 casas e arredonda para o
- * mais próximo (metade para cima) além da sexta. `null` se não é um decimal simples ou passa de 0,2% ao dia.
+ * mais próximo (metade para cima) além da sexta. `null` se não é um decimal simples, está abaixo de 0,001% (zero inclusive) ou passa de 0,2% ao dia.
  */
 export function parseCdiPercent(text: string): number | null {
 	const m = /^(\d{1,3})(?:\.(\d{1,12}))?$/.exec(text.trim());
@@ -63,7 +64,7 @@ export function parseCdiPercent(text: string): number | null {
 	const frac = (m[2] ?? "").padEnd(12, "0");
 	const micro = BigInt(m[1] as string) * 1_000_000n + BigInt(frac.slice(0, 6));
 	const rounded = frac.charCodeAt(6) >= 53 ? micro + 1n : micro; // '5' = 53
-	if (rounded > BigInt(CDI_DAILY_MAX_E8)) return null;
+	if (rounded < BigInt(CDI_DAILY_MIN_E8) || rounded > BigInt(CDI_DAILY_MAX_E8)) return null;
 	return Number(rounded);
 }
 
@@ -83,6 +84,10 @@ export function parseCdiResponse(body: unknown, from: LocalDate, to: LocalDate):
 		}
 		byDay.set(day, rateE8);
 	}
+	// Lista com linhas mas nenhuma aproveitável: o formato mudou (ou a resposta é lixo). Falha em vez de "ok, nada novo".
+	if (byDay.size === 0 && list.data.length > 0) {
+		throw new Error(`Resposta do Banco Central sem nenhuma linha aproveitável (${skipped} descartada(s)).`);
+	}
 	const rows = [...byDay]
 		.map(([day, rateE8]) => ({ day, rateE8 }))
 		.sort((a, b) => a.day.localeCompare(b.day));
@@ -101,6 +106,10 @@ export async function fetchCdiSeries(
 		headers: { accept: "application/json" },
 	});
 	if (!res.ok) throw new Error(`O Banco Central respondeu com erro ${res.status}.`);
+	// O cabeçalho avisa o tamanho antes de ler o corpo; sem ele, o limite vale depois da leitura.
+	const declared = Number(res.headers?.get("content-length") ?? "");
+	if (Number.isFinite(declared) && declared > BCB_MAX_BYTES)
+		throw new Error("Resposta do Banco Central grande demais.");
 	const text = await res.text();
 	if (text.length > BCB_MAX_BYTES) throw new Error("Resposta do Banco Central grande demais.");
 	let body: unknown;

@@ -143,7 +143,7 @@ describe.each(contractSuites())("CdiRateStore (%s)", (_name, make) => {
 		const r = await stores.cdiRates.upsertMany([
 			{ day: "2026-11-05", rateE8: 55_131 },
 			{ day: "2026-11-03", rateE8: 55_000 },
-			{ day: "2026-11-04", rateE8: 0 },
+			{ day: "2026-11-04", rateE8: 1_000 },
 		]);
 		expect(r).toEqual({ created: 3, updated: 0 });
 		expect((await stores.cdiRates.list()).map((x) => x.day)).toEqual([
@@ -153,7 +153,7 @@ describe.each(contractSuites())("CdiRateStore (%s)", (_name, make) => {
 		]);
 		expect(
 			(await stores.cdiRates.list({ from: "2026-11-04", to: "2026-11-04" })).map((x) => x.rateE8),
-		).toEqual([0]);
+		).toEqual([1_000]);
 		expect(await stores.cdiRates.latest()).toMatchObject({ day: "2026-11-05", rateE8: 55_131 });
 	});
 
@@ -177,6 +177,8 @@ describe.each(contractSuites())("CdiRateStore (%s)", (_name, make) => {
 		for (const bad of [
 			{ day: "2026-11-04", rateE8: CDI_DAILY_MAX_E8 + 1 },
 			{ day: "2026-11-04", rateE8: -1 },
+			{ day: "2026-11-04", rateE8: 0 },
+			{ day: "2026-11-04", rateE8: 999 },
 			{ day: "2026-11-04", rateE8: 1.5 },
 			{ day: "2026-02-30", rateE8: 100 },
 		]) {

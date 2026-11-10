@@ -37,8 +37,10 @@ export const BUSINESS_DAYS_PER_YEAR = 252;
 export const MAX_CDI_GAP_DAYS = 4;
 /** Tolerância (dias corridos) entre a data da aplicação e o primeiro CDI usado (fim de semana e feriado). */
 export const START_TOLERANCE_DAYS = 4;
-/** Taxa diária plausível do CDI: de 0 a 0,2% (fração × 10^8 de 0 a 200000). */
+/** Taxa diária plausível do CDI: de 0,001% a 0,2% (fração × 10^8 de 1000 a 200000). */
 export const CDI_DAILY_MAX_E8 = 200_000;
+/** Piso: taxa diária abaixo de 0,001% (inclusive zero) não é CDI de verdade (fração × 10^8 = 1000). */
+export const CDI_DAILY_MIN_E8 = 1_000;
 /** Se o último CDI usado é mais velho que isso (dias corridos antes de `today`), avisa que a série está atrasada. */
 const STALE_AFTER_DAYS = 4;
 
