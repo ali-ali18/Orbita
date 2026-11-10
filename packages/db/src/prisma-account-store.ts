@@ -87,6 +87,12 @@ export function createPrismaAccountStore(db: Db, now: Clock): AccountStore {
 			});
 			return count;
 		},
+		listRemovedByConnection() {
+			return db.account.findMany({
+				where: { archiveReason: "connection_removed", archivedAt: { not: null } },
+				orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+			});
+		},
 		async restoreFromConnection(id) {
 			const current = await db.account.findUnique({ where: { id } });
 			if (!current) return null;

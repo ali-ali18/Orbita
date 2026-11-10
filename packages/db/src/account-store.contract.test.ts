@@ -174,9 +174,11 @@ describe.each(contractSuites())("AccountStore: cadastro de fora (%s)", (_name, m
 			connectionId: "conn-1",
 		});
 		expect((await stores.accounts.get(a.id))?.archivedAt).toBeInstanceOf(Date);
+		expect((await stores.accounts.listRemovedByConnection()).map((x) => x.id)).toEqual([a.id]);
 		const back = await stores.accounts.restoreFromConnection(a.id);
 		expect(back).toMatchObject({ archivedAt: null, archiveReason: null, connectionId: "conn-1" });
 		expect((await stores.accounts.list()).map((x) => x.id)).toEqual([a.id, b.id, manual.id]);
+		expect(await stores.accounts.listRemovedByConnection()).toEqual([]);
 		expect(await stores.accounts.restoreFromConnection("nada")).toBeNull();
 	});
 

@@ -108,6 +108,12 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 			}
 			return count;
 		},
+		async listRemovedByConnection() {
+			return [...state.cards.values()]
+				.filter((x) => x.archivedAt !== null && x.archiveReason === "connection_removed")
+				.sort(byCreated)
+				.map((x) => ({ ...x }));
+		},
 		async restoreFromConnection(id) {
 			const current = state.cards.get(id);
 			if (!current) return null;

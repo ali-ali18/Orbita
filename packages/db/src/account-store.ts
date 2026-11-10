@@ -72,6 +72,8 @@ export interface AccountStore {
 		liveConnectionIds: readonly string[],
 		options: { includeUnlinked: boolean },
 	): Promise<number>;
+	/** As arquivadas porque a conexão saiu (candidatas a religar quando o banco é reconectado). */
+	listRemovedByConnection(): Promise<AccountRecord[]>;
 	/** Reconectou: desarquiva se o arquivamento foi por conexão removida (o do dono fica). `null` se não existe. */
 	restoreFromConnection(id: string): Promise<AccountRecord | null>;
 	/**

@@ -90,6 +90,8 @@ export interface CardStore {
 		liveConnectionIds: readonly string[],
 		options: { includeUnlinked: boolean },
 	): Promise<number>;
+	/** As arquivadas porque a conexão saiu (candidatas a religar quando o banco é reconectado). */
+	listRemovedByConnection(): Promise<CardRecord[]>;
 	/** Reconectou: desarquiva se o arquivamento foi por conexão removida (o do dono fica). `null` se não existe. */
 	restoreFromConnection(id: string): Promise<CardRecord | null>;
 	/** Atalho para o engine: `invoiceFor(date, (await cards.getConfig(id))!)`. */

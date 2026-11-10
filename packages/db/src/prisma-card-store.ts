@@ -117,6 +117,13 @@ export function createPrismaCardStore(db: Db, now: Clock): CardStore {
 			});
 			return count;
 		},
+		async listRemovedByConnection() {
+			const rows = await db.card.findMany({
+				where: { archiveReason: "connection_removed", archivedAt: { not: null } },
+				orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+			});
+			return rows.map(toRecord);
+		},
 		async restoreFromConnection(id) {
 			const current = await db.card.findUnique({ where: { id } });
 			if (!current) return null;

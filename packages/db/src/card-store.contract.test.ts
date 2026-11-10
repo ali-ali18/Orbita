@@ -224,9 +224,11 @@ describe.each(contractSuites())("CardStore: cadastro de fora (%s)", (_name, make
 			connectionId: "conn-1",
 		});
 		expect((await stores.cards.get(a.id))?.archivedAt).toBeInstanceOf(Date);
+		expect((await stores.cards.listRemovedByConnection()).map((x) => x.id)).toEqual([a.id]);
 		const back = await stores.cards.restoreFromConnection(a.id);
 		expect(back).toMatchObject({ archivedAt: null, archiveReason: null, connectionId: "conn-1" });
 		expect((await stores.cards.list()).map((x) => x.id)).toEqual([a.id, b.id, manual.id]);
+		expect(await stores.cards.listRemovedByConnection()).toEqual([]);
 		expect(await stores.cards.restoreFromConnection("nada")).toBeNull();
 	});
 
