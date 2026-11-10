@@ -1,7 +1,7 @@
 import {
 	defaultHomeLayout,
 	type HomeLayout,
-	type HomeWidgetId,
+	moveWidget,
 	setWidgetSize,
 	setWidgetVisible,
 } from "@orbita/shared";
@@ -45,9 +45,11 @@ import {
 	useRecentTransactions,
 	useSummary,
 } from "./queries.ts";
+import { AddWidgetsSheet } from "./widgets/AddWidgetsSheet.tsx";
 import { HomeWidgets } from "./widgets/HomeWidgets.tsx";
-import { WidgetEditor } from "./widgets/WidgetEditor.tsx";
+import { useWidgetMenu } from "./widgets/use-widget-menu.ts";
 import { WidgetMenu } from "./widgets/WidgetMenu.tsx";
+import { addableWidgets } from "./widgets/widget-menu-model.ts";
 
 export function HomeScreen() {
 	const { hidden, toggle } = usePrivacy();
@@ -55,12 +57,18 @@ export function HomeScreen() {
 	const router = useRouter();
 	const [refreshing, setRefreshing] = useState(false);
 	const bottomBarHeight = useBottomBarHeight();
-	// Widgets: o layout vem do servidor; segurar um widget abre o menu e "Editar widgets" abre a edição num rascunho.
+	// Widgets: o layout vem do servidor; segurar um widget abre o menu colado nele e cada escolha vale na hora.
 	const layoutQ = useHomeLayout();
 	const saveLayout = useSaveHomeLayout();
 	const layout: HomeLayout | null = layoutQ.data ?? (layoutQ.isError ? defaultHomeLayout() : null);
-	const [menuId, setMenuId] = useState<HomeWidgetId | null>(null);
-	const [draft, setDraft] = useState<HomeLayout | null>(null);
+	const widgetMenu = useWidgetMenu(layout, bottomBarHeight);
+	const menuId = widgetMenu.menu?.model.id ?? null;
+	const [adding, setAdding] = useState(false);
+	const addable = layout ? addableWidgets(layout) : [];
+	/** Salva na hora: a tela já mostra o novo e volta atrás se o servidor recusar. */
+	const change = (next: (current: HomeLayout) => HomeLayout) => {
+		if (layout) saveLayout.mutate(next(layout));
+	};
 	// Sincronização do Meu Pluggy que terminou fora desta tela (a diária, por exemplo): recarrega o que mudou.
 	usePluggyHomeWatch();
 
@@ -122,6 +130,9 @@ export function HomeScreen() {
 			floatingFooter
 		>
 			<ScrollView
+				ref={widgetMenu.scrollRef}
+				onScroll={widgetMenu.onScroll}
+				scrollEventThrottle={16}
 				contentContainerStyle={{
 					paddingTop: TOP_FADE,
 					paddingHorizontal: spacing.lg,
@@ -196,28 +207,11 @@ export function HomeScreen() {
 								onPress={() => router.push("/revisao")}
 							/>
 						) : null}
-						{draft ? (
-							<>
-								<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-									<Text variant="cardTitle" tone="secondary" accessibilityRole="header" style={{ flex: 1 }}>
-										Editar widgets
-									</Text>
-									<Button label="Cancelar" variant="secondary" compact onPress={() => setDraft(null)} />
-									<Button
-										label="Concluir"
-										compact
-										onPress={() => {
-											saveLayout.mutate(draft);
-											setDraft(null);
-										}}
-									/>
-								</View>
-								<WidgetEditor layout={draft} onChange={setDraft} />
-							</>
-						) : layout ? (
+						{layout ? (
 							<HomeWidgets
 								layout={layout}
-								onLongPress={setMenuId}
+								onLongPress={widgetMenu.open}
+								register={widgetMenu.register}
 								data={{
 									month,
 									today,
@@ -241,21 +235,44 @@ export function HomeScreen() {
 								<Skeleton height={120} />
 							</View>
 						)}
+						{addable.length > 0 ? (
+							<View style={{ alignItems: "center", paddingTop: spacing.sm }}>
+								<Button
+									label="Adicionar widgets"
+									variant="secondary"
+									compact
+									icon="mais"
+									onPress={() => setAdding(true)}
+								/>
+							</View>
+						) : null}
 					</>
 				)}
 			</ScrollView>
 			<WidgetMenu
-				item={layout?.find((i) => i.id === menuId) ?? null}
+				menu={widgetMenu.menu}
+				viewport={widgetMenu.viewport}
+				menuHeight={widgetMenu.menuHeight}
+				onMenuHeight={widgetMenu.setMenuHeight}
 				valuesHidden={hidden}
 				onToggleValues={toggle}
-				onEdit={() => layout && setDraft(layout)}
+				onSize={(size) => menuId && change((l) => setWidgetSize(l, menuId, size))}
+				onMove={(direction) => menuId && change((l) => moveWidget(l, menuId, direction))}
 				onRemove={() => {
-					if (layout && menuId) saveLayout.mutate(setWidgetVisible(layout, menuId, false));
+					if (menuId) change((l) => setWidgetVisible(l, menuId, false));
+					widgetMenu.close();
 				}}
-				onSize={(size) => {
-					if (layout && menuId) saveLayout.mutate(setWidgetSize(layout, menuId, size));
+				onAdd={() => {
+					widgetMenu.close();
+					setAdding(true);
 				}}
-				onClose={() => setMenuId(null)}
+				onClose={widgetMenu.close}
+			/>
+			<AddWidgetsSheet
+				visible={adding && addable.length > 0}
+				widgets={addable}
+				onAdd={(id) => change((l) => setWidgetVisible(l, id, true))}
+				onClose={() => setAdding(false)}
 			/>
 		</Screen>
 	);
