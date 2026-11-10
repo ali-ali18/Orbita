@@ -284,7 +284,7 @@ export function bankColorByName(name: string): string {
 	if (n.includes("bradesco")) return banks.bradesco;
 	if (n.includes("itau")) return banks.itau;
 	if (n.includes("inter")) return banks.inter;
-	if (/\bc6\b/.test(n)) return banks.c6;
+	if (/\bc6(\s?bank)?\b/.test(n)) return banks.c6;
 	return banks.generic;
 }
 

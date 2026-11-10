@@ -304,6 +304,11 @@ describe("cor do banco", () => {
 		expect(bankColorByName("Banco Inter")).toBe(banks.inter);
 		expect(bankColorByName("Mercado Pago")).toBe(banks.mercadoPago);
 		expect(bankColorByName("Banco Qualquer")).toBe(banks.generic);
+		// C6 em qualquer grafia do banco (a mesma lista do servidor: "C6", "C6 Bank", "C6Bank", "Banco C6").
+		for (const name of ["C6", "C6 Bank", "C6Bank", "c6bank", "Banco C6 S.A.", "C6 Carbon"]) {
+			expect(bankColorByName(name), name).toBe(banks.c6);
+		}
+		expect(bankColorByName("Bobo C60")).toBe(banks.generic);
 	});
 });
 
