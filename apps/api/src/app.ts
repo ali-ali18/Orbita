@@ -24,6 +24,7 @@ import * as goals from "./modules/goals/routes.ts";
 import * as home from "./modules/home/routes.ts";
 import * as imports from "./modules/imports/routes.ts";
 import * as income from "./modules/income/routes.ts";
+import * as investments from "./modules/investments/routes.ts";
 import * as notifications from "./modules/notifications/routes.ts";
 import * as pairing from "./modules/pairing/routes.ts";
 import * as plan from "./modules/plan/routes.ts";
@@ -96,6 +97,7 @@ export function createApp(deps: AppDeps) {
 		.route("/", budgets.routes(finance))
 		.route("/", recurrences.routes(finance))
 		.route("/", goals.routes(finance))
+		.route("/", investments.routes(finance))
 		.route("/", income.routes(finance))
 		.route("/", plan.routes(finance))
 		.route("/", transactions.routes(finance))

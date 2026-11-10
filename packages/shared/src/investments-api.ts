@@ -22,7 +22,9 @@ export const investmentClassSchema = z.enum(INVESTMENT_CLASSES_API);
 export type InvestmentClassValue = z.infer<typeof investmentClassSchema>;
 
 export const INVESTMENT_EVOLUTION_RANGES = ["1m", "6m", "1y"] as const;
-export const investmentEvolutionRangeSchema = z.enum(INVESTMENT_EVOLUTION_RANGES);
+export const investmentEvolutionRangeSchema = z.enum(INVESTMENT_EVOLUTION_RANGES, {
+	error: "A faixa deve ser 1m, 6m ou 1y.",
+});
 export type InvestmentEvolutionRange = z.infer<typeof investmentEvolutionRangeSchema>;
 export const DEFAULT_INVESTMENT_EVOLUTION_RANGE: InvestmentEvolutionRange = "6m";
 
