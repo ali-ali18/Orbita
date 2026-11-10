@@ -46,6 +46,33 @@ Teste em `@orbita/tokens`: `onAccent` ≥ 4,5:1 sobre o `accent`; `accent` ≥ 3
 
 **Regra de uso.** A primária é só ação e seleção. Nunca como cor de categoria ou de série de gráfico por categoria, nunca em texto de valor de dinheiro, nunca como cor de texto corrido (use `text`). Barra de progresso, status ("conectado") e o avatar da Órbita são neutros (`text`), não seguem o tema.
 
+### Card de destaque
+
+`<Card highlight>` · `import { highlight } from "@orbita/tokens"`
+
+O card "herói" da tela ganha uma **borda de brilho**: forte no canto de cima à esquerda, some ao longo das duas arestas, fica sem borda no meio e reaparece, mais fraca, no canto de baixo à direita. Junto vem uma **luz suave** saindo do mesmo canto de cima. As duas são **sempre neutras**: o branco de `colors.text` em opacidades decrescentes (o "prata"), em qualquer tema. O destaque **não segue o tema** e não é uso da cor primária (o componente não chama `useAccent()`). Os demais cards continuam sem borda.
+
+| Token (`highlight.subtle` / `.strong`) | Sutil | Marcante | O que é                                                                       |
+| -------------------------------------- | ----- | -------- | ----------------------------------------------------------------------------- |
+| `strokeWidth`                          | 1     | 1,5      | Espessura do traço                                                            |
+| `nearOpacity`                          | 0,9   | 1        | Opacidade da borda no canto iluminado                                         |
+| `farOpacity`                           | 0,5   | 0,8      | Opacidade da borda no canto oposto                                            |
+| `fadeAt`                               | 0,3   | 0,42     | Onde a borda some (0 = canto iluminado, 0,5 = os outros cantos, 1 = o oposto) |
+| `glowOpacity`                          | 0,06  | 0,085    | Opacidade da luz no canto                                                     |
+| `glowRadius`                           | 0,8   | 1,1      | Raio da luz, em larguras do card                                              |
+
+`highlight.default` é `subtle`: é o que `<Card highlight>` usa. `highlight="strong"` existe para comparar; não use sem combinar antes.
+
+Regras:
+
+- **No máximo um por tela visível**, e só no card que resume a tela (o número principal). Se a tela não tem um card assim (o total é texto solto), fica sem destaque: não se cria card só para brilhar.
+- **Nunca em item de lista repetida**, widget 2x2 nem gaveta. Destaque em todo card deixa de ser destaque.
+- É decoração: não carrega informação, não recebe toque e é invisível para o leitor de tela. Estado de erro do card fica sem ela.
+- **O texto mantém o contraste.** A luz clareia o fundo do card; por isso `glowOpacity` tem teto. Teste em `@orbita/tokens`: `text`, `textSecondary` e `positive` continuam em 4,5:1 sobre o ponto mais claro da luz. Subir a opacidade exige passar nesse teste.
+- Estático por enquanto. Se ganhar movimento, respeita "reduzir movimento" (fica parado).
+
+Onde está hoje: Início ("Dá pra gastar até o fim do mês"), Cartão › Faturas com um cartão escolhido ("O que entrou nela") e agente Economia ("Dá para cortar até…"). O desenho é SVG (`ui/CardHighlight.tsx`), com a geometria em função pura (`ui/highlight-geometry.ts`).
+
 **Conflitos conhecidos** (não travam a escolha; só vale saber): laranja parece a marca do Inter e a categoria Delivery; amarelo parece o Mercado Pago; volt parece o verde de valor positivo (`positive`); violeta fica perto da categoria Moradia (`#7C5CFF`) e da marca Nubank. Como a primária só aparece em ação e seleção, e nunca em gráfico, a confusão é de leitura rápida, não de significado.
 
 **Verde só para dinheiro que entra.** `positive` colore o valor (e o selo "Paga") de receita, estorno e pagamento de fatura, junto do rótulo e do sinal (`+` em receita e estorno), então a cor reforça o texto e nunca é a única informação. Saída continua branca (`text`) e transferência entre contas próprias é neutra (`textSecondary`), porque o dinheiro só mudou de lugar. A regra mora numa função só no app, `amountTone(kind)`, usada por Início, Atividades, Detalhe e Fatura. Passa AA (4,5:1) sobre `background`, `surface` e `surface2` (teste em `@orbita/tokens`). Não existe vermelho de "negativo": a saída é o sinal `−`. `danger` (vermelho, AA sobre as três superfícies) existe só para ações destrutivas com rótulo, como "Remover" no menu do widget; estado de aviso ainda não tem token (crie `warning` aqui antes de usar).
@@ -93,7 +120,7 @@ Cada card do Início é um widget com tamanho `2x2` (quadrado de meia largura, 2
 
 ### Economia (tela do agente)
 
-A tela do agente Economia segue "Menos texto": o seletor **Autonomia** (duas opções em rádio; a segunda pede confirmação), **Onde cortar** (um número no topo, "Dá para cortar até R$ X por mês", e cartões `surface` com título, valor por mês, uma linha de texto, a confiança em `Chip` e no máximo uma ação de um toque mais "Ignorar", `compact`; só os 4 primeiros, o resto em "Ver todos") e **O que fiz sozinho** (o quê, por quê, quantos lançamentos de evidência e **Desfazer**; o desfeito troca o botão pela nota). O achado que não soma no total leva uma linha curta dizendo isso. Valores seguem o olho fechado. Lógica em `features/agents/economy-model.ts`.
+A tela do agente Economia segue "Menos texto": o seletor **Autonomia** (duas opções em rádio; a segunda pede confirmação), **Onde cortar** (um número no topo, "Dá para cortar até R$ X por mês", no [card de destaque](#card-de-destaque) da tela, e cartões `surface` com título, valor por mês, uma linha de texto, a confiança em `Chip` e no máximo uma ação de um toque mais "Ignorar", `compact`; só os 4 primeiros, o resto em "Ver todos") e **O que fiz sozinho** (o quê, por quê, quantos lançamentos de evidência e **Desfazer**; o desfeito troca o botão pela nota). O achado que não soma no total leva uma linha curta dizendo isso. Valores seguem o olho fechado. Lógica em `features/agents/economy-model.ts`.
 
 ### Bancos
 
