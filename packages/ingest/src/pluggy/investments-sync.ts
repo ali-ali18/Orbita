@@ -16,15 +16,21 @@ import {
  *   (403/404 do Pluggy) não é erro nem nota.
  * - A posição que SUMIU da lista é arquivada (`archivedAt`), nunca apagada; `TOTAL_WITHDRAWAL` também arquiva (regra do
  *   store). Só se arquiva depois de uma leitura inteira: com linha descartada por formato, ou lista que falhou,
- *   nada é arquivado (a posição descartada pareceria "sumida").
+ *   nada é arquivado (a posição descartada pareceria "sumida"). Lista vazia exige duas leituras seguidas.
  * - Retrato diário: o dia é o de America/Sao_Paulo e só se grava com saldo não nulo. Posição que JÁ estava arquivada
  *   não ganha retrato novo todo dia (saldo zero parado): o da passagem para encerrada fica registrado uma vez.
  * - Movimentações: a API não filtra por data, então vem a lista inteira e a idempotência é pelo id (o store regrava o
- *   que já existe). Posição já arquivada não tem as movimentações lidas de novo (não mudam).
+ *   que já existe). Posição arquivada continua tendo as movimentações relidas até 2 leituras boas depois do
+ *   fechamento (o resgate final pode chegar atrasado; leitura que falha não conta e é refeita no sync seguinte).
  * - Texto do banco (nome, descrição) é dado: só é gravado e mostrado, nunca interpretado.
  */
 
 export const INVESTMENT_SOURCE = "pluggy";
+
+/** Leituras de movimentações bem-sucedidas, depois de a posição fechar, até parar de relê-las. */
+export const CLOSED_READS_ENOUGH = 2;
+/** Leituras vazias seguidas para arquivar tudo da conexão. */
+export const EMPTY_READS_TO_ARCHIVE = 2;
 
 export interface InvestmentSyncResult {
 	/** Posições gravadas nesta rodada (novas + atualizadas). */
@@ -120,7 +126,7 @@ export async function syncInvestments(
 			out.positions++;
 			if (saved.created) out.created++;
 			const { record } = saved;
-			// Já arquivada antes e ainda arquivada: nada de retrato diário nem de reler movimentações (não mudam).
+			// Já arquivada antes e ainda arquivada: sem retrato diário (o saldo zero parado não muda).
 			const stillArchived = saved.wasArchived && record.archivedAt !== null;
 			try {
 				if (p.balanceCents !== null && !stillArchived) {
@@ -137,21 +143,35 @@ export async function syncInvestments(
 			} catch {
 				out.notes.push("Não deu para gravar o retrato do dia de um investimento.");
 			}
-			if (stillArchived) continue;
+			// Posição arquivada: o resgate final pode chegar atrasado, então as movimentações são relidas até haver
+			// `CLOSED_READS_ENOUGH` leituras boas DEPOIS de ela fechar (a da rodada do fechamento é a primeira).
+			const archivedNow = record.archivedAt !== null;
+			if (archivedNow && record.movementsClosedReads >= CLOSED_READS_ENOUGH) continue;
 			const moves = await readInvestmentTransactions(client, p.externalId);
-			if (moves.outcome === "unavailable") continue;
 			if (moves.outcome === "error") {
 				movementReadFailed = true;
 				continue;
 			}
-			movementsDropped += moves.dropped;
-			if (moves.rows.length === 0) continue;
-			try {
-				const r = await store.upsertMovements(record.id, moves.rows.map(toInvestmentMovement));
-				out.movementsCreated += r.created;
-				out.movementsUpdated += r.updated;
-			} catch {
-				movementSaveFailed++;
+			if (moves.outcome === "ok") {
+				movementsDropped += moves.dropped;
+				if (moves.rows.length > 0) {
+					try {
+						const r = await store.upsertMovements(record.id, moves.rows.map(toInvestmentMovement));
+						out.movementsCreated += r.created;
+						out.movementsUpdated += r.updated;
+					} catch {
+						movementSaveFailed++;
+						continue;
+					}
+				}
+			}
+			// Leitura boa (ou "sem o produto": não há o que buscar): conta para as posições arquivadas.
+			if (archivedNow) {
+				try {
+					await store.markMovementsRead(record.id);
+				} catch {
+					// só faria reler uma vez a mais
+				}
 			}
 		}
 		if (failedPositions > 0) out.notes.push(`${failedPositions} investimento(s) não puderam ser gravados.`);
@@ -163,12 +183,14 @@ export async function syncInvestments(
 			out.notes.push(
 				`${movementsDropped} movimentação(ões) vieram do Pluggy fora do formato e não foram gravadas.`,
 			);
-		// Só uma leitura inteira prova que a posição sumiu.
+		// Só uma leitura inteira prova que a posição sumiu. Lista VAZIA "ok" também pode ser falha disfarçada (item
+		// atrasado, autorização vencida): só arquiva na segunda leitura vazia seguida.
 		if (read.dropped === 0) {
 			out.archived = await store.archiveMissing(
 				INVESTMENT_SOURCE,
 				connectionId,
 				positions.map((p) => p.externalId),
+				positions.length === 0 ? EMPTY_READS_TO_ARCHIVE : 1,
 			);
 		}
 	} catch {

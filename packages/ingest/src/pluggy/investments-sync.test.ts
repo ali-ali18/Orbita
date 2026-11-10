@@ -180,19 +180,19 @@ describe("sync de investimentos", () => {
 	it("rodar de novo no mesmo dia não duplica nada (posição, retrato, movimentação)", async () => {
 		await t.run();
 		const again = await t.run();
-		// A resgatada já estava arquivada: não ganha retrato nem tem as movimentações lidas de novo.
+		// A resgatada já estava arquivada: não ganha retrato novo, mas as movimentações são relidas (resgate final atrasado).
 		expect(again.connections[0]?.investments).toEqual({
 			positions: 4,
 			created: 0,
 			archived: 0,
 			snapshots: 3,
 			movementsCreated: 0,
-			movementsUpdated: 4,
+			movementsUpdated: 6,
 		});
 		expect(await t.stores.investments.list({ includeArchived: true })).toHaveLength(4);
 		expect(await t.stores.investments.listSnapshots()).toHaveLength(4);
 		expect(await t.stores.investments.listMovements()).toHaveLength(6);
-		expect(t.calls(new RegExp(`/investments/${INV_CLOSED_ID}/transactions`))).toBe(1);
+		expect(t.calls(new RegExp(`/investments/${INV_CLOSED_ID}/transactions`))).toBe(2);
 	});
 
 	it("outro dia: novo retrato; posição que sumiu é arquivada (nunca apagada) e volta quando reaparece", async () => {
@@ -283,5 +283,54 @@ describe("sync de investimentos", () => {
 		const [only] = await t.stores.investments.list();
 		expect(only).toMatchObject({ externalId: "bare-1", balanceCents: null });
 		expect(await t.stores.investments.listSnapshots()).toEqual([]);
+	});
+});
+
+let failMoves = false;
+
+describe("sync de investimentos: resgate final atrasado e lista vazia", () => {
+	it("leitura das movimentações que falha no sync do fechamento é refeita; para depois de 2 leituras boas", async () => {
+		const t = setup({
+			override: (url) =>
+				failMoves && url.pathname === `/investments/${INV_CLOSED_ID}/transactions`
+					? new Response("{}", { status: 429 })
+					: undefined,
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "Banco Fictício" });
+		const closedMoves = async () => {
+			const closed = (await t.stores.investments.list({ includeArchived: true })).find(
+				(i) => i.externalId === INV_CLOSED_ID,
+			);
+			return t.stores.investments.listMovements({ investmentIds: [closed?.id as string] });
+		};
+		const reads = () => t.calls(new RegExp(`/investments/${INV_CLOSED_ID}/transactions`));
+		failMoves = true;
+		await t.run(); // a leitura falha no sync em que a posição aparece fechada
+		failMoves = false;
+		expect(await closedMoves()).toEqual([]);
+		t.setNow(DAY2);
+		await t.run(); // próximo sync lê o SELL
+		expect((await closedMoves()).map((m) => m.externalId).sort()).toEqual(["z-1", "z-2"]);
+		t.setNow(new Date("2026-11-14T09:00:00Z"));
+		await t.run(); // segunda leitura boa depois de fechar (pega SELL tardio)
+		const before = reads();
+		t.setNow(new Date("2026-11-15T09:00:00Z"));
+		await t.run(); // já basta: não lê mais
+		expect(reads()).toBe(before);
+	});
+
+	it("lista vazia 'ok' não arquiva na primeira vez (pode ser falha); na segunda seguida, arquiva", async () => {
+		const t = setup();
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "Banco Fictício" });
+		await t.run();
+		t.investments[ITEM_ID] = [];
+		t.setNow(DAY2);
+		const first = await t.run();
+		expect(first.connections[0]?.investments?.archived).toBe(0);
+		expect((await t.stores.investments.list()).length).toBe(3);
+		t.setNow(new Date("2026-11-14T09:00:00Z"));
+		const second = await t.run();
+		expect(second.connections[0]?.investments?.archived).toBe(3);
+		expect(await t.stores.investments.list()).toEqual([]);
 	});
 });

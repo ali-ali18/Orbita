@@ -115,7 +115,7 @@ export function toInvestmentPosition(i: PluggyInvestment): InvestmentPosition {
 	};
 }
 
-/** Movimentação normalizada. `amountCents` é o valor bruto da operação, sem sinal: o sentido está em `type`/`movementType`. */
+/** Movimentação normalizada. `amountCents` é o valor bruto da operação, em magnitude (sem sinal): o sentido está em `type`/`movementType`. */
 export interface InvestmentMovement {
 	externalId: string;
 	type: string | null;
@@ -129,6 +129,9 @@ export interface InvestmentMovement {
 	netAmountCents: Cents | null;
 }
 
+/** Algumas fontes mandam o SELL com valor negativo: o valor guardado é a magnitude e o sentido vem de `type`. */
+const magnitude = (cents: Cents | null): Cents | null => (cents === null ? null : Math.abs(cents));
+
 export function toInvestmentMovement(t: PluggyInvestmentTransaction): InvestmentMovement {
 	return {
 		externalId: t.id,
@@ -139,8 +142,8 @@ export function toInvestmentMovement(t: PluggyInvestmentTransaction): Investment
 		description: t.description ?? null,
 		quantity: decimalText(t.quantity),
 		unitValue: decimalText(t.value),
-		amountCents: centsOrNull(t.amount),
-		netAmountCents: centsOrNull(t.netAmount),
+		amountCents: magnitude(centsOrNull(t.amount)),
+		netAmountCents: magnitude(centsOrNull(t.netAmount)),
 	};
 }
 
