@@ -87,7 +87,7 @@ export function dueLine(invoice: WalletInvoice, format: (cents: Cents) => string
 	return `Vence ${shortDate(invoice.dueDate)} ${format(invoice.totalCents)}${suffix ? ` · ${suffix}` : ""}`;
 }
 
-/** "Fatura atual R$ 51,50 · fecha em 27 dias" (ou "fecha hoje"). */
+/** "Fatura atual R$ 18,70 · fecha em 27 dias" (ou "fecha hoje"). */
 export function openLine(
 	invoice: WalletInvoice,
 	today: LocalDate,
