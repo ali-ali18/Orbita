@@ -50,6 +50,15 @@ const toRecord = (row: ActivityRow): ActivityRecord => {
 };
 
 export function createPrismaAgentActivityStore(db: Db, now: Clock): AgentActivityStore {
+	const moveFromApplying = async (id: string, status: "retry" | "failed", undo: Record<string, unknown>) => {
+		const { count } = await db.agentActivity.updateMany({
+			where: { id, status: "applying" },
+			data: { status, undo: undo as Prisma.InputJsonObject },
+		});
+		if (count === 0) return null;
+		const row = await db.agentActivity.findUnique({ where: { id } });
+		return row ? toRecord(row) : null;
+	};
 	return {
 		async reserve(agentId, raw) {
 			const draft = cleanActivityDraft(raw);
@@ -69,8 +78,28 @@ export function createPrismaAgentActivityStore(db: Db, now: Clock): AgentActivit
 				});
 				return toRecord(row);
 			} catch (error) {
-				// Já existe (feita antes, ou desfeita pelo dono): o chamador não executa de novo.
-				if (isUniqueViolation(error)) return null;
+				if (isUniqueViolation(error)) {
+					// `retry`: comprovadamente não gravou; volta a `applying` mantendo o contador de tentativas.
+					const old = await db.agentActivity.findUnique({
+						where: { agentId_dedupeKey: { agentId, dedupeKey: draft.dedupeKey } },
+					});
+					if (!old) return null;
+					if (old.status !== "retry") return null;
+					const attempts = asObject(old.undo).attempts ?? 0;
+					const { count } = await db.agentActivity.updateMany({
+						where: { id: old.id, status: "retry" },
+						data: {
+							status: "applying",
+							summary: draft.summary,
+							reason: draft.reason,
+							evidence: draft.evidence as Prisma.InputJsonObject,
+							undo: { ...draft.undo, attempts } as Prisma.InputJsonObject,
+						},
+					});
+					if (count === 0) return null;
+					const row = await db.agentActivity.findUnique({ where: { id: old.id } });
+					return row ? toRecord(row) : null;
+				}
 				if (isForeignKeyViolation(error)) throw notFound("Agente", "o");
 				throw error;
 			}
@@ -102,7 +131,10 @@ export function createPrismaAgentActivityStore(db: Db, now: Clock): AgentActivit
 			return row ? toRecord(row) : null;
 		},
 		async keys(agentId) {
-			const rows = await db.agentActivity.findMany({ where: { agentId }, select: { dedupeKey: true } });
+			const rows = await db.agentActivity.findMany({
+				where: { agentId, status: { not: "retry" } },
+				select: { dedupeKey: true },
+			});
 			return new Set(rows.map((r) => r.dedupeKey));
 		},
 		async markUndone(id, note) {
@@ -114,6 +146,12 @@ export function createPrismaAgentActivityStore(db: Db, now: Clock): AgentActivit
 			if (count === 0) return null;
 			const row = await db.agentActivity.findUnique({ where: { id } });
 			return row ? toRecord(row) : null;
+		},
+		async markRetry(id, undo) {
+			return moveFromApplying(id, "retry", undo);
+		},
+		async markFailed(id, undo) {
+			return moveFromApplying(id, "failed", undo);
 		},
 		async setUndoNote(id, note) {
 			const { count } = await db.agentActivity.updateMany({

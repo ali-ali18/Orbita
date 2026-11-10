@@ -17,6 +17,8 @@ export interface GoalRecord {
 }
 
 export interface GoalInput {
+	/** Id escolhido por quem cria (para reconhecer o próprio registro depois de uma falha); padrão: gerado. */
+	id?: string;
 	name: string;
 	targetCents: number;
 	deadline?: string | null;

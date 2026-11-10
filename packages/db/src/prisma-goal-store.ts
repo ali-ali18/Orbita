@@ -53,6 +53,7 @@ export function createPrismaGoalStore(db: Db, now: Clock): GoalStore {
 			const row = await db.goal.create({
 				data: {
 					...data,
+					...(input.id ? { id: input.id } : {}),
 					deadline: data.deadline === null ? null : toDbDate(data.deadline),
 					accountId,
 					createdAt: at,

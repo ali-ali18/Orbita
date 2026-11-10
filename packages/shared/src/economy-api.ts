@@ -76,7 +76,7 @@ export const activityDtoSchema = z.object({
 	reason: z.string(),
 	evidenceTransactionIds: z.array(z.string()),
 	/** `applying`: a ação está sendo concluída (ainda não dá para desfazer). */
-	status: z.enum(["applying", "done", "undone"]),
+	status: z.enum(["applying", "done", "undone", "failed"]),
 	createdAt: timestampSchema,
 	undoneAt: timestampSchema.nullable(),
 	/** Quando o Desfazer não mexeu em nada (o dono já tinha mudado), o porquê. */

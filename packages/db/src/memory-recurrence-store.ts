@@ -32,7 +32,13 @@ export function createMemoryRecurrenceStore(state: MemoryState): RecurrenceStore
 			});
 			assertRefs(state, { accountIds: [data.accountId], cardId: data.cardId, categoryId: data.categoryId });
 			const now = state.now();
-			const record = { id: randomUUID(), ...data, archivedAt: null, createdAt: now, updatedAt: now };
+			const record = {
+				id: input.id ?? randomUUID(),
+				...data,
+				archivedAt: null,
+				createdAt: now,
+				updatedAt: now,
+			};
 			state.recurrences.set(record.id, record);
 			return { ...record };
 		},

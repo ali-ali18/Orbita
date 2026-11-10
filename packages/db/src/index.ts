@@ -6,6 +6,7 @@ export type {
 	ActivityStatus,
 	AgentActivityStore,
 } from "./agent-activity-store.ts";
+export { ACTIVITY_MAX_ATTEMPTS } from "./agent-activity-store.ts";
 export type {
 	AgentPatch,
 	AgentRecord,

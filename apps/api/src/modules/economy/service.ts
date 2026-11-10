@@ -103,7 +103,8 @@ export function toActivityDto(a: ActivityRecord): ActivityDto {
 		summary: a.summary,
 		reason: a.reason,
 		evidenceTransactionIds: a.evidence.transactionIds,
-		status: a.status,
+		// `retry` nunca chega aqui (a rota o filtra).
+		status: a.status as ActivityDto["status"],
 		createdAt: a.createdAt.toISOString(),
 		undoneAt: a.undoneAt?.toISOString() ?? null,
 		undoNote: a.undoNote,

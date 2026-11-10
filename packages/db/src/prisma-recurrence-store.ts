@@ -54,7 +54,9 @@ export function createPrismaRecurrenceStore(db: Db, now: Clock): RecurrenceStore
 			const at = now();
 			try {
 				return toRecord(
-					await db.recurrence.create({ data: { ...toColumns(data), createdAt: at, updatedAt: at } }),
+					await db.recurrence.create({
+						data: { ...toColumns(data), ...(input.id ? { id: input.id } : {}), createdAt: at, updatedAt: at },
+					}),
 				);
 			} catch (e) {
 				throw translate(e, badReference);
