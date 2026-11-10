@@ -99,6 +99,12 @@ describe("banco e nome de cartão", () => {
 			expect(bankIspb(bank), bank).toMatch(/^\d{8}$/);
 		}
 		expect(findKnownBank("Bbq da firma")).toBeNull();
+		// "BB" solto no meio de outro nome não é o Banco do Brasil; com conta/cartão ao lado, sim.
+		expect(findKnownBank("Tem BB Seguros")).toBeNull();
+		expect(findKnownBank("Seguros BB Previdencia")).toBeNull();
+		expect(findKnownBank("BB Cartão Gold")).toBe("Banco do Brasil");
+		expect(findKnownBank("Cartão BB")).toBe("Banco do Brasil");
+		expect(findKnownBank("BB Conta Corrente")).toBe("Banco do Brasil");
 		expect(findKnownBank("Caixinha")).toBeNull();
 	});
 
