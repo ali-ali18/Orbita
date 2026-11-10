@@ -28,24 +28,43 @@ export async function archiveConnectionData(
 /**
  * Remove a conexão da lista e arquiva o que veio por ela. `removed` é `false` se ela já não existia (as contas dela
  * ainda assim são arquivadas: o passo é idempotente e conserta uma remoção que parou no meio).
+ *
+ * `listExternalIds` (plano B para dados sem vínculo gravado): os ids de conta que o Pluggy ainda devolve para o item.
+ * Quem chama o implementa com o cliente; falha ou item inexistente (404) devolve vazio, e a remoção segue (a varredura
+ * da próxima sincronização cobre o resto). Nunca derruba a remoção.
  */
 export async function removePluggyConnection(
 	stores: RemovalStores,
 	id: string,
+	options: { listExternalIds?: (itemId: string) => Promise<readonly string[]> } = {},
 ): Promise<Archived & { removed: boolean }> {
+	let external: readonly string[] = [];
+	try {
+		external = (await options.listExternalIds?.(id)) ?? [];
+	} catch {
+		external = [];
+	}
 	const removed = await stores.pluggyConnections.remove(id);
-	return { removed, ...(await archiveConnectionData(stores, id)) };
+	const linked = await archiveConnectionData(stores, id);
+	let accounts = linked.accounts;
+	let cards = linked.cards;
+	for (const externalId of external) {
+		if (await stores.accounts.archiveExternalAsRemoved(externalId)) accounts += 1;
+		if (await stores.cards.archiveExternalAsRemoved(externalId)) cards += 1;
+	}
+	return { removed, accounts, cards };
 }
 
 /**
  * Arquiva contas e cartões do Pluggy cuja conexão não existe mais (a conexão está fora de `liveConnectionIds`).
- * `includeUnlinked`: também os que não têm vínculo (gravados antes de a conexão de origem ser registrada); só passe
- * `true` quando TODAS as conexões vivas foram lidas nesta rodada (e portanto religaram o que é delas).
+ * Os sem vínculo (gravados antes de a conexão de origem ser registrada) dependem de `unlinked`: "ignore" não mexe,
+ * "strike" soma uma ausência e arquiva na segunda seguida (só numa sincronização em que TODAS as conexões vivas foram
+ * lidas por completo), "all" arquiva já (não há conexão alguma).
  */
 export async function archiveOrphanedData(
 	stores: Pick<Stores, "accounts" | "cards">,
 	liveConnectionIds: readonly string[],
-	options: { includeUnlinked: boolean },
+	options: { unlinked: "ignore" | "strike" | "all" },
 ): Promise<Archived> {
 	return {
 		accounts: await stores.accounts.archiveOrphans(liveConnectionIds, options),

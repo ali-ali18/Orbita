@@ -1,5 +1,5 @@
 import { createMemoryStores, type Stores } from "@orbita/db";
-import { PLUGGY_REMOVED_PREFIX } from "@orbita/shared";
+import { PLUGGY_MISSING_PREFIX, PLUGGY_REMOVED_PREFIX } from "@orbita/shared";
 import { describe, expect, it } from "vitest";
 import {
 	BANK_ACCOUNT_ID,
@@ -187,28 +187,56 @@ describe("conexão removida pelo app", () => {
 });
 
 describe("item removido no Meu Pluggy (404)", () => {
-	it("marca a conexão como removida, arquiva as contas dela e mantém os lançamentos", async () => {
+	it("o primeiro 404 só avisa; o segundo seguido, com outro item respondendo, arquiva e mantém os lançamentos", async () => {
 		const w = await imported();
 		const before = await history(w.stores);
 
-		const result = await w.run({ override: gone404(ITEM_ID) });
-		const mine = result.connections.find((c) => c.id === ITEM_ID);
-		expect(mine).toMatchObject({ status: "error", removedAtSource: true });
+		const first = await w.run({ override: gone404(ITEM_ID) });
+		expect(first.connections.find((c) => c.id === ITEM_ID)?.removedAtSource).toBeUndefined();
+		const once = await w.stores.pluggyConnections.get(ITEM_ID);
+		expect(once?.lastStatus).toBe("error");
+		expect(once?.lastError?.startsWith(PLUGGY_MISSING_PREFIX)).toBe(true);
+		expect(await w.stores.accounts.list()).toHaveLength(2);
+		expect(await w.stores.cards.list()).toHaveLength(1);
+
+		const second = await w.run({ override: gone404(ITEM_ID) });
+		expect(second.connections.find((c) => c.id === ITEM_ID)).toMatchObject({
+			status: "error",
+			removedAtSource: true,
+		});
 		const conn = await w.stores.pluggyConnections.get(ITEM_ID);
-		expect(conn?.lastStatus).toBe("error");
 		expect(conn?.lastError?.startsWith(PLUGGY_REMOVED_PREFIX)).toBe(true);
 		expect(conn).toMatchObject({ accountCount: 0, cardCount: 0 });
-
 		expect(await names(w.stores)).toEqual(["Conta Poupança Azul"]);
 		expect(await w.stores.cards.list()).toEqual([]);
 		expect(await history(w.stores)).toHaveLength(before.length);
-		// A outra conexão segue ok.
-		expect(result.connections.find((c) => c.id === ITEM_B)?.status).toBe("ok");
+		expect(second.connections.find((c) => c.id === ITEM_B)?.status).toBe("ok");
+	});
+
+	it("chave errada (todos os itens dão 404) nunca arquiva, nem em rodadas seguidas", async () => {
+		const w = await imported();
+		const all404: NonNullable<FakePluggyOptions["override"]> = (url) =>
+			url.pathname.startsWith("/items/")
+				? new Response(JSON.stringify({ message: "Item not found" }), { status: 404 })
+				: undefined;
+		for (let i = 0; i < 3; i++) await w.run({ override: all404 });
+		expect(await w.stores.accounts.list()).toHaveLength(2);
+		expect(await w.stores.cards.list()).toHaveLength(1);
+	});
+
+	it("um 404 isolado, seguido de resposta normal, não deixa rastro: o próximo 404 volta a ser o primeiro", async () => {
+		const w = await imported();
+		await w.run({ override: gone404(ITEM_ID) });
+		await w.run();
+		await w.run({ override: gone404(ITEM_ID) });
+		expect(await w.stores.accounts.list()).toHaveLength(2);
 	});
 
 	it("o item que volta (mesmo id) desarquiva", async () => {
 		const w = await imported();
 		await w.run({ override: gone404(ITEM_ID) });
+		await w.run({ override: gone404(ITEM_ID) });
+		expect(await w.stores.accounts.list()).toHaveLength(1);
 		await w.run();
 		expect(await w.stores.accounts.list()).toHaveLength(2);
 		expect(await w.stores.cards.list()).toHaveLength(1);
@@ -221,7 +249,25 @@ describe("item removido no Meu Pluggy (404)", () => {
 		const result = await w.run({ override: gone404(ITEM_ID) });
 		expect(result.connections[0]?.removedAtSource).toBeUndefined();
 		expect(result.connections[0]?.status).toBe("error");
-		expect(result.connections[0]?.error?.startsWith(PLUGGY_REMOVED_PREFIX)).toBe(false);
+		expect(result.connections[0]?.error?.startsWith(PLUGGY_MISSING_PREFIX)).toBe(false);
+	});
+});
+
+describe("remoção no meio da rodada (DELETE × sync)", () => {
+	it("a conexão removida no meio da rodada tem as contas arquivadas ao fim dela", async () => {
+		const w = await imported();
+		let removed = false;
+		await w.run({
+			override: (url) => {
+				if (url.pathname === "/v2/transactions" && !removed) {
+					removed = true;
+					void w.stores.pluggyConnections.remove(ITEM_ID);
+				}
+				return undefined;
+			},
+		});
+		expect((await w.stores.accounts.list()).map((a) => a.externalId)).toEqual([B_ACCOUNT]);
+		expect(await w.stores.cards.list()).toEqual([]);
 	});
 });
 
@@ -233,20 +279,47 @@ describe("dados de antes do vínculo (sem connectionId)", () => {
 			w.stores.accounts.create({ name, kind: "checking", source: "pluggy", externalId });
 		await mk("Itaú · Conta corrente", "removida-na-pluggy");
 		await mk("Conta Poupança Azul", B_ACCOUNT);
+		await w.stores.cards.create({
+			name: "Cartão antigo",
+			closingDay: 10,
+			dueDay: 17,
+			source: "pluggy",
+			externalId: CARD_ACCOUNT_ID,
+		});
 		await w.stores.pluggyConnections.add({ id: ITEM_B, label: "Azul" });
 		return w;
 	}
 
-	it("a próxima sincronização completa arquiva a conta cuja conexão não existe mais", async () => {
+	it("só arquiva a conta legada depois de DUAS sincronizações completas sem ela em nenhuma conexão viva", async () => {
 		const w = await legacy();
+		await w.run();
 		expect(await w.stores.accounts.list()).toHaveLength(2);
+		expect((await w.stores.accounts.findByExternal("pluggy", B_ACCOUNT))?.connectionId).toBe(ITEM_B);
 		await w.run();
 		expect(await names(w.stores)).toEqual(["Conta Poupança Azul"]);
-		const kept = await w.stores.accounts.findByExternal("pluggy", B_ACCOUNT);
-		expect(kept?.connectionId).toBe(ITEM_B);
+		// O cartão legado também (nenhuma conexão viva o traz).
+		expect(await w.stores.cards.list()).toEqual([]);
 		// Idempotente.
 		await w.run();
 		expect(await names(w.stores)).toEqual(["Conta Poupança Azul"]);
+	});
+
+	it("conta legada que a conexão viva deixou de listar uma vez e voltou na rodada seguinte fica viva", async () => {
+		const w = await legacy();
+		await w.stores.accounts.create({
+			name: "Conta Corrente",
+			kind: "checking",
+			source: "pluggy",
+			externalId: BANK_ACCOUNT_ID,
+		});
+		await w.stores.pluggyConnections.add({ id: ITEM_ID });
+		await w.run({ accounts: [] });
+		await w.run();
+		await w.run();
+		await w.run();
+		const kept = await w.stores.accounts.findByExternal("pluggy", BANK_ACCOUNT_ID);
+		expect(kept).toMatchObject({ archivedAt: null, connectionId: ITEM_ID });
+		expect((await w.stores.cards.list()).map((c) => c.externalId)).toEqual([CARD_ACCOUNT_ID]);
 	});
 
 	it("sem nenhuma conexão cadastrada, arquiva tudo que veio do Pluggy e deixa a conta manual", async () => {
@@ -257,9 +330,75 @@ describe("dados de antes do vínculo (sem connectionId)", () => {
 		expect(await names(w.stores)).toEqual(["Carteira"]);
 	});
 
-	it("rodada de uma conexão só (nova tentativa) não varre as sem vínculo", async () => {
+	it("rodada de uma conexão só (nova tentativa) não conta ausência", async () => {
 		const w = await legacy();
-		await w.run({}, { connectionIds: [ITEM_B] });
+		for (let i = 0; i < 3; i++) await w.run({}, { connectionIds: [ITEM_B] });
 		expect(await w.stores.accounts.list()).toHaveLength(2);
+	});
+
+	const ITEM_C = "7c7c7c7c-1111-4222-8333-444455557777";
+	it("conexão que nunca teve conta (só investimento) não bloqueia: a legada some em duas rodadas", async () => {
+		const w = await legacy();
+		await w.stores.pluggyConnections.add({ id: ITEM_C, label: "C6" });
+		const options: FakePluggyOptions = {
+			otherItems: { [ITEM_B]: { accounts: [accountB] }, [ITEM_C]: { accounts: [] } },
+		};
+		await w.run(options);
+		expect(await w.stores.accounts.list()).toHaveLength(2);
+		await w.run(options);
+		expect(await names(w.stores)).toEqual(["Conta Poupança Azul"]);
+	});
+
+	it("o mesmo, mas a conexão sem contas já teve conta antes: bloqueia e nada legado é arquivado", async () => {
+		const w = await legacy();
+		await w.stores.pluggyConnections.add({ id: ITEM_C, label: "C6" });
+		await w.stores.pluggyConnections.recordSync(ITEM_C, { status: "ok", counts: { accounts: 1, cards: 0 } });
+		const options: FakePluggyOptions = {
+			otherItems: { [ITEM_B]: { accounts: [accountB] }, [ITEM_C]: { accounts: [] } },
+		};
+		for (let i = 0; i < 4; i++) await w.run(options);
+		expect((await w.stores.accounts.list()).map((a) => a.externalId)).toContain("removida-na-pluggy");
+	});
+
+	// Nenhuma destas rodadas prova que a conta legada sumiu: nada legado pode ser arquivado, por mais rodadas que haja.
+	const badRounds: Array<[string, FakePluggyOptions]> = [
+		[
+			"outra conexão com erro de rede",
+			{
+				override: (u) =>
+					u.pathname === "/accounts" && u.searchParams.get("itemId") === ITEM_ID
+						? new Response("{}", { status: 500 })
+						: undefined,
+			},
+		],
+		["outra conexão pedindo login", { item: { status: "LOGIN_ERROR" } }],
+		["outra conexão atualizando (UPDATING)", { item: { status: "UPDATING" } }],
+		["outra conexão com /accounts vazio", { accounts: [] }],
+		["conta fora do formato (dropped)", { accounts: [bankAccount, { id: CARD_ACCOUNT_ID, name: 5 }] }],
+		[
+			"cartão adiado (faturas falham, sem datas)",
+			{
+				bills: {},
+				override: (u) => (u.pathname === "/bills" ? new Response("{}", { status: 500 }) : undefined),
+				accounts: [
+					{
+						...cardAccount,
+						id: "0f1d2c3b-aaaa-4bbb-8ccc-0000000000c9",
+						creditData: { ...cardAccount.creditData, balanceCloseDate: null, balanceDueDate: null },
+					},
+				],
+			},
+		],
+	];
+	it.each(badRounds)("%s: nada legado é arquivado", async (_name, options) => {
+		const w = await legacy();
+		await w.stores.pluggyConnections.add({ id: ITEM_ID });
+		// A conexão já teve conta: se agora vem vazia, pode ser falha passageira, então bloqueia.
+		await w.stores.pluggyConnections.recordSync(ITEM_ID, { status: "ok", counts: { accounts: 1, cards: 0 } });
+		for (let i = 0; i < 4; i++) await w.run(options);
+		const live = (await w.stores.accounts.list()).map((a) => a.externalId);
+		expect(live).toContain("removida-na-pluggy");
+		expect(live).toContain(B_ACCOUNT);
+		expect((await w.stores.cards.list()).map((c) => c.externalId)).toEqual([CARD_ACCOUNT_ID]);
 	});
 });

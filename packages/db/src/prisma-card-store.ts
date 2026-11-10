@@ -104,18 +104,39 @@ export function createPrismaCardStore(db: Db, now: Clock): CardStore {
 			});
 			return count;
 		},
-		async archiveOrphans(liveConnectionIds, { includeUnlinked }) {
+		async archiveOrphans(liveConnectionIds, { unlinked }) {
 			const at = now();
-			const gone = { notIn: [...liveConnectionIds] };
+			const data = { archivedAt: at, archiveReason: "connection_removed", updatedAt: at };
+			const live = { source: "pluggy" as const, archivedAt: null };
+			let count = (
+				await db.card.updateMany({
+					where: { ...live, connectionId: { notIn: [...liveConnectionIds] } },
+					data,
+				})
+			).count;
+			if (unlinked === "all") {
+				count += (await db.card.updateMany({ where: { ...live, connectionId: null }, data })).count;
+			} else if (unlinked === "strike") {
+				await db.card.updateMany({
+					where: { ...live, connectionId: null },
+					data: { unlinkedMisses: { increment: 1 } },
+				});
+				count += (
+					await db.card.updateMany({
+						where: { ...live, connectionId: null, unlinkedMisses: { gte: 2 } },
+						data,
+					})
+				).count;
+			}
+			return count;
+		},
+		async archiveExternalAsRemoved(externalId) {
+			const at = now();
 			const { count } = await db.card.updateMany({
-				where: {
-					source: "pluggy",
-					archivedAt: null,
-					OR: [{ connectionId: gone }, ...(includeUnlinked ? [{ connectionId: null }] : [])],
-				},
+				where: { source: "pluggy", externalId, archivedAt: null },
 				data: { archivedAt: at, archiveReason: "connection_removed", updatedAt: at },
 			});
-			return count;
+			return count > 0;
 		},
 		async listRemovedByConnection() {
 			const rows = await db.card.findMany({

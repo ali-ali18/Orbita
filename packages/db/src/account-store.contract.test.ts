@@ -197,7 +197,7 @@ describe.each(contractSuites())("AccountStore: cadastro de fora (%s)", (_name, m
 		expect(await stores.accounts.archiveByConnection("conn-1")).toBe(0);
 	});
 
-	it("archiveOrphans: conexão que não está entre as vivas; sem vínculo só com includeUnlinked; manual nunca", async () => {
+	it("archiveOrphans: conexão que não está entre as vivas; sem vínculo só com 'strike' (2 seguidas) ou 'all'; manual nunca", async () => {
 		const mk = (name: string, externalId: string) =>
 			stores.accounts.create({ name, kind: "checking", source: "pluggy", externalId });
 		const live = await mk("viva", "1");
@@ -206,11 +206,29 @@ describe.each(contractSuites())("AccountStore: cadastro de fora (%s)", (_name, m
 		const manual = await stores.accounts.create({ name: "M", kind: "checking" });
 		await stores.accounts.linkConnection(live.id, "conn-live");
 		await stores.accounts.linkConnection(gone.id, "conn-gone");
-		expect(await stores.accounts.archiveOrphans(["conn-live"], { includeUnlinked: false })).toBe(1);
+		expect(await stores.accounts.archiveOrphans(["conn-live"], { unlinked: "ignore" })).toBe(1);
 		expect((await stores.accounts.list()).map((x) => x.id)).toEqual([live.id, legacy.id, manual.id]);
-		expect(await stores.accounts.archiveOrphans(["conn-live"], { includeUnlinked: true })).toBe(1);
+		// Uma ausência só não arquiva; a segunda seguida sim.
+		expect(await stores.accounts.archiveOrphans(["conn-live"], { unlinked: "strike" })).toBe(0);
+		expect((await stores.accounts.get(legacy.id))?.unlinkedMisses).toBe(1);
+		expect(await stores.accounts.archiveOrphans(["conn-live"], { unlinked: "strike" })).toBe(1);
 		expect((await stores.accounts.list()).map((x) => x.id)).toEqual([live.id, manual.id]);
-		expect(await stores.accounts.archiveOrphans([], { includeUnlinked: true })).toBe(1);
+		expect(await stores.accounts.archiveOrphans([], { unlinked: "all" })).toBe(1);
 		expect((await stores.accounts.list()).map((x) => x.id)).toEqual([manual.id]);
+	});
+
+	it("archiveExternalAsRemoved arquiva o vivo do Pluggy pelo id externo, com o motivo, e é idempotente", async () => {
+		const a = await stores.accounts.create({
+			name: "A",
+			kind: "checking",
+			source: "pluggy",
+			externalId: "x1",
+		});
+		await stores.accounts.create({ name: "M", kind: "checking" });
+		expect(await stores.accounts.archiveExternalAsRemoved("x1")).toBe(true);
+		expect(await stores.accounts.archiveExternalAsRemoved("x1")).toBe(false);
+		expect(await stores.accounts.archiveExternalAsRemoved("nada")).toBe(false);
+		expect(await stores.accounts.get(a.id)).toMatchObject({ archiveReason: "connection_removed" });
+		expect((await stores.accounts.restoreFromConnection(a.id))?.archivedAt).toBeNull();
 	});
 });

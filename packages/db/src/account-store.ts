@@ -20,6 +20,8 @@ export interface AccountRecord {
 	connectionId: string | null;
 	/** Motivo do arquivamento que não foi do dono: "connection_removed". Só ele pode ser desfeito ao reconectar. */
 	archiveReason: string | null;
+	/** Sincronizações completas seguidas em que, sem conexão gravada, não apareceu em nenhuma conexão viva (2 arquiva). */
+	unlinkedMisses: number;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -64,14 +66,17 @@ export interface AccountStore {
 	 */
 	archiveByConnection(connectionId: string): Promise<number>;
 	/**
-	 * Arquiva as contas vivas do Pluggy cuja conexão não está entre `liveConnectionIds`. As sem vínculo (`connectionId`
-	 * nulo, anteriores a esta coluna) só com `includeUnlinked`: quem chama garante que todas as conexões vivas foram
-	 * lidas. Devolve quantas.
+	 * Arquiva os vivos do Pluggy cuja conexão gravada não está entre `liveConnectionIds` (a conexão saiu). Os sem conexão
+	 * gravada (anteriores à coluna) dependem de `unlinked`: "ignore" não mexe; "strike" soma uma ausência e arquiva com
+	 * 2 seguidas (quem chama só usa numa sincronização completa e sem dúvida); "all" arquiva já (não há conexão alguma).
+	 * Devolve quantos foram arquivados.
 	 */
 	archiveOrphans(
 		liveConnectionIds: readonly string[],
-		options: { includeUnlinked: boolean },
+		options: { unlinked: "ignore" | "strike" | "all" },
 	): Promise<number>;
+	/** Arquiva (motivo "connection_removed") o vivo do Pluggy com este id externo, ligado ou não a uma conexão. `true` se arquivou. */
+	archiveExternalAsRemoved(externalId: string): Promise<boolean>;
 	/** As arquivadas porque a conexão saiu (candidatas a religar quando o banco é reconectado). */
 	listRemovedByConnection(): Promise<AccountRecord[]>;
 	/** Reconectou: desarquiva se o arquivamento foi por conexão removida (o do dono fica). `null` se não existe. */
