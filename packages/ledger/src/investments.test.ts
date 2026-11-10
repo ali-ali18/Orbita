@@ -262,8 +262,8 @@ describe("revisão: encerrada e conexão removida", () => {
 		]);
 		const before = await investmentDetail(stores, resgatado.id);
 		expect(before?.position.yield).toMatchObject({ cents: null, basis: "unavailable" });
-		await stores.investments.markMovementsRead(resgatado.id);
-		await stores.investments.markMovementsRead(resgatado.id);
+		await stores.investments.markMovementsRead(resgatado.id, "2026-11-10");
+		await stores.investments.markMovementsRead(resgatado.id, "2026-11-11");
 		const after = await investmentDetail(stores, resgatado.id);
 		expect(investmentDetailResponse.parse(after)).toEqual(after);
 		expect(after?.position.yield).toMatchObject({ cents: 5000, estimated: true, basis: "movements" });

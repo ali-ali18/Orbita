@@ -58,6 +58,8 @@ export interface InvestmentRecord extends InvestmentFields {
 	missingReads: number;
 	/** Leituras de movimentações bem-sucedidas depois de arquivada (zera se desarquivar). */
 	movementsClosedReads: number;
+	/** O dia da última leitura contada em `movementsClosedReads` (no máximo uma por dia). */
+	movementsClosedReadDay: LocalDate | null;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -160,10 +162,11 @@ export interface InvestmentStore {
 		minAbsentReads?: number,
 	): Promise<number>;
 	/**
-	 * Registra uma leitura de movimentações bem-sucedida. Só conta se a posição está arquivada (devolve o novo total de
-	 * leituras depois do arquivamento; 0 se não arquivada). `not_found` se não existe.
+	 * Registra uma leitura de movimentações bem-sucedida em `day` (America/Sao_Paulo). Só conta se a posição está
+	 * arquivada E se ainda não houve leitura contada naquele dia (syncs manuais seguidos não queimam o mínimo). Devolve o
+	 * total de leituras contadas depois do arquivamento (0 se não arquivada). `not_found` se não existe.
 	 */
-	markMovementsRead(id: string): Promise<number>;
+	markMovementsRead(id: string, day: LocalDate): Promise<number>;
 	get(id: string): Promise<InvestmentRecord | null>;
 	/** Mais antigas primeiro. */
 	list(filter?: InvestmentListFilter): Promise<InvestmentRecord[]>;

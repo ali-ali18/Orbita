@@ -40,6 +40,7 @@ export function createMemoryInvestmentStore(state: MemoryState): InvestmentStore
 					archivedAt: closed ? at : null,
 					missingReads: 0,
 					movementsClosedReads: 0,
+					movementsClosedReadDay: null,
 					createdAt: at,
 					updatedAt: at,
 				};
@@ -53,6 +54,7 @@ export function createMemoryInvestmentStore(state: MemoryState): InvestmentStore
 				archivedAt: closed ? (current.archivedAt ?? at) : null,
 				missingReads: 0,
 				movementsClosedReads: closed ? current.movementsClosedReads : 0,
+				movementsClosedReadDay: closed ? current.movementsClosedReadDay : null,
 				updatedAt: at,
 			};
 			state.investments.set(record.id, record);
@@ -77,10 +79,15 @@ export function createMemoryInvestmentStore(state: MemoryState): InvestmentStore
 			}
 			return count;
 		},
-		async markMovementsRead(id) {
+		async markMovementsRead(id, day) {
 			const current = need(id);
 			if (current.archivedAt === null) return 0;
-			const next = { ...current, movementsClosedReads: current.movementsClosedReads + 1 };
+			if (current.movementsClosedReadDay === day) return current.movementsClosedReads;
+			const next = {
+				...current,
+				movementsClosedReads: current.movementsClosedReads + 1,
+				movementsClosedReadDay: day,
+			};
 			state.investments.set(id, next);
 			return next.movementsClosedReads;
 		},

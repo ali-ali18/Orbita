@@ -62,6 +62,7 @@ const toRecord = (row: PositionRow): InvestmentRecord => ({
 	archivedAt: row.archivedAt,
 	missingReads: row.missingReads,
 	movementsClosedReads: row.movementsClosedReads,
+	movementsClosedReadDay: dayOut(row.movementsClosedReadDay),
 	createdAt: row.createdAt,
 	updatedAt: row.updatedAt,
 });
@@ -135,6 +136,7 @@ export function createPrismaInvestmentStore(db: Db, now: Clock): InvestmentStore
 							archivedAt: closed ? at : null,
 							missingReads: 0,
 							movementsClosedReads: 0,
+							movementsClosedReadDay: null,
 							createdAt: at,
 							updatedAt: at,
 						},
@@ -149,6 +151,7 @@ export function createPrismaInvestmentStore(db: Db, now: Clock): InvestmentStore
 						archivedAt: closed ? (current.archivedAt ?? at) : null,
 						missingReads: 0,
 						movementsClosedReads: closed ? current.movementsClosedReads : 0,
+						movementsClosedReadDay: closed ? current.movementsClosedReadDay : null,
 						updatedAt: at,
 					},
 				});
@@ -180,11 +183,16 @@ export function createPrismaInvestmentStore(db: Db, now: Clock): InvestmentStore
 				return r.count;
 			});
 		},
-		async markMovementsRead(id) {
+		async markMovementsRead(id, day) {
 			await exists(id);
+			// Condicional no banco: só arquivada e só se o dia da última leitura contada é outro.
 			await db.investment.updateMany({
-				where: { id, archivedAt: { not: null } },
-				data: { movementsClosedReads: { increment: 1 } },
+				where: {
+					id,
+					archivedAt: { not: null },
+					OR: [{ movementsClosedReadDay: null }, { movementsClosedReadDay: { not: toDbDate(day) } }],
+				},
+				data: { movementsClosedReads: { increment: 1 }, movementsClosedReadDay: toDbDate(day) },
 			});
 			const row = await db.investment.findUniqueOrThrow({ where: { id } });
 			return row.archivedAt === null ? 0 : row.movementsClosedReads;

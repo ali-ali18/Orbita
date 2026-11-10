@@ -36,6 +36,7 @@ CREATE TABLE "investments" (
     "archived_at" TIMESTAMP(3),
     "missing_reads" INTEGER NOT NULL DEFAULT 0,
     "movements_closed_reads" INTEGER NOT NULL DEFAULT 0,
+    "movements_closed_read_day" DATE,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 

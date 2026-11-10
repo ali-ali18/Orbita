@@ -789,6 +789,8 @@ model Investment {
   missingReads         Int       @default(0) @map("missing_reads")
   /// Leituras de movimentações bem-sucedidas DEPOIS de a posição ser arquivada (o resgate final pode chegar atrasado: relê até ter o bastante).
   movementsClosedReads Int       @default(0) @map("movements_closed_reads")
+  /// O dia (America/Sao_Paulo) da última leitura contada: no máximo uma por dia, para syncs manuais não queimarem o mínimo.
+  movementsClosedReadDay DateTime? @map("movements_closed_read_day") @db.Date
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 

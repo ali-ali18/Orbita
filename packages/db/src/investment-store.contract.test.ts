@@ -257,15 +257,17 @@ describe.each(contractSuites())("InvestmentStore: marcadores de leitura (%s)", (
 
 	it("movimentações lidas depois de arquivar: o contador sobe só se arquivada e zera ao desarquivar", async () => {
 		const { record } = await stores.investments.upsertPosition({ ...base, status: "ACTIVE" });
-		expect(await stores.investments.markMovementsRead(record.id)).toBe(0);
+		expect(await stores.investments.markMovementsRead(record.id, "2026-11-10")).toBe(0);
 		const closed = await stores.investments.upsertPosition({
 			...base,
 			status: "TOTAL_WITHDRAWAL",
 			balanceCents: 0,
 		});
 		expect(closed.record.movementsClosedReads).toBe(0);
-		expect(await stores.investments.markMovementsRead(record.id)).toBe(1);
-		expect(await stores.investments.markMovementsRead(record.id)).toBe(2);
+		expect(await stores.investments.markMovementsRead(record.id, "2026-11-10")).toBe(1);
+		// No máximo uma leitura contada por dia (syncs manuais não queimam o mínimo).
+		expect(await stores.investments.markMovementsRead(record.id, "2026-11-10")).toBe(1);
+		expect(await stores.investments.markMovementsRead(record.id, "2026-11-11")).toBe(2);
 		// Regravar a posição encerrada não zera.
 		const again = await stores.investments.upsertPosition({
 			...base,
@@ -275,7 +277,7 @@ describe.each(contractSuites())("InvestmentStore: marcadores de leitura (%s)", (
 		expect(again.record.movementsClosedReads).toBe(2);
 		const back = await stores.investments.upsertPosition({ ...base, status: "ACTIVE", balanceCents: 5 });
 		expect(back.record.movementsClosedReads).toBe(0);
-		await expect(stores.investments.markMovementsRead("fantasma")).rejects.toMatchObject({
+		await expect(stores.investments.markMovementsRead("fantasma", "2026-11-10")).rejects.toMatchObject({
 			code: "not_found",
 		});
 	});
