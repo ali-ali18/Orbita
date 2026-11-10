@@ -24,11 +24,14 @@ import {
 } from "@orbita/db";
 import {
 	PLUGGY_FIRST_SYNC_DAYS,
+	PLUGGY_MISSING_MESSAGE,
+	PLUGGY_MISSING_PREFIX,
 	PLUGGY_NO_ACCOUNTS_PREFIX,
 	PLUGGY_NO_DATA_PREFIX,
 	PLUGGY_ONLY_INVESTMENTS_PREFIX,
 	PLUGGY_RECONNECT_MESSAGE,
 	PLUGGY_REMOVED_MESSAGE,
+	PLUGGY_REMOVED_PREFIX,
 	PLUGGY_UNREAD_PRODUCTS_PREFIX,
 	PLUGGY_UPDATING_PREFIX,
 	type PluggySyncStatus,
@@ -151,8 +154,15 @@ export interface ConnectionSyncResult {
 	accounts: number;
 	/** O item não existe mais no Meu Pluggy (404): as contas e cartões dela foram arquivados; os lançamentos ficam. */
 	removedAtSource?: boolean;
-	/** Contas/cartões que esta rodada não conseguiu ligar (esperam outra rodada). Com isso o varredor de órfãos não age. */
-	unlinked?: number;
+	/** O Pluggy respondeu ao item com sucesso nesta rodada (prova de que a chave e o ambiente estão certos). */
+	itemOk?: boolean;
+	/**
+	 * A leitura desta conexão foi completa: item `UPDATED`, nenhuma conta descartada por formato, nenhuma conta ou cartão
+	 * adiado e ao menos uma conta listada. Só com todas completas a ausência de uma conta sem vínculo vale como prova.
+	 */
+	readComplete?: boolean;
+	/** Segundo 404 seguido: a remoção só se confirma se, na mesma rodada, outro item da conta Pluggy respondeu. */
+	pendingRemoval?: boolean;
 	/** Contas e cartões (não arquivados) ligados à conexão; ausente se a sincronização parou antes de ligar. */
 	counts?: { accounts: number; cards: number };
 	/** O que a rodada gravou do que o banco informa: saldos, limites disponíveis e faturas (só quando gravou algo). */
@@ -249,7 +259,7 @@ export async function syncPluggy(
 		// Todas as conexões saíram: o que veio por elas já não conta (e não depende de chaves nem do Pluggy).
 		if (everyConnection.length === 0) {
 			try {
-				await archiveOrphanedData(stores, [], { includeUnlinked: true });
+				await archiveOrphanedData(stores, [], { unlinked: "all" });
 			} catch {
 				log("pluggy: não deu para arquivar contas de conexão removida");
 			}
@@ -284,9 +294,14 @@ export async function syncPluggy(
 	const lookups = createLookups(deps, client);
 	const results: ConnectionSyncResult[] = [];
 	const shared: RunShared = { owners: new Map(), cards: [], bills: [], payments: [] };
+	const pendingRemovals: Array<{ connection: PluggyConnectionRecord; result: ConnectionSyncResult }> = [];
 	for (const connection of connections) {
 		const guard = createRelinkGuard(client, connection, everyConnection);
 		const result = await syncConnection(deps, client, connection, startedAt, lookups, shared, guard);
+		if (result.pendingRemoval) {
+			pendingRemovals.push({ connection, result });
+			continue;
+		}
 		results.push(
 			await finish(
 				deps,
@@ -300,6 +315,27 @@ export async function syncPluggy(
 			`pluggy: ${result.status} contas=${result.accounts} novos=${result.created} existentes=${result.existing}`,
 		);
 	}
+	// Segundo 404 seguido: só vira remoção se, nesta mesma rodada, outro item respondeu (chave ou ambiente trocados dão
+	// 404 em todos). Sem prova, a conexão segue com o aviso "não encontrei" e nada é arquivado.
+	const someItemOk = results.some((r) => r.itemOk === true);
+	for (const { connection, result } of pendingRemovals) {
+		if (someItemOk) {
+			await archiveConnectionData(stores, connection.id);
+			result.error = PLUGGY_REMOVED_MESSAGE;
+			result.removedAtSource = true;
+			result.counts = { accounts: 0, cards: 0 };
+		}
+		delete result.pendingRemoval;
+		results.push(
+			await finish(
+				deps,
+				connection,
+				result,
+				startedAt,
+				result.windowFrom ?? syncWindowStart(toLocalDate(startedAt), connection),
+			),
+		);
+	}
 	// Numa nova tentativa só de parte das conexões, os cartões e faturas das outras vêm do que já está gravado (sem
 	// chamar o Pluggy): o pagamento de fatura de um banco para o cartão de outro liga como no sync completo.
 	await crossConnections(
@@ -308,19 +344,20 @@ export async function syncPluggy(
 		startedAt,
 		results,
 	);
-	// Conexão que não existe mais deixa as contas dela arquivadas. Sem vínculo gravado (dados antigos), só quando todas as
-	// conexões vivas foram lidas e ligaram o que é delas; numa rodada parcial (`connectionIds`) nem isso.
-	if (only === null) {
-		const everyRead = results.every((r) => r.counts !== undefined && (r.unlinked ?? 0) === 0);
-		try {
-			await archiveOrphanedData(
-				stores,
-				everyConnection.map((c) => c.id),
-				{ includeUnlinked: everyRead },
-			);
-		} catch {
-			log("pluggy: não deu para arquivar contas de conexão removida");
-		}
+	// Conexão que não existe mais deixa as contas dela arquivadas. A lista é relida AGORA: o dono pode ter removido uma
+	// conexão no meio da rodada (DELETE × sync), e o que a rodada ligou ou desarquivou dela não pode ficar vivo. Conta sem
+	// vínculo gravado (dados antigos) só conta ausência quando TODAS as conexões vivas foram lidas por completo.
+	try {
+		const liveIds = (await stores.pluggyConnections.list()).map((c) => c.id);
+		const ran = new Set(results.map((r) => r.id));
+		const complete = (r: ConnectionSyncResult) =>
+			r.removedAtSource === true || (r.readComplete === true && r.status !== "error");
+		const everyRead = only === null && liveIds.every((id) => ran.has(id)) && results.every(complete);
+		await archiveOrphanedData(stores, liveIds, {
+			unlinked: liveIds.length === 0 ? "all" : everyRead ? "strike" : "ignore",
+		});
+	} catch {
+		log("pluggy: não deu para arquivar contas de conexão removida");
 	}
 	await labelSalary(deps, startedAt, log);
 	const statuses = new Set(results.map((r) => r.status));
@@ -541,14 +578,18 @@ async function syncConnection(
 			// conta é id errado, não item removido: segue como erro comum.
 			const known = connection.lastSyncAt !== null || connection.accountCount + connection.cardCount > 0;
 			if (!(e instanceof PluggyError && e.code === "not_found" && known)) throw e;
-			await archiveConnectionData(deps.stores, connection.id);
+			// O primeiro 404 só avisa (chave trocada, ambiente ou falha do Pluggy dão o mesmo 404). O segundo seguido pede
+			// remoção, que `syncPluggy` só confirma se outro item respondeu na mesma rodada.
+			const before = connection.lastError ?? "";
 			result.status = "error";
-			result.error = PLUGGY_REMOVED_MESSAGE;
-			result.removedAtSource = true;
-			result.counts = { accounts: 0, cards: 0 };
+			result.error = PLUGGY_MISSING_MESSAGE;
+			result.pendingRemoval =
+				connection.lastStatus === "error" &&
+				(before.startsWith(PLUGGY_MISSING_PREFIX) || before.startsWith(PLUGGY_REMOVED_PREFIX));
 			delete result.retry;
 			return result;
 		}
+		result.itemOk = true;
 		// `connector.isOpenFinance` (docs.pluggy.ai/reference/items-retrieve): onde `providerId`, `billId`,
 		// `billForecastDate` e o `operationType` do Open Finance podem vir. Guardado na conexão.
 		if (typeof item.connector?.isOpenFinance === "boolean")
@@ -670,7 +711,11 @@ async function syncConnection(
 			guard,
 			connection.id,
 		);
-		result.unlinked = deferredCards + deferredRelink;
+		result.readComplete =
+			item.status === "UPDATED" &&
+			accountsRead.dropped === 0 &&
+			pluggyAccounts.length > 0 &&
+			deferredCards + deferredRelink === 0;
 		// Conexão que ainda não importou lançamento nem fatura nenhum (o espelho do MeuPluggy pode entregar a conta antes
 		// dos dados) é nova: a janela é a inicial, mesmo que uma rodada anterior tenha terminado `ok` e gasto `historyFrom`.
 		const imported = await hasImportedData(deps, linked);

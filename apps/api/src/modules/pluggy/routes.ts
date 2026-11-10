@@ -108,7 +108,16 @@ export function routes({
 			// cartões dela são arquivados (saem de saldo, limites, faturas abertas e contagens) e os lançamentos ficam.
 			const { id } = c.req.valid("param");
 			const connection = orNotFound(await pluggyConnections.get(id), "Conexão");
-			const archived = await removePluggyConnection(stores, id);
+			// Plano B para contas gravadas antes do vínculo conta → conexão: pergunta ao Pluggy quais contas o item ainda
+			// tem e arquiva por id. Sem chaves, sem rede ou com 404, segue só com o vínculo gravado.
+			const archived = await removePluggyConnection(stores, id, {
+				listExternalIds: async (itemId) => {
+					const keys = await readKeys(vault);
+					if (!keys) return [];
+					const client = createPluggyClient({ fetch: doFetch, ...keys, now, timeoutMs: 15_000 });
+					return (await client.accounts(itemId)).map((a) => a.id);
+				},
+			});
 			// Dados anteriores ao vínculo conta → conexão não dizem de quem são: nada foi arquivado aqui, e a próxima
 			// sincronização completa os arquiva (as de conexão que não existe mais). Pede essa rodada agora.
 			if (archived.accounts + archived.cards === 0 && syncQueue) {
