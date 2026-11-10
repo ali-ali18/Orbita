@@ -1,4 +1,4 @@
-import { spacing } from "@orbita/tokens";
+import { type HighlightLevel, spacing } from "@orbita/tokens";
 import { useRouter } from "expo-router";
 import { Pressable, View } from "react-native";
 import type { CategoriesView, MonthSummary } from "../../lib/api.ts";
@@ -32,9 +32,18 @@ function SpentLine({ month, cents, hidden }: { month: string; cents: number; hid
 	);
 }
 
-function Shell({ title = TITLE, children }: { title?: string; children: React.ReactNode }) {
+/** O card herói do Início: o único com a borda de destaque na tela. No erro fica sem ela. */
+function Shell({
+	title = TITLE,
+	highlight = true,
+	children,
+}: {
+	title?: string;
+	highlight?: boolean | HighlightLevel;
+	children: React.ReactNode;
+}) {
 	return (
-		<Card>
+		<Card highlight={highlight}>
 			<Text variant="cardTitle" tone="secondary">
 				{title}
 			</Text>
@@ -47,15 +56,18 @@ export function HeroCard({
 	state,
 	hidden,
 	compact = false,
+	highlight = true,
 }: {
 	state: Loadable<[MonthSummary, CategoriesView]>;
 	hidden: boolean;
 	/** 2x4: o número e uma linha de apoio, sem a barra e o "Gasto". */
 	compact?: boolean;
+	/** Intensidade da borda de destaque. Só a prévia troca; o Início usa a padrão. */
+	highlight?: true | HighlightLevel;
 }) {
 	if (state.phase === "loading") {
 		return (
-			<Shell>
+			<Shell highlight={highlight}>
 				<View accessibilityLabel="Carregando" style={{ marginTop: spacing.md, gap: spacing.md }}>
 					<Skeleton width="70%" height={46} />
 					<Skeleton width="80%" height={18} />
@@ -66,7 +78,7 @@ export function HeroCard({
 	}
 	if (state.phase === "error") {
 		return (
-			<Shell>
+			<Shell highlight={false}>
 				<View style={{ marginTop: spacing.md }}>
 					<ErrorState message={state.message} onRetry={state.retry} />
 				</View>
@@ -84,7 +96,7 @@ export function HeroCard({
 
 	if (!total || !safe) {
 		return (
-			<Shell>
+			<Shell highlight={highlight}>
 				<Text variant="body" tone="secondary" style={{ marginTop: spacing.md }}>
 					Ainda não há orçamento para este mês. Defina um limite para ver quanto ainda dá pra gastar.
 				</Text>
@@ -120,7 +132,7 @@ export function HeroCard({
 			: `≈ ${masked(safe.perDayCents)} por dia · orçamento de ${masked(hero.limitCents)}`;
 	if (compact) {
 		return (
-			<Shell title={title}>
+			<Shell title={title} highlight={highlight}>
 				<Text
 					variant="numberHero"
 					style={{ marginTop: spacing.xs }}
@@ -138,7 +150,7 @@ export function HeroCard({
 	}
 
 	return (
-		<Shell title={title}>
+		<Shell title={title} highlight={highlight}>
 			<Text
 				variant="numberHero"
 				style={{ marginTop: spacing.xs }}

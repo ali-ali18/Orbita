@@ -6,7 +6,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
 import { useAccent } from "../../lib/theme.tsx";
-import { Button, Chip, ConfirmDialog, ErrorState, Skeleton, Text } from "../../ui/index.ts";
+import { Button, Card, Chip, ConfirmDialog, ErrorState, Skeleton, Text } from "../../ui/index.ts";
 import {
 	ACTIVITY_EMPTY,
 	ACTIVITY_EMPTY_NOTIFY,
@@ -228,12 +228,14 @@ function SavingsBlock() {
 			) : (
 				<>
 					{savingsHeadline(state.data.totalMonthlySavingsCents, hidden) ? (
-						<Text
-							variant="numberMedium"
-							accessibilityLabel={savingsHeadline(state.data.totalMonthlySavingsCents, hidden) ?? ""}
-						>
-							{savingsHeadline(state.data.totalMonthlySavingsCents, hidden)}
-						</Text>
+						<Card highlight>
+							<Text
+								variant="numberMedium"
+								accessibilityLabel={savingsHeadline(state.data.totalMonthlySavingsCents, hidden) ?? ""}
+							>
+								{savingsHeadline(state.data.totalMonthlySavingsCents, hidden)}
+							</Text>
+						</Card>
 					) : null}
 					<View style={{ gap: spacing.md }}>
 						{visibleOpportunities(state.data.opportunities, expanded).map((o) => (

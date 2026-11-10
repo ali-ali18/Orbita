@@ -6,11 +6,14 @@ import { Card, ProgressBar, Text } from "../../ui/index.ts";
 import { compositionBar, compositionRows } from "./card-model.ts";
 import { Dot } from "./parts.tsx";
 
-/** "O que entrou nela" com a barra por tipo e as quatro linhas. */
+/**
+ * "O que entrou nela" com a barra por tipo e as quatro linhas. É o card de destaque do detalhe da fatura: o total fica
+ * em texto solto acima, e este é o único card da fatura escolhida (as linhas embaixo são lista).
+ */
 export function InvoiceComposition({ data, hidden }: { data: InvoiceView; hidden: boolean }) {
 	const rows = compositionRows(data.composition);
 	return (
-		<Card style={{ gap: spacing.md }}>
+		<Card highlight style={{ gap: spacing.md }}>
 			<Text variant="cardTitle" tone="secondary" accessibilityRole="header">
 				O que entrou nela
 			</Text>

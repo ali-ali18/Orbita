@@ -75,7 +75,7 @@ function NotificationsPreview({ needsAccess }: { needsAccess: boolean }) {
 
 /** Prévia estática das telas de primeira vez, no navegador (390×844). */
 export default function PreviaRoute() {
-	const { tela } = useLocalSearchParams<{ tela?: string }>();
+	const { tela, destaque } = useLocalSearchParams<{ tela?: string; destaque?: string }>();
 	const noop = () => {};
 	switch (tela) {
 		case "servidor":
@@ -101,7 +101,11 @@ export default function PreviaRoute() {
 		case "fatura":
 			return <InvoicePreview />;
 		case "inicio":
-			return <HomePreview />;
+			return destaque === "strong" || destaque === "subtle" ? (
+				<HomePreview highlight={destaque} />
+			) : (
+				<HomePreview />
+			);
 		case "chat":
 			return <ChatEmptyPreview />;
 		case "conversa":
