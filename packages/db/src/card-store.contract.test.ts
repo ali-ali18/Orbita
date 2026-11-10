@@ -248,7 +248,7 @@ describe.each(contractSuites())("CardStore: cadastro de fora (%s)", (_name, make
 		expect(await stores.cards.archiveByConnection("conn-1")).toBe(0);
 	});
 
-	it("archiveOrphans: conexão que não está entre as vivas; sem vínculo só com includeUnlinked; manual nunca", async () => {
+	it("archiveOrphans: conexão que não está entre as vivas; sem vínculo só com 'strike' (2 seguidas) ou 'all'; manual nunca", async () => {
 		const mk = (name: string, externalId: string) =>
 			stores.cards.create({ name, closingDay: 10, dueDay: 17, source: "pluggy", externalId });
 		const live = await mk("viva", "1");
@@ -257,11 +257,30 @@ describe.each(contractSuites())("CardStore: cadastro de fora (%s)", (_name, make
 		const manual = await stores.cards.create({ name: "M", closingDay: 10, dueDay: 17 });
 		await stores.cards.linkConnection(live.id, "conn-live");
 		await stores.cards.linkConnection(gone.id, "conn-gone");
-		expect(await stores.cards.archiveOrphans(["conn-live"], { includeUnlinked: false })).toBe(1);
+		expect(await stores.cards.archiveOrphans(["conn-live"], { unlinked: "ignore" })).toBe(1);
 		expect((await stores.cards.list()).map((x) => x.id)).toEqual([live.id, legacy.id, manual.id]);
-		expect(await stores.cards.archiveOrphans(["conn-live"], { includeUnlinked: true })).toBe(1);
+		// Uma ausência só não arquiva; a segunda seguida sim.
+		expect(await stores.cards.archiveOrphans(["conn-live"], { unlinked: "strike" })).toBe(0);
+		expect((await stores.cards.get(legacy.id))?.unlinkedMisses).toBe(1);
+		expect(await stores.cards.archiveOrphans(["conn-live"], { unlinked: "strike" })).toBe(1);
 		expect((await stores.cards.list()).map((x) => x.id)).toEqual([live.id, manual.id]);
-		expect(await stores.cards.archiveOrphans([], { includeUnlinked: true })).toBe(1);
+		expect(await stores.cards.archiveOrphans([], { unlinked: "all" })).toBe(1);
 		expect((await stores.cards.list()).map((x) => x.id)).toEqual([manual.id]);
+	});
+
+	it("archiveExternalAsRemoved arquiva o vivo do Pluggy pelo id externo, com o motivo, e é idempotente", async () => {
+		const a = await stores.cards.create({
+			name: "A",
+			closingDay: 10,
+			dueDay: 17,
+			source: "pluggy",
+			externalId: "x1",
+		});
+		await stores.cards.create({ name: "M", closingDay: 10, dueDay: 17 });
+		expect(await stores.cards.archiveExternalAsRemoved("x1")).toBe(true);
+		expect(await stores.cards.archiveExternalAsRemoved("x1")).toBe(false);
+		expect(await stores.cards.archiveExternalAsRemoved("nada")).toBe(false);
+		expect(await stores.cards.get(a.id)).toMatchObject({ archiveReason: "connection_removed" });
+		expect((await stores.cards.restoreFromConnection(a.id))?.archivedAt).toBeNull();
 	});
 });

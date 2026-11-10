@@ -34,6 +34,8 @@ export interface CardRecord {
 	connectionId: string | null;
 	/** Motivo do arquivamento que não foi do dono: "connection_removed". Só ele pode ser desfeito ao reconectar. */
 	archiveReason: string | null;
+	/** Sincronizações completas seguidas em que, sem conexão gravada, não apareceu em nenhuma conexão viva (2 arquiva). */
+	unlinkedMisses: number;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -88,8 +90,10 @@ export interface CardStore {
 	/** Como `AccountStore.archiveOrphans`, para cartão. */
 	archiveOrphans(
 		liveConnectionIds: readonly string[],
-		options: { includeUnlinked: boolean },
+		options: { unlinked: "ignore" | "strike" | "all" },
 	): Promise<number>;
+	/** Arquiva (motivo "connection_removed") o cartão vivo do Pluggy com este id externo, ligado ou não a uma conexão. */
+	archiveExternalAsRemoved(externalId: string): Promise<boolean>;
 	/** As arquivadas porque a conexão saiu (candidatas a religar quando o banco é reconectado). */
 	listRemovedByConnection(): Promise<CardRecord[]>;
 	/** Reconectou: desarquiva se o arquivamento foi por conexão removida (o do dono fica). `null` se não existe. */

@@ -33,6 +33,7 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 				archivedAt: null,
 				connectionId: null,
 				archiveReason: null,
+				unlinkedMisses: 0,
 				createdAt: now,
 				updatedAt: now,
 			};
@@ -95,18 +96,44 @@ export function createMemoryCardStore(state: MemoryState): CardStore {
 			}
 			return count;
 		},
-		async archiveOrphans(liveConnectionIds, { includeUnlinked }) {
+		async archiveOrphans(liveConnectionIds, { unlinked }) {
 			const at = state.now();
 			const live = new Set(liveConnectionIds);
 			let count = 0;
 			for (const [id, x] of state.cards) {
 				if (x.source !== "pluggy" || x.archivedAt !== null) continue;
-				const gone = x.connectionId === null ? includeUnlinked : !live.has(x.connectionId);
-				if (!gone) continue;
-				state.cards.set(id, { ...x, archivedAt: at, archiveReason: "connection_removed", updatedAt: at });
-				count += 1;
+				let gone: boolean;
+				let misses = x.unlinkedMisses;
+				if (x.connectionId !== null) gone = !live.has(x.connectionId);
+				else if (unlinked === "all") gone = true;
+				else if (unlinked === "strike") {
+					misses += 1;
+					gone = misses >= 2;
+				} else gone = false;
+				state.cards.set(
+					id,
+					gone
+						? {
+								...x,
+								unlinkedMisses: misses,
+								archivedAt: at,
+								archiveReason: "connection_removed",
+								updatedAt: at,
+							}
+						: { ...x, unlinkedMisses: misses },
+				);
+				if (gone) count += 1;
 			}
 			return count;
+		},
+		async archiveExternalAsRemoved(externalId) {
+			const at = state.now();
+			for (const [id, x] of state.cards) {
+				if (x.source !== "pluggy" || x.externalId !== externalId || x.archivedAt !== null) continue;
+				state.cards.set(id, { ...x, archivedAt: at, archiveReason: "connection_removed", updatedAt: at });
+				return true;
+			}
+			return false;
 		},
 		async listRemovedByConnection() {
 			return [...state.cards.values()]
