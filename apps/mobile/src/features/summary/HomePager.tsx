@@ -15,6 +15,7 @@ import { useAccent } from "../../lib/theme.tsx";
 import { FadeEdge, Text } from "../../ui/index.ts";
 import {
 	HOME_TABS,
+	headerFadeStops,
 	offsetOfPage,
 	pageFromOffset,
 	resolvePage,
@@ -114,9 +115,6 @@ export function useTabsFade(activePage: number) {
 
 export type TabsFadeState = ReturnType<typeof useTabsFade>;
 
-/** Opacidade do fundo do degradê no topo da tela. */
-const HEADER_FADE_TOP_OPACITY = 0.95;
-
 /** Envolve as abas: só a opacidade muda (altura inteira, nada é cortado, sem mover); invisíveis, não recebem toque nem leitor. */
 export function HomeTabsFade({ fade, children }: { fade: TabsFadeState; children: ReactNode }) {
 	if (!fade.opacity) return <>{children}</>;
@@ -140,10 +138,10 @@ export function HomeTabsFade({ fade, children }: { fade: TabsFadeState; children
 export function HomeHeaderFade({ safeTop }: { safeTop: number }) {
 	return (
 		<FadeEdge
-			topOpacity={HEADER_FADE_TOP_OPACITY}
+			stops={headerFadeStops(safeTop, layout.homeHeader, layout.homeTabs)}
 			style={{
 				position: "absolute",
-				top: -safeTop,
+				top: 0,
 				left: 0,
 				right: 0,
 				height: safeTop + layout.homeHeader + layout.homeTabs,

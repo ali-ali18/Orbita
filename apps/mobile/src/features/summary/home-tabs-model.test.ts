@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	HOME_TABS,
+	headerFadeStops,
 	offsetOfPage,
 	pageFromOffset,
 	resolvePage,
@@ -59,5 +60,19 @@ describe("abas do Início", () => {
 		expect(tabsTouchable(0.1)).toBe(true);
 		expect(tabsTouchable(0.09)).toBe(false);
 		expect(tabsTouchable(0)).toBe(false);
+	});
+
+	it("degradê do header: opaco na barra de status, ~0,72 no avatar, ~0,5 nas abas e 0 na base", () => {
+		const stops = headerFadeStops(56, 64, 56);
+		const total = 176;
+		expect(stops.map((s) => s.opacity)).toEqual([1, 1, 0.72, 0.5, 0]);
+		expect(stops[1]?.offset).toBeCloseTo(56 / total, 5);
+		expect(stops[2]?.offset).toBeCloseTo(88 / total, 5);
+		expect(stops[3]?.offset).toBeCloseTo(148 / total, 5);
+		expect(stops[4]?.offset).toBe(1);
+		// Offsets crescentes (o SVG exige ordem).
+		for (let i = 1; i < stops.length; i++)
+			expect(stops[i]?.offset).toBeGreaterThanOrEqual(stops[i - 1]?.offset ?? 0);
+		expect(headerFadeStops(0, 0, 0)).toEqual([]);
 	});
 });

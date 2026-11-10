@@ -18,10 +18,13 @@ export const TOP_FADE = spacing.xxl;
 export function FadeEdge({
 	style,
 	topOpacity = 1,
+	stops,
 }: {
 	style?: StyleProp<ViewStyle>;
 	/** Opacidade do fundo na borda de cima (1 por padrão); embaixo é sempre 0. */
 	topOpacity?: number;
+	/** Paradas do degradê (offset 0..1 de cima para baixo e opacidade do fundo); manda sobre `topOpacity`. */
+	stops?: readonly { offset: number; opacity: number }[];
 }) {
 	const id = `fade-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
 	return (
@@ -34,8 +37,19 @@ export function FadeEdge({
 			<Svg width="100%" height="100%" preserveAspectRatio="none">
 				<Defs>
 					<LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-						<Stop offset="0" stopColor={colors.background} stopOpacity={topOpacity} />
-						<Stop offset="1" stopColor={colors.background} stopOpacity={0} />
+						{(
+							stops ?? [
+								{ offset: 0, opacity: topOpacity },
+								{ offset: 1, opacity: 0 },
+							]
+						).map((stop) => (
+							<Stop
+								key={stop.offset}
+								offset={stop.offset}
+								stopColor={colors.background}
+								stopOpacity={stop.opacity}
+							/>
+						))}
 					</LinearGradient>
 				</Defs>
 				<Rect width="100%" height="100%" fill={`url(#${id})`} />
