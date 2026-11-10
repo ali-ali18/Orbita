@@ -433,6 +433,8 @@ async function syncConnection(
 	const formatOnly = new Set<string>();
 	// Começo do `lastError` que o app reconhece ("Atualizando no banco…", "ainda não enviou contas").
 	let lead: string | null = null;
+	// O motivo em `partial` que o `lead` já diz; os outros viram " · e mais N avisos" no `lastError`.
+	let leadReason: string | null = null;
 	try {
 		const today = toLocalDate(startedAt);
 		const from = syncWindowStart(today, connection);
@@ -453,7 +455,8 @@ async function syncConnection(
 		if (item.status === "UPDATING") {
 			// Em andamento ("An update process is in progress and will be updated soon": docs.pluggy.ai, Item lifecycle).
 			result.notes.push("O banco ainda está atualizando os dados no Pluggy.");
-			partial.push("o banco ainda está atualizando os dados no Pluggy");
+			leadReason = "o banco ainda está atualizando os dados no Pluggy";
+			partial.push(leadReason);
 			lead = PLUGGY_UPDATING_PREFIX;
 			result.retry = { reason: "updating", ...(notBefore ? { notBefore } : {}) };
 		} else if (item.status !== "UPDATED") {
@@ -547,12 +550,21 @@ async function syncConnection(
 				result.notes.push("O Pluggy não devolveu nenhuma conta para esta conexão.");
 			}
 			for (const note of productWarnings(item.statusDetail)) result.notes.push(note);
-			partial.push("o banco ainda não enviou contas");
-			lead ??= PLUGGY_NO_ACCOUNTS_PREFIX;
-			// Conexão nova: o item do MeuPluggy espelha o item original e recebe o dado na atualização seguinte dele.
-			const isNew = startedAt.getTime() - connection.createdAt.getTime() < NEW_CONNECTION_MS;
-			if (isNew && !result.retry)
-				result.retry = { reason: "no_accounts", ...(notBefore ? { notBefore } : {}) };
+			if (ignored > 0) {
+				// O banco enviou linhas, mas todas de produto que o Órbita não lê (investimento…): esperar não muda isso, então
+				// sem "ainda não enviou contas" e sem nova tentativa.
+				partial.push("o banco só enviou produtos que o Órbita ainda não lê");
+			} else {
+				partial.push("o banco ainda não enviou contas");
+				if (lead === null) {
+					lead = PLUGGY_NO_ACCOUNTS_PREFIX;
+					leadReason = "o banco ainda não enviou contas";
+				}
+				// Conexão nova: o item do MeuPluggy espelha o item original e recebe o dado na atualização seguinte dele.
+				const isNew = startedAt.getTime() - connection.createdAt.getTime() < NEW_CONNECTION_MS;
+				if (isNew && !result.retry)
+					result.retry = { reason: "no_accounts", ...(notBefore ? { notBefore } : {}) };
+			}
 		}
 		// Sem conta agora, mas a conexão já teve: as contas continuam no Órbita, a contagem gravada fica.
 		if (!(empty && connection.accountCount + connection.cardCount > 0)) {
@@ -848,9 +860,12 @@ async function syncConnection(
 		if (partial.length > 0) {
 			result.status = "partial";
 			result.windowDone = partial.every((reason) => formatOnly.has(reason));
+			const others = partial.filter((reason) => reason !== leadReason).length;
 			result.error =
 				lead !== null
-					? `${lead} O Órbita tenta de novo sozinho; você também pode tocar em Sincronizar agora mais tarde.`
+					? `${lead} O Órbita tenta de novo sozinho; você também pode tocar em Sincronizar agora mais tarde.${
+							others > 0 ? ` · e mais ${others} ${others === 1 ? "aviso" : "avisos"}` : ""
+						}`
 					: `${capitalize(partial.join("; "))}. Na próxima sincronização o Órbita tenta de novo.`;
 		}
 		return result;

@@ -3,6 +3,7 @@ import {
 	formatPluggyDiagnostics,
 	PLUGGY_NO_ACCOUNTS_PREFIX,
 	PLUGGY_RECONNECT_MESSAGE,
+	PLUGGY_UPDATING_PREFIX,
 	pluggyWaitingFor,
 } from "@orbita/shared";
 import { describe, expect, it } from "vitest";
@@ -192,6 +193,53 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		expect(result.connections[0]?.notes).toContain(
 			"O Pluggy devolveu 1 conta(s), mas nenhuma é conta ou cartão que o Órbita importa.",
 		);
+	});
+
+	it("só produtos que o Órbita não lê: texto próprio, sem 'ainda não enviou contas' e sem nova tentativa", async () => {
+		const t = setup({
+			...empty,
+			accounts: [{ id: "inv-1", type: "INVESTMENT", subtype: "FUND", name: "Fundo Exemplo" }],
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID });
+		const result = await t.run();
+		expect(result.connections[0]?.retry).toBeUndefined();
+		const c = await t.stores.pluggyConnections.get(ITEM_ID);
+		expect(c?.lastStatus).toBe("partial");
+		expect(c?.lastError).toContain("O banco só enviou produtos que o Órbita ainda não lê");
+		expect(c?.lastError?.startsWith(PLUGGY_NO_ACCOUNTS_PREFIX)).toBe(false);
+		expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBeNull();
+	});
+
+	it("o motivo principal aparece primeiro e os outros viram ' · e mais N avisos'", async () => {
+		const only = setup({
+			item: { connector: MEU, status: "UPDATING" },
+			accounts: [bankAccount],
+			transactions: { [BANK_ACCOUNT_ID]: [] },
+		});
+		await only.stores.pluggyConnections.add({ id: ITEM_ID });
+		await only.run();
+		const alone = (await only.stores.pluggyConnections.get(ITEM_ID))?.lastError;
+		expect(alone?.startsWith(PLUGGY_UPDATING_PREFIX)).toBe(true);
+		expect(alone).not.toContain("e mais");
+
+		const one = setup({
+			item: { connector: MEU, status: "UPDATING" },
+			accounts: [bankAccount, { type: "CREDIT", name: "Cartão sem id" }],
+			transactions: { [BANK_ACCOUNT_ID]: [] },
+		});
+		await one.stores.pluggyConnections.add({ id: ITEM_ID });
+		await one.run();
+		const oneError = (await one.stores.pluggyConnections.get(ITEM_ID))?.lastError;
+		expect(oneError?.startsWith(PLUGGY_UPDATING_PREFIX)).toBe(true);
+		expect(oneError).toContain(" · e mais 1 aviso");
+		expect(oneError).not.toContain("1 avisos");
+
+		const two = setup({ item: { connector: MEU, status: "UPDATING" }, accounts: [{ type: "CREDIT" }] });
+		await two.stores.pluggyConnections.add({ id: ITEM_ID });
+		await two.run();
+		const twoError = (await two.stores.pluggyConnections.get(ITEM_ID))?.lastError;
+		expect(twoError?.startsWith(PLUGGY_UPDATING_PREFIX)).toBe(true);
+		expect(twoError).toContain(" · e mais 2 avisos");
 	});
 
 	it("lista vazia com a autorização vencida é pedido de reconexão (a doc: 'reads stop')", async () => {
