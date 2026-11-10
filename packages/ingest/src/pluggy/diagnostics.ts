@@ -22,7 +22,7 @@ import {
 } from "./investments.ts";
 import { mapPluggyAccount } from "./mapping.ts";
 import {
-	accountSchema,
+	accountFields,
 	investmentSchema,
 	type PluggyAccount,
 	type PluggyInvestment,
@@ -157,7 +157,12 @@ function mappingOf(a: PluggyAccount, connectorName: string | null | undefined): 
 	}
 }
 
-const KNOWN_ACCOUNT_FIELDS = new Set([...Object.keys(accountSchema.shape), "itemId"]);
+const KNOWN_ACCOUNT_FIELDS = new Set([
+	...Object.keys(accountFields.shape),
+	"numberLast4",
+	"fieldProblems",
+	"itemId",
+]);
 
 /** Nomes (só nomes) dos campos preenchidos que o Órbita não lê: mostra o que mais o banco manda. */
 function otherAccountFields(a: PluggyAccount): string[] {
@@ -167,6 +172,13 @@ function otherAccountFields(a: PluggyAccount): string[] {
 		.filter((k) => /^[A-Za-z0-9_]{1,40}$/.test(k))
 		.sort()
 		.slice(0, 30);
+}
+
+/** Só `campo: código` (letras, números, `_`, `.`, `[]`): nunca o valor. */
+function safeProblems(problems: readonly string[] | undefined): string[] {
+	return (problems ?? [])
+		.filter((p) => /^[A-Za-z0-9_.[\]]{1,60}: (invalid_type|truncated)$/.test(p))
+		.slice(0, 20);
 }
 
 type AccountDeps = DiagnoseDeps & { connectorName?: string | null };
@@ -221,7 +233,7 @@ async function diagnoseAccount(deps: AccountDeps, a: PluggyAccount): Promise<Dia
 		subtype: safeText(a.subtype, 60),
 		name: safeText(a.name) ?? "?",
 		marketingName: safeText(a.marketingName),
-		numberLast4: lastDigits(a.number, 4),
+		numberLast4: a.numberLast4 ?? lastDigits(a.number, 4),
 		balance: money(a.balance),
 		currencyCode: safeText(a.currencyCode, 10),
 		credit: c
@@ -238,6 +250,7 @@ async function diagnoseAccount(deps: AccountDeps, a: PluggyAccount): Promise<Dia
 		link,
 		mapping: mappingOf(a, deps.connectorName),
 		otherFields: otherAccountFields(a),
+		fieldProblems: safeProblems(a.fieldProblems),
 		bills,
 		transactions: {
 			error: txs.error,

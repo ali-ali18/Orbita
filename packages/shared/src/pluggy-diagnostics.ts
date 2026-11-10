@@ -88,6 +88,8 @@ export interface DiagAccount {
 	mapping?: string | undefined;
 	/** NOMES (nunca valores) dos campos que vieram preenchidos e o Órbita não lê. */
 	otherFields?: string[] | undefined;
+	/** Campos que o Órbita lê e vieram com tipo errado ou longos demais: "campo: invalid_type" / "campo: truncated". Nunca o valor. */
+	fieldProblems?: string[] | undefined;
 	/**
 	 * Só em conta de cartão. `bills.error` preenchido = `/bills` falhou (a lista fica vazia). `dropped`/`problems`:
 	 * faturas recusadas por formato e o motivo (campo e problema).
@@ -333,6 +335,8 @@ export function formatDiagAccount(a: DiagAccount): string {
 	}
 	if (a.mapping !== undefined) out.push(`Mapeamento do Órbita: ${a.mapping}`);
 	if (a.otherFields?.length) out.push(`Outros campos preenchidos: ${a.otherFields.join(", ")}`);
+	if (a.fieldProblems?.length)
+		out.push(`Campos fora do formato (campo: problema): ${a.fieldProblems.join(" | ")}`);
 	out.push(
 		a.link
 			? `Ligada no Órbita a: ${a.link.kind === "card" ? "cartão" : "conta"} "${a.link.name}" (${a.link.id})${a.link.archived ? " [arquivado]" : ""}`

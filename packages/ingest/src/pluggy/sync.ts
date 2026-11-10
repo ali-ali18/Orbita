@@ -62,6 +62,7 @@ import {
 	type BillPayment,
 	type BillTotal,
 	isEstimatedCardDates,
+	isGeneratedAccountName,
 	type MappedAccount,
 	type MappedTransaction,
 	mapPluggyAccount,
@@ -461,6 +462,13 @@ async function syncConnection(
 			const reason = `${accountsRead.dropped} conta(s) vieram fora do formato`;
 			partial.push(reason);
 			formatOnly.add(reason);
+		}
+		// Campo opcional que veio com tipo errado ou comprido demais não recusa a conta, mas não passa em silêncio.
+		const fieldProblems = new Set(pluggyAccounts.flatMap((a) => a.fieldProblems ?? []));
+		if (fieldProblems.size > 0) {
+			result.notes.push(
+				`Alguns campos das contas vieram fora do formato e foram ignorados ou cortados (${[...fieldProblems].slice(0, 6).join("; ")}). Mande o Diagnóstico da conexão se algo ficou errado.`,
+			);
 		}
 		if (
 			pluggyAccounts.length === 0 &&
@@ -1088,6 +1096,7 @@ async function linkAccounts(
 				account.archivedAt === null &&
 				account.name !== mapped.input.name &&
 				(hasMeuPluggyPrefix(account.name) ||
+					isGeneratedAccountName(account.name) ||
 					isLegacyRawName(account.name, pa.marketingName?.trim() || pa.name))
 			) {
 				// Importada antes da limpeza do nome ("MeuPluggy Inter"): o prefixo é a marca de que o dono ainda não
@@ -1161,6 +1170,7 @@ async function linkAccounts(
 			card.archivedAt === null &&
 			card.name !== mapped.input.name &&
 			(hasMeuPluggyPrefix(card.name) ||
+				isGeneratedAccountName(card.name) ||
 				isLegacyRawName(card.name, pa.marketingName?.trim() || pa.name) ||
 				(isWeakCardName(card.name) && !isWeakCardName(mapped.input.name)))
 		) {

@@ -3,7 +3,8 @@ import { z } from "zod";
 /*
  * Respostas do Pluggy (formato conferido contra o SDK oficial pluggy-sdk 0.94.2: dist/types/{account,transaction,
  * item,common,creditCardBills}.d.ts; ver docs/pluggy.md). Tudo que vem de fora passa por aqui antes de virar dado do Órbita. Só os campos que o
- * Órbita usa são exigidos; os demais são ignorados (o Zod descarta chave desconhecida). Campos que o Pluggy
+ * Órbita usa são exigidos. A conta (`accountSchema`) e os investimentos usam `.passthrough()`: chave desconhecida
+ * passa, só para o diagnóstico listar o NOME dela; os demais schemas descartam chave desconhecida. Campos que o Pluggy
  * pode omitir ou mandar `null` são `nullish`.
  * Os nomes seguem https://docs.pluggy.ai/reference (ver docs/pluggy.md: o que foi conferido e o que é suposição).
  */
@@ -81,71 +82,146 @@ export const itemResponse = z.object({
 });
 export type PluggyItem = z.infer<typeof itemResponse>;
 
-/** Texto opcional que nunca recusa a linha: o que não é texto vira `null` e o que passa do tamanho é cortado. */
-const looseText = (max: number) =>
-	z
-		.string()
-		.nullish()
-		.catch(null)
-		.transform((v): string | null => (typeof v === "string" ? v.slice(0, max) : null));
+/*
+ * Leitura tolerante, mas não muda: campo opcional ausente ou `null` vale `null`; campo PRESENTE com tipo errado vira
+ * `null` e campo mais longo que o limite é cortado, e os dois ficam registrados em `fieldProblems` da linha
+ * ("campo: invalid_type" / "campo: truncated"; só o nome do campo e o código, nunca o valor). Isso não recusa a
+ * linha: o sync mostra como nota e o Diagnóstico lista.
+ */
+const MAX_FIELD_PROBLEMS = 20;
 
-const creditData = z.object({
-	/** Fechamento e vencimento da fatura atual (data). O Órbita guarda só o dia. */
-	balanceCloseDate: looseText(40),
-	balanceDueDate: looseText(40),
-	creditLimit: money.nullish().catch(null),
-	/** Limite ainda disponível (SDK 0.94.2: `availableCreditLimit`). Valor estranho vira `null`: não derruba a conta. */
-	availableCreditLimit: money.nullish().catch(null),
-	/** Só o diagnóstico lê estes três (o sync não usa). */
-	minimumPayment: money.nullish().catch(null),
-	brand: looseText(60),
-	level: looseText(60),
-});
+class Problems {
+	readonly list: string[] = [];
+	add(path: string, code: "invalid_type" | "truncated"): void {
+		const entry = `${path}: ${code}`;
+		if (this.list.length < MAX_FIELD_PROBLEMS && !this.list.includes(entry)) this.list.push(entry);
+	}
+}
+
+/** Texto opcional: ausente/`null` → `null`; não-texto → `null` e `invalid_type`; acima de `max` → cortado e `truncated`. */
+function readText(raw: unknown, path: string, max: number, problems: Problems): string | null {
+	if (raw === undefined || raw === null) return null;
+	if (typeof raw !== "string") {
+		problems.add(path, "invalid_type");
+		return null;
+	}
+	if (raw.length > max) {
+		problems.add(path, "truncated");
+		return raw.slice(0, max);
+	}
+	return raw;
+}
+
+function readMoney(raw: unknown, path: string, problems: Problems): Money {
+	if (raw === undefined || raw === null) return null;
+	const parsed = money.safeParse(raw);
+	if (parsed.success) return parsed.data;
+	problems.add(path, "invalid_type");
+	return null;
+}
+
+/** Objeto opcional: ausente/`null` → `null`; outra coisa que não objeto → `null` e `invalid_type`. */
+function readObject(raw: unknown, path: string, problems: Problems): Record<string, unknown> | null {
+	if (raw === undefined || raw === null) return null;
+	if (typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
+	problems.add(path, "invalid_type");
+	return null;
+}
+
+function readCreditData(raw: unknown, problems: Problems): PluggyAccount["creditData"] {
+	const c = readObject(raw, "creditData", problems);
+	if (c === null) return null;
+	return {
+		/** Fechamento e vencimento da fatura atual (data). O Órbita guarda só o dia. */
+		balanceCloseDate: readText(c.balanceCloseDate, "creditData.balanceCloseDate", 40, problems),
+		balanceDueDate: readText(c.balanceDueDate, "creditData.balanceDueDate", 40, problems),
+		creditLimit: readMoney(c.creditLimit, "creditData.creditLimit", problems),
+		/** Limite ainda disponível (SDK 0.94.2: `availableCreditLimit`). Valor estranho vira `null`: não derruba a conta. */
+		availableCreditLimit: readMoney(c.availableCreditLimit, "creditData.availableCreditLimit", problems),
+		/** Só o diagnóstico lê estes três (o sync não usa). */
+		minimumPayment: readMoney(c.minimumPayment, "creditData.minimumPayment", problems),
+		brand: readText(c.brand, "creditData.brand", 60, problems),
+		level: readText(c.level, "creditData.level", 60, problems),
+	};
+}
+
+/** Últimos 4 dígitos do número (cartão "5502 **** **** 4321" → "4321"), do valor ORIGINAL, antes de qualquer corte. */
+export function last4Of(number: string | null | undefined): string | null {
+	const digits = (number ?? "").replace(/\D/g, "");
+	return digits.length >= 4 ? digits.slice(-4) : null;
+}
 
 /**
  * Conta do Pluggy. TOLERANTE de propósito: só `id` e `type` são exigidos. A doc marca `subtype`, `number`, `balance`,
  * `currencyCode` e `name` como sempre presentes (docs.pluggy.ai/docs/products/accounts), mas cada banco preenche do
  * seu jeito ("what arrives depends on what each institution exposes": /docs/connections/open-finance-vs-direct-fields)
- * e um campo `null`, mais longo ou de outro tipo não pode fazer a conta sumir: vira `null` (ou é cortado). O que não
- * tem nem `id` nem `type` é recusado e CONTADO pelo cliente (`accountsRead`), nunca descartado em silêncio.
+ * e um campo `null`, mais longo ou de outro tipo não pode fazer a conta sumir: vira `null` (ou é cortado) e fica em
+ * `fieldProblems`. Duas exceções de propósito: `currencyCode` AUSENTE vale BRL (como sempre valeu), mas PRESENTE e
+ * ilegível recusa a conta (sem saber a moeda, tratar como real misturaria moedas); e o que não tem `id` ou `type` é
+ * recusado. A recusada é CONTADA pelo cliente (`accountsRead`) com o motivo ("currencyCode: invalid_type"), nunca
+ * descartada em silêncio.
  * `.passthrough()`: o diagnóstico lista os NOMES dos campos que vieram e o Órbita não lê (nunca os valores).
  */
-export const accountSchema = z
+export const accountFields = z
 	.object({
 		id,
 		/** "BANK" ou "CREDIT" (SDK: ACCOUNT_TYPES); outros valores chegam como texto e são ignorados no mapeamento, com aviso. */
 		type: z.string().min(1).max(40),
+		/** Ausente/`null` vale BRL; texto de outro tipo é `invalid_type` e recusa a conta (ver acima). */
+		currencyCode: z.string().nullish(),
+		subtype: z.unknown().optional(),
+		name: z.unknown().optional(),
+		marketingName: z.unknown().optional(),
+		number: z.unknown().optional(),
+		taxNumber: z.unknown().optional(),
+		owner: z.unknown().optional(),
+		balance: z.unknown().optional(),
+		creditData: z.unknown().optional(),
+		bankData: z.unknown().optional(),
+	})
+	.passthrough();
+
+export const accountSchema = accountFields.transform((raw): PluggyAccount => {
+	const problems = new Problems();
+	const { id: accountId, type, currencyCode, ...rest } = raw;
+	const number = readText(raw.number, "number", 60, problems);
+	// O número pode vir mais longo que o limite: os 4 últimos dígitos saem do valor original.
+	const numberLast4 = typeof raw.number === "string" ? last4Of(raw.number) : null;
+	const bank = readObject(raw.bankData, "bankData", problems);
+	const nameRaw = readText(raw.name, "name", 500, problems);
+	return {
+		...rest,
+		id: accountId,
+		type,
 		/** `CHECKING_ACCOUNT` / `SAVINGS_ACCOUNT` / `CREDIT_CARD` na doc; valor novo passa como texto. */
-		subtype: looseText(60),
-		/** Sem nome (ou com `null`) vira "": quem mostra usa "Conta"/"Cartão". */
-		name: z
-			.string()
-			.nullish()
-			.catch(null)
-			.transform((v): string => (typeof v === "string" ? v.slice(0, 500) : "")),
-		marketingName: looseText(500),
-		number: looseText(60),
-		/** CPF/CNPJ do titular. Serve para reconhecer transferência entre contas do próprio dono. */
-		taxNumber: looseText(40),
+		subtype: readText(raw.subtype, "subtype", 60, problems),
+		/** Sem nome (ou ilegível) vira "": o mapeamento dá um nome gerado (banco + tipo). */
+		name: nameRaw ?? "",
+		marketingName: readText(raw.marketingName, "marketingName", 500, problems),
+		number,
+		numberLast4,
+		/** CPF/CNPJ do titular, SEM corte: serve para reconhecer transferência entre contas do próprio dono. */
+		taxNumber: readText(raw.taxNumber, "taxNumber", 200, problems),
 		/** Nome do titular da conta. Serve (com o CPF) para reconhecer Pix entre contas do próprio dono. */
-		owner: looseText(200),
-		currencyCode: looseText(10),
+		owner: readText(raw.owner, "owner", 200, problems),
+		currencyCode: typeof currencyCode === "string" ? currencyCode.slice(0, 10) : null,
 		/**
 		 * Saldo em reais (número JSON). Na conta BANK é o saldo da conta; no cartão, o que se deve. Nunca multiplique por
 		 * 100: use `decimalToCents`. Valor estranho vira `null`.
 		 */
-		balance: money.nullish().catch(null),
-		creditData: creditData.nullish().catch(null),
+		balance: raw.balance === undefined ? undefined : readMoney(raw.balance, "balance", problems),
+		creditData: readCreditData(raw.creditData, problems),
 		/**
 		 * `transferNumber`: "COMPE / Agência / Conta" (docs.pluggy.ai/docs/products/accounts, "Bank data"). O COMPE diz de
 		 * qual banco é a conta quando o nome não diz ("Conta Corrente"). Valor estranho vira `null`.
 		 */
-		bankData: z
-			.object({ transferNumber: looseText(60) })
-			.nullish()
-			.catch(null),
-	})
-	.passthrough();
+		bankData:
+			bank === null
+				? null
+				: { transferNumber: readText(bank.transferNumber, "bankData.transferNumber", 60, problems) },
+		fieldProblems: problems.list,
+	};
+});
 type Money = number | string | null;
 /**
  * A conta já validada. Escrita à mão (e não `z.infer`) para os campos opcionais continuarem opcionais: o schema os
@@ -158,6 +234,8 @@ export interface PluggyAccount {
 	subtype?: string | null | undefined;
 	marketingName?: string | null | undefined;
 	number?: string | null | undefined;
+	/** Últimos 4 dígitos do `number` ORIGINAL (antes do corte). Ausente: o mapeamento calcula do `number`. */
+	numberLast4?: string | null | undefined;
 	taxNumber?: string | null | undefined;
 	owner?: string | null | undefined;
 	currencyCode?: string | null | undefined;
@@ -175,6 +253,8 @@ export interface PluggyAccount {
 		| null
 		| undefined;
 	bankData?: { transferNumber?: string | null } | null | undefined;
+	/** Campos opcionais descartados ou cortados ("campo: invalid_type" / "campo: truncated"). Nunca o valor. */
+	fieldProblems?: string[] | undefined;
 }
 
 const participant = z.object({

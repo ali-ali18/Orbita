@@ -22,7 +22,14 @@ import {
 	normalizeMerchantName,
 	pickCategoryRule,
 } from "@orbita/shared";
-import { bankIspb, cardDisplayName, cleanBankName, isMeuPluggyConnector } from "./bank-name.ts";
+import {
+	bankDisplayName,
+	bankIspb,
+	cardDisplayName,
+	cleanBankName,
+	findKnownBank,
+	isMeuPluggyConnector,
+} from "./bank-name.ts";
 import {
 	type CategoryIndex,
 	categoryChain,
@@ -36,7 +43,7 @@ import {
 	suggestSpendingSlug,
 } from "./classify.ts";
 import { categoryForCnae, categoryForMcc } from "./mcc.ts";
-import type { PluggyAccount, PluggyBill, PluggyTransaction } from "./schemas.ts";
+import { last4Of, type PluggyAccount, type PluggyBill, type PluggyTransaction } from "./schemas.ts";
 
 /*
  * Do formato do Pluggy para o do Órbita. Tudo aqui é função pura (sem rede, sem banco, sem relógio).
@@ -96,8 +103,33 @@ export type MappedAccount =
 
 const NAME_MAX = 60;
 
-function displayName(account: PluggyAccount, connectorName: string | null | undefined): string {
-	const own = cleanBankName(account.marketingName?.trim() || account.name.trim()) || "Conta";
+/**
+ * Nome gerado quando a conta não trouxe nome legível: o banco e o tipo ("C6 Bank · conta"). Sem banco, só o tipo.
+ * `isGeneratedAccountName` reconhece este formato (e o "Conta"/"Cartão" das versões antigas) para o sync trocá-lo
+ * quando o nome vier depois.
+ */
+export function generatedAccountName(bank: string | null | undefined, kind: "conta" | "cartão"): string {
+	const label = bank?.trim() ? bankDisplayName(findKnownBank(bank) ?? bank.trim()) : "";
+	if (label === "") return kind === "conta" ? "Conta" : "Cartão";
+	return `${label} · ${kind}`.slice(0, NAME_MAX).trim();
+}
+
+/** O nome gravado é um dos que `generatedAccountName` (ou a versão antiga, "Conta"/"Cartão") produz? */
+export function isGeneratedAccountName(name: string | null | undefined): boolean {
+	const text = (name ?? "").trim();
+	return text === "Conta" || text === "Cartão" || / · (conta|cartão)$/.test(text);
+}
+
+function displayName(
+	account: PluggyAccount,
+	connectorName: string | null | undefined,
+	bankName: string | null = null,
+): string {
+	const own = cleanBankName(account.marketingName?.trim() || account.name.trim());
+	if (own === "") {
+		const connector = isMeuPluggyConnector(connectorName) ? null : (connectorName?.trim() ?? null);
+		return generatedAccountName(bankName ?? connector, "conta");
+	}
 	// "MeuPluggy" não é banco: o banco já vem no nome da conta, sem prefixo.
 	const bank = isMeuPluggyConnector(connectorName) ? undefined : connectorName?.trim();
 	const full = bank && !own.toLowerCase().includes(bank.toLowerCase()) ? `${bank} ${own}` : own;
@@ -168,7 +200,7 @@ export function mapPluggyAccount(
 	if (account.currencyCode && account.currencyCode !== "BRL") {
 		return { kind: "ignored", reason: `moeda ${account.currencyCode} não é suportada` };
 	}
-	const name = displayName(account, connectorName);
+	const name = displayName(account, connectorName, bankName);
 	if (account.type === "BANK") {
 		return {
 			kind: "account",
@@ -184,20 +216,23 @@ export function mapPluggyAccount(
 	}
 	if (account.type === "CREDIT") {
 		const dates = resolveCardDates(account, bills);
-		const digits = (account.number ?? "").replace(/\D/g, "");
-		const own = cleanBankName(account.marketingName?.trim() || account.name.trim()) || "Cartão";
+		// Os 4 últimos dígitos saem do número ORIGINAL (o schema os calcula antes de cortar o texto).
+		const last4 = account.numberLast4 !== undefined ? account.numberLast4 : last4Of(account.number);
+		const own = cleanBankName(account.marketingName?.trim() || account.name.trim());
 		const bank = bankName ?? (isMeuPluggyConnector(connectorName) ? null : (connectorName?.trim() ?? null));
 		return {
 			kind: "card",
 			externalId: account.id,
 			input: {
 				name:
-					cardDisplayName(own, bank || null)
-						.slice(0, NAME_MAX)
-						.trim() || name,
+					own === ""
+						? generatedAccountName(bank, "cartão")
+						: cardDisplayName(own, bank || null)
+								.slice(0, NAME_MAX)
+								.trim() || name,
 				// O emissor vem da conexão (ISPB), não do nome do cartão ("FREE VISA" não diz que é Santander).
 				...(bankIspb(bank) ? { bankCode: bankIspb(bank) } : {}),
-				last4: digits.length >= 4 ? digits.slice(-4) : null,
+				last4,
 				closingDay: dates.closingDay,
 				dueDay: dates.dueDay,
 				limitCents: limitCentsOf(account.creditData?.creditLimit),
