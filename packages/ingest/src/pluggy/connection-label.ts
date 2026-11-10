@@ -93,12 +93,19 @@ export function labelFromAccounts(input: {
  * O nome gravado é um dos que a própria sincronização já deu (e pode ser refeito)? As versões antigas juntavam o nome
  * das contas ("Inter, GOLD", "Nu Pagamentos S.A. - Ins…, Gold", "Conta, Cartão +2"). Vale quando CADA pedaço é: um nome
  * cortado com "…" (só o rótulo antigo cortava assim), só bandeira/nível de cartão ("Gold"), ou igual ao nome de uma
- * conta da conexão. Nome que o dono digitou antes de existir a marca `labelEditedByOwner` não cai aqui, a menos que
- * seja exatamente o nome de uma conta.
+ * conta da conexão; e só no formato exato do rótulo antigo (vários pedaços ligados por ", ", pedaço cortado com "…" ou
+ * " +N" no fim). Um pedaço só ("Gold", "Black", "Meu C6", "Conta Inter") pode ser apelido que o dono digitou antes de
+ * existir a marca `labelEditedByOwner`: não cai aqui.
  */
 export function isAutoLabel(current: string, accounts: readonly PluggyAccount[]): boolean {
-	const label = clean(current).replace(/\s\+\d+$/, "");
+	const text = clean(current);
+	const label = text.replace(/\s\+\d+$/, "");
 	if (label === "") return true;
+	// Só o FORMATO exato do rótulo antigo: vários pedaços ligados por ", ", um pedaço cortado com "…" ou o " +N" do fim.
+	// Um pedaço só que é bandeira/nível ("Gold", "Black") ou nome de conta pode ser apelido do dono.
+	const pieces = label.split(",");
+	const truncated = (part: string) => /(…|\.{3})$/u.test(part.trim());
+	if (!(pieces.length > 1 || text !== label || pieces.some(truncated))) return false;
 	const known = new Set<string>();
 	for (const a of accounts) {
 		for (const n of [a.marketingName, a.name]) {
@@ -108,7 +115,7 @@ export function isAutoLabel(current: string, accounts: readonly PluggyAccount[])
 		}
 	}
 	known.delete("");
-	return label.split(",").every((piece) => {
+	return pieces.every((piece) => {
 		const part = piece.trim();
 		if (part === "") return false;
 		if (/(…|\.{3})$/u.test(part)) return part.length <= LEGACY_NAME_MAX + 2;
