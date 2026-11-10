@@ -34,6 +34,12 @@ export {
 	toInvestmentPosition,
 } from "./pluggy/investments.ts";
 export { PAYMENT_REVIEW_NOTE } from "./pluggy/mapping.ts";
+export {
+	type Archived,
+	archiveConnectionData,
+	archiveOrphanedData,
+	removePluggyConnection,
+} from "./pluggy/removal.ts";
 export type {
 	PluggyAccount,
 	PluggyInvestment,
