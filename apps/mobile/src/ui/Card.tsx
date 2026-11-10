@@ -1,6 +1,7 @@
 import { colors, radius, spacing } from "@orbita/tokens";
 import type { ReactNode } from "react";
 import { Pressable, type StyleProp, View, type ViewStyle } from "react-native";
+import { CardHighlight } from "./CardHighlight.tsx";
 import { Icon } from "./icons.tsx";
 import { useWidgetLongPress } from "./long-press.ts";
 import { Text } from "./Text.tsx";
@@ -10,12 +11,18 @@ export function Card({
 	style,
 	onPress,
 	label,
+	highlight = true,
 }: {
 	children: ReactNode;
 	style?: StyleProp<ViewStyle>;
 	/** O card inteiro abre outra tela. */
 	onPress?: () => void;
 	label?: string;
+	/**
+	 * Borda de brilho e luz de canto (styleguide, "Card de destaque"). Ligada por padrão, e só aparece em card de
+	 * largura cheia: o de meia largura (2x2) fica sem, sozinho, pela medida. Passe `false` em estado de erro ou vazio.
+	 */
+	highlight?: boolean;
 }) {
 	const onLongPress = useWidgetLongPress();
 	const box = {
@@ -23,8 +30,14 @@ export function Card({
 		borderRadius: radius.card,
 		padding: spacing.xl,
 	};
+	const shine = highlight ? <CardHighlight /> : null;
 	if (!onPress && !onLongPress) {
-		return <View style={[box, style]}>{children}</View>;
+		return (
+			<View style={[box, style]}>
+				{shine}
+				{children}
+			</View>
+		);
 	}
 	return (
 		<Pressable
@@ -35,6 +48,7 @@ export function Card({
 			onLongPress={onLongPress}
 			style={({ pressed }) => [box, style, { opacity: pressed ? 0.8 : 1 }]}
 		>
+			{shine}
 			{children}
 		</Pressable>
 	);

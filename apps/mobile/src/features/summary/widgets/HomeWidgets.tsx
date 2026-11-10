@@ -1,6 +1,5 @@
-import { type HomeLayout, type HomeLayoutItem, homeRows } from "@orbita/shared";
+import { type HomeLayout, type HomeLayoutItem, type HomeWidgetId, homeRows } from "@orbita/shared";
 import { spacing } from "@orbita/tokens";
-import type { ReactNode } from "react";
 import { View } from "react-native";
 import type {
 	AccountBalancesView,
@@ -23,6 +22,7 @@ import { RecentCard } from "../RecentCard.tsx";
 import { InstallmentsSquare } from "../SquareCards.tsx";
 import { WalletBlock } from "../WalletBlock.tsx";
 import { SubscriptionsWidget } from "./SubscriptionsWidget.tsx";
+import type { WidgetNode } from "./use-widget-menu.ts";
 import {
 	BalanceTall,
 	BalanceWide,
@@ -143,9 +143,34 @@ export function WidgetBody({ item, data }: { item: HomeLayoutItem; data: HomeWid
 	}
 }
 
-/** Segurar o widget entrega o gesto a quem estiver dentro dele (card, linha, faixa). */
-function Held({ onLongPress, children }: { onLongPress: () => void; children: ReactNode }) {
-	return <LongPressContext.Provider value={onLongPress}>{children}</LongPressContext.Provider>;
+/**
+ * Um widget da grade: entrega o segurar a quem estiver dentro dele (card, linha, faixa) e se registra para o menu
+ * medir onde ele está na tela. `half` é o 2x2: divide a linha e deixa o card esticar na altura do vizinho.
+ */
+function Slot({
+	item,
+	data,
+	half = false,
+	onLongPress,
+	register,
+}: {
+	item: HomeLayoutItem;
+	data: HomeWidgetData;
+	half?: boolean;
+	onLongPress: (id: HomeWidgetId) => void;
+	register: (id: HomeWidgetId, node: WidgetNode | null) => void;
+}) {
+	return (
+		<View
+			ref={(node) => register(item.id, node)}
+			collapsable={false}
+			style={half ? { flex: 1, flexDirection: "row" } : undefined}
+		>
+			<LongPressContext.Provider value={() => onLongPress(item.id)}>
+				<WidgetBody item={item} data={data} />
+			</LongPressContext.Provider>
+		</View>
+	);
 }
 
 /**
@@ -156,24 +181,30 @@ export function HomeWidgets({
 	layout,
 	data,
 	onLongPress,
+	register,
 }: {
 	layout: HomeLayout;
 	data: HomeWidgetData;
-	onLongPress: (id: HomeLayoutItem["id"]) => void;
+	onLongPress: (id: HomeWidgetId) => void;
+	/** Guarda a `View` de cada widget, para o menu ancorar nele. */
+	register: (id: HomeWidgetId, node: WidgetNode | null) => void;
 }) {
 	return (
 		<>
 			{homeRows(layout).map((row) =>
 				row.kind === "full" ? (
-					<Held key={row.item.id} onLongPress={() => onLongPress(row.item.id)}>
-						<WidgetBody item={row.item} data={data} />
-					</Held>
+					<Slot key={row.item.id} item={row.item} data={data} onLongPress={onLongPress} register={register} />
 				) : (
 					<View key={row.items.map((i) => i.id).join("+")} style={{ flexDirection: "row", gap: spacing.md }}>
 						{row.items.map((item) => (
-							<Held key={item.id} onLongPress={() => onLongPress(item.id)}>
-								<WidgetBody item={item} data={data} />
-							</Held>
+							<Slot
+								key={item.id}
+								item={item}
+								data={data}
+								half
+								onLongPress={onLongPress}
+								register={register}
+							/>
 						))}
 						{row.items.length === 1 ? <View style={{ flex: 1 }} /> : null}
 					</View>

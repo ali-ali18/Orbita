@@ -5,7 +5,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { money } from "../../lib/format.ts";
 import { toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import { BankLogo, Button, ErrorState, Skeleton, Text } from "../../ui/index.ts";
+import { BankLogo, Button, CardHighlight, ErrorState, Skeleton, Text } from "../../ui/index.ts";
 import { useNow } from "../banks/use-now.ts";
 import { Notice } from "../card/parts.tsx";
 import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
@@ -94,6 +94,7 @@ export function BalancesScreen() {
 								backgroundColor: colors.surface,
 							}}
 						>
+							<CardHighlight radius={radius.block} />
 							<View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
 								<BankLogo {...bankBadge({ name: a.name, bankCode: a.bankCode })} size={40} />
 								<View style={{ flex: 1, gap: 2 }}>

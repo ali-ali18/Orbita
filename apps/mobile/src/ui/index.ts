@@ -3,6 +3,7 @@ export { type BankBadge, BankLogo } from "./BankLogo.tsx";
 export { BottomBar, useBottomBarHeight } from "./BottomBar.tsx";
 export { Button } from "./Button.tsx";
 export { Card, CardHeader } from "./Card.tsx";
+export { CardHighlight } from "./CardHighlight.tsx";
 export { Chip } from "./Chip.tsx";
 export { ConfirmDialog } from "./ConfirmDialog.tsx";
 export { DonutChart, type DonutSegment } from "./DonutChart.tsx";

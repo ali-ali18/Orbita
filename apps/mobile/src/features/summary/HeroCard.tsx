@@ -32,9 +32,18 @@ function SpentLine({ month, cents, hidden }: { month: string; cents: number; hid
 	);
 }
 
-function Shell({ title = TITLE, children }: { title?: string; children: React.ReactNode }) {
+/** O card herói do Início. No erro fica sem a borda de destaque. */
+function Shell({
+	title = TITLE,
+	highlight = true,
+	children,
+}: {
+	title?: string;
+	highlight?: boolean;
+	children: React.ReactNode;
+}) {
 	return (
-		<Card>
+		<Card highlight={highlight}>
 			<Text variant="cardTitle" tone="secondary">
 				{title}
 			</Text>
@@ -66,7 +75,7 @@ export function HeroCard({
 	}
 	if (state.phase === "error") {
 		return (
-			<Shell>
+			<Shell highlight={false}>
 				<View style={{ marginTop: spacing.md }}>
 					<ErrorState message={state.message} onRetry={state.retry} />
 				</View>
