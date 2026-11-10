@@ -1,4 +1,5 @@
 import {
+	addDays,
 	EVOLUTION_RANGE_MONTHS,
 	type EvolutionRange,
 	evolutionRangeStart,
@@ -11,6 +12,7 @@ import {
 	investmentMovementKind,
 	investmentSubtypeLabel,
 	isActiveInvestment,
+	isBrlInvestment,
 	type LocalDate,
 	monthlyInvestments,
 	monthOf,
@@ -37,6 +39,7 @@ import type {
 	InvestmentsOverviewResponse,
 	InvestmentYieldDto,
 } from "@orbita/shared";
+import { buildTermsFields, notApplicableTerms, resolveTerms } from "./investment-terms.ts";
 
 /*
  * Leitura de Investimentos: junta as stores com o engine (`@orbita/core`) e devolve os DTOs de `@orbita/shared`
@@ -56,6 +59,39 @@ const institutionLabel = (label: string | null | undefined): string => {
 	const text = label?.trim() ?? "";
 	return text === "" || /^meu\s*pluggy$/i.test(text) ? UNNAMED_INSTITUTION : text;
 };
+
+/**
+ * Posições de uma conexão em quatro situações que não se misturam: `active` (em reais, com saldo ou saldo ainda
+ * desconhecido: entra no patrimônio), `noBalance` (ainda ativa no banco, mas com saldo zero: não entra no patrimônio
+ * por enquanto, e NÃO é encerrada), `closed` (arquivada ou `TOTAL_WITHDRAWAL`) e `foreignCurrency` (ativa em outra moeda:
+ * fica fora da soma em reais).
+ */
+export interface ConnectionInvestmentCounts {
+	active: number;
+	noBalance: number;
+	closed: number;
+	foreignCurrency: number;
+}
+
+/**
+ * Quantas posições cada conexão trouxe, para a linha da conexão em Bancos. Conexão sem posição não aparece no mapa.
+ * Só conta; as regras são as do engine (`isActiveInvestment`, `isBrlInvestment`).
+ */
+export async function connectionInvestmentCounts(
+	stores: Stores,
+): Promise<Map<string, ConnectionInvestmentCounts>> {
+	const counts = new Map<string, ConnectionInvestmentCounts>();
+	for (const r of await stores.investments.list({ includeArchived: true })) {
+		if (r.connectionId === null) continue;
+		const entry = counts.get(r.connectionId) ?? { active: 0, noBalance: 0, closed: 0, foreignCurrency: 0 };
+		if (!isActiveInvestment({ archived: r.archivedAt !== null, status: r.status })) entry.closed++;
+		else if (!isBrlInvestment(r)) entry.foreignCurrency++;
+		else if (r.balanceCents !== null && r.balanceCents <= 0) entry.noBalance++;
+		else entry.active++;
+		counts.set(r.connectionId, entry);
+	}
+	return counts;
+}
 
 interface Loaded {
 	records: InvestmentRecord[];
@@ -116,6 +152,28 @@ function toPositionInput(r: InvestmentRecord, labels: ReadonlyMap<string, string
 	};
 }
 
+/**
+ * Condições, sugestões e rendimento esperado de cada posição. Lê o que o dono informou e o CDI (só o trecho que as datas
+ * de aplicação pedem) uma vez para todas as posições.
+ */
+async function termsContext(stores: Stores, records: readonly InvestmentRecord[], today: LocalDate) {
+	const user = new Map((await stores.investmentTerms.list()).map((t) => [t.investmentId, t]));
+	const starts = records.flatMap((r) => {
+		const d = resolveTerms(r, user.get(r.id) ?? null, today).startDate?.date;
+		return d === undefined ? [] : [d];
+	});
+	const earliest = starts.reduce<LocalDate | null>((min, d) => (min === null || d < min ? d : min), null);
+	const cdi =
+		earliest === null
+			? []
+			: (await stores.cdiRates.list({ from: addDays(earliest, -10), to: today })).map((c) => ({
+					day: c.day,
+					rateE8: c.rateE8,
+				}));
+	return (record: InvestmentRecord, input: InvestmentPositionInput) =>
+		buildTermsFields({ record, input, user: user.get(record.id) ?? null, cdi, today });
+}
+
 const toMovementInput = (m: InvestmentMovementRecord): InvestmentMovementInput => ({
 	investmentId: m.investmentId,
 	type: m.type,
@@ -149,6 +207,7 @@ export function toInvestmentPositionDto(
 	record: InvestmentRecord,
 	input: InvestmentPositionInput,
 	movements: readonly InvestmentMovementInput[],
+	terms: ReturnType<typeof notApplicableTerms> = notApplicableTerms(),
 ): InvestmentPositionDto {
 	const cls = investmentClassOf(record.type, record.subtype);
 	return {
@@ -183,6 +242,7 @@ export function toInvestmentPositionDto(
 		issuer: record.issuer,
 		syncedAt: record.syncedAt.toISOString(),
 		archivedAt: record.archivedAt?.toISOString() ?? null,
+		...terms,
 	};
 }
 
@@ -210,6 +270,7 @@ export async function investmentsOverview(
 	const movementInputs = movements.map(toMovementInput);
 	const snapshotInputs = snapshots.map(toSnapshotInput);
 	const byId = new Map(positions.map((p) => [p.id, p]));
+	const termsOf = await termsContext(stores, records, today);
 	const movementsOf = new Map<string, InvestmentMovementInput[]>();
 	for (const m of movementInputs) {
 		const list = movementsOf.get(m.investmentId);
@@ -229,9 +290,10 @@ export async function investmentsOverview(
 
 	const active = records.filter((r) => isActiveInvestment(byId.get(r.id) as InvestmentPositionInput));
 	const dtos = active
-		.map((r) =>
-			toInvestmentPositionDto(r, byId.get(r.id) as InvestmentPositionInput, movementsOf.get(r.id) ?? []),
-		)
+		.map((r) => {
+			const input = byId.get(r.id) as InvestmentPositionInput;
+			return toInvestmentPositionDto(r, input, movementsOf.get(r.id) ?? [], termsOf(r, input));
+		})
 		.sort(
 			(a, b) => (b.balanceCents ?? -1) - (a.balanceCents ?? -1) || (a.name ?? "").localeCompare(b.name ?? ""),
 		);
@@ -248,6 +310,7 @@ export async function investmentsOverview(
 		activePositions: breakdown.activePositions,
 		withoutBalance: breakdown.withoutBalance,
 		foreignCurrency: breakdown.foreignCurrency,
+		missingTermsPositions: dtos.filter((d) => (d.missing?.length ?? 0) > 0).length,
 		closedPositions: records.length - active.length,
 		yield: {
 			total: {
@@ -282,13 +345,18 @@ export async function investmentsOverview(
 }
 
 /** `GET /v1/investments/:id`: a posição (também a encerrada), as movimentações e os retratos dela. `null` se não existe. */
-export async function investmentDetail(stores: Stores, id: string): Promise<InvestmentDetailResponse | null> {
+export async function investmentDetail(
+	stores: Stores,
+	id: string,
+	clock: { today: LocalDate },
+): Promise<InvestmentDetailResponse | null> {
 	const record = await stores.investments.get(id);
 	if (!record) return null;
 	const { positions, movements, snapshots } = await load(stores, id);
 	const input = positions[0] as InvestmentPositionInput;
+	const termsOf = await termsContext(stores, [record], clock.today);
 	return {
-		position: toInvestmentPositionDto(record, input, movements.map(toMovementInput)),
+		position: toInvestmentPositionDto(record, input, movements.map(toMovementInput), termsOf(record, input)),
 		movements: movements.map(toInvestmentMovementDto),
 		snapshots: snapshots.map((s) => ({
 			day: s.day,

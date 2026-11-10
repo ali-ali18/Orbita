@@ -10,6 +10,7 @@ export * from "./goals-api.ts";
 export * from "./home-layout.ts";
 export * from "./import-api.ts";
 export * from "./income-api.ts";
+export * from "./investment-terms.ts";
 export * from "./investments-api.ts";
 export * from "./notification-capture.ts";
 export * from "./pairing.ts";

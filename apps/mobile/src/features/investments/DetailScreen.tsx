@@ -9,14 +9,18 @@ import { DetailScreen } from "../summary/DetailScreen.tsx";
 import { bankBadge } from "../summary/summary-model.ts";
 import {
 	detailLines,
+	emptyYield,
+	investedCard,
 	movementRow,
+	NO_BALANCE,
 	positionTitle,
 	positionYield,
 	sinceLabel,
 	snapshotsChart,
 } from "./investments-model.ts";
-import { evolutionSeries, YieldTile } from "./parts.tsx";
+import { EmptyNote, evolutionSeries, YieldTile } from "./parts.tsx";
 import { useInvestmentDetail } from "./queries.ts";
+import { TermsCard } from "./TermsCard.tsx";
 
 function Line({ label, value, last }: { label: string; value: string; last: boolean }) {
 	return (
@@ -68,7 +72,6 @@ export function InvestmentDetailScreen() {
 	const lines = detailLines(p, hidden);
 	const chart = snapshotsChart(snapshots);
 	const rows = movements.map((m) => movementRow(m, hidden));
-	const invested = p.investedCents === null ? null : money(p.investedCents, hidden, { sign: "never" });
 
 	return (
 		<DetailScreen
@@ -82,21 +85,12 @@ export function InvestmentDetailScreen() {
 						Valor atual
 					</Text>
 					<Text variant="numberHero" adjustsFontSizeToFit numberOfLines={1}>
-						{p.balanceCents === null ? "—" : money(p.balanceCents, hidden, { sign: "never" })}
+						{p.balanceCents === null ? NO_BALANCE : money(p.balanceCents, hidden, { sign: "never" })}
 					</Text>
 				</View>
 			</View>
 			<View style={{ flexDirection: "row", gap: spacing.md }}>
-				<YieldTile
-					label="Aplicado"
-					y={{
-						value: invested,
-						tone: "secondary",
-						caption: sinceLabel(p) ?? "valor aplicado",
-						note: null,
-						a11y: `Aplicado: ${invested ?? "sem valor"}`,
-					}}
-				/>
+				<YieldTile label="Aplicado" y={investedCard(p.investedCents, sinceLabel(p), hidden)} />
 				<YieldTile label="Rendimento" y={positionYield(p.yield, hidden)} />
 			</View>
 			{p.yield.reason && p.yield.cents !== null ? (
@@ -104,6 +98,7 @@ export function InvestmentDetailScreen() {
 					{p.yield.reason}
 				</Text>
 			) : null}
+			<TermsCard position={p} />
 			<Card style={{ gap: spacing.md }}>
 				<Text variant="cardTitle" tone="secondary" accessibilityRole="header">
 					Valor da posição
@@ -117,9 +112,7 @@ export function InvestmentDetailScreen() {
 						series={evolutionSeries(chart)}
 					/>
 				) : (
-					<Text variant="body" tone="secondary">
-						sem histórico ainda
-					</Text>
+					<EmptyNote empty={emptyYield("sem histórico ainda")} arrange="column" />
 				)}
 			</Card>
 			{lines.length > 0 ? (

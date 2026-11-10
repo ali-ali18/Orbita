@@ -4,7 +4,7 @@ import { useTheme } from "../lib/theme.tsx";
 import { familyByWeight } from "./fonts.ts";
 
 export type TextVariant = keyof typeof typography;
-export type TextTone = "primary" | "secondary" | "tertiary" | "onAccent" | "positive" | "danger";
+export type TextTone = "primary" | "secondary" | "tertiary" | "onAccent" | "positive" | "danger" | "warning";
 
 /** `onAccent` não está aqui: depende do tema e vem de `useTheme()` dentro de `Text`. */
 const toneColor: Record<Exclude<TextTone, "onAccent">, string> = {
@@ -13,6 +13,7 @@ const toneColor: Record<Exclude<TextTone, "onAccent">, string> = {
 	tertiary: colors.textTertiary,
 	positive: colors.positive,
 	danger: colors.danger,
+	warning: colors.warning,
 };
 
 /** Variantes que ficam em coluna (valor, lista) usam algarismos tabulares. */

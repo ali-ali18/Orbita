@@ -35,6 +35,8 @@ export async function cleanDatabase(client: Db): Promise<void> {
 	await client.appPreferences.deleteMany();
 	await client.homeLayout.deleteMany();
 	await client.recurrencePosting.deleteMany();
+	await client.cdiRate.deleteMany();
+	await client.investmentTerms.deleteMany();
 	await client.investmentTransaction.deleteMany();
 	await client.investmentSnapshot.deleteMany();
 	await client.investment.deleteMany();

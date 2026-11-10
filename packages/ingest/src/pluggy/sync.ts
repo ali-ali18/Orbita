@@ -569,6 +569,8 @@ async function syncConnection(
 	let unreadProducts = false;
 	// Só investimentos por enquanto, numa conexão nova: o `lastError` diz isso e o app mostra o mesmo estado.
 	let onlyInvestmentsWaiting = false;
+	// O que veio foram só investimentos (que o Órbita lê): conexão nova ainda tenta de novo; as antigas só informam.
+	let onlyInvestments = false;
 	try {
 		const today = toLocalDate(startedAt);
 		let from = syncWindowStart(today, connection);
@@ -759,7 +761,9 @@ async function syncConnection(
 				// /accounts vazio, mas há posições em /investments: o banco só enviou produto que o Órbita não lê. Não é
 				// "ainda não enviou contas". No MeuPluggy o espelho pode estar sendo preenchido: enquanto a conexão é nova,
 				// tenta de novo, com o texto honesto.
+				// O Órbita LÊ investimentos (são gravados abaixo): o texto nunca diz "produtos que ele não lê".
 				unreadProducts = true;
+				onlyInvestments = true;
 				const isNew = startedAt.getTime() - connection.createdAt.getTime() < NEW_CONNECTION_MS;
 				if (isNew) {
 					onlyInvestmentsWaiting = true;
@@ -1114,7 +1118,9 @@ async function syncConnection(
 		} else if (unreadProducts) {
 			result.error = onlyInvestmentsWaiting
 				? `${PLUGGY_ONLY_INVESTMENTS_PREFIX} O Órbita tenta de novo sozinho; quando vier conta ou cartão, aparecem aqui.`
-				: `${PLUGGY_UNREAD_PRODUCTS_PREFIX} Mande o Diagnóstico da conexão se faltar algo.`;
+				: onlyInvestments
+					? `${PLUGGY_ONLY_INVESTMENTS_PREFIX} Conta e cartão aparecem aqui se o banco enviar.`
+					: `${PLUGGY_UNREAD_PRODUCTS_PREFIX} Mande o Diagnóstico da conexão se faltar algo.`;
 		}
 		return result;
 	} catch (e) {

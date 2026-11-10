@@ -6,6 +6,7 @@ import type { BudgetRecord } from "./budget-store.ts";
 import type { CardRecord } from "./card-store.ts";
 import type { CategoryRuleRecord } from "./category-rule-store.ts";
 import type { CategoryRecord } from "./category-store.ts";
+import type { CdiRateRecord } from "./cdi-rate-store.ts";
 import { badReference } from "./errors.ts";
 import type { GoalContributionRecord, GoalRecord } from "./goal-store.ts";
 import type { IncomeSourceRecord } from "./income-source-store.ts";
@@ -14,6 +15,7 @@ import type {
 	InvestmentRecord,
 	InvestmentSnapshotRecord,
 } from "./investment-store.ts";
+import type { InvestmentTermsRecord } from "./investment-terms-store.ts";
 import type { PluggyConnectionRecord } from "./pluggy-connection-store.ts";
 import { DEFAULT_PREFERENCES, type PreferencesRecord } from "./preferences-store.ts";
 import type { RecurrencePostingRecord, RecurrenceRecord } from "./recurrence-store.ts";
@@ -45,6 +47,10 @@ export interface MemoryState {
 	investmentSnapshots: Map<string, InvestmentSnapshotRecord>;
 	/** Chave `source|externalId`. */
 	investmentMovements: Map<string, InvestmentMovementRecord>;
+	/** Chave `investmentId`. */
+	investmentTerms: Map<string, InvestmentTermsRecord>;
+	/** Chave: o dia (AAAA-MM-DD). */
+	cdiRates: Map<string, CdiRateRecord>;
 	goals: Map<string, GoalRecord>;
 	goalContributions: Map<string, GoalContributionRecord>;
 	agents: Map<string, AgentRecord>;
@@ -72,6 +78,8 @@ export function createMemoryState(now: Clock = () => new Date()): MemoryState {
 		investments: new Map(),
 		investmentSnapshots: new Map(),
 		investmentMovements: new Map(),
+		investmentTerms: new Map(),
+		cdiRates: new Map(),
 		goals: new Map(),
 		goalContributions: new Map(),
 		agents: new Map(),

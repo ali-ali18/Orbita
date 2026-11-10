@@ -13,8 +13,9 @@ import type {
 } from "@orbita/shared";
 import { chart, chartSeries } from "@orbita/tokens";
 import { dayMonth, money, monthShort } from "../../lib/format.ts";
-import type { BankBadge } from "../../ui/index.ts";
+import type { BankBadge, IconName } from "../../ui/index.ts";
 import { bankBadge, bankColor } from "../summary/summary-model.ts";
+import { needsTerms } from "./terms-model.ts";
 
 /*
  * Do DTO de Investimentos para o que a tela mostra. A API devolve os números prontos; aqui só se FORMATA (texto, cor,
@@ -52,6 +53,38 @@ export function shortReason(reason: string | null | undefined): string {
 	return text;
 }
 
+/** Estado vazio de um número que não existe: ícone do app e UMA expressão curta (nunca traço, nunca zero). */
+export interface YieldEmpty {
+	icon: Extract<IconName, "relogio" | "grafico">;
+	title: string;
+}
+
+const NO_NUMBER = (title: string): YieldEmpty => ({ icon: "grafico", title });
+
+/**
+ * Motivo do servidor (prefixo) → estado vazio. Só os motivos que o engine devolve de fato sem número (posição, mês,
+ * total e gráfico); os de resgate parcial e "posição encerrada; ganho estimado" vêm COM número e nunca chegam aqui.
+ */
+const EMPTY_BY_REASON: ReadonlyArray<readonly [string, YieldEmpty]> = [
+	["sem histórico ainda", { icon: "relogio", title: "Em alguns dias" }],
+	["sem saldo informado", NO_NUMBER("Sem saldo")],
+	["sem valor aplicado", NO_NUMBER("Sem valor aplicado")],
+	["resgates maiores", NO_NUMBER("Sem como estimar")],
+	["posição encerrada: sem as movimentações", NO_NUMBER("Sem como calcular")],
+	["resgate ainda não lido", NO_NUMBER("Falta o resgate")],
+	["a posição sumiu", NO_NUMBER("Sumiu do banco")],
+	["conexão removida", NO_NUMBER("Conexão removida")],
+	["sem posições", NO_NUMBER("Sem posições")],
+	["não deu para calcular", NO_NUMBER("Sem como calcular")],
+];
+
+/** O estado vazio para o motivo; motivo desconhecido ou ausente cai em "Sem dados do banco". */
+export function emptyYield(reason: string | null | undefined): YieldEmpty {
+	const lower = reason?.trim().toLowerCase() ?? "";
+	for (const [prefix, empty] of EMPTY_BY_REASON) if (lower.startsWith(prefix)) return empty;
+	return NO_NUMBER("Sem dados do banco");
+}
+
 /** Pontos-base em percentual com uma casa: 370 → "3,7%", −50 → "−0,5%". Só texto, sem float. */
 export function bpsLabel(bps: number, sign = false): string {
 	const tenths = Math.round(Math.abs(bps) / 10);
@@ -85,6 +118,8 @@ export interface YieldCard {
 	caption: string;
 	/** Selo "estimado" ou "parcial" ao lado do rótulo, quando vale. */
 	note: string | null;
+	/** Sem número: o estado vazio desenhado no lugar do valor (e da legenda). `null` quando há valor. */
+	empty: YieldEmpty | null;
 	/** Frase inteira para leitor de tela. */
 	a11y: string;
 }
@@ -99,20 +134,40 @@ function card(
 	caption: string,
 	note: string | null,
 	hidden: boolean,
+	reason?: string | null,
 ): YieldCard {
 	const value = cents === null ? null : money(cents, hidden, { sign: "always" });
+	const empty = cents === null ? emptyYield(reason) : null;
 	return {
 		value,
 		tone: cents === null ? "secondary" : yieldTone(cents),
 		caption,
 		note,
-		a11y: `${label}: ${value ?? "sem valor"}, ${caption}${note ? `, ${note}` : ""}`,
+		empty,
+		a11y: empty
+			? `${label}: sem valor. ${empty.title}`
+			: `${label}: ${value}, ${caption}${note ? `, ${note}` : ""}`,
+	};
+}
+
+/** Cartão "Aplicado" do detalhe: o valor, ou o estado vazio se o banco não mandou. */
+export function investedCard(cents: number | null, since: string | null, hidden: boolean): YieldCard {
+	const value = cents === null ? null : money(cents, hidden, { sign: "never" });
+	const empty = cents === null ? emptyYield("sem valor aplicado") : null;
+	const caption = since ?? "valor aplicado";
+	return {
+		value,
+		tone: "secondary",
+		caption,
+		note: null,
+		empty,
+		a11y: empty ? `Aplicado: sem valor. ${empty.title}` : `Aplicado: ${value}, ${caption}`,
 	};
 }
 
 /** Rendimento do mês: "partial" quando cobre só parte das posições; sem número, o motivo ("sem histórico ainda"). */
 export function monthYieldCard(y: InvestmentMonthYieldDto, hidden: boolean): YieldCard {
-	if (y.cents === null) return card("Rendimento no mês", null, shortReason(y.reason), null, hidden);
+	if (y.cents === null) return card("Rendimento no mês", null, shortReason(y.reason), null, hidden, y.reason);
 	return card(
 		"Rendimento no mês",
 		y.cents,
@@ -128,7 +183,7 @@ export function monthYieldCard(y: InvestmentMonthYieldDto, hidden: boolean): Yie
 
 /** Rendimento total: "estimado" quando o DTO diz; "em N de M posições" quando não cobre todas. */
 export function totalYieldCard(y: InvestmentTotalYieldDto, hidden: boolean): YieldCard {
-	if (y.cents === null) return card("Rendimento total", null, shortReason(y.reason), null, hidden);
+	if (y.cents === null) return card("Rendimento total", null, shortReason(y.reason), null, hidden, y.reason);
 	const covers =
 		y.missingPositions > 0
 			? `em ${y.countedPositions} de ${y.countedPositions + y.missingPositions} posições`
@@ -145,7 +200,7 @@ export function totalYieldCard(y: InvestmentTotalYieldDto, hidden: boolean): Yie
 
 /** Rendimento de uma posição (lista e detalhe). */
 export function positionYield(y: InvestmentYieldDto, hidden: boolean): YieldCard {
-	if (y.cents === null) return card("Rendimento", null, shortReason(y.reason), null, hidden);
+	if (y.cents === null) return card("Rendimento", null, shortReason(y.reason), null, hidden, y.reason);
 	const pct = y.returnBps === null ? null : bpsLabel(y.returnBps);
 	// Resgate parcial vem com número E motivo: o motivo é nota.
 	const caption = pct ?? (y.reason ? shortReason(y.reason) : "");
@@ -219,6 +274,8 @@ export interface PositionRow {
 	value: string;
 	yieldCard: YieldCard;
 	badge: BankBadge;
+	/** Falta taxa, valor aplicado ou data: a linha leva um ponto na cor de destaque. */
+	needsTerms: boolean;
 }
 
 /** "100% do CDI", "9,5% a.a."; `null` sem taxa contratada. Rentabilidade contratada, não medida. */
@@ -240,15 +297,19 @@ export function positionTitle(
 	return p.name?.trim() || p.code?.trim() || p.subtypeLabel || p.classLabel;
 }
 
+/** No lugar do saldo que o banco não mandou (nunca zero, nunca traço). */
+export const NO_BALANCE = "sem saldo";
+
 export function positionRow(p: InvestmentPositionDto, hidden: boolean): PositionRow {
 	const subtitle = [p.subtypeLabel ?? p.classLabel, rateText(p)].filter(Boolean).join(" · ");
 	return {
 		id: p.id,
 		title: positionTitle(p),
 		subtitle,
-		value: p.balanceCents === null ? "—" : money(p.balanceCents, hidden, { sign: "never" }),
+		value: p.balanceCents === null ? NO_BALANCE : money(p.balanceCents, hidden, { sign: "never" }),
 		yieldCard: positionYield(p.yield, hidden),
 		badge: bankBadge({ name: p.institutionLabel }),
+		needsTerms: needsTerms(p),
 	};
 }
 
@@ -337,7 +398,8 @@ export function movementRow(m: InvestmentMovementDto, hidden: boolean): Movement
 		id: m.id,
 		title: movementTitle(m),
 		date: day ? dayMonth(day) : "",
-		value: cents === null ? "—" : money(negative ? -Math.abs(cents) : cents, hidden, { sign: "auto" }),
+		value:
+			cents === null ? "sem valor" : money(negative ? -Math.abs(cents) : cents, hidden, { sign: "auto" }),
 		kind: m.kind,
 	};
 }
