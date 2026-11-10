@@ -186,6 +186,7 @@ export function BanksScreen() {
 		return (
 			<ConnectedScreen
 				connection={justConnected}
+				connections={data.connections.length}
 				imported={importedQ.data?.count ?? null}
 				pending={pendingQ.data ? pendingQ.data.transactions.length : null}
 				onReview={() => router.replace("/revisao")}

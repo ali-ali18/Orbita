@@ -1,8 +1,9 @@
-import { createMemoryStores } from "@orbita/db";
+import { createMemoryStores, DataError } from "@orbita/db";
 import {
 	formatPluggyDiagnostics,
 	PLUGGY_NO_ACCOUNTS_PREFIX,
 	PLUGGY_NO_DATA_PREFIX,
+	PLUGGY_ONLY_INVESTMENTS_PREFIX,
 	PLUGGY_RECONNECT_MESSAGE,
 	PLUGGY_UNREAD_PRODUCTS_PREFIX,
 	PLUGGY_UPDATING_PREFIX,
@@ -18,6 +19,7 @@ import {
 	CLIENT_ID,
 	CLIENT_SECRET,
 	cardAccount,
+	cdbInvestment,
 	type FakePluggyOptions,
 	fakePluggy,
 	ITEM_ID,
@@ -212,6 +214,205 @@ describe("conexão nova que o banco ainda não preencheu", () => {
 		expect(c?.lastError?.startsWith(PLUGGY_NO_ACCOUNTS_PREFIX)).toBe(false);
 		expect(c?.lastError?.startsWith(PLUGGY_UNREAD_PRODUCTS_PREFIX)).toBe(true);
 		expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBe("unread_products");
+	});
+
+	it("/accounts vazio mas com investimentos: estado de produto que não lê, com texto honesto, e tenta de novo enquanto é nova", async () => {
+		const t = setup({ ...empty, investments: { [ITEM_ID]: [cdbInvestment] } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+		const result = await t.run();
+		const c = await t.stores.pluggyConnections.get(ITEM_ID);
+		expect(c?.lastStatus).toBe("ok");
+		expect(c?.lastError?.startsWith(PLUGGY_ONLY_INVESTMENTS_PREFIX)).toBe(true);
+		expect(c?.lastError?.startsWith(PLUGGY_NO_ACCOUNTS_PREFIX)).toBe(false);
+		expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBe("unread_products");
+		// O espelho do MeuPluggy pode estar sendo preenchido: nova tentativa enquanto a conexão é nova.
+		expect(result.connections[0]?.retry).toEqual({
+			reason: "no_accounts",
+			notBefore: "2026-11-13T08:00:00.000Z",
+		});
+		expect(result.connections[0]?.notes).toContain(
+			"O Pluggy não devolveu conta nem cartão, só investimentos.",
+		);
+	});
+
+	it("/accounts vazio com investimentos numa conexão com mais de 3 dias: só informação, sem nova tentativa", async () => {
+		const t = setup({ ...empty, investments: { [ITEM_ID]: [cdbInvestment] } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+		t.setNow(new Date("2026-11-20T09:00:00Z"));
+		const result = await t.run();
+		const c = await t.stores.pluggyConnections.get(ITEM_ID);
+		expect(result.connections[0]?.retry).toBeUndefined();
+		expect(c?.lastStatus).toBe("ok");
+		expect(c?.lastError?.startsWith(PLUGGY_UNREAD_PRODUCTS_PREFIX)).toBe(true);
+		expect(pluggyWaitingFor(c as NonNullable<typeof c>)).toBe("unread_products");
+	});
+
+	it("sem conta e sem investimento continua 'ainda não enviou contas'; com conta, /investments nem é lido", async () => {
+		const none = setup(empty);
+		await none.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+		await none.run();
+		const c = await none.stores.pluggyConnections.get(ITEM_ID);
+		expect(c?.lastStatus).toBe("partial");
+		expect(c?.lastError?.startsWith(PLUGGY_NO_ACCOUNTS_PREFIX)).toBe(true);
+
+		// Investimentos com 403 (conector sem o produto): a leitura não lança e o estado é o de sempre.
+		const forbidden = setup({
+			...empty,
+			override: (url) =>
+				url.pathname === "/investments" ? new Response('{"message":"x"}', { status: 403 }) : undefined,
+		});
+		await forbidden.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+		await forbidden.run();
+		expect((await forbidden.stores.pluggyConnections.get(ITEM_ID))?.lastStatus).toBe("partial");
+
+		const withAccounts = setup({
+			item: { connector: MEU },
+			accounts: [c6Account],
+			transactions: { [BANK_ACCOUNT_ID]: [] },
+			investments: { [ITEM_ID]: [cdbInvestment] },
+		});
+		await withAccounts.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+		await withAccounts.run();
+		const paths = (await withAccounts.fakeRequests()).map((r) => r.url.pathname);
+		expect(paths).not.toContain("/investments");
+	});
+
+	it("conexão só com investimentos de um mesmo banco reconhecido ganha o nome dele (BANCO C6 S.A. → C6 Bank)", async () => {
+		const t = setup({
+			...empty,
+			investments: {
+				[ITEM_ID]: [{ ...cdbInvestment, issuer: "BANCO C6 S.A.", issuerCNPJ: "00000000000000" }],
+			},
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+		await t.run();
+		expect(await t.stores.pluggyConnections.get(ITEM_ID)).toMatchObject({
+			label: "C6 Bank",
+			labelEditedByOwner: false,
+		});
+	});
+
+	it("emissores diferentes, desconhecidos ou ausentes não dão nome: fica 'MeuPluggy'", async () => {
+		const cases = [
+			[
+				{ ...cdbInvestment, id: "i-1", issuer: "BANCO C6 S.A." },
+				{ ...cdbInvestment, id: "i-2", issuer: "BANCO INTER S.A." },
+			],
+			[{ ...cdbInvestment, id: "i-1", issuer: "BANCO FICTICIO S/A" }],
+			[
+				{ ...cdbInvestment, id: "i-1", issuer: "BANCO C6 S.A." },
+				{ ...cdbInvestment, id: "i-2", issuer: null },
+			],
+		];
+		for (const investments of cases) {
+			const t = setup({ ...empty, investments: { [ITEM_ID]: investments } });
+			await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+			await t.run();
+			expect((await t.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("MeuPluggy");
+		}
+	});
+
+	it("ação do Itaú (emissor não é o banco da conexão) e fundo não dão nome", async () => {
+		const stock = {
+			...cdbInvestment,
+			type: "EQUITY",
+			subtype: "STOCK",
+			issuer: "ITAU UNIBANCO HOLDING S.A.",
+		};
+		for (const investments of [[stock], [cdbInvestment, stock]]) {
+			const t = setup({ ...empty, investments: { [ITEM_ID]: investments } });
+			await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+			await t.run();
+			expect((await t.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("MeuPluggy");
+		}
+		// Corretora (B3): a posição diz outra instituição que não o emissor.
+		const t = setup({
+			...empty,
+			investments: {
+				[ITEM_ID]: [
+					{ ...cdbInvestment, issuer: "BANCO C6 S.A.", institution: { name: "Corretora Exemplo" } },
+				],
+			},
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+		await t.run();
+		expect((await t.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("MeuPluggy");
+	});
+
+	it("emissor só vale no MeuPluggy e em conexão que nunca teve conta", async () => {
+		const c6 = { ...cdbInvestment, issuer: "BANCO C6 S.A." };
+		const direct = setup({
+			...empty,
+			item: { ...empty.item, connector: { id: 9, name: "Corretora Exemplo", isSandbox: false } },
+			investments: { [ITEM_ID]: [c6] },
+		});
+		await direct.stores.pluggyConnections.add({ id: ITEM_ID, label: "Corretora Exemplo" });
+		await direct.run();
+		expect((await direct.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("Corretora Exemplo");
+	});
+
+	it("nome do emissor é provisório: contas da corretora, de outro banco ou do mesmo banco o substituem; o do dono não", async () => {
+		const c6 = { ...cdbInvestment, issuer: "BANCO C6 S.A." };
+		const arrive = async (accounts: NonNullable<FakePluggyOptions["accounts"]>, owner = false) => {
+			const t = setup({ ...empty, investments: { [ITEM_ID]: [c6] } });
+			await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+			await t.run();
+			expect((await t.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("C6 Bank");
+			if (owner) await t.stores.pluggyConnections.rename(ITEM_ID, "C6 Bank");
+			t.set({
+				item: { connector: MEU },
+				accounts,
+				transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: [] },
+			});
+			await t.run();
+			return (await t.stores.pluggyConnections.get(ITEM_ID))?.label;
+		};
+		// Corretora: a conta dela, não o banco emissor do CDB.
+		expect(
+			await arrive([{ ...bankAccount, name: "Corretora Exemplo S.A.", marketingName: null, bankData: null }]),
+		).toBe("Corretora Exemplo S.A.");
+		expect(await arrive([c6Account])).toBe("C6 Bank");
+		expect(await arrive([{ ...bankAccount, name: "BANCO INTER" }])).toBe("Inter");
+		expect(await arrive([{ ...bankAccount, name: "BANCO INTER" }], true)).toBe("C6 Bank");
+	});
+
+	it("conexão que já teve conta e veio vazia com investimentos segue 'ainda não enviou contas' (partial), sem ler /investments", async () => {
+		const t = setup({ ...empty, investments: { [ITEM_ID]: [cdbInvestment] } });
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "Santander" });
+		await t.stores.pluggyConnections.recordSync(ITEM_ID, {
+			status: "ok",
+			syncedAt: new Date("2026-11-10T09:00:00Z"),
+			historyFrom: "2026-05-13",
+			counts: { accounts: 1, cards: 1 },
+		});
+		await t.run();
+		const c = await t.stores.pluggyConnections.get(ITEM_ID);
+		expect(c?.lastStatus).toBe("partial");
+		expect(c?.lastError?.startsWith(PLUGGY_NO_ACCOUNTS_PREFIX)).toBe(true);
+		expect((await t.fakeRequests()).map((r) => r.url.pathname)).not.toContain("/investments");
+	});
+
+	it("falha ao ler os investimentos (429, 5xx) deixa uma nota e não muda o estado", async () => {
+		for (const status of [429, 500]) {
+			const t = setup({
+				...empty,
+				override: (url) =>
+					url.pathname === "/investments" ? new Response('{"message":"x"}', { status }) : undefined,
+			});
+			await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+			const result = await t.run();
+			expect(result.connections[0]?.notes).toContain("Não consegui ler os investimentos desta vez.");
+			expect((await t.stores.pluggyConnections.get(ITEM_ID))?.lastStatus).toBe("partial");
+		}
+		// 403/404 (conector sem o produto) não é falha: sem nota.
+		const t = setup({
+			...empty,
+			override: (url) =>
+				url.pathname === "/investments" ? new Response('{"message":"x"}', { status: 403 }) : undefined,
+		});
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "MeuPluggy" });
+		const result = await t.run();
+		expect(result.connections[0]?.notes).not.toContain("Não consegui ler os investimentos desta vez.");
 	});
 
 	it("o motivo principal aparece primeiro e os outros viram ' · e mais N avisos'", async () => {
@@ -636,6 +837,45 @@ describe("nome da conexão já gravado", () => {
 		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "Nu Pagamentos S.A. - Ins…, Gold" });
 		await t.run();
 		expect((await t.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("Nubank");
+	});
+
+	// Dados no formato do aparelho do dono (nomes de banco são públicos; resto fictício).
+	const santander: FakePluggyOptions = {
+		item: { connector: MEU },
+		accounts: [
+			{ ...bankAccount, name: "Banco Santander Pessoa Física", marketingName: "" },
+			{
+				...cardAccount,
+				name: "FREE VISA",
+				marketingName: null,
+				creditData: { brand: "VISA", level: "GOLD" },
+			},
+		],
+		transactions: { [BANK_ACCOUNT_ID]: [], [CARD_ACCOUNT_ID]: [] },
+	};
+
+	it("Santander pelo MeuPluggy: o nome cortado ou composto pela versão antiga vira 'Santander'", async () => {
+		for (const old of [
+			"Banco Santander Pessoa F…",
+			"Banco Santander Pessoa F…, Free Visa",
+			"Banco Santander Pessoa F…, FREE VISA +1",
+		]) {
+			const t = setup(santander);
+			await t.stores.pluggyConnections.add({ id: ITEM_ID, label: old });
+			await t.run();
+			expect((await t.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("Santander");
+		}
+	});
+
+	it("o nome é refeito mesmo quando o resto da rodada falha (cartão que o banco de dados recusa)", async () => {
+		const t = setup(santander);
+		await t.stores.pluggyConnections.add({ id: ITEM_ID, label: "Banco Santander Pessoa F…" });
+		t.stores.cards.create = async () => {
+			throw new DataError("invalid", "cartão recusado");
+		};
+		const result = await t.run();
+		expect(result.connections[0]?.status).toBe("error");
+		expect((await t.stores.pluggyConnections.get(ITEM_ID))?.label).toBe("Santander");
 	});
 
 	it("o nome que o dono deu nunca é trocado, mesmo parecendo gerado", async () => {

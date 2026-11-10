@@ -15,6 +15,7 @@ import {
 /** "Conectar banco · Pronto" (Figma 53:1254): o que o servidor trouxe do banco recém-conectado. */
 export function ConnectedScreen({
 	connection,
+	connections,
 	imported,
 	pending,
 	onReview,
@@ -22,6 +23,8 @@ export function ConnectedScreen({
 	onLater,
 }: {
 	connection: PluggyConnectionDto;
+	/** Quantas conexões existem (o total de lançamentos soma todas). */
+	connections: number;
 	imported: number | null;
 	pending: number | null;
 	onReview: () => void;
@@ -29,7 +32,7 @@ export function ConnectedScreen({
 	onLater: () => void;
 }) {
 	const name = connectionName(connection);
-	const rows = connectedRows({ summary: connection.summary, imported, pending });
+	const rows = connectedRows({ summary: connection.summary, imported, pending, connections });
 	const primary = connectedPrimary(pending);
 	return (
 		<Screen>

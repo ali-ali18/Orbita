@@ -1,6 +1,7 @@
 import {
 	PLUGGY_NO_ACCOUNTS_PREFIX,
 	PLUGGY_NO_DATA_PREFIX,
+	PLUGGY_ONLY_INVESTMENTS_PREFIX,
 	PLUGGY_UNREAD_PRODUCTS_PREFIX,
 	PLUGGY_UPDATING_PREFIX,
 	type PluggyConnectionDto,
@@ -142,6 +143,16 @@ describe("situação da conexão", () => {
 		});
 		expect(connectionStatusLine(c, NOW)).toBe("Só produtos que o Órbita ainda não lê");
 		expect(connectionStatusDetail(c)).toContain("investimentos");
+	});
+	it("só investimentos por enquanto (conexão nova): mesmo estado, com texto honesto de que ainda tenta", () => {
+		const c = conn({
+			lastStatus: "ok",
+			lastSyncAt: "2026-11-07T14:59:59.000Z",
+			lastError: `${PLUGGY_ONLY_INVESTMENTS_PREFIX} O Órbita tenta de novo sozinho.`,
+		});
+		expect(connectionStatusLine(c, NOW)).toBe("Só produtos que o Órbita ainda não lê");
+		expect(connectionStatusDetail(c)).toContain("só investimentos por enquanto");
+		expect(connectionStatusDetail(c)).toContain("tenta de novo sozinho");
 	});
 	it("item ainda atualizando no Pluggy", () => {
 		const c = conn({ lastStatus: "partial", lastError: `${PLUGGY_UPDATING_PREFIX} O Órbita tenta de novo.` });
