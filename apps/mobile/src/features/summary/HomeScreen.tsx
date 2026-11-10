@@ -5,11 +5,12 @@ import {
 	setWidgetSize,
 	setWidgetVisible,
 } from "@orbita/shared";
-import { colors, spacing } from "@orbita/tokens";
+import { colors, layout as sizes, spacing } from "@orbita/tokens";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useClock } from "../../lib/clock.tsx";
 import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
@@ -26,6 +27,7 @@ import { EmptyHero } from "../checklist/EmptyHero.tsx";
 import { useChecklistDismissed, useChecklistFacts } from "../checklist/use-checklist.ts";
 import { paydayLine } from "../income/income-model.ts";
 import { useIncome } from "../income/queries.ts";
+import { InvestmentsTab } from "../investments/InvestmentsTab.tsx";
 import { usePendingTransactions } from "../review/queries.ts";
 import { ReviewBanner } from "../review/ReviewScreen.tsx";
 import { ServerDownScreen } from "../server/ServerDownScreen.tsx";
@@ -33,6 +35,14 @@ import { isUnreachableQuery } from "../server/server-model.ts";
 import { useProfile } from "../settings/preferences-queries.ts";
 import { avatarInitial, greetWithName } from "../settings/profile-model.ts";
 import { HomeHeader } from "./HomeHeader.tsx";
+import {
+	HomeHeaderFade,
+	HomePager,
+	HomeTabsBar,
+	HomeTabsFade,
+	useHomePager,
+	useTabsFade,
+} from "./HomePager.tsx";
 import { useHomeLayout, useSaveHomeLayout } from "./layout-queries.ts";
 import {
 	useAccountBalances,
@@ -57,11 +67,18 @@ export function HomeScreen() {
 	const router = useRouter();
 	const [refreshing, setRefreshing] = useState(false);
 	const bottomBarHeight = useBottomBarHeight();
+	const pager = useHomePager();
+	const insets = useSafeAreaInsets();
+	const tabsFade = useTabsFade(pager.page);
+	// A base do header fixo: o conteúdo começa abaixo dele (e do degradê) e o menu do widget usa como topo útil.
+	const headerBottom = sizes.homeHeader + sizes.homeTabs;
+	const safeTop = Math.max(insets.top, sizes.statusBar);
+	const contentTop = safeTop + headerBottom + TOP_FADE;
 	// Widgets: o layout vem do servidor; segurar um widget abre o menu colado nele e cada escolha vale na hora.
 	const layoutQ = useHomeLayout();
 	const saveLayout = useSaveHomeLayout();
 	const layout: HomeLayout | null = layoutQ.data ?? (layoutQ.isError ? defaultHomeLayout() : null);
-	const widgetMenu = useWidgetMenu(layout, bottomBarHeight);
+	const widgetMenu = useWidgetMenu(layout, bottomBarHeight, headerBottom);
 	const menuId = widgetMenu.menu?.model.id ?? null;
 	const [adding, setAdding] = useState(false);
 	const addable = layout ? addableWidgets(layout) : [];
@@ -125,130 +142,161 @@ export function HomeScreen() {
 
 	return (
 		<Screen
-			fadeTop
+			// As páginas rolam até o topo da tela, por baixo da barra de status: o sumiço ali é do degradê, não de recorte.
+			style={{ paddingTop: 0 }}
 			footer={<BottomBar onNew={() => router.push("/novo")} onAsk={() => router.push("/chat")} />}
 			floatingFooter
 		>
-			<ScrollView
-				ref={widgetMenu.scrollRef}
-				onScroll={widgetMenu.onScroll}
-				scrollEventThrottle={16}
-				contentContainerStyle={{
-					paddingTop: TOP_FADE,
-					paddingHorizontal: spacing.lg,
-					paddingBottom: bottomBarHeight + spacing.lg,
-					gap: spacing.md,
-				}}
-				refreshControl={
-					<RefreshControl
-						refreshing={refreshing}
-						onRefresh={onRefresh}
-						tintColor={colors.text}
-						colors={[colors.text]}
-						progressBackgroundColor={colors.surface2}
-					/>
-				}
-			>
-				<HomeHeader
-					initial={avatarInitial(displayName)}
-					hidden={hidden}
-					onToggleHidden={toggle}
-					onAvatarPress={() => router.push("/configuracoes")}
-				/>
+			<HomePager pager={pager}>
+				<ScrollView
+					ref={widgetMenu.scrollRef}
+					onScroll={(event) => {
+						widgetMenu.onScroll(event);
+						tabsFade.report(0, event.nativeEvent.contentOffset.y);
+					}}
+					scrollEventThrottle={16}
+					contentContainerStyle={{
+						paddingTop: contentTop,
+						paddingHorizontal: spacing.lg,
+						paddingBottom: bottomBarHeight + spacing.lg,
+						gap: spacing.md,
+					}}
+					refreshControl={
+						<RefreshControl
+							refreshing={refreshing}
+							onRefresh={onRefresh}
+							tintColor={colors.text}
+							colors={[colors.text]}
+							progressBackgroundColor={colors.surface2}
+						/>
+					}
+				>
+					<View style={{ paddingBottom: spacing.sm, gap: spacing.xs }}>
+						<Text variant="greeting" accessibilityRole="header">
+							{greetWithName(greetingFor(hour), displayName)}
+						</Text>
+						<Text variant="caption" tone="secondary">
+							{emptyHome ? EMPTY_HOME_CAPTION : monthName(month)}
+							{!emptyHome && summary.phase === "ready" && summary.data.safeToSpend
+								? ` · faltam ${pluralDays(summary.data.safeToSpend.remainingDays)}`
+								: ""}
+						</Text>
+						{!emptyHome && paydayText ? (
+							<Pressable
+								accessibilityRole="button"
+								accessibilityLabel={`${paydayText}. Abrir renda`}
+								hitSlop={8}
+								onPress={() => router.push("/configuracoes/renda")}
+								style={({ pressed }) => ({
+									minHeight: 44,
+									justifyContent: "center",
+									opacity: pressed ? 0.8 : 1,
+								})}
+							>
+								<Text variant="caption" tone="secondary">
+									{paydayText}
+								</Text>
+							</Pressable>
+						) : null}
+					</View>
 
-				<View style={{ paddingTop: spacing.md, paddingBottom: spacing.sm, gap: spacing.xs }}>
-					<Text variant="greeting" accessibilityRole="header">
-						{greetWithName(greetingFor(hour), displayName)}
-					</Text>
-					<Text variant="caption" tone="secondary">
-						{emptyHome ? EMPTY_HOME_CAPTION : monthName(month)}
-						{!emptyHome && summary.phase === "ready" && summary.data.safeToSpend
-							? ` · faltam ${pluralDays(summary.data.safeToSpend.remainingDays)}`
-							: ""}
-					</Text>
-					{!emptyHome && paydayText ? (
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel={`${paydayText}. Abrir renda`}
-							hitSlop={8}
-							onPress={() => router.push("/configuracoes/renda")}
-							style={({ pressed }) => ({
-								minHeight: 44,
-								justifyContent: "center",
-								opacity: pressed ? 0.8 : 1,
-							})}
-						>
-							<Text variant="caption" tone="secondary">
-								{paydayText}
-							</Text>
-						</Pressable>
+					{disconnected.map((c) => (
+						<ReconnectBanner
+							key={c.id}
+							connection={c}
+							now={now}
+							loading={reconnecting}
+							onReconnect={() => void reconnect(c.id)}
+						/>
+					))}
+					{emptyHome ? <EmptyHero /> : null}
+					{showChecklist ? (
+						<Checklist checklist={checklist} onOpen={(href) => router.push(href)} onDismiss={dismiss} />
 					) : null}
-				</View>
-
-				{disconnected.map((c) => (
-					<ReconnectBanner
-						key={c.id}
-						connection={c}
-						now={now}
-						loading={reconnecting}
-						onReconnect={() => void reconnect(c.id)}
-					/>
-				))}
-				{emptyHome ? <EmptyHero /> : null}
-				{showChecklist ? (
-					<Checklist checklist={checklist} onOpen={(href) => router.push(href)} onDismiss={dismiss} />
-				) : null}
-				{emptyHome ? null : (
-					<>
-						{pendingQ.data && pendingQ.data.transactions.length > 0 ? (
-							<ReviewBanner
-								count={pendingQ.data.transactions.length}
-								hasMore={pendingQ.data.hasMore}
-								onPress={() => router.push("/revisao")}
-							/>
-						) : null}
-						{layout ? (
-							<HomeWidgets
-								layout={layout}
-								onLongPress={widgetMenu.open}
-								register={widgetMenu.register}
-								data={{
-									month,
-									today,
-									hidden,
-									summary: summaryWithCategories,
-									overview: toLoadable(overviewQ),
-									balances: toLoadable(balancesQ),
-									cashFlow: toLoadable(cashFlowQ),
-									installments: toLoadable(installmentsQ),
-									recent: toLoadable(recentQ),
-									accounts: accountsQ.data?.accounts ?? [],
-									cards: cardsQ.data?.cards ?? [],
-									categories: categoriesQ.data?.categories ?? [],
-									open: (href) => router.push(href as never),
-									openTransaction: (id) => router.push({ pathname: "/lancamento/[id]", params: { id } }),
-								}}
-							/>
-						) : (
-							<View accessibilityLabel="Carregando" style={{ gap: spacing.md }}>
-								<Skeleton height={160} />
-								<Skeleton height={120} />
-							</View>
-						)}
-						{addable.length > 0 ? (
-							<View style={{ alignItems: "center", paddingTop: spacing.sm }}>
-								<Button
-									label="Adicionar widgets"
-									variant="secondary"
-									compact
-									icon="mais"
-									onPress={() => setAdding(true)}
+					{emptyHome ? null : (
+						<>
+							{pendingQ.data && pendingQ.data.transactions.length > 0 ? (
+								<ReviewBanner
+									count={pendingQ.data.transactions.length}
+									hasMore={pendingQ.data.hasMore}
+									onPress={() => router.push("/revisao")}
 								/>
-							</View>
-						) : null}
-					</>
-				)}
-			</ScrollView>
+							) : null}
+							{layout ? (
+								<HomeWidgets
+									layout={layout}
+									onLongPress={widgetMenu.open}
+									register={widgetMenu.register}
+									data={{
+										month,
+										today,
+										hidden,
+										summary: summaryWithCategories,
+										overview: toLoadable(overviewQ),
+										balances: toLoadable(balancesQ),
+										cashFlow: toLoadable(cashFlowQ),
+										installments: toLoadable(installmentsQ),
+										recent: toLoadable(recentQ),
+										accounts: accountsQ.data?.accounts ?? [],
+										cards: cardsQ.data?.cards ?? [],
+										categories: categoriesQ.data?.categories ?? [],
+										open: (href) => router.push(href as never),
+										openTransaction: (id) => router.push({ pathname: "/lancamento/[id]", params: { id } }),
+									}}
+								/>
+							) : (
+								<View accessibilityLabel="Carregando" style={{ gap: spacing.md }}>
+									<Skeleton height={160} />
+									<Skeleton height={120} />
+								</View>
+							)}
+							{addable.length > 0 ? (
+								<View style={{ alignItems: "center", paddingTop: spacing.sm }}>
+									<Button
+										label="Adicionar widgets"
+										variant="secondary"
+										compact
+										icon="mais"
+										onPress={() => setAdding(true)}
+									/>
+								</View>
+							) : null}
+						</>
+					)}
+				</ScrollView>
+				<InvestmentsTab
+					onScrollY={(y) => tabsFade.report(1, y)}
+					topPadding={contentTop}
+					bottomPadding={bottomBarHeight + spacing.lg}
+				/>
+			</HomePager>
+			{/* Um bloco só: avatar, olho e abas, sobre as páginas (o conteúdo rola por baixo). O degradê linear fica
+			    abaixo das abas e sobe com o sumiço delas; as abas só mudam de opacidade, sem recorte. */}
+			<View
+				pointerEvents="box-none"
+				style={{
+					position: "absolute",
+					top: 0,
+					left: 0,
+					right: 0,
+					height: safeTop + headerBottom,
+					paddingTop: safeTop,
+				}}
+			>
+				<HomeHeaderFade safeTop={safeTop} />
+				<View style={{ height: sizes.homeHeader, paddingHorizontal: spacing.lg }}>
+					<HomeHeader
+						height={sizes.homeHeader}
+						initial={avatarInitial(displayName)}
+						hidden={hidden}
+						onToggleHidden={toggle}
+						onAvatarPress={() => router.push("/configuracoes")}
+					/>
+				</View>
+				<HomeTabsFade fade={tabsFade}>
+					<HomeTabsBar pager={pager} />
+				</HomeTabsFade>
+			</View>
 			<WidgetMenu
 				menu={widgetMenu.menu}
 				viewport={widgetMenu.viewport}

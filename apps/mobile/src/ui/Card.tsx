@@ -12,6 +12,8 @@ export function Card({
 	onPress,
 	label,
 	highlight = true,
+	onLongPress: ownLongPress,
+	longPressHint,
 }: {
 	children: ReactNode;
 	style?: StyleProp<ViewStyle>;
@@ -23,8 +25,12 @@ export function Card({
 	 * largura cheia: o de meia largura (2x2) fica sem, sozinho, pela medida. Passe `false` em estado de erro ou vazio.
 	 */
 	highlight?: boolean;
+	/** Segurar o card faz algo só dele (ex.: "Ver como" de um gráfico); vale mais que o segurar do widget em volta. */
+	onLongPress?: () => void;
+	longPressHint?: string;
 }) {
-	const onLongPress = useWidgetLongPress();
+	const widgetLongPress = useWidgetLongPress();
+	const onLongPress = ownLongPress ?? widgetLongPress;
 	const box = {
 		backgroundColor: colors.surface,
 		borderRadius: radius.card,
@@ -43,7 +49,9 @@ export function Card({
 		<Pressable
 			accessibilityRole={onPress ? "button" : undefined}
 			accessibilityLabel={label}
-			accessibilityHint={onLongPress ? "Segure para editar o widget" : undefined}
+			accessibilityHint={
+				ownLongPress ? longPressHint : onLongPress ? "Segure para editar o widget" : undefined
+			}
 			onPress={onPress}
 			onLongPress={onLongPress}
 			style={({ pressed }) => [box, style, { opacity: pressed ? 0.8 : 1 }]}

@@ -67,4 +67,6 @@ export const KEYS = {
 	checklistDismissed: "orbita.checklistDismissed",
 	/** Chave do tema de cor primária (ver `accentThemes`). Preferência deste aparelho; ausente: "atual". */
 	accentTheme: "orbita.accentTheme",
+	/** JSON com o "Ver como" de cada gráfico de Investimentos (ver `chart-view.ts`). Preferência deste aparelho. */
+	investChartViews: "orbita.investChartViews",
 } as const;

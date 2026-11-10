@@ -64,6 +64,11 @@ export function monthName(month: string): string {
 	return MONTHS_LONG[index] ?? month;
 }
 
+/** "nov" para "2026-11" (ou para uma data "2026-11-07"). */
+export function monthShort(date: string): string {
+	return MONTHS_SHORT[Number(date.slice(5, 7)) - 1] ?? date;
+}
+
 /** Data e hora de um instante ISO no fuso de São Paulo. `null` se o texto não é uma data. */
 export function saoPauloStamp(iso: string): { date: LocalDate; time: string } | null {
 	const instant = new Date(iso);

@@ -10,17 +10,20 @@ export function HomeHeader({
 	hidden,
 	onToggleHidden,
 	onAvatarPress,
+	height = HEADER_HEIGHT,
 }: {
 	initial: string;
 	hidden: boolean;
 	onToggleHidden: () => void;
 	/** Toque no avatar: abrir Configurações. */
 	onAvatarPress: () => void;
+	/** Altura da faixa; o Início usa uma mais baixa porque o header fica fixo. */
+	height?: number;
 }) {
 	return (
 		<View
 			style={{
-				height: HEADER_HEIGHT,
+				height,
 				flexDirection: "row",
 				alignItems: "center",
 				justifyContent: "space-between",
