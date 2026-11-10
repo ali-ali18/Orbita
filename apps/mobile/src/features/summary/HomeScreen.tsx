@@ -14,16 +14,7 @@ import { useClock } from "../../lib/clock.tsx";
 import { greetingFor, monthName, pluralDays } from "../../lib/format.ts";
 import { combineLoadables, toLoadable } from "../../lib/loadable.ts";
 import { usePrivacy } from "../../lib/privacy.tsx";
-import {
-	BottomBar,
-	Button,
-	FadeEdge,
-	Screen,
-	Skeleton,
-	Text,
-	TOP_FADE,
-	useBottomBarHeight,
-} from "../../ui/index.ts";
+import { BottomBar, Button, Screen, Skeleton, Text, TOP_FADE, useBottomBarHeight } from "../../ui/index.ts";
 import { disconnectedConnections } from "../banks/banks-model.ts";
 import { usePluggyHomeWatch, usePluggyStatusSnapshot } from "../banks/queries.ts";
 import { ReconnectBanner } from "../banks/ReconnectBanner.tsx";
@@ -43,7 +34,14 @@ import { isUnreachableQuery } from "../server/server-model.ts";
 import { useProfile } from "../settings/preferences-queries.ts";
 import { avatarInitial, greetWithName } from "../settings/profile-model.ts";
 import { HomeHeader } from "./HomeHeader.tsx";
-import { HomePager, HomeTabsBar, HomeTabsFade, useHomePager, useTabsFade } from "./HomePager.tsx";
+import {
+	HomeHeaderBackdrop,
+	HomePager,
+	HomeTabsBar,
+	HomeTabsFade,
+	useHomePager,
+	useTabsFade,
+} from "./HomePager.tsx";
 import { useHomeLayout, useSaveHomeLayout } from "./layout-queries.ts";
 import {
 	useAccountBalances,
@@ -267,24 +265,31 @@ export function HomeScreen() {
 					bottomPadding={bottomBarHeight + spacing.lg}
 				/>
 			</HomePager>
-			{/* Um bloco só: avatar, olho e abas. Fica sobre as páginas (o conteúdo rola por baixo) e o degradê na base
-			    faz o que passa por baixo sumir suave, sem corte seco. */}
-			<View pointerEvents="box-none" style={{ position: "absolute", top: 0, left: 0, right: 0 }}>
-				<View style={{ backgroundColor: colors.background }}>
-					<View style={{ paddingHorizontal: spacing.lg }}>
-						<HomeHeader
-							height={sizes.homeHeader}
-							initial={avatarInitial(displayName)}
-							hidden={hidden}
-							onToggleHidden={toggle}
-							onAvatarPress={() => router.push("/configuracoes")}
-						/>
-					</View>
-					<HomeTabsFade fade={tabsFade}>
-						<HomeTabsBar pager={pager} />
-					</HomeTabsFade>
+			{/* Um bloco só: avatar, olho e abas, sobre as páginas (o conteúdo rola por baixo). O degradê linear fica
+			    abaixo das abas e sobe com o sumiço delas; as abas só mudam de opacidade, sem recorte. */}
+			<View
+				pointerEvents="box-none"
+				style={{ position: "absolute", top: 0, left: 0, right: 0, height: headerBottom }}
+			>
+				<HomeHeaderBackdrop fade={tabsFade} />
+				<View
+					style={{
+						height: sizes.homeHeader,
+						paddingHorizontal: spacing.lg,
+						backgroundColor: colors.background,
+					}}
+				>
+					<HomeHeader
+						height={sizes.homeHeader}
+						initial={avatarInitial(displayName)}
+						hidden={hidden}
+						onToggleHidden={toggle}
+						onAvatarPress={() => router.push("/configuracoes")}
+					/>
 				</View>
-				<FadeEdge style={{ height: TOP_FADE }} />
+				<HomeTabsFade fade={tabsFade}>
+					<HomeTabsBar pager={pager} />
+				</HomeTabsFade>
 			</View>
 			<WidgetMenu
 				menu={widgetMenu.menu}
