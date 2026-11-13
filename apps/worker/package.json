@@ -16,7 +16,7 @@
 		"@orbita/ledger": "workspace:*",
 		"@orbita/security": "workspace:*",
 		"@orbita/shared": "workspace:*",
-		"bullmq": "6.7.1",
+		"bullmq": "6.7.3",
 		"ioredis": "5.11.1",
 		"tsx": "4.23.15",
 		"zod": "4.6.7"

@@ -24,8 +24,8 @@
 		"@orbita/security": "workspace:*",
 		"@orbita/shared": "workspace:*",
 		"@orbita/tokens": "workspace:*",
-		"bullmq": "6.7.1",
-		"hono": "4.13.16",
+		"bullmq": "6.7.3",
+		"hono": "4.13.17",
 		"tsx": "4.23.15",
 		"zod": "4.6.7"
 	},
