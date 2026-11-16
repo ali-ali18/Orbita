@@ -128,12 +128,15 @@ describe.each(contractSuites())("NotificationInboxStore (%s)", (_name, make) => 
 		expect((await inbox.list())[0]?.reason).toBe("target");
 	});
 
-	it("aviso de cancelamento (cancelled) é um item da caixa como outro: conta e some ao dispensar", async () => {
+	it("aviso de cancelamento (cancelled) não conta como pendência, aparece na lista e o motivo não muda", async () => {
 		await inbox.add(item("c", { reason: "cancelled" }));
-		expect(await inbox.count()).toBe(1);
+		expect(await inbox.count()).toBe(0);
 		expect(await inbox.countHidden()).toBe(0);
 		expect(await inbox.add(item("c", { reason: "cancelled" }))).toEqual({ created: false });
+		await inbox.setReason("c", "target");
+		await inbox.setReason("c", "promo");
 		expect(await inbox.list()).toHaveLength(1);
+		expect((await inbox.list())[0]?.reason).toBe("cancelled");
 		expect(await inbox.remove((await inbox.list())[0]?.id as string)).toBe(true);
 	});
 

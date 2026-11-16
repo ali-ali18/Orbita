@@ -130,6 +130,24 @@ export const INBOX_REASON_LABEL: Record<NotificationInboxReason, string> = {
 	cancelled: "Compra cancelada",
 };
 
+/**
+ * Como a caixa aparece: `listed` são os itens da lista normal (falhas e avisos de cancelamento), `offers` as ofertas
+ * ocultas. O aviso `cancelled` aparece na lista, mas não conta em "Não consegui lançar (N)" nem pede "Tentar de novo"
+ * (nada a tentar). Sem pendência, o título é só "Avisos".
+ */
+export function inboxView<T extends { reason: NotificationInboxReason }>(items: readonly T[]) {
+	const listed = items.filter((item) => item.reason !== "promo");
+	const offers = items.filter((item) => item.reason === "promo");
+	const pending = listed.filter((item) => item.reason !== "cancelled").length;
+	return {
+		listed,
+		offers,
+		pending,
+		title: pending > 0 ? `Não consegui lançar (${pending})` : "Avisos",
+		canRetry: pending > 0,
+	};
+}
+
 /** Linha discreta no fim da lista: "3 ofertas ocultas". */
 export function hiddenOffersLabel(count: number): string {
 	return count === 1 ? "1 oferta oculta" : `${count} ofertas ocultas`;

@@ -19,6 +19,7 @@ import {
 	deliveryLine,
 	hiddenOffersLabel,
 	inboxCaption,
+	inboxView,
 	isVerifiedApp,
 	type NativeStatus,
 	RESTRICTED_SETTINGS_HELP,
@@ -203,8 +204,7 @@ export function NotificationsView({
 	onKeepOffer: (id: string) => void;
 }) {
 	const [offersOpen, setOffersOpen] = useState(false);
-	const failures = inbox.filter((item) => item.reason !== "promo");
-	const offers = inbox.filter((item) => item.reason === "promo");
+	const { listed: failures, offers, title: inboxTitle, canRetry } = inboxView(inbox);
 	const view = captureView({ supported, capture: settings.capture, apps: settings.apps, status });
 	const delivery = supported && settings.capture ? deliveryLine(status, now) : null;
 	return (
@@ -315,7 +315,7 @@ export function NotificationsView({
 			) : null}
 
 			{failures.length > 0 ? (
-				<SettingsSection title={`Não consegui lançar (${failures.length})`}>
+				<SettingsSection title={inboxTitle}>
 					<View style={{ padding: spacing.lg, gap: spacing.md }}>
 						{failures.map((item) => (
 							<View
@@ -357,7 +357,15 @@ export function NotificationsView({
 								<IconButton icon="fechar" label="Descartar notificação" onPress={() => onDismiss(item.id)} />
 							</View>
 						))}
-						<Button variant="secondary" compact label="Tentar de novo" loading={retrying} onPress={onRetry} />
+						{canRetry ? (
+							<Button
+								variant="secondary"
+								compact
+								label="Tentar de novo"
+								loading={retrying}
+								onPress={onRetry}
+							/>
+						) : null}
 						{retryMessage ? (
 							<Text variant="caption" tone="secondary" accessibilityLiveRegion="polite">
 								{retryMessage}

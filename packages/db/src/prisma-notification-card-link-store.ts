@@ -30,7 +30,8 @@ export function createPrismaNotificationCardLinkStore(db: Db, now: () => Date): 
 				const row = await db.notificationCardLink.upsert({
 					where: { app_last4: { app, last4 } },
 					create: { app, last4, cardId, origin, createdAt: now() },
-					update: { cardId, origin },
+					// Palpite só cria: nunca sobrescreve uma ligação que já existe.
+					update: origin === "guess" ? {} : { cardId, origin },
 				});
 				return toRecord(row);
 			} catch (e) {

@@ -38,11 +38,11 @@ export interface NotificationInboxStore {
 	add(input: NotificationInboxInput): Promise<{ created: boolean }>;
 	/** Mais novas primeiro. Sem `limit`, devolve TODAS (falhas até `NOTIFICATION_INBOX_LIMIT` e ofertas até `NOTIFICATION_PROMO_LIMIT`: os limites são separados). */
 	list(limit?: number): Promise<NotificationInboxRecord[]>;
-	/** Quantas esperam o dono ("Não consegui lançar"): NÃO conta as ofertas ocultas. */
+	/** Quantas esperam o dono ("Não consegui lançar"): NÃO conta as ofertas ocultas nem os avisos de cancelamento. */
 	count(): Promise<number>;
 	/** Quantas ofertas ocultas. */
 	countHidden(): Promise<number>;
-	/** Muda o motivo da que tem esta chave (o classificador mudou de ideia). Sem efeito se não existe. */
+	/** Muda o motivo da que tem esta chave (o classificador mudou de ideia). Sem efeito se não existe ou se é aviso `cancelled`. */
 	setReason(key: string, reason: NotificationInboxReason): Promise<void>;
 	/** "É compra": a oferta oculta volta à lista como "format" e não é ocultada de novo. `false` se não existe ou não era oculta. */
 	keepAsPurchase(id: string): Promise<boolean>;

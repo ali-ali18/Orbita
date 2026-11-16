@@ -18,6 +18,9 @@ export function createMemoryNotificationCardLinkStore(state: MemoryState): Notif
 			if (!/^\d{4}$/.test(last4)) throw invalid("O final do cartão tem 4 dígitos.");
 			if (!state.cards.has(cardId)) throw notFound("Cartão", "o");
 			const key = keyOf(app, last4);
+			// Palpite só cria: nunca sobrescreve uma ligação que já existe (escolha ou palpite).
+			const existing = rows.get(key);
+			if (origin === "guess" && existing) return { ...existing };
 			const record = { app, last4, cardId, origin, createdAt: rows.get(key)?.createdAt ?? state.now() };
 			rows.set(key, record);
 			return { ...record };

@@ -69,4 +69,26 @@ describe.each(contractSuites())("NotificationCardLinkStore (%s)", (_name, make) 
 		expect(chosen).toMatchObject({ origin: "choice", cardId: otherId });
 		expect((await stores.notificationCardLinks.get("santander", "1234"))?.origin).toBe("choice");
 	});
+
+	it("o palpite só cria: nunca sobrescreve uma ligação que já existe", async () => {
+		await stores.notificationCardLinks.set("santander", "1234", cardId, "choice");
+		const kept = await stores.notificationCardLinks.set("santander", "1234", otherId, "guess");
+		expect(kept).toMatchObject({ cardId, origin: "choice" });
+		expect(await stores.notificationCardLinks.get("santander", "1234")).toMatchObject({
+			cardId,
+			origin: "choice",
+		});
+		await stores.notificationCardLinks.set("nubank", "5678", cardId, "guess");
+		await stores.notificationCardLinks.set("nubank", "5678", otherId, "guess");
+		expect(await stores.notificationCardLinks.get("nubank", "5678")).toMatchObject({
+			cardId,
+			origin: "guess",
+		});
+		// A escolha do dono troca o palpite.
+		await stores.notificationCardLinks.set("nubank", "5678", otherId, "choice");
+		expect(await stores.notificationCardLinks.get("nubank", "5678")).toMatchObject({
+			cardId: otherId,
+			origin: "choice",
+		});
+	});
 });

@@ -37,7 +37,7 @@ export interface ParsedNotification {
 	uncertainTarget?: true;
 }
 
-/** Compra no cartão que o banco avisa ter sido cancelada: desfaz o lançamento que a notificação da compra criou. */
+/** Aviso de compra cancelada (Santander). É só um aviso: o ingest o guarda como um item da caixa; nada é desfeito. */
 export interface CancelledPurchase {
 	amountCents: number;
 	merchant: string | null;

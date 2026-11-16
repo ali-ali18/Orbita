@@ -19,7 +19,7 @@ export interface NotificationCardLinkRecord {
  */
 export interface NotificationCardLinkStore {
 	get(app: NotificationApp, last4: string): Promise<NotificationCardLinkRecord | null>;
-	/** Liga (ou troca o cartão de) este final. `invalid` se o final não tem 4 dígitos; `not_found` se o cartão não existe. */
+	/** Liga (ou troca o cartão de) este final. `guess` só cria: nunca sobrescreve uma ligação existente. `invalid` se o final não tem 4 dígitos; `not_found` se o cartão não existe. */
 	set(
 		app: NotificationApp,
 		last4: string,

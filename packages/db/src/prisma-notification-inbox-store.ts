@@ -65,7 +65,7 @@ export function createPrismaNotificationInboxStore(db: Db, now: () => Date): Not
 			return rows.map(toRecord);
 		},
 		async count() {
-			return db.notificationInbox.count({ where: { reason: { not: "promo" } } });
+			return db.notificationInbox.count({ where: { reason: { notIn: ["promo", "cancelled"] } } });
 		},
 		async countHidden() {
 			return db.notificationInbox.count({ where: { reason: "promo" } });

@@ -312,7 +312,8 @@ describe("Santander: compra cancelada é só um aviso na caixa", () => {
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ app: "santander", reason: "cancelled", title: "Compra cancelada!" });
 		expect(rows[0]?.text).toContain("cancelada");
-		expect(await stores.notificationInbox.count()).toBe(1);
+		// É aviso: aparece na lista, mas não conta em "Não consegui lançar".
+		expect(await stores.notificationInbox.count()).toBe(0);
 		expect(await live()).toEqual([]);
 	});
 
@@ -354,8 +355,8 @@ describe("Santander: compra cancelada é só um aviso na caixa", () => {
 	it("'tentar de novo' não o remove nem lança coisa alguma; dispensar tira da lista", async () => {
 		await ingestNotification(deps(), buy(BOUGHT));
 		await ingestNotification(deps(), santanderCancel());
-		expect(await retryNotificationInbox(deps())).toEqual({ created: 0, remaining: 1 });
-		expect(await retryNotificationInbox(deps())).toEqual({ created: 0, remaining: 1 });
+		expect(await retryNotificationInbox(deps())).toEqual({ created: 0, remaining: 0 });
+		expect(await retryNotificationInbox(deps())).toEqual({ created: 0, remaining: 0 });
 		const [row] = await stores.notificationInbox.list();
 		expect(row).toMatchObject({ reason: "cancelled" });
 		expect(await live()).toHaveLength(1);
@@ -374,7 +375,7 @@ describe("Santander: compra cancelada é só um aviso na caixa", () => {
 			reason: "format",
 			postedAt: new Date(CANCELLED),
 		});
-		expect(await retryNotificationInbox(deps())).toEqual({ created: 0, remaining: 1 });
+		expect(await retryNotificationInbox(deps())).toEqual({ created: 0, remaining: 0 });
 		expect((await stores.notificationInbox.list())[0]?.reason).toBe("cancelled");
 	});
 
