@@ -142,6 +142,16 @@ export const notificationInboxItemSchema = z.object({
 	text: z.string(),
 	reason: z.enum(NOTIFICATION_INBOX_REASONS),
 	postedAt: z.string(),
+	/**
+	 * Compra cujo final de cartão não leva a um cartão só: os cartões para o dono escolher uma vez (o app lembra o
+	 * final). `null`: nada a escolher.
+	 */
+	choose: z
+		.object({
+			last4: z.string(),
+			cards: z.array(z.object({ id: idSchema, name: z.string(), last4: z.string().nullable() })),
+		})
+		.nullable(),
 });
 export type NotificationInboxItemDto = z.infer<typeof notificationInboxItemSchema>;
 export const notificationInboxResponse = z.object({ items: z.array(notificationInboxItemSchema) });
@@ -150,3 +160,9 @@ export type NotificationInboxResponse = z.infer<typeof notificationInboxResponse
 /** `POST /v1/notifications/inbox/retry`: tenta de novo as que esperam (o dono cadastrou o cartão que faltava). */
 export const notificationRetryResponse = z.object({ created: z.number().int(), remaining: z.number().int() });
 export type NotificationRetryResponse = z.infer<typeof notificationRetryResponse>;
+
+/** `POST /v1/notifications/inbox/:id/card`: o dono escolhe o cartão de uma compra da lista. */
+export const notificationChooseCardBody = z.object({ cardId: idSchema });
+export type NotificationChooseCardBody = z.infer<typeof notificationChooseCardBody>;
+export const notificationChooseCardResponse = z.object({ created: z.boolean() });
+export type NotificationChooseCardResponse = z.infer<typeof notificationChooseCardResponse>;

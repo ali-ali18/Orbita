@@ -1,6 +1,9 @@
 import { invalid, notFound } from "./errors.ts";
 import type { MemoryState } from "./memory-state.ts";
-import type { NotificationCardLinkRecord, NotificationCardLinkStore } from "./notification-card-link-store.ts";
+import type {
+	NotificationCardLinkRecord,
+	NotificationCardLinkStore,
+} from "./notification-card-link-store.ts";
 
 /** Implementação em memória, para testes. Segue as mesmas regras da versão Prisma. */
 export function createMemoryNotificationCardLinkStore(state: MemoryState): NotificationCardLinkStore {

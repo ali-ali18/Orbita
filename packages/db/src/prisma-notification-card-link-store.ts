@@ -1,7 +1,10 @@
 import type { NotificationApp } from "@orbita/shared";
 import type { Db } from "./client.ts";
 import { invalid, notFound } from "./errors.ts";
-import type { NotificationCardLinkRecord, NotificationCardLinkStore } from "./notification-card-link-store.ts";
+import type {
+	NotificationCardLinkRecord,
+	NotificationCardLinkStore,
+} from "./notification-card-link-store.ts";
 import { isForeignKeyViolation } from "./prisma-errors.ts";
 
 type Row = { app: string; last4: string; cardId: string; createdAt: Date };

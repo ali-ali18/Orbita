@@ -1,10 +1,17 @@
-import { INBOX_MAX_AGE_DAYS, ingestNotification, retryNotificationInbox } from "@orbita/ingest";
+import {
+	chooseInboxCard,
+	INBOX_MAX_AGE_DAYS,
+	inboxCardChoice,
+	ingestNotification,
+	retryNotificationInbox,
+} from "@orbita/ingest";
 import { createRateLimiter } from "@orbita/security";
 import {
 	idParam,
 	type NotificationInboxResponse,
 	type NotificationResult,
 	notificationBatchBody,
+	notificationChooseCardBody,
 } from "@orbita/shared";
 import { Hono } from "hono";
 import { orNotFound } from "../../http/errors.ts";
@@ -52,17 +59,19 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 		.get("/v1/notifications/inbox", async (c) => {
 			await purge();
 			const rows = await stores.notificationInbox.list();
-			const body: NotificationInboxResponse = {
-				items: rows.map((r) => ({
+			const items: NotificationInboxResponse["items"] = [];
+			for (const r of rows) {
+				items.push({
 					id: r.id,
 					app: r.app,
 					title: r.title,
 					text: r.text,
 					reason: r.reason,
 					postedAt: r.postedAt.toISOString(),
-				})),
-			};
-			return c.json(body);
+					choose: await inboxCardChoice(deps, r),
+				});
+			}
+			return c.json({ items } satisfies NotificationInboxResponse);
 		})
 		.post(
 			"/v1/notifications/inbox/retry",
@@ -71,6 +80,13 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 				await purge();
 				return c.json(await retryNotificationInbox(deps));
 			},
+		)
+		.post(
+			"/v1/notifications/inbox/:id/card",
+			rateLimit(retryLimiter, (c) => c.get("device").id),
+			validate("param", idParam),
+			validate("json", notificationChooseCardBody),
+			async (c) => c.json(await chooseInboxCard(deps, c.req.valid("param").id, c.req.valid("json").cardId)),
 		)
 		.delete("/v1/notifications/inbox/:id", validate("param", idParam), async (c) => {
 			orNotFound(
