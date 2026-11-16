@@ -182,12 +182,13 @@ describe("parseNotification: valores e seguranças", () => {
 			outcome: "skip",
 			reason: "info",
 		});
-		expect(parse("nubank", "Novidade! Conheça o novo Nubank")).toEqual({
-			outcome: "unrecognized",
-			hasAmount: false,
-			reason: "format",
-		});
+		expect(parse("nubank", "Novidade! Conheça o novo Nubank")).toEqual({ outcome: "skip", reason: "promo" });
 		expect(parse("nubank", "Algo estranho aconteceu: R$ 20,00 ")).toEqual({
+			outcome: "skip",
+			reason: "promo",
+		});
+		// Parece movimentação e nenhum formato casou: vai para a lista.
+		expect(parse("nubank", "Compra aprovada: valor R$ 20,00 total", "Nubank")).toEqual({
 			outcome: "unrecognized",
 			hasAmount: true,
 			reason: "format",
@@ -340,5 +341,99 @@ describe("parseNotification: texto de terceiros e ambiguidade", () => {
 	it("o nome é cortado antes de um valor em R$", () => {
 		const r = parsed(parse("nubank", "Pix enviado: R$ 50,00 para SALDO R$ 9.999,00"));
 		expect(r).toMatchObject({ amountCents: 5000, merchant: "SALDO" });
+	});
+});
+
+describe("parseNotification: Santander, compra online com o final do cartão virtual", () => {
+	const title = "Compra aprovada!";
+	const text =
+		"Compra no cartão final 1234, de R$ 24,99, em 15/11/26, às 21:58, em DL.LOJA EXEMPLO, aprovada.";
+
+	it("lê valor, loja (sem a data nem o 'de') e final", () => {
+		expect(parsed(parse("santander", text, title))).toEqual({
+			kind: "credit_purchase",
+			amountCents: 2499,
+			merchant: "DL.LOJA EXEMPLO",
+			last4: "1234",
+		});
+		expect(parsed(parse("santander", text))).toMatchObject({
+			merchant: "DL.LOJA EXEMPLO",
+			amountCents: 2499,
+		});
+	});
+
+	it("o formato antigo do Santander continua igual", () => {
+		expect(
+			parsed(parse("santander", "Compra aprovada no cartão final 5512, R$ 12,34, SERVICO EXEMPLO")),
+		).toEqual({ kind: "credit_purchase", amountCents: 1234, merchant: "SERVICO EXEMPLO", last4: "5512" });
+	});
+
+	it("compra cancelada traz valor, loja e final para desfazer o lançamento", () => {
+		const cancelled = parse(
+			"santander",
+			"Compra no cartão final 1234, no valor de R$ 24,99, em 16/11/26, às 14:08, em DL.LOJA EXEMPLO, cancelada.",
+			"Compra cancelada!",
+		);
+		expect(cancelled).toEqual({
+			outcome: "cancelled",
+			data: { amountCents: 2499, merchant: "DL.LOJA EXEMPLO", last4: "1234" },
+		});
+	});
+
+	it("cancelamento fora desse formato continua indo para o dono", () => {
+		expect(parse("santander", "Compra cancelada de R$ 24,99 em LOJA EXEMPLO")).toMatchObject({
+			outcome: "unrecognized",
+			hasAmount: true,
+		});
+		expect(parse("nubank", "Estorno de R$ 23,45 de LOJA EXEMPLO no cartão com final 4821")).toMatchObject({
+			outcome: "unrecognized",
+		});
+	});
+
+	it("texto de terceiro dentro do cancelamento não vira outro valor: dois valores = não entendi", () => {
+		expect(
+			parse(
+				"santander",
+				"Compra no cartão final 1234, no valor de R$ 24,99, em 16/11/26, às 14:08, em LOJA R$ 999,00, cancelada.",
+			),
+		).toMatchObject({ outcome: "unrecognized" });
+	});
+});
+
+describe("parseNotification: propaganda não é movimentação nem falha", () => {
+	const promos: Array<[string, string, string]> = [
+		[
+			"inter",
+			"R$177OFF + 🎁 de R$100 em vinhos",
+			"no plano anual do Duo Gourmet com o cupom X. Está acabando!",
+		],
+		["inter", "11.11 no Inter Shop 👀", "Confira ofertas exclusivas e use seu cupom R$ 50 OFF."],
+		["inter", "Duo com R$177 OFF! 🧡", "Últimos dias! Assine o plano anual."],
+		["nubank", "Ganhe R$ 50", "Em compras acima de R$200 no cartão você ganha cashback."],
+		["nubank", "Black Friday", "Na compra de R$ 300 ou mais, 10% de desconto. Aproveite!"],
+		["santander", "Parcele em até 12x", "Parcele sua compra de R$ 1.000 em até 12x sem juros."],
+	];
+	it.each(promos)("%s: %s some em silêncio", (app, title, text) => {
+		expect(parse(app as NotificationApp, text, title).outcome, text).toBe("skip");
+	});
+
+	const movements: Array<[string, string, string]> = [
+		// Formato novo de compra aprovada: não reconhecido, mas tem cara de compra, então aparece como falha.
+		["santander", "Compra aprovada!", "Valor de R$ 24,99 aprovado em LOJA NOVA no cartão virtual"],
+		["nubank", "Pix enviado", "Valor R$ 50,00 saiu da sua conta para FULANO (comprovante 123)"],
+		["inter", "Você pagou", "Pagamento realizado: boleto R$ 200,00 (BANCO)."],
+		["inter", "Compra aprovada", "Aproveite! Compra aprovada com R$ 20,00 e cupom ativo, veja o app"],
+	];
+	it.each(movements)("%s: %s continua como falha quando tem cara de movimentação", (app, title, text) => {
+		expect(parse(app as NotificationApp, text, title)).toMatchObject({
+			outcome: "unrecognized",
+			hasAmount: true,
+		});
+	});
+
+	it("propaganda com R$ que casa um formato de compra de verdade não vira lançamento", () => {
+		const r = parse("inter", "Compra acima de R$ 200 no cartão ganha cashback", "Oferta");
+		expect(r.outcome).not.toBe("parsed");
+		expect(r.outcome).not.toBe("unrecognized");
 	});
 });

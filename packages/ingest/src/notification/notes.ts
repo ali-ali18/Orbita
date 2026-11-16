@@ -3,3 +3,8 @@ export const UNCERTAIN_TARGET_NOTE =
 	"Pago a um estabelecimento sem dizer se foi no saldo ou no cartão do Mercado Pago. Confira a conta e o cartão para não ficar duplicado.";
 export const UNVERIFIED_BANK_NOTE =
 	"Lido da notificação de um banco cujo formato ainda não foi conferido. Confira o valor e o estabelecimento.";
+/** O final da notificação não é o do cartão (compra online usa o do cartão virtual): lançado no único cartão do banco. */
+export const differentFinalNote = (last4: string) =>
+	`Final ${last4} diferente do cartão. Único do banco: lancei nele. Confira.`;
+/** A compra que a notificação lançou foi cancelada, mas o dono já tinha mexido no lançamento. */
+export const CANCELLED_NOTE = "O banco avisou que esta compra foi cancelada. Confira e apague.";
