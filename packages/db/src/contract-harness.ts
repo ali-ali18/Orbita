@@ -33,6 +33,7 @@ export async function cleanDatabase(client: Db): Promise<void> {
 	await client.importBatch.deleteMany();
 	await client.notificationInbox.deleteMany();
 	await client.notificationCardLink.deleteMany();
+	await client.notificationCancellation.deleteMany();
 	await client.appPreferences.deleteMany();
 	await client.homeLayout.deleteMany();
 	await client.recurrencePosting.deleteMany();

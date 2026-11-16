@@ -17,4 +17,8 @@ export interface NotificationCardLinkStore {
 	get(app: NotificationApp, last4: string): Promise<NotificationCardLinkRecord | null>;
 	/** Liga (ou troca o cartão de) este final. `invalid` se o final não tem 4 dígitos; `not_found` se o cartão não existe. */
 	set(app: NotificationApp, last4: string, cardId: string): Promise<NotificationCardLinkRecord>;
+	/** As ligações (mais antigas primeiro), para o dono ver e esquecer. */
+	list(): Promise<NotificationCardLinkRecord[]>;
+	/** Esquece a ligação. `false` se não existia. */
+	remove(app: NotificationApp, last4: string): Promise<boolean>;
 }

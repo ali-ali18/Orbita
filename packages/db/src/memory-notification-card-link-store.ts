@@ -22,5 +22,13 @@ export function createMemoryNotificationCardLinkStore(state: MemoryState): Notif
 			rows.set(key, record);
 			return { ...record };
 		},
+		async list() {
+			return [...rows.values()]
+				.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+				.map((r) => ({ ...r }));
+		},
+		async remove(app, last4) {
+			return rows.delete(keyOf(app, last4));
+		},
 	};
 }

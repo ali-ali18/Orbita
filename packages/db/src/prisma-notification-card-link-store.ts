@@ -36,5 +36,12 @@ export function createPrismaNotificationCardLinkStore(db: Db, now: () => Date): 
 				throw e;
 			}
 		},
+		async list() {
+			const rows = await db.notificationCardLink.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+			return rows.map(toRecord);
+		},
+		async remove(app, last4) {
+			return (await db.notificationCardLink.deleteMany({ where: { app, last4 } })).count === 1;
+		},
 	};
 }

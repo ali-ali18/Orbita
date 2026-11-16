@@ -48,4 +48,17 @@ describe.each(contractSuites())("NotificationCardLinkStore (%s)", (_name, make) 
 		expect(error).toBeInstanceOf(DataError);
 		expect((error as DataError).code).toBe("not_found");
 	});
+
+	it("lista as ligações e esquece uma delas", async () => {
+		await stores.notificationCardLinks.set("santander", "1234", cardId);
+		await stores.notificationCardLinks.set("nubank", "5678", otherId);
+		expect((await stores.notificationCardLinks.list()).map((l) => `${l.app}:${l.last4}`).sort()).toEqual([
+			"nubank:5678",
+			"santander:1234",
+		]);
+		expect(await stores.notificationCardLinks.remove("santander", "1234")).toBe(true);
+		expect(await stores.notificationCardLinks.remove("santander", "1234")).toBe(false);
+		expect(await stores.notificationCardLinks.get("santander", "1234")).toBeNull();
+		expect(await stores.notificationCardLinks.list()).toHaveLength(1);
+	});
 });
