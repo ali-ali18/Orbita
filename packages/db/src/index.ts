@@ -106,8 +106,14 @@ export type {
 } from "./investment-terms-store.ts";
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
+export type {
+	NotificationCardLinkRecord,
+	NotificationCardLinkStore,
+	NotificationLinkOrigin,
+} from "./notification-card-link-store.ts";
 export {
 	NOTIFICATION_INBOX_LIMIT,
+	NOTIFICATION_PROMO_LIMIT,
 	type NotificationInboxInput,
 	type NotificationInboxRecord,
 	type NotificationInboxStore,
