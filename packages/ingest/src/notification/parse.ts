@@ -72,8 +72,6 @@ interface Pattern {
 	kind: NotificationKind;
 	re: RegExp;
 	uncertainTarget?: true;
-	/** Padrão solto ("compra … R$ X em …"): propaganda com "compra acima de R$ 200" também casa. Ver `OFFER`. */
-	generic?: true;
 }
 
 const re = (source: string) => new RegExp(source, "di");
@@ -146,12 +144,10 @@ const PATTERNS: readonly Pattern[] = [
 	{
 		kind: "credit_purchase",
 		re: re(String.raw`compra(?:(?!r\$).){0,60}?${MONEY}\s+(?:em|no|na|de|para)\s+${WHO}${END}`),
-		generic: true,
 	},
 	{
 		kind: "credit_purchase",
 		re: re(String.raw`compra (?:aprovada|realizada|efetuada)?\s*(?:em|no|na)\s+${WHO}\s*[,:-]?\s*${MONEY}`),
-		generic: true,
 	},
 ];
 
@@ -164,9 +160,8 @@ const DECLINED =
 	/\b(recusad[ao]|negad[ao]|nao aprovad[ao]|nao foi aprovad[ao]|nao autorizad[ao]|nao realizad[ao])\b/;
 /** Estorno, cancelamento e afins mudam um lançamento que já existe: o dono decide, o parser não adivinha. */
 const REVERSAL = /\b(estorn\w*|reembols\w*|cancelad[ao]|cancelamento|contestac\w*|devolvid[ao]|devolucao)\b/;
-/** Aviso que não é movimentação: fatura fechada, limite, oferta. Some sem ir para a lista. */
-const INFO =
-	/\b(fatura (?:fechou|fechada|disponivel|vence|vencera|ja esta)|limite|oferta|promocao|cashback|desconto|sorteio|convite|vence (?:hoje|amanha))\b/;
+/** Aviso que não é movimentação: fatura fechada, limite. Some sem ir para a lista. Oferta NÃO entra aqui (vira oculta). */
+const INFO = /\b(fatura (?:fechou|fechada|disponivel|vence|vencera|ja esta)|limite|vence (?:hoje|amanha))\b/;
 const DEBIT_WORD = /\bdebito\b/;
 const CREDIT_WORD = /\bcredito\b/;
 const LAST4 = /(?:final|finalizado em|terminad[oa] em|terminando em|\*{2,4}|\.{3})\s*(\d{4})\b/;
@@ -236,11 +231,12 @@ function tryParse(original: string): ParseResult {
 	if (distinctAmounts(folded).size > 1) return unrecognized(true);
 	let vetoed = false;
 	const hits: { data: ParsedNotification }[] = [];
-	for (const { kind, re: pattern, uncertainTarget, generic } of PATTERNS) {
+	for (const { kind, re: pattern, uncertainTarget } of PATTERNS) {
 		const m = pattern.exec(folded);
 		if (!m?.groups) continue;
-		// Propaganda não vira lançamento: padrão solto + indício de oferta + nenhum verbo de conclusão vai para a lista.
-		if (generic && OFFER.test(folded) && !COMPLETED.test(folded)) {
+		// Propaganda nunca vira lançamento: qualquer padrão de compra com indício FORTE de oferta (um sem verbo de
+		// conclusão, ou dois) vai para a lista normal. Palavra fraca (OFF, %) é nome de loja e não conta aqui.
+		if (isOfferText(folded)) {
 			vetoed = true;
 			continue;
 		}
@@ -282,47 +278,47 @@ function tryParse(original: string): ParseResult {
  */
 export function parseNotification(input: { app: NotificationApp; title: string; text: string }): ParseResult {
 	const result = readNotification(input);
-	// Só é propaganda (some em silêncio) o que NÃO casou nenhum padrão, NÃO tem cara de movimentação e TEM indício
-	// positivo de oferta. Ausência de indício de movimentação, sozinha, nunca descarta: vai para a lista.
+	// Oferta (`skip`/"promo") é só uma classificação: quem chama GUARDA o texto, oculto. Aqui o classificador é
+	// conservador: precisa de indício de oferta, nenhuma estrutura de movimentação e nenhum padrão de compra casado.
 	if (result.outcome === "unrecognized" && result.reason === "format" && result.hasAmount) {
 		const folded = foldPt(`${input.title} ${input.text}`);
-		if (
-			OFFER.test(folded) &&
-			!looksLikeMovement(folded) &&
-			!GENERIC_PATTERNS.some((p) => p.re.test(folded))
-		) {
+		if (OFFER.test(folded) && !looksLikeMovement(folded) && !PATTERNS.some((p) => p.re.test(folded))) {
 			return { outcome: "skip", reason: "promo" };
 		}
 	}
 	return result;
 }
 
-const GENERIC_PATTERNS = PATTERNS.filter((p) => p.generic);
-
-/** Indício POSITIVO de oferta: cupom, OFF, cashback, "confira", "últimos dias", "% de desconto", emoji de presente… */
+/** Indício FORTE de oferta (só ele veta um lançamento): cupom, ganhe, aproveite, confira, desconto, cashback… */
+const STRONG_OFFER =
+	/\b(cupom|cupons|oferta|ofertas|promocao|promocoes|desconto|descontos|ganhe\w*|aproveit\w*|confira|resgat\w*|cashback|sorteio|indique|convid\w*|frete gratis|imperdiv\w*|black friday|acabando|ultimos dias|de volta|a partir de|acima de|ate \d+\s?x)\b/g;
+/** Qualquer indício de oferta, fraco ou forte (OFF, %, "assine", emoji): só serve para ocultar, nunca para vetar. */
 const OFFER =
-	/\b(cupom|cupons|oferta\w*|promo\w*|desconto\w*|off|ganhe\w*|aproveit\w*|confira|resgat\w*|cashback|sorteio|indique|convid\w*|assine|frete gratis|imperdiv\w*|black friday|acabando|ultimos dias|a partir de|acima de|ate \d+\s?x)\b|\d\s?%|%\s?(?:off|de desconto)|[\u{1F381}\u{1F389}\u{1F525}\u{1F440}\u{1F9E1}\u{1F4B8}]/u;
+	/\b(cupom|cupons|oferta\w*|promo\w*|desconto\w*|off|ganhe\w*|aproveit\w*|confira|resgat\w*|cashback|sorteio|indique|convid\w*|convite|assine|frete gratis|imperdiv\w*|black friday|acabando|ultimos dias|de volta|a partir de|acima de|ate \d+\s?x)\b|\d\s?%|%\s?(?:off|de desconto)|[\u{1F381}\u{1F389}\u{1F525}\u{1F440}\u{1F9E1}\u{1F4B8}]/u;
 /** Verbo de conclusão: a coisa já aconteceu. */
 const COMPLETED =
-	/\b(?:aprovad[ao]|realizad[ao]|efetuad[ao]|recebid[ao]|enviad[ao]|recebeu|enviou|pagou|pago|paga|debitad\w*|confirmad[ao])\b/;
+	/\b(?:aprovad[ao]|realizad[ao]|efetuad[ao]|recebid[ao]|creditad[ao]|depositad[ao]|enviad[ao]|recebeu|enviou|pagou|pago|paga|debitad\w*|confirmad[ao]|transferid[ao])\b/;
+
+/** É texto de oferta (para vetar lançamento)? Indício forte sem verbo de conclusão, ou dois indícios fortes. */
+function isOfferText(folded: string): boolean {
+	const strong = new Set(folded.match(STRONG_OFFER) ?? []);
+	return strong.size >= 2 || (strong.size === 1 && !COMPLETED.test(folded));
+}
+
 /**
- * Frase de movimentação concreta: compra aprovada/realizada/no cartão/"de R$", Pix e transferência enviados ou
- * recebidos (com o valor no meio: "Pix de R$ 80 recebido"), boleto pago, pagamento confirmado, débito, "pagamos",
- * "você pagou/recebeu/enviou", saque, depósito. "Na compra de…", "em compras" são condição de oferta.
+ * Estrutura de movimentação: o tipo de operação em palavra (Pix, TED, transferência, boleto, salário, cobrança,
+ * lançamento, débito, depósito, pagamento, saque, estorno, fatura) ou uma frase de compra ("compra aprovada", "compra
+ * no cartão"). "Na compra de…" e "em compras" são condição de oferta, não movimentação.
  */
 const MOVEMENT =
-	/(?<!\b(?:na|nas|em|para|pra|apos|nesta|nessa)\s)\bcompra(?:s)?\s+(?:no\s+(?:debito|credito)\s+)?(?:aprovad|realizad|efetuad|cancelad|recusad|de\s+r\$|no\s+(?:cartao|debito|credito)|na\s+(?:loja|maquininha))|\bpix\s+(?:de\s+r\$\s*[\d.,]+\s+)?(?:enviad|recebid|agendad)|\bvoce\s+(?:recebeu|enviou|pagou|transferiu|fez\s+(?:um|uma)\s+(?:pix|transferencia|pagamento|compra))|\bte\s+enviou\b|\btransferencia\s+(?:de\s+r\$\s*[\d.,]+\s+)?(?:enviad|recebid|realizad|efetuad)|\bpagamento\s+(?:de\s+(?:fatura|boleto|conta)|(?:de\s+r\$\s*[\d.,]+\s+)?(?:realizad|efetuad|recebid|aprovad|confirmad|agendad))|\bdebitad\w*|\bdebito\s+(?:em\s+conta|automatic|realizad|efetuad)|\bpagamos\b|\b(?:saque|deposito)\s+(?:realizad|efetuad|recebid)|\bfatura\s+(?:paga|foi\s+paga)|\bboleto\b.*\bpag[oa]\b/;
-
-/** Palavra de que a coisa já aconteceu (compra aprovada, "você pagou…"): vale como movimentação mesmo sem a frase inteira. */
-const STATUS = /\b(?:aprovad[ao]|realizad[ao]|efetuad[ao]|recebeu|enviou|pagou)\b/;
+	/(?<!\b(?:na|nas|em|para|pra|apos|nesta|nessa)\s)\bcompra(?:s)?\s+(?:no\s+(?:debito|credito)\s+)?(?:aprovad|realizad|efetuad|cancelad|recusad|pendente|de\s+r\$|no\s+(?:cartao|debito|credito|valor)|na\s+(?:loja|maquininha))|\b(?:pix|ted|doc|transferencia|boleto|salario|cobranca|lancamento|debito|deposito|pagamento|pagamentos|pagamos|saque|estorno|fatura)\b|\bvoce\s+(?:recebeu|enviou|pagou|transferiu|fez\s+(?:um|uma)\s+(?:pix|transferencia|pagamento|compra))|\bte\s+enviou\b/;
 
 /**
- * Tem cara de movimentação? Uma frase concreta (`MOVEMENT`), uma palavra de conclusão (`STATUS`) ou aviso de estorno
- * ou cancelamento. Só pesa quando há indício de oferta: movimentação com palavra de oferta junto ("Compra aprovada…
- * aproveite o cupom") continua com cara de movimentação, e um formato novo de compra não pode sumir em silêncio.
+ * Tem cara de movimentação? Estrutura (`MOVEMENT`), verbo de conclusão (`COMPLETED`) ou aviso de estorno/cancelamento.
+ * Pesa na hora de ocultar: movimentação com palavra de oferta no nome da loja continua na lista normal.
  */
 export function looksLikeMovement(folded: string): boolean {
-	return MOVEMENT.test(folded) || STATUS.test(folded) || REVERSAL.test(folded);
+	return MOVEMENT.test(folded) || COMPLETED.test(folded) || REVERSAL.test(folded);
 }
 
 function readNotification(input: { app: NotificationApp; title: string; text: string }): ParseResult {

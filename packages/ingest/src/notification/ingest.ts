@@ -104,6 +104,8 @@ interface Resolved {
 	text: string;
 	postedAt: Date;
 	key: string;
+	/** O dono disse "é compra" a esta oferta oculta: não se oculta de novo. */
+	ownerKept?: boolean;
 }
 
 const isActive = (x: { archivedAt: Date | null }) => x.archivedAt === null;
@@ -149,18 +151,20 @@ async function resolveCard(
 	// O cartão do banco com este final exato vence qualquer ligação aprendida (que então fica sem uso).
 	const exact = pickCard(app, all, last4);
 	if (exact) return { card: exact };
+	const sameBank = all.filter(isActive).filter(bankMatcher(app));
 	if (last4 !== null) {
 		const link = await stores.notificationCardLinks.get(app, last4);
 		const linked = link ? all.find((c) => c.id === link.cardId && isActive(c)) : undefined;
-		if (linked) return { card: linked };
+		// Palpite só vale enquanto o banco tiver esse cartão como o único ativo; com mais de um, o dono escolhe.
+		const valid = link?.origin === "choice" || (sameBank.length === 1 && sameBank[0]?.id === link?.cardId);
+		if (linked && valid) return { card: linked };
 	}
-	const sameBank = all.filter(isActive).filter(bankMatcher(app));
 	// O final é de mais de um cartão do banco (ambíguo): nunca se adivinha nem se aprende.
 	if (last4 !== null && sameBank.some((c) => c.last4 === last4)) return null;
 	if (!learn || last4 === null) return null;
 	if (sameBank.length !== 1) return null;
 	const card = sameBank[0] as CardRecord;
-	await stores.notificationCardLinks.set(app, last4, card.id);
+	await stores.notificationCardLinks.set(app, last4, card.id, "guess");
 	return { card, note: differentFinalNote(last4) };
 }
 
@@ -372,40 +376,51 @@ async function cancelPurchase(deps: NotificationDeps, n: Resolved, cancel: Cance
 	const known = await resolveCard(deps.stores, n.app, cancel.last4, false);
 	const candidates = known ? [known.card] : all.filter(isActive).filter(bankMatcher(n.app));
 	const minSimilarity = known ? 1 : 2;
-	const found: TransactionRecord[] = [];
+	const found: { t: TransactionRecord; score: number }[] = [];
 	for (const card of candidates) {
 		const rows = await transactions.listByTarget(
 			{ cardId: card.id },
 			{ from: addDays(day, -CANCEL_LOOKBACK_DAYS), to: addDays(day, 1) },
 		);
-		found.push(
-			...rows.filter(
-				(t) =>
-					t.source === NOTIFICATION_SOURCE &&
-					t.bankPending &&
-					t.kind === "expense" &&
-					t.amountCents === cancel.amountCents &&
-					t.installmentNumber === null &&
-					cancel.merchant !== null &&
-					nameSimilarity(t.merchantName ?? t.description, cancel.merchant) >= minSimilarity,
-			),
-		);
+		for (const t of rows) {
+			if (
+				t.kind !== "expense" ||
+				t.amountCents !== cancel.amountCents ||
+				t.installmentNumber !== null ||
+				cancel.merchant === null ||
+				t.note?.includes(CANCELLED_NOTE)
+			) {
+				continue;
+			}
+			const score = nameSimilarity(t.merchantName ?? t.description, cancel.merchant);
+			if (score >= minSimilarity) found.push({ t, score });
+		}
 	}
-	// A mais recente (a compra cancelada costuma ser a última igual); empate: a criada por último.
-	const target = found.sort(
+	// A loja mais parecida primeiro; depois a data mais recente (a compra cancelada costuma ser a última igual); depois
+	// a criada por último.
+	found.sort(
 		(a, b) =>
-			(a.date < b.date ? 1 : a.date > b.date ? -1 : 0) || b.createdAt.getTime() - a.createdAt.getTime(),
-	)[0];
+			b.score - a.score ||
+			(a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : 0) ||
+			b.t.createdAt.getTime() - a.t.createdAt.getTime(),
+	);
+	const target = found[0]?.t;
 	let used = false;
 	if (target) {
 		used = true;
-		const removed =
-			!touchedByOwner(target) && target.note === null && (await transactions.removeByBank(target.id, now));
-		if (!removed) {
-			await transactions.flagMissingByBank(target.id, now, {
-				status: "pending",
-				note: withCancelNote(target.note),
-			});
+		if (target.source === NOTIFICATION_SOURCE && target.bankPending) {
+			const removed =
+				!touchedByOwner(target) && target.note === null && (await transactions.removeByBank(target.id, now));
+			if (!removed) {
+				await transactions.flagMissingByBank(target.id, now, {
+					status: "pending",
+					note: withCancelNote(target.note),
+				});
+			}
+		} else {
+			// O Open Finance já adotou a compra (ou é de outra origem): o banco é a fonte da verdade e o cancelamento
+			// pode ser de outra compra igual. Nada é apagado: vai para "Para revisar" com a nota.
+			await transactions.update(target.id, { status: "pending", note: withCancelNote(target.note) });
 		}
 	} else {
 		for (const row of await notificationInbox.list()) {
@@ -445,7 +460,7 @@ async function takeEarlyCancel(
 			c.last4 === data.last4 &&
 			c.merchant !== null &&
 			nameSimilarity(c.merchant, data.merchant) >= 1 &&
-			gap >= -300_000 &&
+			gap >= 0 &&
 			gap <= EARLY_CANCEL_HOURS * 3_600_000 &&
 			(await deps.stores.notificationCancellations.consume(c.key))
 		) {
@@ -455,8 +470,11 @@ async function takeEarlyCancel(
 	return false;
 }
 
-/** `dismissed`: não é lançamento nem falha (propaganda, aviso, cancelamento tratado): quem espera na lista sai dela. */
-type Outcome = NotificationResult | "dismissed";
+/**
+ * `dismissed`: não é lançamento nem falha (aviso, compra recusada, cancelamento tratado): quem espera na lista sai dela.
+ * `hidden`: parece oferta; fica GUARDADA na caixa, oculta (motivo "promo"), nunca apagada por ser oferta.
+ */
+type Outcome = NotificationResult | "dismissed" | "hidden";
 
 /** Resultado da tentativa; `inbox` diz por que a notificação foi para a lista. */
 async function process(deps: NotificationDeps, prefs: PreferencesRecord, n: Resolved): Promise<Outcome> {
@@ -464,7 +482,7 @@ async function process(deps: NotificationDeps, prefs: PreferencesRecord, n: Reso
 	const result = parseNotification({ app: n.app, title: n.title, text: n.text });
 	const toInbox = async (reason: NotificationInboxReason) => {
 		await notificationInbox.purgeOlderThan(new Date(deps.now().getTime() - INBOX_MAX_AGE_DAYS * 86_400_000));
-		await notificationInbox.add({
+		const { created } = await notificationInbox.add({
 			key: n.key,
 			app: n.app,
 			title: n.title,
@@ -472,9 +490,17 @@ async function process(deps: NotificationDeps, prefs: PreferencesRecord, n: Reso
 			reason,
 			postedAt: n.postedAt,
 		});
+		// Já estava na caixa (tentar de novo): só o marcador muda.
+		if (!created) await notificationInbox.setReason(n.key, reason);
 		return "inbox" as const;
 	};
-	if (result.outcome === "skip") return "dismissed";
+	if (result.outcome === "skip") {
+		if (result.reason !== "promo") return "dismissed";
+		// Oferta: nada com R$ some sem rastro. Guardada e oculta, a menos que o dono tenha desligado a lista.
+		if (!prefs.notificationToReview) return "ignored";
+		await toInbox(n.ownerKept ? "format" : "promo");
+		return "hidden";
+	}
 	if (result.outcome === "cancelled") {
 		await cancelPurchase(deps, n, result.data);
 		return "dismissed";
@@ -534,7 +560,7 @@ export async function ingestNotification(
 		postedAt: new Date(item.postedAt),
 		key: notificationKey(item),
 	});
-	return outcome === "dismissed" ? "ignored" : outcome;
+	return outcome === "dismissed" || outcome === "hidden" ? "ignored" : outcome;
 }
 
 /**
@@ -559,6 +585,7 @@ export async function retryNotificationInbox(
 			text: row.text,
 			postedAt: row.postedAt,
 			key: row.key,
+			ownerKept: row.ownerKept,
 		});
 		if (outcome === "created" || outcome === "duplicate" || outcome === "dismissed") {
 			await notificationInbox.remove(row.id);
@@ -619,7 +646,12 @@ export async function chooseInboxCard(
 	}
 	const card = await cards.get(cardId);
 	if (!card || card.archivedAt !== null) throw new DataError("not_found", "Cartão não encontrado.");
-	await notificationCardLinks.set(row.app, parsed.data.last4, card.id);
+	// Só vale um dos cartões que a lista ofereceu para esta notificação.
+	const [offered] = await inboxCardChoices(deps, [row]);
+	if (!offered?.cards.some((c) => c.id === card.id)) {
+		throw new DataError("invalid", "Escolha um dos cartões oferecidos para esta compra.");
+	}
+	await notificationCardLinks.set(row.app, parsed.data.last4, card.id, "choice");
 	const outcome = await process(deps, await deps.stores.preferences.get(), {
 		app: row.app,
 		title: row.title,

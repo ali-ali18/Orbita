@@ -456,3 +456,67 @@ describe("parseNotification: propaganda some só com indício positivo de oferta
 		});
 	});
 });
+
+describe("parseNotification: erro de classificação não perde nada", () => {
+	// Movimentação real com palavra de oferta no nome: nunca é oferta (vai para a lista normal, "format").
+	const movementWithOfferName = [
+		"Pix de R$ 250,00 para PROMO CELL",
+		"Pagamento de R$ 1.299,00 - CASAS OFF",
+		"Débito de R$ 150,00 em OFERTAS SA",
+		"Cobrança de R$ 29,90 - ASSINE FACIL",
+		"Depósito de R$ 500,00 recebido de GANHE LTDA",
+		"Salário de R$ 5.000,00 creditado — OFF",
+		"Recebido R$ 1.500,00 de CUPOM LTDA",
+		"Transferência TED de R$ 1.500,00 para CUPONS SA",
+		"Pix de R$ 100,00 para CONFIRA LTDA",
+		"Pagamento de R$ 89,90 em ASSINATURA OFF",
+		"Lançamento de R$ 29,90 em PLANO OFF",
+	];
+	it.each(movementWithOfferName)("%s: lista normal", (text) => {
+		expect(parse("inter", text)).toMatchObject({
+			outcome: "unrecognized",
+			hasAmount: true,
+			reason: "format",
+		});
+	});
+
+	// Propaganda nunca vira lançamento: com padrão de compra e indício de oferta, vai para a lista normal.
+	const offersThatMatchPurchase = [
+		"Na compra de R$ 100,00 em LOJA X ganhe frete grátis",
+		"Compra de R$ 100,00 em LOJA X com 20% de desconto. Aproveite",
+		"Sua compra de R$ 99,00 em LOJA X está com desconto especial",
+		"Compra aprovada em LOJA X por R$ 100,00! Ganhe 10% de volta na próxima. Confira",
+		"Compra no cartão final 1234, de R$ 24,99, em 15/11/26, às 21:58, em LOJA X, aprovada. Aproveite o cupom!",
+	];
+	it.each(offersThatMatchPurchase)("%s: nunca lança", (text) => {
+		expect(parse("nubank", text)).toMatchObject({
+			outcome: "unrecognized",
+			hasAmount: true,
+			reason: "format",
+		});
+	});
+
+	// Palavra fraca (OFF, %) no nome da loja não impede o lançamento.
+	const stillLaunch: Array<[string, string, string]> = [
+		["Compra de R$ 20,00 no cartão final 3333 em MERCADO OFF", "", "20,00"],
+		["R$ 40,00 em PLANO MENSAL 10% OFF", "Compra aprovada", "40,00"],
+		["Compra no valor de R$ 33,00 em ASSINATURA OFF", "", "33,00"],
+		["Compra R$ 49,00 no débito - LOJA 20% OFF final 1234", "", "49,00"],
+		["Compra pendente de R$ 25,00 em LOJA OFF", "", "25,00"],
+		["Compra no cartão final 1234 R$ 38,00 - LOJA 3%", "", "38,00"],
+	];
+	it.each(stillLaunch)("%s lança", (text, title) => {
+		expect(parse("nubank", text, title).outcome, text).toBe("parsed");
+	});
+
+	it("oferta com palavra de aviso (cashback, cupom) é oferta, não 'info'; movimentação com esse nome não é", () => {
+		expect(parse("inter", "Use o cupom e ganhe R$ 20 de volta. Confira!", "Cashback")).toEqual({
+			outcome: "skip",
+			reason: "promo",
+		});
+		expect(parse("inter", "Pix de R$ 80,00 recebido de OFERTAS SA")).toMatchObject({
+			outcome: "unrecognized",
+			hasAmount: true,
+		});
+	});
+});
