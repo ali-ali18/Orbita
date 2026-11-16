@@ -54,6 +54,7 @@ export interface NotificationDeps {
 		| "preferences"
 		| "notificationInbox"
 		| "notificationCardLinks"
+		| "notificationCancellations"
 	>;
 	now: () => Date;
 }
@@ -145,17 +146,19 @@ async function resolveCard(
 	learn: boolean,
 ): Promise<{ card: CardRecord; note?: string } | null> {
 	const all = await stores.cards.list();
+	// O cartão do banco com este final exato vence qualquer ligação aprendida (que então fica sem uso).
+	const exact = pickCard(app, all, last4);
+	if (exact) return { card: exact };
 	if (last4 !== null) {
 		const link = await stores.notificationCardLinks.get(app, last4);
 		const linked = link ? all.find((c) => c.id === link.cardId && isActive(c)) : undefined;
 		if (linked) return { card: linked };
 	}
-	const exact = pickCard(app, all, last4);
-	if (exact) return { card: exact };
-	if (!learn || last4 === null) return null;
 	const sameBank = all.filter(isActive).filter(bankMatcher(app));
-	// O final bate com mais de um cartão do banco (ambíguo): nunca se adivinha.
-	if (sameBank.length !== 1 || sameBank.some((c) => c.last4 === last4)) return null;
+	// O final é de mais de um cartão do banco (ambíguo): nunca se adivinha nem se aprende.
+	if (last4 !== null && sameBank.some((c) => c.last4 === last4)) return null;
+	if (!learn || last4 === null) return null;
+	if (sameBank.length !== 1) return null;
 	const card = sameBank[0] as CardRecord;
 	await stores.notificationCardLinks.set(app, last4, card.id);
 	return { card, note: differentFinalNote(last4) };
@@ -322,22 +325,53 @@ async function alreadyInBank(
 
 /** Quanto para trás se procura a compra que o banco avisa ter cancelado (a notificação de cancelamento pode atrasar). */
 const CANCEL_LOOKBACK_DAYS = 7;
+/** Cancelamento que chega antes da compra espera tanto tempo por ela (e ela precisa ser de até tanto antes dele). */
+const EARLY_CANCEL_HOURS = 48;
+/** Registros de cancelamento mais velhos que isto saem. */
+const CANCEL_KEEP_DAYS = 7;
+
+/** Acrescenta o aviso de cancelamento à nota que já existe (nunca o omite, nunca o repete). */
+const withCancelNote = (note: string | null) =>
+	note === null ? CANCELLED_NOTE : note.includes(CANCELLED_NOTE) ? note : `${note} ${CANCELLED_NOTE}`;
+
+/** A mesma notificação repostada em minuto vizinho tem a mesma parte estável da chave. */
+const neighborKeys = (key: string): string[] => {
+	const m = /^n:([0-9a-f]+):(\d+)$/.exec(key);
+	if (!m) return [key];
+	const minute = Number(m[2]);
+	const out: string[] = [];
+	for (let d = -REPOST_WINDOW_MINUTES; d <= REPOST_WINDOW_MINUTES; d++) out.push(`n:${m[1]}:${minute + d}`);
+	return out;
+};
 
 /**
  * "Compra cancelada": desfaz o lançamento que a notificação da compra criou (mesmo cartão, valor, loja e dias
  * próximos), pelo mesmo caminho de uma compra pendente que o banco deixa de informar: sai da lista (exclusão lógica)
- * e, se o dono já mexeu nela, só vai para "Para revisar" com a nota. Nunca cria gasto negativo. Sem lançamento
- * correspondente (a compra nunca foi lançada, ou o banco já a trouxe pelo Open Finance): some em silêncio, e a compra
- * que ainda esperava na lista "Não consegui lançar" sai dela, porque não vai mais acontecer.
+ * e, se o dono já mexeu nela ou ela já tem nota, fica em "Para revisar" com a nota de cancelamento acrescentada.
+ * Nunca cria gasto negativo. A notificação de cancelamento é registrada pela chave: repetida, não cancela uma segunda
+ * compra igual. Sem lançamento correspondente, o cancelamento fica guardado (`EARLY_CANCEL_HOURS`) para anular a
+ * compra se ela chegar depois; a compra que esperava na lista "Não consegui lançar" sai dela.
  */
 async function cancelPurchase(deps: NotificationDeps, n: Resolved, cancel: CancelledPurchase): Promise<void> {
-	const { cards, transactions, notificationInbox } = deps.stores;
-	const when = n.postedAt.getTime() > deps.now().getTime() ? deps.now() : n.postedAt;
+	const { cards, transactions, notificationInbox, notificationCancellations } = deps.stores;
+	if (await notificationCancellations.hasAny(neighborKeys(n.key))) return;
+	const now = deps.now();
+	await notificationCancellations.purgeOlderThan(new Date(now.getTime() - CANCEL_KEEP_DAYS * 86_400_000));
+	const base = {
+		key: n.key,
+		app: n.app,
+		last4: cancel.last4,
+		amountCents: cancel.amountCents,
+		merchant: cancel.merchant,
+		postedAt: n.postedAt,
+	};
+	const when = n.postedAt.getTime() > now.getTime() ? now : n.postedAt;
 	const day = toLocalDate(when);
 	const all = await cards.list();
-	// Pelo final, quando o final já é conhecido; senão qualquer cartão do banco (valor, loja e data seguem valendo).
+	// Pelo final, quando o final já é conhecido; senão qualquer cartão do banco, e então só vale a loja IGUAL.
 	const known = await resolveCard(deps.stores, n.app, cancel.last4, false);
 	const candidates = known ? [known.card] : all.filter(isActive).filter(bankMatcher(n.app));
+	const minSimilarity = known ? 1 : 2;
 	const found: TransactionRecord[] = [];
 	for (const card of candidates) {
 		const rows = await transactions.listByTarget(
@@ -353,7 +387,7 @@ async function cancelPurchase(deps: NotificationDeps, n: Resolved, cancel: Cance
 					t.amountCents === cancel.amountCents &&
 					t.installmentNumber === null &&
 					cancel.merchant !== null &&
-					nameSimilarity(t.merchantName ?? t.description, cancel.merchant) >= 1,
+					nameSimilarity(t.merchantName ?? t.description, cancel.merchant) >= minSimilarity,
 			),
 		);
 	}
@@ -362,31 +396,63 @@ async function cancelPurchase(deps: NotificationDeps, n: Resolved, cancel: Cance
 		(a, b) =>
 			(a.date < b.date ? 1 : a.date > b.date ? -1 : 0) || b.createdAt.getTime() - a.createdAt.getTime(),
 	)[0];
+	let used = false;
 	if (target) {
-		const now = deps.now();
-		const removed = !touchedByOwner(target) && (await transactions.removeByBank(target.id, now));
+		used = true;
+		const removed =
+			!touchedByOwner(target) && target.note === null && (await transactions.removeByBank(target.id, now));
 		if (!removed) {
 			await transactions.flagMissingByBank(target.id, now, {
 				status: "pending",
-				note: target.note ?? CANCELLED_NOTE,
+				note: withCancelNote(target.note),
 			});
 		}
-		return;
-	}
-	for (const row of await notificationInbox.list()) {
-		if (row.app !== n.app || row.postedAt.getTime() > n.postedAt.getTime()) continue;
-		const parsed = parseNotification({ app: row.app, title: row.title, text: row.text });
-		if (
-			parsed.outcome === "parsed" &&
-			parsed.data.kind === "credit_purchase" &&
-			parsed.data.amountCents === cancel.amountCents &&
-			parsed.data.last4 === cancel.last4 &&
-			cancel.merchant !== null &&
-			nameSimilarity(parsed.data.merchant ?? "", cancel.merchant) >= 1
-		) {
-			await notificationInbox.remove(row.id);
+	} else {
+		for (const row of await notificationInbox.list()) {
+			if (row.app !== n.app || row.postedAt.getTime() > n.postedAt.getTime()) continue;
+			const parsed = parseNotification({ app: row.app, title: row.title, text: row.text });
+			if (
+				parsed.outcome === "parsed" &&
+				parsed.data.kind === "credit_purchase" &&
+				parsed.data.amountCents === cancel.amountCents &&
+				parsed.data.last4 === cancel.last4 &&
+				cancel.merchant !== null &&
+				nameSimilarity(parsed.data.merchant ?? "", cancel.merchant) >= 1
+			) {
+				await notificationInbox.remove(row.id);
+				used = true;
+			}
 		}
 	}
+	await notificationCancellations.register({ ...base, consumed: used });
+}
+
+/**
+ * Cancelamento que chegou ANTES desta compra (a fila do aparelho entrega fora de ordem): se há um à espera com o mesmo
+ * valor, final e loja, de até `EARLY_CANCEL_HOURS` depois da compra, ele a anula. `true` só para quem o usou.
+ */
+async function takeEarlyCancel(
+	deps: NotificationDeps,
+	n: Resolved,
+	data: ParsedNotification,
+): Promise<boolean> {
+	if (data.kind !== "credit_purchase" || data.last4 === null || data.merchant === null) return false;
+	const since = new Date(deps.now().getTime() - EARLY_CANCEL_HOURS * 3_600_000);
+	for (const c of await deps.stores.notificationCancellations.listPending(n.app, since)) {
+		const gap = c.postedAt.getTime() - n.postedAt.getTime();
+		if (
+			c.amountCents === data.amountCents &&
+			c.last4 === data.last4 &&
+			c.merchant !== null &&
+			nameSimilarity(c.merchant, data.merchant) >= 1 &&
+			gap >= -300_000 &&
+			gap <= EARLY_CANCEL_HOURS * 3_600_000 &&
+			(await deps.stores.notificationCancellations.consume(c.key))
+		) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /** `dismissed`: não é lançamento nem falha (propaganda, aviso, cancelamento tratado): quem espera na lista sai dela. */
@@ -421,7 +487,10 @@ async function process(deps: NotificationDeps, prefs: PreferencesRecord, n: Reso
 	// A data é a do momento em que o Android registrou (nunca no futuro, mesmo com o relógio do aparelho errado).
 	const posted = n.postedAt.getTime() > deps.now().getTime() ? deps.now() : n.postedAt;
 	const built = await build(deps, prefs, n, result.data, toLocalDate(posted));
-	if ("missing" in built) return toInbox("target");
+	if ("missing" in built) {
+		// Já cancelada antes de chegar: não há o que mostrar ao dono.
+		return (await takeEarlyCancel(deps, n, result.data)) ? "dismissed" : toInbox("target");
+	}
 	if (!(await transactions.findByExternal(NOTIFICATION_SOURCE, n.key))) {
 		if (await repostedRecently(transactions, n.key)) return "duplicate";
 		const otherCards =
@@ -435,7 +504,14 @@ async function process(deps: NotificationDeps, prefs: PreferencesRecord, n: Reso
 	}
 	const saved = await transactions.upsertByExternal(NOTIFICATION_SOURCE, n.key, built.input);
 	// Apagado pelo dono antes: não recria. Já existia: é repetição.
-	return saved.created ? "created" : "duplicate";
+	if (!saved.created) return "duplicate";
+	// O banco já tinha avisado o cancelamento (a notificação dele chegou primeiro): o lançamento nasce e sai na hora, e
+	// fica o registro dele (a mesma compra reenviada não volta).
+	if (await takeEarlyCancel(deps, n, result.data)) {
+		await transactions.removeByBank(saved.transaction.id, deps.now());
+		return "dismissed";
+	}
+	return "created";
 }
 
 /**
@@ -499,26 +575,30 @@ export interface InboxCardChoice {
 }
 
 /**
- * Para a notificação de compra na lista cujo final não leva a um cartão só: os cartões do banco (ou, se o banco não
- * tem nenhum identificado, todos os ativos) para o dono escolher uma vez. `null`: não há o que escolher.
+ * Para cada notificação de compra da lista cujo final não leva a um cartão só: os cartões do banco (ou, se o banco não
+ * tem nenhum identificado, todos os ativos) para o dono escolher uma vez. `null`: não há o que escolher. Os cartões
+ * são lidos uma vez só, para a lista toda.
  */
-export async function inboxCardChoice(
+export async function inboxCardChoices(
 	deps: Pick<NotificationDeps, "stores">,
-	row: { app: NotificationApp; title: string; text: string; reason: NotificationInboxReason },
-): Promise<InboxCardChoice | null> {
-	if (row.reason !== "target") return null;
-	const parsed = parseNotification({ app: row.app, title: row.title, text: row.text });
-	if (parsed.outcome !== "parsed" || parsed.data.kind !== "credit_purchase" || parsed.data.last4 === null) {
-		return null;
-	}
+	rows: readonly { app: NotificationApp; title: string; text: string; reason: NotificationInboxReason }[],
+): Promise<(InboxCardChoice | null)[]> {
+	if (!rows.some((r) => r.reason === "target")) return rows.map(() => null);
 	const active = (await deps.stores.cards.list()).filter(isActive);
-	const sameBank = active.filter(bankMatcher(row.app));
-	const pool = sameBank.length > 0 ? sameBank : active;
-	if (pool.length === 0) return null;
-	return {
-		last4: parsed.data.last4,
-		cards: pool.map((c) => ({ id: c.id, name: c.name, last4: c.last4 })),
-	};
+	return rows.map((row) => {
+		if (row.reason !== "target") return null;
+		const parsed = parseNotification({ app: row.app, title: row.title, text: row.text });
+		if (parsed.outcome !== "parsed" || parsed.data.kind !== "credit_purchase" || parsed.data.last4 === null) {
+			return null;
+		}
+		const sameBank = active.filter(bankMatcher(row.app));
+		const pool = sameBank.length > 0 ? sameBank : active;
+		if (pool.length === 0) return null;
+		return {
+			last4: parsed.data.last4,
+			cards: pool.map((c) => ({ id: c.id, name: c.name, last4: c.last4 })),
+		};
+	});
 }
 
 /**

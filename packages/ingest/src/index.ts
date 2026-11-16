@@ -3,7 +3,7 @@ export {
 	chooseInboxCard,
 	INBOX_MAX_AGE_DAYS,
 	type InboxCardChoice,
-	inboxCardChoice,
+	inboxCardChoices,
 	ingestNotification,
 	NOTIFICATION_SOURCE,
 	type NotificationDeps,
