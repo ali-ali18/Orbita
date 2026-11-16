@@ -288,99 +288,181 @@ describe("compra com final diferente e depois o Open Finance: um lançamento só
 	});
 });
 
-describe("Santander: compra cancelada", () => {
+const DAY_MS = 86_400_000;
+
+describe("Santander: compra cancelada (nunca apaga, só marca)", () => {
 	let stores: Stores;
 	let cardId: string;
 	const deps = () => ({ stores, now: () => NOW });
 	const live = () => stores.transactions.listRecent({ limit: 100 });
+	const card = (name: string, last4: string) =>
+		stores.cards.create({ name, bankCode: SANTANDER_ISPB, last4, closingDay: 10, dueDay: 17 });
+	const buy = (merchant: string, postedAt: number, last4 = "1234", value = "24,99") =>
+		note(
+			SANTANDER,
+			"Compra aprovada!",
+			`Compra no cartão final ${last4}, de R$ ${value}, em 15/11/26, às 21:58, em ${merchant}, aprovada.`,
+			postedAt,
+		);
+	const cancel = (merchant: string, postedAt: number, last4 = "1234", value = "24,99") =>
+		note(
+			SANTANDER,
+			"Compra cancelada!",
+			`Compra no cartão final ${last4}, no valor de R$ ${value}, em 16/11/26, às 14:08, em ${merchant}, cancelada.`,
+			postedAt,
+		);
+	const flagged = <T extends { note: string | null }>(rows: T[]) =>
+		rows.filter((r) => r.note?.includes(CANCELLED_NOTE));
 
 	beforeEach(async () => {
 		stores = createMemoryStores({ now: () => NOW });
 		await stores.categories.ensureDefaults();
 		await stores.preferences.update({ notificationCapture: true, notificationApps: ["santander"] });
-		cardId = (
-			await stores.cards.create({
-				name: "Santander Free",
-				bankCode: SANTANDER_ISPB,
-				last4: "1234",
-				closingDay: 10,
-				dueDay: 17,
-			})
-		).id;
+		cardId = (await card("Santander Free", "1234")).id;
 	});
 
-	it("cancela o lançamento da compra: sai dos lançamentos, igual a uma pendente que o banco deixa de informar", async () => {
+	it("marca a compra para revisão com a nota; não apaga nada", async () => {
 		await ingestNotification(deps(), santanderBuy());
 		const [t] = await live();
 		expect(await ingestNotification(deps(), santanderCancel())).toBe("ignored");
-		expect(await live()).toEqual([]);
-		// Mesma marca de "removido pelo banco": volta se o banco trouxer; nunca vira gasto negativo.
-		const deleted = await stores.transactions.get(t?.id as string);
-		expect(deleted).toBeNull();
-		expect(await stores.notificationInbox.count()).toBe(0);
-		// A compra reenviada depois não recria (o lançamento foi desfeito).
-		expect(await ingestNotification(deps(), santanderBuy())).toBe("duplicate");
-		expect(await live()).toEqual([]);
-	});
-
-	it("com o final do cartão virtual já ligado e confirmado, também cancela", async () => {
-		await stores.notificationCardLinks.set("santander", "5555", cardId);
-		expect(await ingestNotification(deps(), santanderBuy("5555"))).toBe("created");
-		expect(await ingestNotification(deps(), santanderCancel("5555"))).toBe("ignored");
-		expect(await live()).toEqual([]);
-	});
-
-	it("só cancela um: duas compras iguais, a mais recente sai", async () => {
-		await ingestNotification(deps(), santanderBuy("1234", BOUGHT - DAY_MS));
-		await ingestNotification(deps(), santanderBuy("1234", BOUGHT));
-		await ingestNotification(deps(), santanderCancel());
 		const rows = await live();
 		expect(rows).toHaveLength(1);
-		expect(rows[0]?.date).toBe("2026-11-14");
+		expect(rows[0]).toMatchObject({ id: t?.id, status: "pending", removedByBankAt: null });
+		expect(rows[0]?.note).toBe(CANCELLED_NOTE);
 	});
 
-	it("o dono já mexeu no lançamento: não apaga, vai para Para revisar com a nota", async () => {
-		await ingestNotification(deps(), santanderBuy());
-		const [t] = await live();
-		await stores.transactions.update(t?.id as string, { status: "confirmed", editedByOwner: true });
-		const mine = await stores.transactions.get(t?.id as string);
-		expect(mine?.editedByOwner).toBe(true);
+	it("repetir o cancelamento (mesmo minuto ou vizinho) não repete a nota nem marca uma segunda compra igual", async () => {
+		await ingestNotification(deps(), buy("DL.LOJA EXEMPLO", BOUGHT - 3_600_000));
+		await ingestNotification(deps(), buy("DL.LOJA EXEMPLO", BOUGHT));
+		for (const at of [CANCELLED, CANCELLED + 30_000, CANCELLED + 60_000]) {
+			await ingestNotification(deps(), santanderCancel("1234", at));
+		}
+		const rows = await live();
+		expect(rows).toHaveLength(2);
+		expect(flagged(rows)).toHaveLength(1);
+		expect(flagged(rows)[0]?.note).toBe(CANCELLED_NOTE);
+	});
+
+	it("marca só uma: a loja mais parecida primeiro, depois a mais recente", async () => {
+		await ingestNotification(deps(), buy("DL.LOJA EXEMPLO", BOUGHT - DAY_MS));
+		await ingestNotification(deps(), buy("DL.LOJA EXEMPLO LTDA", BOUGHT));
 		await ingestNotification(deps(), santanderCancel());
-		const [after] = await live();
-		expect(after).toMatchObject({ id: t?.id, status: "pending", note: CANCELLED_NOTE });
+		expect(flagged(await live()).map((r) => r.merchantName)).toEqual(["DL.LOJA EXEMPLO"]);
+		// Duas iguais: a mais recente.
+		await ingestNotification(deps(), buy("PADARIA SOL", BOUGHT - 3 * DAY_MS, "1234", "10,00"));
+		await ingestNotification(deps(), buy("PADARIA SOL", BOUGHT - 2 * DAY_MS, "1234", "10,00"));
+		await ingestNotification(deps(), cancel("PADARIA SOL", CANCELLED + 600_000, "1234", "10,00"));
+		const padarias = (await live()).filter((r) => r.amountCents === 1000);
+		expect(padarias).toHaveLength(2);
+		expect(flagged(padarias)).toHaveLength(1);
+		const newest = padarias.reduce((a, b) => (a.date >= b.date ? a : b));
+		expect(flagged(padarias)[0]?.id).toBe(newest.id);
 	});
 
-	it("sem compra correspondente: some em silêncio (não vai para a lista nem cria gasto)", async () => {
-		expect(await ingestNotification(deps(), santanderCancel())).toBe("ignored");
-		expect(await live()).toEqual([]);
-		expect(await stores.notificationInbox.count()).toBe(0);
+	it("lançamento que já tem nota (final diferente) ou que o dono editou: a nota de cancelamento é acrescentada", async () => {
+		await ingestNotification(deps(), santanderBuy("5555"));
+		await ingestNotification(deps(), santanderCancel("5555"));
+		const [t] = await live();
+		expect(t?.note).toContain("Final 5555");
+		expect(t?.note).toContain(CANCELLED_NOTE);
+		await ingestNotification(deps(), buy("CAFE", BOUGHT, "1234", "7,00"));
+		const cafe = (await live()).find((r) => r.amountCents === 700);
+		await stores.transactions.update(cafe?.id as string, { note: "Minha nota", editedByOwner: true });
+		await ingestNotification(deps(), cancel("CAFE", CANCELLED + 600_000, "1234", "7,00"));
+		expect((await stores.transactions.get(cafe?.id as string))?.note).toBe(`Minha nota ${CANCELLED_NOTE}`);
 	});
 
-	it("valor, loja ou cartão diferentes não casam", async () => {
+	it("nunca toca compra de outro final: um final desconhecido não marca nada", async () => {
+		const other = (await card("Santander Elite", "8888")).id;
+		await ingestNotification(deps(), buy("DL.LOJA EXEMPLO", BOUGHT, "1234"));
+		await ingestNotification(deps(), buy("DL.LOJA EXEMPLO", BOUGHT + 300_000, "8888"));
+		// Final 5555 não é de nenhum cartão: não há onde procurar.
+		await ingestNotification(deps(), cancel("DL.LOJA EXEMPLO", CANCELLED, "5555"));
+		expect(flagged(await live())).toHaveLength(0);
+		// Final 8888: só o cartão 8888.
+		await ingestNotification(deps(), cancel("DL.LOJA EXEMPLO", CANCELLED + 600_000, "8888"));
+		const marked = flagged(await live());
+		expect(marked).toHaveLength(1);
+		expect(marked[0]?.cardId).toBe(other);
+		expect(cardId).not.toBe(other);
+	});
+
+	it("compra já adotada pelo Open Finance: continua viva, em Para revisar com a nota", async () => {
 		await ingestNotification(deps(), santanderBuy());
-		const otherAmount = note(
-			SANTANDER,
-			"Compra cancelada!",
-			"Compra no cartão final 1234, no valor de R$ 25,99, em 16/11/26, às 14:08, em DL.LOJA EXEMPLO, cancelada.",
-			CANCELLED,
-		);
-		const otherShop = note(
-			SANTANDER,
-			"Compra cancelada!",
-			"Compra no cartão final 1234, no valor de R$ 24,99, em 16/11/26, às 14:08, em OUTRA COISA, cancelada.",
-			CANCELLED,
-		);
-		await ingestNotification(deps(), otherAmount);
-		await ingestNotification(deps(), otherShop);
-		expect(await live()).toHaveLength(1);
-		// Já adotada pelo Open Finance (origem pluggy): o cancelamento fica com o banco, não mexe.
 		const [t] = await live();
 		await stores.transactions.adoptExternal(t?.id as string, "pluggy", "p-1", { date: t?.date as string });
 		await ingestNotification(deps(), santanderCancel());
+		const [after] = await live();
+		expect(after).toMatchObject({ id: t?.id, source: "pluggy", status: "pending" });
+		expect(after?.note).toBe(CANCELLED_NOTE);
+	});
+
+	it("janela: compra de mais de 7 dias antes, ou de depois do cancelamento, não é marcada", async () => {
+		await ingestNotification(deps(), santanderBuy("1234", BOUGHT - 8 * DAY_MS));
+		// A data do lançamento é do dia; compra de um dia depois do cancelamento fica de fora.
+		await ingestNotification(deps(), santanderBuy("1234", CANCELLED));
+		await ingestNotification(deps(), santanderCancel("1234", BOUGHT + 600_000));
+		expect(flagged(await live())).toHaveLength(0);
+	});
+
+	it("compra da caixa: o item fica marcado 'cancelled', não é lançado nem oferece cartão, e o repost é o mesmo item", async () => {
+		await card("Santander Elite", "8888");
+		await ingestNotification(deps(), santanderBuy("5555"));
+		expect(await stores.notificationInbox.count()).toBe(1);
+		await ingestNotification(deps(), santanderCancel("5555"));
+		const [row] = await stores.notificationInbox.list();
+		expect(row).toMatchObject({ reason: "cancelled" });
+		expect(await live()).toEqual([]);
+		// Tentar de novo não a lança; escolher cartão não é oferecido.
+		expect(await retryNotificationInbox(deps())).toEqual({ created: 0, remaining: 1 });
+		const [choice] = await inboxCardChoices(deps(), [row as NonNullable<typeof row>]);
+		expect(choice).toBeNull();
+		await expect(chooseInboxCard(deps(), row?.id as string, cardId)).rejects.toMatchObject({
+			code: "invalid",
+		});
+		// O repost (mesmo minuto ou vizinho) continua sendo o mesmo item.
+		await ingestNotification(deps(), santanderBuy("5555"));
+		await ingestNotification(deps(), santanderBuy("5555", BOUGHT + 60_000));
+		const rows = await stores.notificationInbox.list();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.reason).toBe("cancelled");
+		// Nem lançado depois que o dono liga o final.
+		await stores.notificationCardLinks.set("santander", "5555", cardId, "choice");
+		expect(await ingestNotification(deps(), santanderBuy("5555"))).toBe("ignored");
+		expect(await live()).toEqual([]);
+	});
+
+	it("cancelamento que chega antes: a compra é LANÇADA em Para revisar com a nota (nunca anulada em silêncio)", async () => {
+		await ingestNotification(deps(), santanderCancel());
+		expect(await ingestNotification(deps(), santanderBuy())).toBe("created");
+		const [t] = await live();
+		expect(t).toMatchObject({ status: "pending", removedByBankAt: null });
+		expect(t?.note).toBe(CANCELLED_NOTE);
+		// Repost em minuto vizinho não duplica.
+		expect(await ingestNotification(deps(), santanderBuy("1234", BOUGHT + 60_000))).toBe("duplicate");
 		expect(await live()).toHaveLength(1);
 	});
 
-	it("itens antigos na lista: tentar de novo lança a compra e desfaz pelo cancelamento, nessa ordem", async () => {
+	it("o cancelamento adiantado marca uma compra só, e só as de antes dele", async () => {
+		await ingestNotification(deps(), santanderCancel());
+		await ingestNotification(deps(), santanderBuy("1234", BOUGHT));
+		await ingestNotification(deps(), santanderBuy("1234", BOUGHT + 600_000));
+		// Depois do cancelamento: outra compra.
+		await ingestNotification(deps(), santanderBuy("1234", CANCELLED + 600_000));
+		const rows = await live();
+		expect(rows).toHaveLength(3);
+		expect(flagged(rows)).toHaveLength(1);
+		expect(rows.filter((r) => r.status === "confirmed")).toHaveLength(2);
+	});
+
+	it("cancelamento adiantado e compra que vai para a caixa: entra já marcada 'cancelled'", async () => {
+		await card("Santander Elite", "8888");
+		await ingestNotification(deps(), santanderCancel("5555"));
+		expect(await ingestNotification(deps(), santanderBuy("5555"))).toBe("inbox");
+		expect((await stores.notificationInbox.list())[0]).toMatchObject({ reason: "cancelled" });
+	});
+
+	it("itens antigos na lista: tentar de novo lança a compra e a marca pelo cancelamento, nessa ordem", async () => {
 		await stores.notificationInbox.add({
 			key: "n:buy",
 			app: "santander",
@@ -398,182 +480,16 @@ describe("Santander: compra cancelada", () => {
 			postedAt: new Date(CANCELLED),
 		});
 		expect(await retryNotificationInbox(deps())).toEqual({ created: 1, remaining: 0 });
-		expect(await live()).toEqual([]);
-	});
-
-	it("a compra que ainda esperava na lista (cartão não achado) sai dela quando é cancelada", async () => {
-		await stores.cards.create({
-			name: "Santander Elite",
-			bankCode: SANTANDER_ISPB,
-			last4: "8888",
-			closingDay: 10,
-			dueDay: 17,
-		});
-		expect(await ingestNotification(deps(), santanderBuy("5555"))).toBe("inbox");
-		expect(await ingestNotification(deps(), santanderCancel("5555"))).toBe("ignored");
-		expect(await stores.notificationInbox.count()).toBe(0);
-		expect(await live()).toEqual([]);
-		expect(cardId).toBeTruthy();
-	});
-});
-
-const DAY_MS = 86_400_000;
-
-describe("cancelamento: idempotência, chegada antes da compra e notas", () => {
-	let stores: Stores;
-	const deps = () => ({ stores, now: () => NOW });
-	const live = () => stores.transactions.listRecent({ limit: 100 });
-	const card = (extra: { name: string; last4: string }) =>
-		stores.cards.create({ bankCode: SANTANDER_ISPB, closingDay: 10, dueDay: 17, ...extra });
-
-	beforeEach(async () => {
-		stores = createMemoryStores({ now: () => NOW });
-		await stores.categories.ensureDefaults();
-		await stores.preferences.update({ notificationCapture: true, notificationApps: ["santander"] });
-		await card({ name: "Santander Free", last4: "1234" });
-	});
-
-	it("a mesma notificação de cancelamento repetida não remove uma segunda compra igual", async () => {
-		await ingestNotification(deps(), santanderBuy("1234", BOUGHT - DAY_MS));
-		await ingestNotification(deps(), santanderBuy("1234", BOUGHT));
-		expect(await ingestNotification(deps(), santanderCancel())).toBe("ignored");
-		expect(await ingestNotification(deps(), santanderCancel())).toBe("ignored");
-		expect(await ingestNotification(deps(), santanderCancel("1234", CANCELLED + 30_000))).toBe("ignored");
-		expect(await live()).toHaveLength(1);
-	});
-
-	it("cancelamento que chega antes da compra anula a compra quando ela chega", async () => {
-		expect(await ingestNotification(deps(), santanderCancel())).toBe("ignored");
-		expect(await ingestNotification(deps(), santanderBuy())).toBe("ignored");
-		expect(await live()).toEqual([]);
-		expect(await stores.notificationInbox.count()).toBe(0);
-		// A compra reenviada não reaparece, e uma segunda compra igual (outra) entra normal.
-		expect(await ingestNotification(deps(), santanderBuy())).toBe("duplicate");
-		expect(await ingestNotification(deps(), santanderBuy("1234", BOUGHT + 600_000))).toBe("created");
-		expect(await live()).toHaveLength(1);
-	});
-
-	it("o cancelamento adiantado vale uma vez só e por janela curta (48 h)", async () => {
-		await ingestNotification(deps(), santanderCancel());
-		// Compra de 3 dias antes do cancelamento: fora da janela, não é a cancelada.
-		expect(await ingestNotification(deps(), santanderBuy("1234", CANCELLED - 3 * DAY_MS))).toBe("created");
-		expect(await live()).toHaveLength(1);
-	});
-
-	it("lançamento com nota (final diferente) ou mexido pelo dono: acrescenta a nota de cancelamento", async () => {
-		await ingestNotification(deps(), santanderBuy("5555"));
-		const [t] = await live();
-		expect(t?.note).toContain("5555");
-		await ingestNotification(deps(), santanderCancel("5555"));
-		const [after] = await live();
-		expect(after).toMatchObject({ id: t?.id, status: "pending" });
-		expect(after?.note).toContain("Final 5555");
-		expect(after?.note).toContain(CANCELLED_NOTE);
-	});
-
-	it("dono já mexeu e há nota: a nota de cancelamento vem junto da que existia", async () => {
-		await ingestNotification(deps(), santanderBuy());
-		const [t] = await live();
-		await stores.transactions.update(t?.id as string, { note: "Minha nota", editedByOwner: true });
-		await ingestNotification(deps(), santanderCancel());
-		const [after] = await live();
-		expect(after?.note).toBe(`Minha nota ${CANCELLED_NOTE}`);
-	});
-
-	const cancel5555 = (merchant: string, postedAt: number) =>
-		note(
-			SANTANDER,
-			"Compra cancelada!",
-			`Compra no cartão final 5555, no valor de R$ 24,99, em 16/11/26, às 14:08, em ${merchant}, cancelada.`,
-			postedAt,
-		);
-
-	it("final desconhecido: loja só contida não cancela, vai para revisão com a nota", async () => {
-		await ingestNotification(deps(), santanderBuy("1234"));
-		await ingestNotification(deps(), cancel5555("DL.LOJA EXEMPLO LTDA", CANCELLED));
 		const rows = await live();
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ status: "pending" });
 		expect(rows[0]?.note).toContain(CANCELLED_NOTE);
 	});
 
-	it("final desconhecido com o nome igual cancela", async () => {
-		await ingestNotification(deps(), santanderBuy("1234"));
-		await ingestNotification(deps(), cancel5555("DL.LOJA EXEMPLO", CANCELLED + 120_000));
+	it("sem compra correspondente nem cartão para o final: só fica guardado, nada é tocado", async () => {
+		expect(await ingestNotification(deps(), santanderCancel("7777"))).toBe("ignored");
 		expect(await live()).toEqual([]);
-	});
-});
-
-describe("cancelamento: casos de borda", () => {
-	let stores: Stores;
-	const deps = () => ({ stores, now: () => NOW });
-	const live = () => stores.transactions.listRecent({ limit: 100 });
-	const buy = (merchant: string, postedAt: number) =>
-		note(
-			SANTANDER,
-			"Compra aprovada!",
-			`Compra no cartão final 1234, de R$ 24,99, em 15/11/26, às 21:58, em ${merchant}, aprovada.`,
-			postedAt,
-		);
-
-	beforeEach(async () => {
-		stores = createMemoryStores({ now: () => NOW });
-		await stores.categories.ensureDefaults();
-		await stores.preferences.update({ notificationCapture: true, notificationApps: ["santander"] });
-		await stores.cards.create({
-			name: "Santander Free",
-			bankCode: SANTANDER_ISPB,
-			last4: "1234",
-			closingDay: 10,
-			dueDay: 17,
-		});
-	});
-
-	it("cancelamento guardado só anula compra de antes dele: a recompra depois nunca é anulada", async () => {
-		await ingestNotification(deps(), santanderCancel());
-		// Dois minutos DEPOIS do cancelamento: é outra compra.
-		expect(await ingestNotification(deps(), santanderBuy("1234", CANCELLED + 120_000))).toBe("created");
-		expect(await live()).toHaveLength(1);
-		// A compra de antes do cancelamento ainda é anulada (o cancelamento não foi gasto pela recompra).
-		expect(await ingestNotification(deps(), santanderBuy("1234", CANCELLED - 3_600_000))).toBe("ignored");
-		expect(await live()).toHaveLength(1);
-	});
-
-	it("escolhe a compra de loja mais parecida antes da mais recente", async () => {
-		await ingestNotification(deps(), buy("DL.LOJA EXEMPLO", BOUGHT - 86_400_000));
-		await ingestNotification(deps(), buy("DL.LOJA EXEMPLO LTDA", BOUGHT));
-		await ingestNotification(deps(), santanderCancel());
-		const rows = await live();
-		expect(rows).toHaveLength(1);
-		expect(rows[0]?.merchantName).toBe("DL.LOJA EXEMPLO LTDA");
-	});
-
-	it("compra igual já adotada pelo Open Finance: não some, vai para Para revisar com a nota", async () => {
-		await ingestNotification(deps(), santanderBuy());
-		const [t] = await live();
-		await stores.transactions.adoptExternal(t?.id as string, "pluggy", "p-1", { date: t?.date as string });
-		await ingestNotification(deps(), santanderCancel());
-		const [after] = await live();
-		expect(after).toMatchObject({ id: t?.id, source: "pluggy", status: "pending" });
-		expect(after?.note).toContain(CANCELLED_NOTE);
-		// Repetir a notificação não acrescenta de novo.
-		await ingestNotification(deps(), santanderCancel());
-		expect((await live())[0]?.note).toBe(after?.note);
-	});
-
-	it("lançamento do dono (outra origem) com a mesma compra também vai para revisão", async () => {
-		const mine = await stores.transactions.create({
-			kind: "expense",
-			amountCents: 2499,
-			date: "2026-11-15",
-			description: "DL.LOJA EXEMPLO",
-			cardId: (await stores.cards.list())[0]?.id as string,
-			invoiceMonth: "2026-11",
-		});
-		await ingestNotification(deps(), santanderCancel());
-		const after = await stores.transactions.get(mine.id);
-		expect(after).toMatchObject({ status: "pending" });
-		expect(after?.note).toContain(CANCELLED_NOTE);
+		expect(await stores.notificationInbox.count()).toBe(0);
 	});
 });
 
@@ -801,7 +717,6 @@ describe("propaganda do banco", () => {
 describe("terceira revisão: reposts, cancelamento único, oferta marcada pelo dono", () => {
 	let stores: Stores;
 	const deps = () => ({ stores, now: () => NOW });
-	const live = () => stores.transactions.listRecent({ limit: 100 });
 	const card = (name: string, last4: string) =>
 		stores.cards.create({ name, bankCode: SANTANDER_ISPB, last4, closingDay: 10, dueDay: 17 });
 
@@ -809,36 +724,6 @@ describe("terceira revisão: reposts, cancelamento único, oferta marcada pelo d
 		stores = createMemoryStores({ now: () => NOW });
 		await stores.categories.ensureDefaults();
 		await stores.preferences.update({ notificationCapture: true, notificationApps: ["santander"] });
-	});
-
-	it("compra cancelada e reenviada em minuto vizinho não ressuscita", async () => {
-		await card("Santander Free", "1234");
-		await ingestNotification(deps(), santanderBuy("1234", BOUGHT));
-		await ingestNotification(deps(), santanderCancel());
-		expect(await live()).toEqual([]);
-		expect(await ingestNotification(deps(), santanderBuy("1234", BOUGHT + 60_000))).toBe("duplicate");
-		expect(await live()).toEqual([]);
-	});
-
-	it("cancelamento adiantado: a compra anulada e reenviada em minuto vizinho também não volta", async () => {
-		await card("Santander Free", "1234");
-		await ingestNotification(deps(), santanderCancel());
-		expect(await ingestNotification(deps(), santanderBuy("1234", BOUGHT))).toBe("ignored");
-		expect(await ingestNotification(deps(), santanderBuy("1234", BOUGHT + 60_000))).toBe("duplicate");
-		expect(await live()).toEqual([]);
-	});
-
-	it("um cancelamento anula no máximo uma compra: as iguais que esperam na caixa ficam", async () => {
-		await card("Santander Free", "9999");
-		await card("Santander Elite", "8888");
-		await ingestNotification(deps(), santanderBuy("5555", BOUGHT - 3_600_000));
-		await ingestNotification(deps(), santanderBuy("5555", BOUGHT));
-		expect(await stores.notificationInbox.count()).toBe(2);
-		await ingestNotification(deps(), santanderCancel("5555"));
-		const left = await stores.notificationInbox.list();
-		expect(left).toHaveLength(1);
-		// A mais recente saiu; a mais antiga continua esperando.
-		expect(left[0]?.postedAt.getTime()).toBe(BOUGHT - 3_600_000);
 	});
 
 	it("oferta que o dono marcou 'É compra' não é ocultada de novo por repost (mesmo minuto ou vizinho)", async () => {
@@ -853,28 +738,5 @@ describe("terceira revisão: reposts, cancelamento único, oferta marcada pelo d
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ reason: "format", ownerKept: true });
 		expect(await stores.notificationInbox.countHidden()).toBe(0);
-	});
-
-	it("cancelamento com loja só parecida: a compra do mesmo cartão e valor vai para revisão com a nota", async () => {
-		await card("Santander Free", "1234");
-		const padaria = note(
-			SANTANDER,
-			"Compra aprovada!",
-			"Compra no cartão final 1234, de R$ 24,99, em 15/11/26, às 21:58, em PADARIA SOL, aprovada.",
-		);
-		await ingestNotification(deps(), padaria);
-		const other = note(
-			SANTANDER,
-			"Compra cancelada!",
-			"Compra no cartão final 1234, no valor de R$ 24,99, em 16/11/26, às 14:08, em MERCADO LUA, cancelada.",
-			CANCELLED,
-		);
-		await ingestNotification(deps(), other);
-		const [after] = await live();
-		expect(after).toMatchObject({ status: "pending" });
-		expect(after?.note).toContain(CANCELLED_NOTE);
-		// Nada foi apagado e repetir não acrescenta a nota de novo.
-		await ingestNotification(deps(), other);
-		expect((await live())[0]?.note).toBe(after?.note);
 	});
 });

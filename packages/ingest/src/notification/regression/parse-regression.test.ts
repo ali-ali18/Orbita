@@ -25,6 +25,8 @@ const unique = (() => {
 })();
 const hasMoney = (c: { title: string; text: string }) => /R\$/i.test(`${c.title} ${c.text}`);
 const SANTANDER_NEW = /compra no cartão final \d{4}, (?:de|no valor de) R\$/i;
+/** Leitura nova e intencional: "Compra de R$ X, em LOJA" / ": em LOJA" (main exigia " em" colado ao valor). */
+const COMMA_FORM = /compra (?:no (?:debito|débito|credito|crédito) )?de R\$ ?[\d.,]+(?: aprovada)?[:,] em /i;
 
 describe("regressão do parser contra origin/main", () => {
 	const rows = unique.map((c) => {
@@ -82,7 +84,10 @@ describe("regressão do parser contra origin/main", () => {
 	it("o que main não lia só passa a ser lido nos formatos novos do Santander", () => {
 		const added = rows.filter(
 			({ c, main, cur }) =>
-				main.outcome !== "parsed" && cur.outcome === "parsed" && !SANTANDER_NEW.test(c.text),
+				main.outcome !== "parsed" &&
+				cur.outcome === "parsed" &&
+				!SANTANDER_NEW.test(c.text) &&
+				!COMMA_FORM.test(c.text),
 		);
 		expect(added.map(({ c }) => c.text)).toEqual([]);
 	});
@@ -97,5 +102,27 @@ describe("regressão do parser contra origin/main", () => {
 				parseMain({ app: "nubank", title: "", text }),
 			);
 		}
+	});
+
+	it("leitura nova e intencional: 'Compra de R$ X, em LOJA' e 'Compra de R$ X: em LOJA' (main não lia)", () => {
+		const cases: Array<[string, string]> = [
+			["Compra aprovada", "Compra de R$ 49,90, em PLANO SAUDE LTDA"],
+			["Compra aprovada", "Compra de R$ 49,90: em PLANO SAUDE LTDA"],
+			["", "Compra de R$ 49,90: em PLANO SAUDE LTDA"],
+			["", "Compra de R$ 49,90, em PLANO SAUDE LTDA"],
+		];
+		let newlyRead = 0;
+		for (const [title, text] of cases) {
+			const input = { app: "nubank" as const, title, text };
+			const before = parseMain(input);
+			// Com título "Compra aprovada" main já lia a forma com vírgula (outro padrão, loja "Compra de"); o resto é novo.
+			if (before.outcome !== "parsed") newlyRead++;
+			const now = parseNotification(input);
+			expect(now.outcome, text).toBe("parsed");
+			if (now.outcome === "parsed")
+				expect(now.data).toMatchObject({ amountCents: 4990, merchant: "PLANO SAUDE LTDA" });
+		}
+		// Sem título, main não lia nenhuma das formas com ":" ou "," depois do valor.
+		expect(newlyRead).toBeGreaterThanOrEqual(2);
 	});
 });
