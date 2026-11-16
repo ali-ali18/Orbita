@@ -138,6 +138,16 @@ describe("lote com item ruim", () => {
 		expect((await send([{ package: NU, text: COMPRA, postedAt: 9e15 }])).status).toBe(400);
 	});
 
+	it("o limite do tentar de novo não bloqueia a escolha de cartão nem as outras escritas do dono", async () => {
+		const { api, call } = await prepare();
+		for (let i = 0; i < 10; i++) await api.post("/v1/notifications/inbox/retry");
+		expect((await api.post("/v1/notifications/inbox/retry")).status).toBe(429);
+		// Outro limitador: responde de verdade (404 de item inexistente), não 429.
+		expect((await call("POST", "/v1/notifications/inbox/x/card", { cardId: "y" })).status).toBe(404);
+		expect((await call("POST", "/v1/notifications/inbox/x/purchase")).status).toBe(404);
+		expect((await call("DELETE", "/v1/notifications/card-links/nubank/1234")).status).toBe(404);
+	});
+
 	it("tentar de novo tem limite por aparelho", async () => {
 		const { api } = await prepare();
 		for (let i = 0; i < 10; i++) expect((await api.post("/v1/notifications/inbox/retry")).status).toBe(200);

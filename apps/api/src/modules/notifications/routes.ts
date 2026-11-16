@@ -33,6 +33,9 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 	const limiter = createRateLimiter({ limit: 60, windowMs: 10 * 60_000, now: () => now().getTime() });
 	// Tentar de novo percorre a lista toda: mais devagar que o envio.
 	const retryLimiter = createRateLimiter({ limit: 10, windowMs: 10 * 60_000, now: () => now().getTime() });
+	// Escolhas e ajustes do dono (cartão da compra, "é compra", esquecer final): limite próprio e mais folgado, para não
+	// dividir com o "tentar de novo".
+	const writeLimiter = createRateLimiter({ limit: 60, windowMs: 10 * 60_000, now: () => now().getTime() });
 	const deps = { stores, now };
 	const purge = () =>
 		stores.notificationInbox.purgeOlderThan(new Date(now().getTime() - INBOX_MAX_AGE_DAYS * 86_400_000));
@@ -84,19 +87,24 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 			)
 			.post(
 				"/v1/notifications/inbox/:id/card",
-				rateLimit(retryLimiter, (c) => c.get("device").id),
+				rateLimit(writeLimiter, (c) => c.get("device").id),
 				validate("param", idParam),
 				validate("json", notificationChooseCardBody),
 				async (c) => c.json(await chooseInboxCard(deps, c.req.valid("param").id, c.req.valid("json").cardId)),
 			)
 			// "É compra": a oferta oculta volta à lista como "Não entendi o formato" e não é ocultada de novo.
-			.post("/v1/notifications/inbox/:id/purchase", validate("param", idParam), async (c) => {
-				orNotFound(
-					(await stores.notificationInbox.keepAsPurchase(c.req.valid("param").id)) ? true : null,
-					"Oferta oculta",
-				);
-				return c.json({ ok: true as const });
-			})
+			.post(
+				"/v1/notifications/inbox/:id/purchase",
+				rateLimit(writeLimiter, (c) => c.get("device").id),
+				validate("param", idParam),
+				async (c) => {
+					orNotFound(
+						(await stores.notificationInbox.keepAsPurchase(c.req.valid("param").id)) ? true : null,
+						"Oferta oculta",
+					);
+					return c.json({ ok: true as const });
+				},
+			)
 			.get("/v1/notifications/card-links", async (c) => {
 				const [links, cards] = await Promise.all([stores.notificationCardLinks.list(), stores.cards.list()]);
 				const names = new Map(cards.map((card) => [card.id, card.name]));
@@ -112,6 +120,7 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 			})
 			.delete(
 				"/v1/notifications/card-links/:app/:last4",
+				rateLimit(writeLimiter, (c) => c.get("device").id),
 				validate("param", notificationCardLinkParam),
 				async (c) => {
 					const { app, last4 } = c.req.valid("param");
