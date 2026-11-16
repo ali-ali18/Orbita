@@ -523,7 +523,7 @@ model NotificationInbox {
   app       String
   title     String
   text      String
-  /// "format" (não entendi), "target" (entendi, mas não achei o cartão ou a conta), "installment", "promo" (parece oferta: fica guardada, oculta da lista principal e da contagem) ou "cancelled" (o banco avisou o cancelamento: o dono dispensa; nunca é lançada).
+  /// "format" (não entendi), "target" (entendi, mas não achei o cartão ou a conta), "installment", "promo" (parece oferta: fica guardada, oculta da lista principal e da contagem) ou "cancelled" (aviso de compra cancelada do banco: só o aviso, o dono dispensa).
   reason    String
   /// O dono disse "é compra" para uma oferta oculta: o classificador não a oculta de novo.
   ownerKept Boolean  @default(false) @map("owner_kept")
@@ -550,24 +550,6 @@ model NotificationCardLink {
   @@unique([app, last4])
   @@index([cardId])
   @@map("notification_card_links")
-}
-
-/// Cancelamento de compra já visto numa notificação de banco (sem o texto). A mesma notificação repetida não cancela uma segunda compra igual, e o que chega antes da compra espera (`consumedAt` nulo) para anulá-la.
-model NotificationCancellation {
-  id          String    @id @default(cuid())
-  /// `n:<hash>:<minuto>`: a mesma chave de `notificationKey`.
-  key         String    @unique
-  app         String
-  last4       String
-  amountCents Int       @map("amount_cents")
-  merchant    String?
-  postedAt    DateTime  @map("posted_at")
-  consumedAt  DateTime? @map("consumed_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-
-  @@index([app, consumedAt, postedAt])
-  @@index([createdAt])
-  @@map("notification_cancellations")
 }
 
 /// Conversa com a Órbita (o chat). O histórico mora no servidor: o app só mostra.

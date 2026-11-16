@@ -107,11 +107,6 @@ export type {
 export { fromDbDate, toDbDate } from "./local-date.ts";
 export { createMemoryAuthStore } from "./memory-auth-store.ts";
 export type {
-	NotificationCancelInput,
-	NotificationCancelRecord,
-	NotificationCancelStore,
-} from "./notification-cancel-store.ts";
-export type {
 	NotificationCardLinkRecord,
 	NotificationCardLinkStore,
 	NotificationLinkOrigin,

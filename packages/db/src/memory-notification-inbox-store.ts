@@ -43,7 +43,7 @@ export function createMemoryNotificationInboxStore(now: Clock): NotificationInbo
 		async setReason(key, reason) {
 			const found = [...rows.values()].find((r) => r.key === key);
 			// O que o dono marcou "É compra" não volta a ser oculto.
-			if (found && found.reason !== "cancelled" && !(found.ownerKept && reason === "promo")) {
+			if (found && !(found.ownerKept && reason === "promo")) {
 				rows.set(found.id, { ...found, reason });
 			}
 		},

@@ -128,14 +128,13 @@ describe.each(contractSuites())("NotificationInboxStore (%s)", (_name, make) => 
 		expect((await inbox.list())[0]?.reason).toBe("target");
 	});
 
-	it("compra marcada 'cancelled' não muda de motivo (repost, tentar de novo) e conta como pendência", async () => {
-		await inbox.add(item("a", { reason: "target" }));
-		await inbox.setReason("a", "cancelled");
-		await inbox.setReason("a", "target");
-		await inbox.setReason("a", "promo");
-		expect((await inbox.list())[0]?.reason).toBe("cancelled");
+	it("aviso de cancelamento (cancelled) é um item da caixa como outro: conta e some ao dispensar", async () => {
+		await inbox.add(item("c", { reason: "cancelled" }));
 		expect(await inbox.count()).toBe(1);
 		expect(await inbox.countHidden()).toBe(0);
+		expect(await inbox.add(item("c", { reason: "cancelled" }))).toEqual({ created: false });
+		expect(await inbox.list()).toHaveLength(1);
+		expect(await inbox.remove((await inbox.list())[0]?.id as string)).toBe(true);
 	});
 
 	it("ao estourar o teto das ofertas, sai só a mais antiga", async () => {

@@ -37,7 +37,6 @@ import { createMemoryImportBatchStore } from "./memory-import-batch-store.ts";
 import { createMemoryIncomeSourceStore } from "./memory-income-source-store.ts";
 import { createMemoryInvestmentStore } from "./memory-investment-store.ts";
 import { createMemoryInvestmentTermsStore } from "./memory-investment-terms-store.ts";
-import { createMemoryNotificationCancelStore } from "./memory-notification-cancel-store.ts";
 import { createMemoryNotificationCardLinkStore } from "./memory-notification-card-link-store.ts";
 import { createMemoryNotificationInboxStore } from "./memory-notification-inbox-store.ts";
 import { createMemoryPluggyConnectSessionStore } from "./memory-pluggy-connect-session-store.ts";
@@ -47,7 +46,6 @@ import { createMemoryRecurrenceStore } from "./memory-recurrence-store.ts";
 import { createMemorySecretStore } from "./memory-secret-store.ts";
 import { type Clock, createMemoryState } from "./memory-state.ts";
 import { createMemoryTransactionStore } from "./memory-transaction-store.ts";
-import type { NotificationCancelStore } from "./notification-cancel-store.ts";
 import type { NotificationCardLinkStore } from "./notification-card-link-store.ts";
 import type { NotificationInboxStore } from "./notification-inbox-store.ts";
 import type { PluggyConnectSessionStore } from "./pluggy-connect-session-store.ts";
@@ -72,7 +70,6 @@ import { createPrismaImportBatchStore } from "./prisma-import-batch-store.ts";
 import { createPrismaIncomeSourceStore } from "./prisma-income-source-store.ts";
 import { createPrismaInvestmentStore } from "./prisma-investment-store.ts";
 import { createPrismaInvestmentTermsStore } from "./prisma-investment-terms-store.ts";
-import { createPrismaNotificationCancelStore } from "./prisma-notification-cancel-store.ts";
 import { createPrismaNotificationCardLinkStore } from "./prisma-notification-card-link-store.ts";
 import { createPrismaNotificationInboxStore } from "./prisma-notification-inbox-store.ts";
 import { createPrismaPluggyConnectSessionStore } from "./prisma-pluggy-connect-session-store.ts";
@@ -103,7 +100,6 @@ export interface Stores {
 	preferences: PreferencesStore;
 	notificationInbox: NotificationInboxStore;
 	notificationCardLinks: NotificationCardLinkStore;
-	notificationCancellations: NotificationCancelStore;
 	homeLayout: HomeLayoutStore;
 	goals: GoalStore;
 	incomeSources: IncomeSourceStore;
@@ -142,7 +138,6 @@ export function createPrismaStores(db: Db, options: StoresOptions = {}): Stores 
 		preferences: createPrismaPreferencesStore(db),
 		notificationInbox: createPrismaNotificationInboxStore(db, now),
 		notificationCardLinks: createPrismaNotificationCardLinkStore(db, now),
-		notificationCancellations: createPrismaNotificationCancelStore(db, now),
 		homeLayout: createPrismaHomeLayoutStore(db),
 		goals: createPrismaGoalStore(db, now),
 		incomeSources: createPrismaIncomeSourceStore(db, now),
@@ -177,7 +172,6 @@ export function createMemoryStores(options: StoresOptions = {}): Stores {
 		preferences: createMemoryPreferencesStore(state),
 		notificationInbox: createMemoryNotificationInboxStore(state.now),
 		notificationCardLinks: createMemoryNotificationCardLinkStore(state),
-		notificationCancellations: createMemoryNotificationCancelStore(state.now),
 		homeLayout: createMemoryHomeLayoutStore(),
 		goals: createMemoryGoalStore(state),
 		incomeSources: createMemoryIncomeSourceStore(state),

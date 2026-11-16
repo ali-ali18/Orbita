@@ -6,5 +6,3 @@ export const UNVERIFIED_BANK_NOTE =
 /** O final da notificação não é o do cartão (compra online usa o do cartão virtual): lançado no único cartão do banco. */
 export const differentFinalNote = (last4: string) =>
 	`Final ${last4} diferente do cartão. Único do banco: lancei nele. Confira.`;
-/** A compra que a notificação lançou foi cancelada, mas o dono já tinha mexido no lançamento. */
-export const CANCELLED_NOTE = "O banco avisou que esta compra foi cancelada. Confira e apague.";
