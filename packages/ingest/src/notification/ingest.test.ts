@@ -33,6 +33,8 @@ const item = (text: string, extra: Partial<NotificationItem> = {}): Notification
 	postedAt: POSTED,
 	...extra,
 });
+/** Parece compra, mas nenhum formato conhecido casa: vai para a lista "Não consegui lançar". */
+const UNKNOWN_BUY = "Valor de R$ 20,00 aprovado em LOJA NOVA no cartão virtual";
 const COMPRA = "Compra de R$ 23,45 APROVADA em LOJA EXEMPLO para o cartão com final 4821";
 
 describe("ingestNotification", () => {
@@ -173,22 +175,31 @@ describe("ingestNotification", () => {
 		).toBe("ignored");
 		expect(await ingestNotification(deps(), item("Conheça as novidades do app"))).toBe("ignored");
 		expect(
-			await ingestNotification(deps(), item("Aconteceu algo com R$ 20,00 na sua conta", { title: "Aviso" })),
+			await ingestNotification(
+				deps(),
+				item("Valor de R$ 20,00 aprovado em LOJA NOVA no cartão virtual", { title: "Compra aprovada" }),
+			),
 		).toBe("inbox");
 		expect(await all()).toEqual([]);
 		const [row] = await stores.notificationInbox.list();
-		expect(row).toMatchObject({ app: "nubank", reason: "format", title: "Aviso" });
+		expect(row).toMatchObject({ app: "nubank", reason: "format", title: "Compra aprovada" });
 	});
 
 	it("sem 'guardar o que não entendi', o desconhecido é descartado", async () => {
 		await stores.preferences.update({ notificationToReview: false });
-		expect(await ingestNotification(deps(), item("Aconteceu algo com R$ 20,00 na sua conta"))).toBe(
-			"ignored",
-		);
+		expect(await ingestNotification(deps(), item(UNKNOWN_BUY, { title: "Compra aprovada" }))).toBe("ignored");
 		expect(await stores.notificationInbox.count()).toBe(0);
 	});
 
 	it("cartão que não achei vai para a lista com o motivo, e entra depois de cadastrado (tentar de novo)", async () => {
+		// Dois cartões do banco: o final 7777 não leva a nenhum e o app não adivinha.
+		await stores.cards.create({
+			name: "Nubank Gold",
+			bankCode: "18236120",
+			last4: "1111",
+			closingDay: 10,
+			dueDay: 17,
+		});
 		const text = "Compra de R$ 10,00 APROVADA em LOJA Y para o cartão com final 7777";
 		expect(await ingestNotification(deps(), item(text))).toBe("inbox");
 		expect(await all()).toEqual([]);
@@ -318,16 +329,12 @@ describe("ingestNotification: repostagem, duplicata manual e prazo da lista", ()
 	});
 
 	it("a lista 'Não entendi' esquece o que passou de 30 dias", async () => {
-		await ingestNotification(deps(), item("Aconteceu algo com R$ 20,00 na sua conta"));
+		await ingestNotification(deps(), item(UNKNOWN_BUY, { title: "Compra aprovada" }));
 		expect(await stores.notificationInbox.count()).toBe(1);
 		clock = new Date(NOW.getTime() + 31 * 86_400_000);
-		await ingestNotification(
-			deps(),
-			item("Outra coisa com R$ 21,00 na conta", { postedAt: clock.getTime() }),
-		);
-		expect((await stores.notificationInbox.list()).map((r) => r.text)).toEqual([
-			"Outra coisa com R$ 21,00 na conta",
-		]);
+		const other = "Valor de R$ 21,00 aprovado em LOJA NOVA no cartão virtual";
+		await ingestNotification(deps(), item(other, { title: "Compra aprovada", postedAt: clock.getTime() }));
+		expect((await stores.notificationInbox.list()).map((r) => r.text)).toEqual([other]);
 	});
 });
 

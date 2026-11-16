@@ -3,6 +3,7 @@ import { addDays, invoiceFor, type LocalDate, toLocalDate } from "@orbita/core";
 import {
 	type AccountRecord,
 	type CardRecord,
+	DataError,
 	type PreferencesRecord,
 	type Stores,
 	toCardConfig,
@@ -23,7 +24,7 @@ import {
 } from "@orbita/shared";
 import { bankIspb, findKnownBank } from "../pluggy/bank-name.ts";
 import { EARLY_WINDOW_DAYS, nameSimilarity } from "../pluggy/early.ts";
-import { UNCERTAIN_TARGET_NOTE, UNVERIFIED_BANK_NOTE } from "./notes.ts";
+import { differentFinalNote, UNCERTAIN_TARGET_NOTE, UNVERIFIED_BANK_NOTE } from "./notes.ts";
 import { type ParsedNotification, parseNotification } from "./parse.ts";
 import { sameBankCardIds } from "./same-bank.ts";
 
@@ -44,7 +45,13 @@ export { UNCERTAIN_TARGET_NOTE, UNVERIFIED_BANK_NOTE };
 export interface NotificationDeps {
 	stores: Pick<
 		Stores,
-		"accounts" | "cards" | "transactions" | "categoryRules" | "preferences" | "notificationInbox"
+		| "accounts"
+		| "cards"
+		| "transactions"
+		| "categoryRules"
+		| "preferences"
+		| "notificationInbox"
+		| "notificationCardLinks"
 	>;
 	now: () => Date;
 }
@@ -83,7 +90,8 @@ async function repostedRecently(
 	const minute = Number(m[2]);
 	for (let d = -REPOST_WINDOW_MINUTES; d <= REPOST_WINDOW_MINUTES; d++) {
 		if (d === 0) continue;
-		if (await transactions.findByExternal(NOTIFICATION_SOURCE, `n:${m[1]}:${minute + d}`)) return true;
+		// Também o apagado (cancelado pelo banco ou pelo dono): o repost não ressuscita o lançamento.
+		if (await transactions.existsByExternal(NOTIFICATION_SOURCE, `n:${m[1]}:${minute + d}`)) return true;
 	}
 	return false;
 }
@@ -94,6 +102,8 @@ interface Resolved {
 	text: string;
 	postedAt: Date;
 	key: string;
+	/** O dono disse "é compra" a esta oferta oculta: não se oculta de novo. */
+	ownerKept?: boolean;
 }
 
 const isActive = (x: { archivedAt: Date | null }) => x.archivedAt === null;
@@ -121,6 +131,39 @@ export function pickCard(
 	const sameBank = cards.filter(isActive).filter(bankMatcher(app));
 	const pool = last4 === null ? sameBank : sameBank.filter((c) => c.last4 === last4);
 	return pool.length === 1 ? (pool[0] as CardRecord) : null;
+}
+
+/**
+ * Cartão de uma notificação, na ordem: (1) o final que o dono (ou o app) já ligou a um cartão; (2) o cartão do banco
+ * com este final; (3) só com `learn`, e só se o final não bate com nenhum cartão do banco e o banco tem UM cartão
+ * ativo: é ele (compra online usa o final do cartão virtual, que não é o do físico que o banco informa). Esse caso
+ * liga o final ao cartão para as próximas e devolve a nota de que o final é diferente. Mais de um cartão: `null`.
+ */
+async function resolveCard(
+	stores: Pick<NotificationDeps["stores"], "cards" | "notificationCardLinks">,
+	app: NotificationApp,
+	last4: string | null,
+	learn: boolean,
+): Promise<{ card: CardRecord; note?: string } | null> {
+	const all = await stores.cards.list();
+	// O cartão do banco com este final exato vence qualquer ligação aprendida (que então fica sem uso).
+	const exact = pickCard(app, all, last4);
+	if (exact) return { card: exact };
+	const sameBank = all.filter(isActive).filter(bankMatcher(app));
+	if (last4 !== null) {
+		const link = await stores.notificationCardLinks.get(app, last4);
+		const linked = link ? all.find((c) => c.id === link.cardId && isActive(c)) : undefined;
+		// Palpite só vale enquanto o banco tiver esse cartão como o único ativo; com mais de um, o dono escolhe.
+		const valid = link?.origin === "choice" || (sameBank.length === 1 && sameBank[0]?.id === link?.cardId);
+		if (linked && valid) return { card: linked };
+	}
+	// O final é de mais de um cartão do banco (ambíguo): nunca se adivinha nem se aprende.
+	if (last4 !== null && sameBank.some((c) => c.last4 === last4)) return null;
+	if (!learn || last4 === null) return null;
+	if (sameBank.length !== 1) return null;
+	const card = sameBank[0] as CardRecord;
+	await stores.notificationCardLinks.set(app, last4, card.id, "guess");
+	return { card, note: differentFinalNote(last4) };
 }
 
 /** Conta corrente (ou carteira) do banco. Duas ou mais: só se uma delas é a única "corrente". */
@@ -160,7 +203,7 @@ async function build(
 	parsed: ParsedNotification,
 	date: LocalDate,
 ): Promise<Built> {
-	const { accounts, cards, categoryRules } = deps.stores;
+	const { accounts, categoryRules } = deps.stores;
 	const description = describe(parsed);
 	// Vai para "Para revisar" quando o dono pediu, quando o banco não tem formato conferido ou quando o texto não diz de
 	// onde saiu o dinheiro: nesses casos nunca entra confirmado sozinho.
@@ -183,12 +226,17 @@ async function build(
 	};
 	switch (parsed.kind) {
 		case "credit_purchase": {
-			const card = pickCard(n.app, await cards.list(), parsed.last4);
-			if (!card) return { missing: true };
+			const found = await resolveCard(deps.stores, n.app, parsed.last4, true);
+			if (!found) return { missing: true };
+			const { card } = found;
 			const rule = pickCategoryRule(await categoryRules.list(), description);
 			return {
 				input: {
 					...base,
+					// Final diferente do cartão (o único do banco): entra em Para revisar com a nota.
+					...(found.note
+						? { status: "pending" as const, note: [found.note, reviewNote].filter(Boolean).join(" ") }
+						: {}),
 					kind: "expense",
 					cardId: card.id,
 					invoiceMonth: invoiceFor(date, toCardConfig(card)).month,
@@ -212,7 +260,7 @@ async function build(
 		}
 		case "invoice_payment": {
 			const account = pickAccount(n.app, await accounts.list());
-			const card = pickCard(n.app, await cards.list(), parsed.last4);
+			const card = (await resolveCard(deps.stores, n.app, parsed.last4, false))?.card;
 			if (!account || !card) return { missing: true };
 			return { input: { ...base, kind: "card_payment", accountId: account.id, cardId: card.id } };
 		}
@@ -277,17 +325,34 @@ async function alreadyInBank(
 	);
 }
 
+/** A mesma notificação repostada em minuto vizinho tem a mesma parte estável da chave. */
+const neighborKeys = (key: string): string[] => {
+	const m = /^n:([0-9a-f]+):(\d+)$/.exec(key);
+	if (!m) return [key];
+	const minute = Number(m[2]);
+	const out: string[] = [];
+	for (let d = -REPOST_WINDOW_MINUTES; d <= REPOST_WINDOW_MINUTES; d++) out.push(`n:${m[1]}:${minute + d}`);
+	return out;
+};
+
+/**
+ * `dismissed`: não é lançamento nem falha (aviso, compra recusada, cancelamento tratado): quem espera na lista sai dela.
+ * `hidden`: parece oferta; fica GUARDADA na caixa, oculta (motivo "promo"), nunca apagada por ser oferta.
+ */
+type Outcome = NotificationResult | "dismissed" | "hidden";
+
 /** Resultado da tentativa; `inbox` diz por que a notificação foi para a lista. */
-async function process(
-	deps: NotificationDeps,
-	prefs: PreferencesRecord,
-	n: Resolved,
-): Promise<NotificationResult> {
+async function process(deps: NotificationDeps, prefs: PreferencesRecord, n: Resolved): Promise<Outcome> {
 	const { transactions, notificationInbox } = deps.stores;
 	const result = parseNotification({ app: n.app, title: n.title, text: n.text });
 	const toInbox = async (reason: NotificationInboxReason) => {
 		await notificationInbox.purgeOlderThan(new Date(deps.now().getTime() - INBOX_MAX_AGE_DAYS * 86_400_000));
-		await notificationInbox.add({
+		// A mesma notificação repostada em minuto vizinho já está na caixa: não entra de novo (nem reoculta o que o dono
+		// marcou "É compra").
+		const near = neighborKeys(n.key);
+		if ((await notificationInbox.list()).some((r) => r.key !== n.key && near.includes(r.key)))
+			return "inbox" as const;
+		const { created } = await notificationInbox.add({
 			key: n.key,
 			app: n.app,
 			title: n.title,
@@ -295,12 +360,28 @@ async function process(
 			reason,
 			postedAt: n.postedAt,
 		});
+		// Já estava na caixa (tentar de novo): só o marcador muda.
+		if (!created) await notificationInbox.setReason(n.key, reason);
 		return "inbox" as const;
 	};
-	if (result.outcome === "skip") return "ignored";
+	if (result.outcome === "skip") {
+		if (result.reason !== "promo") return "dismissed";
+		// Oferta: nada com R$ some sem rastro. Guardada e oculta, a menos que o dono tenha desligado a lista.
+		if (!prefs.notificationToReview) return "ignored";
+		await toInbox(n.ownerKept ? "format" : "promo");
+		return "hidden";
+	}
+	if (result.outcome === "cancelled") {
+		// "Compra cancelada" é só um aviso: um item na caixa com o próprio texto (o Open Finance resolve a compra). Nada
+		// no lançamento nem em outro item da caixa muda.
+		if (!prefs.notificationToReview) return "ignored";
+		await toInbox("cancelled");
+		return "hidden";
+	}
 	if (result.outcome === "unrecognized") {
 		// Sem valor em R$ é propaganda; e o dono pode ter desligado a lista.
-		return result.hasAmount && prefs.notificationToReview ? toInbox(result.reason) : "ignored";
+		if (!result.hasAmount) return "dismissed";
+		return prefs.notificationToReview ? toInbox(result.reason) : "ignored";
 	}
 	// A data é a do momento em que o Android registrou (nunca no futuro, mesmo com o relógio do aparelho errado).
 	const posted = n.postedAt.getTime() > deps.now().getTime() ? deps.now() : n.postedAt;
@@ -319,7 +400,8 @@ async function process(
 	}
 	const saved = await transactions.upsertByExternal(NOTIFICATION_SOURCE, n.key, built.input);
 	// Apagado pelo dono antes: não recria. Já existia: é repetição.
-	return saved.created ? "created" : "duplicate";
+	if (!saved.created) return "duplicate";
+	return "created";
 }
 
 /**
@@ -335,18 +417,21 @@ export async function ingestNotification(
 	const prefs = await deps.stores.preferences.get();
 	if (!prefs.notificationCapture || !prefs.notificationApps.includes(app)) return "ignored";
 	if (isSensitiveNotification(item.title, item.text)) return "discarded";
-	return process(deps, prefs, {
+	const outcome = await process(deps, prefs, {
 		app,
 		title: item.title,
 		text: item.text,
 		postedAt: new Date(item.postedAt),
 		key: notificationKey(item),
 	});
+	return outcome === "dismissed" || outcome === "hidden" ? "ignored" : outcome;
 }
 
 /**
  * Tenta de novo o que esperava na lista "Não entendi" (o dono cadastrou o cartão, o parser melhorou). A que virar
- * lançamento (ou já era) sai da lista; as outras ficam como estavam.
+ * lançamento (ou já era), ou que agora se sabe não ser movimentação (propaganda) ou ser cancelamento tratado, sai da
+ * lista; as outras ficam como estavam. Da mais antiga para a mais nova: o cancelamento só acha a compra se ela já foi
+ * lançada nesta mesma rodada.
  */
 export async function retryNotificationInbox(
 	deps: NotificationDeps,
@@ -354,18 +439,92 @@ export async function retryNotificationInbox(
 	const { notificationInbox } = deps.stores;
 	const prefs = await deps.stores.preferences.get();
 	let created = 0;
-	for (const row of await notificationInbox.list()) {
+	const rows = [...(await notificationInbox.list())].sort(
+		(a, b) => a.postedAt.getTime() - b.postedAt.getTime(),
+	);
+	for (const row of rows) {
+		// Aviso de cancelamento: fica na caixa para o dono dispensar; "tentar de novo" não mexe nele.
+		if (row.reason === "cancelled") continue;
 		const outcome = await process(deps, prefs, {
 			app: row.app,
 			title: row.title,
 			text: row.text,
 			postedAt: row.postedAt,
 			key: row.key,
+			ownerKept: row.ownerKept,
 		});
-		if (outcome === "created" || outcome === "duplicate") {
+		if (outcome === "created" || outcome === "duplicate" || outcome === "dismissed") {
 			await notificationInbox.remove(row.id);
 			if (outcome === "created") created++;
 		}
 	}
 	return { created, remaining: await notificationInbox.count() };
+}
+
+/** Cartões que o dono pode escolher para uma notificação que está na lista por "não achei o cartão". */
+export interface InboxCardChoice {
+	last4: string;
+	cards: { id: string; name: string; last4: string | null }[];
+}
+
+/**
+ * Para cada notificação de compra da lista cujo final não leva a um cartão só: os cartões do banco (ou, se o banco não
+ * tem nenhum identificado, todos os ativos) para o dono escolher uma vez. `null`: não há o que escolher. Os cartões
+ * são lidos uma vez só, para a lista toda.
+ */
+export async function inboxCardChoices(
+	deps: Pick<NotificationDeps, "stores">,
+	rows: readonly { app: NotificationApp; title: string; text: string; reason: NotificationInboxReason }[],
+): Promise<(InboxCardChoice | null)[]> {
+	if (!rows.some((r) => r.reason === "target")) return rows.map(() => null);
+	const active = (await deps.stores.cards.list()).filter(isActive);
+	return rows.map((row) => {
+		if (row.reason !== "target") return null;
+		const parsed = parseNotification({ app: row.app, title: row.title, text: row.text });
+		if (parsed.outcome !== "parsed" || parsed.data.kind !== "credit_purchase" || parsed.data.last4 === null) {
+			return null;
+		}
+		const sameBank = active.filter(bankMatcher(row.app));
+		const pool = sameBank.length > 0 ? sameBank : active;
+		if (pool.length === 0) return null;
+		return {
+			last4: parsed.data.last4,
+			cards: pool.map((c) => ({ id: c.id, name: c.name, last4: c.last4 })),
+		};
+	});
+}
+
+/**
+ * O dono escolheu o cartão de uma notificação da lista: o app lembra o final → cartão (as próximas já caem nele) e a
+ * notificação é lançada. `created: false` se já estava lançada. Só vale para compra com final e cartão ativo.
+ */
+export async function chooseInboxCard(
+	deps: NotificationDeps,
+	inboxId: string,
+	cardId: string,
+): Promise<{ created: boolean }> {
+	const { notificationInbox, cards, notificationCardLinks } = deps.stores;
+	const row = (await notificationInbox.list()).find((r) => r.id === inboxId);
+	if (!row) throw new DataError("not_found", "Notificação não encontrada.");
+	const parsed = parseNotification({ app: row.app, title: row.title, text: row.text });
+	if (parsed.outcome !== "parsed" || parsed.data.kind !== "credit_purchase" || parsed.data.last4 === null) {
+		throw new DataError("invalid", "Esta notificação não tem final de cartão para ligar.");
+	}
+	const card = await cards.get(cardId);
+	if (!card || card.archivedAt !== null) throw new DataError("not_found", "Cartão não encontrado.");
+	// Só vale um dos cartões que a lista ofereceu para esta notificação.
+	const [offered] = await inboxCardChoices(deps, [row]);
+	if (!offered?.cards.some((c) => c.id === card.id)) {
+		throw new DataError("invalid", "Escolha um dos cartões oferecidos para esta compra.");
+	}
+	await notificationCardLinks.set(row.app, parsed.data.last4, card.id, "choice");
+	const outcome = await process(deps, await deps.stores.preferences.get(), {
+		app: row.app,
+		title: row.title,
+		text: row.text,
+		postedAt: row.postedAt,
+		key: row.key,
+	});
+	if (outcome === "created" || outcome === "duplicate") await notificationInbox.remove(row.id);
+	return { created: outcome === "created" };
 }

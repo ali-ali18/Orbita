@@ -131,7 +131,7 @@ export const notificationBatchResponse = z.object({
 export type NotificationBatchResponse = z.infer<typeof notificationBatchResponse>;
 
 /** Por que uma notificação está na lista "Não entendi": formato desconhecido, ou não achei o cartão/conta dela. */
-export const NOTIFICATION_INBOX_REASONS = ["format", "target", "installment"] as const;
+export const NOTIFICATION_INBOX_REASONS = ["format", "target", "installment", "promo", "cancelled"] as const;
 export type NotificationInboxReason = (typeof NOTIFICATION_INBOX_REASONS)[number];
 
 /** `GET /v1/notifications/inbox`. */
@@ -142,6 +142,16 @@ export const notificationInboxItemSchema = z.object({
 	text: z.string(),
 	reason: z.enum(NOTIFICATION_INBOX_REASONS),
 	postedAt: z.string(),
+	/**
+	 * Compra cujo final de cartão não leva a um cartão só: os cartões para o dono escolher uma vez (o app lembra o
+	 * final). `null`: nada a escolher.
+	 */
+	choose: z
+		.object({
+			last4: z.string(),
+			cards: z.array(z.object({ id: idSchema, name: z.string(), last4: z.string().nullable() })),
+		})
+		.nullable(),
 });
 export type NotificationInboxItemDto = z.infer<typeof notificationInboxItemSchema>;
 export const notificationInboxResponse = z.object({ items: z.array(notificationInboxItemSchema) });
@@ -150,3 +160,25 @@ export type NotificationInboxResponse = z.infer<typeof notificationInboxResponse
 /** `POST /v1/notifications/inbox/retry`: tenta de novo as que esperam (o dono cadastrou o cartão que faltava). */
 export const notificationRetryResponse = z.object({ created: z.number().int(), remaining: z.number().int() });
 export type NotificationRetryResponse = z.infer<typeof notificationRetryResponse>;
+
+/** `POST /v1/notifications/inbox/:id/card`: o dono escolhe o cartão de uma compra da lista. */
+export const notificationChooseCardBody = z.object({ cardId: idSchema });
+export type NotificationChooseCardBody = z.infer<typeof notificationChooseCardBody>;
+export const notificationChooseCardResponse = z.object({ created: z.boolean() });
+export type NotificationChooseCardResponse = z.infer<typeof notificationChooseCardResponse>;
+
+/** `GET /v1/notifications/card-links`: finais de cartão (do cartão virtual) ligados a um cartão, para o dono esquecer. */
+export const notificationCardLinkSchema = z.object({
+	app: notificationAppSchema,
+	last4: z.string(),
+	cardId: idSchema,
+	cardName: z.string(),
+});
+export type NotificationCardLinkDto = z.infer<typeof notificationCardLinkSchema>;
+export const notificationCardLinksResponse = z.object({ links: z.array(notificationCardLinkSchema) });
+export type NotificationCardLinksResponse = z.infer<typeof notificationCardLinksResponse>;
+/** `DELETE /v1/notifications/card-links/:app/:last4`. */
+export const notificationCardLinkParam = z.object({
+	app: notificationAppSchema,
+	last4: z.string().regex(/^\d{4}$/, "Final inválido."),
+});

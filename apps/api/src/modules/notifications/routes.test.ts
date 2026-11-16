@@ -138,6 +138,16 @@ describe("lote com item ruim", () => {
 		expect((await send([{ package: NU, text: COMPRA, postedAt: 9e15 }])).status).toBe(400);
 	});
 
+	it("o limite do tentar de novo não bloqueia a escolha de cartão nem as outras escritas do dono", async () => {
+		const { api, call } = await prepare();
+		for (let i = 0; i < 10; i++) await api.post("/v1/notifications/inbox/retry");
+		expect((await api.post("/v1/notifications/inbox/retry")).status).toBe(429);
+		// Outro limitador: responde de verdade (404 de item inexistente), não 429.
+		expect((await call("POST", "/v1/notifications/inbox/x/card", { cardId: "y" })).status).toBe(404);
+		expect((await call("POST", "/v1/notifications/inbox/x/purchase")).status).toBe(404);
+		expect((await call("DELETE", "/v1/notifications/card-links/nubank/1234")).status).toBe(404);
+	});
+
 	it("tentar de novo tem limite por aparelho", async () => {
 		const { api } = await prepare();
 		for (let i = 0; i < 10; i++) expect((await api.post("/v1/notifications/inbox/retry")).status).toBe(200);
@@ -148,9 +158,22 @@ describe("lote com item ruim", () => {
 describe("lista 'Não entendi'", () => {
 	it("guarda o desconhecido com valor, lista, tenta de novo depois do cartão e apaga", async () => {
 		const { send, api, call } = await prepare();
+		// Dois cartões do banco: o final 7777 não leva a nenhum e o app não adivinha.
+		await api.post("/v1/cards", {
+			name: "Nubank Gold",
+			bankCode: "18236120",
+			last4: "1111",
+			closingDay: 10,
+			dueDay: 17,
+		});
 		const text = "Compra de R$ 10,00 APROVADA em LOJA Y para o cartão com final 7777";
 		const res = await send([
-			{ package: NU, title: "Aviso", text: "Algo com R$ 20,00 na sua conta", postedAt: POSTED },
+			{
+				package: NU,
+				title: "Compra aprovada",
+				text: "Valor de R$ 20,00 aprovado em LOJA NOVA no cartão virtual",
+				postedAt: POSTED,
+			},
 			{ package: NU, text, postedAt: POSTED + 60_000 },
 			{ package: NU, text: "Conheça as novidades", postedAt: POSTED + 120_000 },
 		]);
@@ -177,9 +200,114 @@ describe("lista 'Não entendi'", () => {
 		expect((await api.get("/v1/notifications/inbox")).body.items).toEqual([]);
 	});
 
+	it("compra com final que não leva a um cartão só: lista os cartões e o dono escolhe uma vez", async () => {
+		const { send, api, call, card } = await prepare();
+		const second = (
+			await api.post("/v1/cards", {
+				name: "Nubank Gold",
+				bankCode: "18236120",
+				last4: "1111",
+				closingDay: 10,
+				dueDay: 17,
+			})
+		).body.card;
+		const buy = (text: string, at: number) => ({ package: NU, title: "Compra aprovada", text, postedAt: at });
+		const first = "Compra de R$ 9,90 APROVADA em LOJA ONLINE para o cartão com final 5678.";
+		expect((await send([buy(first, POSTED)])).body.results).toEqual(["inbox"]);
+		const [item] = (await api.get("/v1/notifications/inbox")).body.items;
+		expect(item.choose.last4).toBe("5678");
+		expect(item.choose.cards.map((c: { id: string }) => c.id).sort()).toEqual([card.id, second.id].sort());
+
+		const path = `/v1/notifications/inbox/${item.id}/card`;
+		expect((await call("POST", path, { cardId: "nao-existe" })).status).toBe(404);
+		expect((await call("POST", path, {})).status).toBe(400);
+		expect((await call("POST", path, { cardId: second.id })).body).toEqual({ created: true });
+		expect((await api.get("/v1/notifications/inbox")).body.items).toEqual([]);
+		const list = (await api.get("/v1/transactions")).body.transactions;
+		expect(list).toHaveLength(1);
+		expect(list[0]).toMatchObject({ cardId: second.id, amountCents: 990 });
+
+		// O app lembrou o final: a próxima compra com ele já cai no cartão escolhido.
+		const next = "Compra de R$ 3,00 APROVADA em OUTRA LOJA para o cartão com final 5678.";
+		expect((await send([buy(next, POSTED + 3_600_000)])).body.results).toEqual(["created"]);
+		const after = (await api.get("/v1/transactions")).body.transactions;
+		expect(after.find((t: { amountCents: number }) => t.amountCents === 300)?.cardId).toBe(second.id);
+	});
+
+	it("oferta fica oculta (fora da contagem), 'é compra' a devolve à lista e só o cartão oferecido é aceito", async () => {
+		const { send, api, call } = await prepare();
+		const promo = {
+			package: NU,
+			title: "R$177OFF + de R$100 em vinhos",
+			text: "no plano anual com o cupom X. Está acabando!",
+			postedAt: POSTED,
+		};
+		expect((await send([promo])).body.results).toEqual(["ignored"]);
+		expect((await api.get("/v1/notification-settings")).body.notifications.inbox).toBe(0);
+		const [item] = (await api.get("/v1/notifications/inbox")).body.items;
+		expect(item).toMatchObject({ reason: "promo", choose: null });
+		expect((await api.post("/v1/notifications/inbox/retry")).body).toEqual({ created: 0, remaining: 0 });
+		expect((await api.get("/v1/notifications/inbox")).body.items).toHaveLength(1);
+
+		expect((await call("POST", `/v1/notifications/inbox/${item.id}/purchase`)).body).toEqual({ ok: true });
+		expect((await call("POST", `/v1/notifications/inbox/${item.id}/purchase`)).status).toBe(404);
+		expect((await api.get("/v1/notification-settings")).body.notifications.inbox).toBe(1);
+		expect((await api.get("/v1/notifications/inbox")).body.items[0].reason).toBe("format");
+
+		// Cartão que a lista não ofereceu: recusado, em pt-BR.
+		await api.post("/v1/cards", {
+			name: "Nubank Gold",
+			bankCode: "18236120",
+			last4: "1111",
+			closingDay: 10,
+			dueDay: 17,
+		});
+		const outsider = (
+			await api.post("/v1/cards", {
+				name: "Inter",
+				bankCode: "00416968",
+				last4: "2222",
+				closingDay: 10,
+				dueDay: 17,
+			})
+		).body.card;
+		await send([
+			{
+				package: NU,
+				title: "Compra aprovada",
+				text: "Compra de R$ 9,90 APROVADA em LOJA para o cartão com final 5678.",
+				postedAt: POSTED + 60_000,
+			},
+		]);
+		const target = (await api.get("/v1/notifications/inbox")).body.items.find(
+			(i: { reason: string }) => i.reason === "target",
+		);
+		const res = await call("POST", `/v1/notifications/inbox/${target.id}/card`, { cardId: outsider.id });
+		expect(res.status).toBe(400);
+		expect(res.body.error.message).toContain("oferecidos");
+	});
+
+	it("finais ligados: lista e esquece, e o próximo lançamento volta ao fluxo normal", async () => {
+		const { send, api, call, card } = await prepare();
+		const buy = (text: string, at: number) => ({ package: NU, title: "Compra aprovada", text, postedAt: at });
+		// Único cartão do banco e final diferente: lança nele e guarda o final.
+		const first = "Compra de R$ 9,90 APROVADA em LOJA ONLINE para o cartão com final 5678.";
+		expect((await send([buy(first, POSTED)])).body.results).toEqual(["created"]);
+		const { links } = (await api.get("/v1/notifications/card-links")).body;
+		expect(links).toEqual([{ app: "nubank", last4: "5678", cardId: card.id, cardName: "Nubank Mastercard" }]);
+		expect((await call("DELETE", "/v1/notifications/card-links/nubank/abcd")).status).toBe(400);
+		expect((await call("DELETE", "/v1/notifications/card-links/nubank/5678")).body).toEqual({ ok: true });
+		expect((await call("DELETE", "/v1/notifications/card-links/nubank/5678")).status).toBe(404);
+		expect((await api.get("/v1/notifications/card-links")).body.links).toEqual([]);
+	});
+
 	it("exige o token", async () => {
 		const { call } = await prepare();
 		for (const [method, path] of [
+			["GET", "/v1/notifications/card-links"],
+			["DELETE", "/v1/notifications/card-links/nubank/5678"],
+			["POST", "/v1/notifications/inbox/x/card"],
+			["POST", "/v1/notifications/inbox/x/purchase"],
 			["GET", "/v1/notifications/inbox"],
 			["POST", "/v1/notifications/inbox/retry"],
 			["DELETE", "/v1/notifications/inbox/x"],

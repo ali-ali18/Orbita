@@ -156,9 +156,10 @@ model Card {
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
 
-  transactions Transaction[]
-  recurrences  Recurrence[]
-  bills        CardBill[]
+  transactions      Transaction[]
+  recurrences       Recurrence[]
+  bills             CardBill[]
+  notificationLinks NotificationCardLink[]
 
   @@unique([source, externalId])
   @@map("cards")
@@ -522,13 +523,33 @@ model NotificationInbox {
   app       String
   title     String
   text      String
-  /// "format" (não entendi) ou "target" (entendi, mas não achei o cartão ou a conta).
+  /// "format" (não entendi), "target" (entendi, mas não achei o cartão ou a conta), "installment", "promo" (parece oferta: fica guardada, oculta da lista principal e da contagem) ou "cancelled" (aviso de compra cancelada do banco: só o aviso, o dono dispensa).
   reason    String
+  /// O dono disse "é compra" para uma oferta oculta: o classificador não a oculta de novo.
+  ownerKept Boolean  @default(false) @map("owner_kept")
   postedAt  DateTime @map("posted_at")
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([createdAt])
   @@map("notification_inbox")
+}
+
+/// Final de cartão que o app de um banco cita nas notificações e que o dono (ou o app, quando o banco só tem um cartão) ligou a um cartão. Cartão virtual/online tem final diferente do físico que o Pluggy traz. Um final por app de banco.
+model NotificationCardLink {
+  id        String   @id @default(cuid())
+  /// App de banco da notificação ("nubank", "santander"…).
+  app       String
+  last4     String
+  cardId    String   @map("card_id")
+  /// "choice" (o dono escolheu) ou "guess" (o app ligou porque o banco só tinha um cartão: só vale enquanto for assim).
+  origin    String   @default("choice")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([app, last4])
+  @@index([cardId])
+  @@map("notification_card_links")
 }
 
 /// Conversa com a Órbita (o chat). O histórico mora no servidor: o app só mostra.

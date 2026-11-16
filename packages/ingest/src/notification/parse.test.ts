@@ -182,12 +182,13 @@ describe("parseNotification: valores e seguranças", () => {
 			outcome: "skip",
 			reason: "info",
 		});
-		expect(parse("nubank", "Novidade! Conheça o novo Nubank")).toEqual({
+		// Sem valor em R$ nunca vai para a lista; com valor e sem indício de oferta, vai.
+		expect(parse("nubank", "Novidade! Conheça o novo Nubank")).toMatchObject({ hasAmount: false });
+		expect(parse("nubank", "Algo estranho aconteceu: R$ 20,00 ")).toMatchObject({
 			outcome: "unrecognized",
-			hasAmount: false,
-			reason: "format",
+			hasAmount: true,
 		});
-		expect(parse("nubank", "Algo estranho aconteceu: R$ 20,00 ")).toEqual({
+		expect(parse("nubank", "Compra aprovada: valor R$ 20,00 total", "Nubank")).toEqual({
 			outcome: "unrecognized",
 			hasAmount: true,
 			reason: "format",
@@ -340,5 +341,184 @@ describe("parseNotification: texto de terceiros e ambiguidade", () => {
 	it("o nome é cortado antes de um valor em R$", () => {
 		const r = parsed(parse("nubank", "Pix enviado: R$ 50,00 para SALDO R$ 9.999,00"));
 		expect(r).toMatchObject({ amountCents: 5000, merchant: "SALDO" });
+	});
+});
+
+describe("parseNotification: Santander, compra online com o final do cartão virtual", () => {
+	const title = "Compra aprovada!";
+	const text =
+		"Compra no cartão final 1234, de R$ 24,99, em 15/11/26, às 21:58, em DL.LOJA EXEMPLO, aprovada.";
+
+	it("lê valor, loja (sem a data nem o 'de') e final", () => {
+		expect(parsed(parse("santander", text, title))).toEqual({
+			kind: "credit_purchase",
+			amountCents: 2499,
+			merchant: "DL.LOJA EXEMPLO",
+			last4: "1234",
+		});
+		expect(parsed(parse("santander", text))).toMatchObject({
+			merchant: "DL.LOJA EXEMPLO",
+			amountCents: 2499,
+		});
+	});
+
+	it("o formato antigo do Santander continua igual", () => {
+		expect(
+			parsed(parse("santander", "Compra aprovada no cartão final 5512, R$ 12,34, SERVICO EXEMPLO")),
+		).toEqual({ kind: "credit_purchase", amountCents: 1234, merchant: "SERVICO EXEMPLO", last4: "5512" });
+	});
+
+	it("compra cancelada traz valor, loja e final para desfazer o lançamento", () => {
+		const cancelled = parse(
+			"santander",
+			"Compra no cartão final 1234, no valor de R$ 24,99, em 16/11/26, às 14:08, em DL.LOJA EXEMPLO, cancelada.",
+			"Compra cancelada!",
+		);
+		expect(cancelled).toEqual({
+			outcome: "cancelled",
+			data: { amountCents: 2499, merchant: "DL.LOJA EXEMPLO", last4: "1234" },
+		});
+	});
+
+	it("cancelamento fora desse formato continua indo para o dono", () => {
+		expect(parse("santander", "Compra cancelada de R$ 24,99 em LOJA EXEMPLO")).toMatchObject({
+			outcome: "unrecognized",
+			hasAmount: true,
+		});
+		expect(parse("nubank", "Estorno de R$ 23,45 de LOJA EXEMPLO no cartão com final 4821")).toMatchObject({
+			outcome: "unrecognized",
+		});
+	});
+
+	it("texto de terceiro dentro do cancelamento não vira outro valor: dois valores = não entendi", () => {
+		expect(
+			parse(
+				"santander",
+				"Compra no cartão final 1234, no valor de R$ 24,99, em 16/11/26, às 14:08, em LOJA R$ 999,00, cancelada.",
+			),
+		).toMatchObject({ outcome: "unrecognized" });
+	});
+});
+
+describe("parseNotification: propaganda some só com indício positivo de oferta", () => {
+	// Os três textos de propaganda do Inter e outros com cupom/OFF/cashback: sem padrão de compra e com indício de oferta.
+	const promos: Array<[string, string, string]> = [
+		[
+			"inter",
+			"R$177OFF + 🎁 de R$100 em vinhos",
+			"no plano anual do Duo Gourmet com o cupom X. Está acabando!",
+		],
+		["inter", "11.11 no Inter Shop 👀", "Confira ofertas exclusivas e use seu cupom R$ 50 OFF."],
+		["inter", "Duo com R$177 OFF! 🧡", "Últimos dias! Assine o plano anual."],
+		["nubank", "Black Friday", "Na compra de R$ 300 ou mais, 10% de desconto. Aproveite!"],
+	];
+	it.each(promos)("%s: %s some em silêncio", (app, title, text) => {
+		expect(parse(app as NotificationApp, text, title).outcome, text).toBe("skip");
+	});
+
+	// Movimentação real, com palavra de oferta no nome da loja ou formato que o parser não conhece: nunca some.
+	const kept: Array<[string, string, string, "parsed" | "unrecognized"]> = [
+		["inter", "Compra aprovada", "R$ 15,00 em ASSINATURA SPOTIFY no cartão final 1234", "parsed"],
+		["inter", "", "R$ 15,00 em ASSINATURA SPOTIFY no cartão final 1234", "unrecognized"],
+		["nubank", "", "Compra de R$ 15,00 em OFF PREMIUM", "parsed"],
+		["nubank", "", "Compra de R$ 15,00 em 100% CAFE", "parsed"],
+		["nubank", "Compra de R$ 49,90", "em PLANO SAUDE LTDA no cartão final 4821", "parsed"],
+		["nubank", "", "Pix de R$ 80,00 recebido de JOAO", "unrecognized"],
+		["nubank", "", "Pix de R$ 80,00 enviado para JOAO", "unrecognized"],
+		["nubank", "", "Transferência de R$ 80,00 recebida de JOAO", "unrecognized"],
+		["nubank", "", "Transferência de R$ 50,00 enviada com sucesso para Maria", "unrecognized"],
+		["inter", "", "Boleto de R$ 200,00 pago com sucesso", "unrecognized"],
+		["inter", "", "Pagamento de R$ 200,00 confirmado", "unrecognized"],
+		["inter", "", "R$ 18,70 debitados da sua conta - boleto", "unrecognized"],
+		["inter", "", "Pagamos R$ 50,00 da sua fatura", "unrecognized"],
+		["nubank", "Aviso", "Aconteceu algo com R$ 20,00 na sua conta", "unrecognized"],
+		// Oferta com palavra de movimentação mas sem verbo de conclusão: nunca vira lançamento; vai para a lista.
+		["inter", "Cashback", "Em compras acima de R$200 no cartão você ganha R$ 20 de volta.", "unrecognized"],
+	];
+	it.each(kept)("%s: %s | %s não é descartado (%s)", (app, title, text, expected) => {
+		const r = parse(app as NotificationApp, text, title);
+		expect(r.outcome, text).toBe(expected);
+		if (r.outcome === "unrecognized") expect(r.hasAmount).toBe(true);
+	});
+
+	it("compra com formato conhecido e palavra de oferta no nome da loja é lida normalmente", () => {
+		expect(parsed(parse("nubank", "Compra de R$ 15,00 em OFF PREMIUM"))).toMatchObject({
+			amountCents: 1500,
+			merchant: "OFF PREMIUM",
+		});
+		expect(
+			parsed(parse("nubank", "em PLANO SAUDE LTDA no cartão final 4821", "Compra de R$ 49,90")),
+		).toMatchObject({
+			amountCents: 4990,
+			merchant: "PLANO SAUDE LTDA",
+			last4: "4821",
+		});
+	});
+});
+
+describe("parseNotification: erro de classificação não perde nada", () => {
+	// Movimentação real com palavra de oferta no nome: nunca é oferta (vai para a lista normal, "format").
+	const movementWithOfferName = [
+		"Pix de R$ 250,00 para PROMO CELL",
+		"Pagamento de R$ 1.299,00 - CASAS OFF",
+		"Débito de R$ 150,00 em OFERTAS SA",
+		"Cobrança de R$ 29,90 - ASSINE FACIL",
+		"Depósito de R$ 500,00 recebido de GANHE LTDA",
+		"Salário de R$ 5.000,00 creditado — OFF",
+		"Recebido R$ 1.500,00 de CUPOM LTDA",
+		"Transferência TED de R$ 1.500,00 para CUPONS SA",
+		"Pix de R$ 100,00 para CONFIRA LTDA",
+		"Pagamento de R$ 89,90 em ASSINATURA OFF",
+		"Lançamento de R$ 29,90 em PLANO OFF",
+	];
+	it.each(movementWithOfferName)("%s: lista normal", (text) => {
+		expect(parse("inter", text)).toMatchObject({
+			outcome: "unrecognized",
+			hasAmount: true,
+			reason: "format",
+		});
+	});
+
+	// Decisão: tudo que origin/main lia como compra continua lido, mesmo com palavra de oferta no texto (a oferta só é
+	// classificada sobre o que NENHUM padrão leu, e só oculta). Ver `regression/parse-regression.test.ts`.
+	const stillParsedLikeMain = [
+		"Compra de R$ 30,00 em PROMOCAO LTDA para o cartão com final 4821",
+		"Compra no débito de R$ 1.234,56 em CUPOM FISCAL LTDA",
+		"Compra aprovada R$ 85,00 em MAGAZINE LUIZA. Confira as ofertas",
+		"Na compra de R$ 100,00 em LOJA X ganhe frete grátis",
+	];
+	it.each(stillParsedLikeMain)("%s: lança como em main", (text) => {
+		expect(parse("nubank", text).outcome).toBe("parsed");
+	});
+
+	it("Pix com 'ganhe cashback' e fatura paga com oferta continuam lidos como em main", () => {
+		expect(parse("nubank", "Pix recebido: R$ 100,00 de ZE. Ganhe cashback em suas compras!").outcome).toBe(
+			"parsed",
+		);
+		expect(parse("nubank", "Fatura de R$ 99,90 paga! Ganhe cashback").outcome).toBe("parsed");
+	});
+
+	// Palavra fraca (OFF, %) no nome da loja não impede o lançamento.
+	const stillLaunch: Array<[string, string, string]> = [
+		["Compra de R$ 20,00 no cartão final 3333 em MERCADO OFF", "", "20,00"],
+		["R$ 40,00 em PLANO MENSAL 10% OFF", "Compra aprovada", "40,00"],
+		["Compra no valor de R$ 33,00 em ASSINATURA OFF", "", "33,00"],
+		["Compra R$ 49,00 no débito - LOJA 20% OFF final 1234", "", "49,00"],
+		["Compra pendente de R$ 25,00 em LOJA OFF", "", "25,00"],
+		["Compra no cartão final 1234 R$ 38,00 - LOJA 3%", "", "38,00"],
+	];
+	it.each(stillLaunch)("%s lança", (text, title) => {
+		expect(parse("nubank", text, title).outcome, text).toBe("parsed");
+	});
+
+	it("oferta com palavra de aviso (cashback, cupom) é oferta, não 'info'; movimentação com esse nome não é", () => {
+		expect(parse("inter", "Use o cupom e ganhe R$ 20 de volta. Confira!", "Cashback")).toEqual({
+			outcome: "skip",
+			reason: "promo",
+		});
+		expect(parse("inter", "Pix de R$ 80,00 recebido de OFERTAS SA")).toMatchObject({
+			outcome: "unrecognized",
+			hasAmount: true,
+		});
 	});
 });

@@ -37,11 +37,22 @@ export interface ParsedNotification {
 	uncertainTarget?: true;
 }
 
+/** Aviso de compra cancelada (Santander). É só um aviso: o ingest o guarda como um item da caixa; nada é desfeito. */
+export interface CancelledPurchase {
+	amountCents: number;
+	merchant: string | null;
+	last4: string;
+}
+
 export type ParseResult =
 	| { outcome: "parsed"; data: ParsedNotification }
-	/** Reconhecida e sem efeito: compra recusada. */
-	| { outcome: "skip"; reason: "declined" | "info" }
-	/** Não entendi. `hasAmount`: cita um valor em R$ (então vale mostrar ao dono); sem valor é propaganda, some. */
+	| { outcome: "cancelled"; data: CancelledPurchase }
+	/** Reconhecida e sem efeito: compra recusada, aviso, ou propaganda (não tem cara de movimentação). */
+	| { outcome: "skip"; reason: "declined" | "info" | "promo" }
+	/**
+	 * Não entendi: tem cara de movimentação (compra, Pix, pagamento…) mas nenhum formato casou. `hasAmount`: cita um
+	 * valor em R$ (então vale mostrar ao dono); sem valor, ou sem cara de movimentação, some.
+	 */
 	| { outcome: "unrecognized"; hasAmount: boolean; reason: UnrecognizedReason };
 
 /**
@@ -54,6 +65,8 @@ const MONEY = String.raw`r\$\s*(?<amount>\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d+(?:,\
 /** Onde um nome (estabelecimento, pessoa) termina. */
 const END = String.raw`(?=\s*(?:[,;|]|\.(?:\s|$)|\s+(?:para\s+o|no|na|com|usando|via|do|de)\s+cartao|\s+(?:no|com)\s+(?:debito|credito)|\s+final\s+\d|\s+\(|\s*$))`;
 const WHO = "(?<who>.+?)";
+/** Santander novo: "de R$ 24,99, em 15/11/26, às 21:58, em " (ou "no valor de"); a loja vem depois. */
+const SANTANDER_BODY = String.raw`(?:de|no valor de) ${MONEY}\s*,\s*(?:em \d{1,2}/\d{1,2}(?:/\d{2,4})?\s*,\s*)?(?:as \d{1,2}[:h]\d{2}\s*,\s*)?em\s+`;
 
 interface Pattern {
 	kind: NotificationKind;
@@ -102,12 +115,17 @@ const PATTERNS: readonly Pattern[] = [
 	// Compra. Nubank: "Compra de R$ 23,45 APROVADA em LOJA EXEMPLO para o cartão com final 4821".
 	{
 		kind: "credit_purchase",
-		re: re(`compra (?:no (?:debito|credito) )?de ${MONEY}(?: aprovada)? em ${WHO}${END}`),
+		re: re(`compra (?:no (?:debito|credito) )?de ${MONEY}(?: aprovada)?[:,]?\\s+em ${WHO}${END}`),
 	},
 	// Inter: "Compra aprovada: R$ 18,70 em LOJA TESTE no cartão final 7390".
 	{
 		kind: "credit_purchase",
 		re: re(String.raw`compra (?:no (?:debito|credito) )?aprovada:?\s*${MONEY}\s+(?:em|no|na)\s+${WHO}${END}`),
+	},
+	// Santander: "Compra no cartão final 1234, de R$ 24,99, em 15/11/26, às 21:58, em LOJA EXEMPLO, aprovada.".
+	{
+		kind: "credit_purchase",
+		re: re(`compra no cartao final \\d{4}, ${SANTANDER_BODY}${WHO}${END}`),
 	},
 	// Santander: "Compra aprovada no cartão final 5512, R$ 12,34, SERVICO EXEMPLO".
 	{
@@ -133,13 +151,21 @@ const PATTERNS: readonly Pattern[] = [
 	},
 ];
 
+/** Santander: "Compra no cartão final 1234, no valor de R$ 24,99, em 16/11/26, às 14:08, em LOJA EXEMPLO, cancelada.". */
+const CANCELLED = re(
+	`compra no cartao final (?<last4>\\d{4}), ${SANTANDER_BODY}${WHO}\\s*,\\s*cancelad[ao]\\s*(?:[.!]|$)`,
+);
+
 const DECLINED =
 	/\b(recusad[ao]|negad[ao]|nao aprovad[ao]|nao foi aprovad[ao]|nao autorizad[ao]|nao realizad[ao])\b/;
 /** Estorno, cancelamento e afins mudam um lançamento que já existe: o dono decide, o parser não adivinha. */
 const REVERSAL = /\b(estorn\w*|reembols\w*|cancelad[ao]|cancelamento|contestac\w*|devolvid[ao]|devolucao)\b/;
-/** Aviso que não é movimentação: fatura fechada, limite, oferta. Some sem ir para a lista. */
+/** Aviso que não é movimentação: fatura fechada, limite, oferta. Igual a origin/main (o que ele descartava, continua). */
 const INFO =
 	/\b(fatura (?:fechou|fechada|disponivel|vence|vencera|ja esta)|limite|oferta|promocao|cashback|desconto|sorteio|convite|vence (?:hoje|amanha))\b/;
+/** Só os avisos de verdade. Texto com R$ que casou `INFO` apenas por palavra de oferta não é descartado: vira oferta oculta ou falha. */
+const NOTICE =
+	/\b(fatura (?:fechou|fechada|disponivel|vence|vencera|ja esta)|limite|vence (?:hoje|amanha))\b/;
 const DEBIT_WORD = /\bdebito\b/;
 const CREDIT_WORD = /\bcredito\b/;
 const LAST4 = /(?:final|finalizado em|terminad[oa] em|terminando em|\*{2,4}|\.{3})\s*(\d{4})\b/;
@@ -191,7 +217,19 @@ function tryParse(original: string): ParseResult {
 	const sameLength = folded.length === original.length;
 	const hasAmount = /r\$\s*\d/.test(folded);
 	if (DECLINED.test(folded)) return { outcome: "skip", reason: "declined" };
-	if (REVERSAL.test(folded)) return unrecognized(hasAmount);
+	if (REVERSAL.test(folded)) {
+		const cancelled = CANCELLED.exec(folded);
+		const amountCents = parseAmount(cancelled?.groups?.amount ?? "");
+		if (cancelled?.groups && amountCents !== null && amountCents > 0 && distinctAmounts(folded).size === 1) {
+			const range = cancelled.indices?.groups?.who;
+			const who = range ? (sameLength ? original : folded).slice(range[0], range[1]) : undefined;
+			return {
+				outcome: "cancelled",
+				data: { amountCents, merchant: cleanName(who), last4: cancelled.groups.last4 as string },
+			};
+		}
+		return unrecognized(hasAmount);
+	}
 	if (hasAmount && INSTALLMENT.test(folded)) return unrecognized(true, "installment");
 	// Dois valores diferentes no mesmo texto (ou texto de terceiro com um valor falso dentro): não dá para saber qual vale.
 	if (distinctAmounts(folded).size > 1) return unrecognized(true);
@@ -235,6 +273,53 @@ function tryParse(original: string): ParseResult {
  * para o dono, porque o texto de um app de banco pode trazer conteúdo de terceiros. `app` hoje não muda o resultado.
  */
 export function parseNotification(input: { app: NotificationApp; title: string; text: string }): ParseResult {
+	let result = readNotification(input);
+	const money = /r\$\s*\d/.test(foldPt(`${input.title} ${input.text}`));
+	// `INFO` de main descartava por "oferta", "cupom"…: com R$ isso perde movimentação (Pix de "OFERTAS SA"). Aqui o
+	// descarte só vale para aviso de verdade; o resto é tratado como o que nenhum padrão leu (oferta oculta ou lista).
+	if (
+		result.outcome === "skip" &&
+		result.reason === "info" &&
+		money &&
+		!NOTICE.test(foldPt(`${input.title} ${input.text}`))
+	) {
+		result = unrecognized(true);
+	}
+	// Oferta (`skip`/"promo") é só uma classificação: quem chama GUARDA o texto, oculto. Aqui o classificador é
+	// conservador: precisa de indício de oferta, nenhuma estrutura de movimentação e nenhum padrão de compra casado.
+	if (result.outcome === "unrecognized" && result.reason === "format" && result.hasAmount) {
+		const folded = foldPt(`${input.title} ${input.text}`);
+		if (OFFER.test(folded) && !looksLikeMovement(folded) && !PATTERNS.some((p) => p.re.test(folded))) {
+			return { outcome: "skip", reason: "promo" };
+		}
+	}
+	return result;
+}
+
+/** Indício de oferta (cupom, OFF, %, "assine", emoji…). Só serve para ocultar o que nenhum padrão leu; nunca decide lançamento. */
+const OFFER =
+	/\b(cupom|cupons|oferta\w*|promo\w*|desconto\w*|off|ganhe\w*|aproveit\w*|confira|resgat\w*|cashback|sorteio|indique|convid\w*|convite|assine|frete gratis|imperdiv\w*|black friday|acabando|ultimos dias|de volta|a partir de|acima de|ate \d+\s?x)\b|\d\s?%|%\s?(?:off|de desconto)|[\u{1F381}\u{1F389}\u{1F525}\u{1F440}\u{1F9E1}\u{1F4B8}]/u;
+/** Verbo de conclusão: a coisa já aconteceu. */
+const COMPLETED =
+	/\b(?:aprovad[ao]|realizad[ao]|efetuad[ao]|recebid[ao]|creditad[ao]|depositad[ao]|enviad[ao]|recebeu|enviou|pagou|pago|paga|debitad\w*|confirmad[ao]|transferid[ao])\b/;
+
+/**
+ * Estrutura de movimentação: o tipo de operação em palavra (Pix, TED, transferência, boleto, salário, cobrança,
+ * lançamento, débito, depósito, pagamento, saque, estorno, fatura) ou uma frase de compra ("compra aprovada", "compra
+ * no cartão"). "Na compra de…" e "em compras" são condição de oferta, não movimentação.
+ */
+const MOVEMENT =
+	/(?<!\b(?:na|nas|em|para|pra|apos|nesta|nessa)\s)\bcompra(?:s)?\s+(?:no\s+(?:debito|credito)\s+)?(?:aprovad|realizad|efetuad|cancelad|recusad|pendente|de\s+r\$|no\s+(?:cartao|debito|credito|valor)|na\s+(?:loja|maquininha))|\b(?:pix|ted|doc|transferencia|boleto|salario|cobranca|lancamento|debito|deposito|pagamento|pagamentos|pagamos|saque|estorno|fatura)\b|\bvoce\s+(?:recebeu|enviou|pagou|transferiu|fez\s+(?:um|uma)\s+(?:pix|transferencia|pagamento|compra))|\bte\s+enviou\b/;
+
+/**
+ * Tem cara de movimentação? Estrutura (`MOVEMENT`), verbo de conclusão (`COMPLETED`) ou aviso de estorno/cancelamento.
+ * Pesa na hora de ocultar: movimentação com palavra de oferta no nome da loja continua na lista normal.
+ */
+export function looksLikeMovement(folded: string): boolean {
+	return MOVEMENT.test(folded) || COMPLETED.test(folded) || REVERSAL.test(folded);
+}
+
+function readNotification(input: { app: NotificationApp; title: string; text: string }): ParseResult {
 	const { title, text } = input;
 	const hasTitleAmount = /r\$\s*\d/.test(foldPt(title));
 	if (title && distinctAmounts(foldPt(`${title} ${text}`)).size > 1) return unrecognized(true);
@@ -263,7 +348,8 @@ export function parseNotification(input: { app: NotificationApp; title: string; 
 	let last: ParseResult = unrecognized(false);
 	for (const candidate of candidates) {
 		const result = tryParse(candidate);
-		if (result.outcome === "parsed" || result.outcome === "skip") return result;
+		if (result.outcome === "parsed" || result.outcome === "skip" || result.outcome === "cancelled")
+			return result;
 		const hasAmount = last.outcome === "unrecognized" && last.hasAmount ? true : result.hasAmount;
 		// Parcelamento vence formato desconhecido: é o motivo mais específico.
 		last = unrecognized(

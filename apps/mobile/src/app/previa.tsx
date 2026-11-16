@@ -45,17 +45,52 @@ function NotificationsPreview({ needsAccess }: { needsAccess: boolean }) {
 									id: "n1",
 									app: "nubank",
 									title: "Compra aprovada",
-									text: "Compra de R$ 10,00 APROVADA em LOJA Y para o cartão com final 7777",
+									text: "Compra de R$ 9,90 APROVADA em LOJA EXEMPLO para o cartão com final 5678.",
 									reason: "target",
 									postedAt: "2026-11-15T14:00:00Z",
+									choose: {
+										last4: "5678",
+										cards: [
+											{ id: "c1", name: "Nubank Mastercard", last4: "4821" },
+											{ id: "c2", name: "Nubank Ultravioleta", last4: null },
+										],
+									},
+								},
+								{
+									id: "n3",
+									app: "inter",
+									title: "Duo com R$177 OFF!",
+									text: "Últimos dias! Assine o plano anual.",
+									reason: "promo",
+									postedAt: "2026-11-15T08:00:00Z",
+									choose: null,
+								},
+								{
+									id: "n4",
+									app: "inter",
+									title: "R$177OFF + de R$100 em vinhos",
+									text: "no plano anual com o cupom X.",
+									reason: "promo",
+									postedAt: "2026-11-15T07:00:00Z",
+									choose: null,
+								},
+								{
+									id: "n5",
+									app: "santander",
+									title: "Compra cancelada!",
+									text: "Compra no cartão final 1234, no valor de R$ 24,99, em 16/11/26, às 14:08, em LOJA EXEMPLO, cancelada.",
+									reason: "cancelled",
+									postedAt: "2026-11-15T12:00:00Z",
+									choose: null,
 								},
 								{
 									id: "n2",
 									app: "inter",
-									title: "Aviso",
-									text: "Algo aconteceu com R$ 20,00 na sua conta",
+									title: "Compra aprovada",
+									text: "Valor de R$ 20,00 aprovado em LOJA NOVA no cartão virtual",
 									reason: "format",
 									postedAt: "2026-11-15T09:30:00Z",
+									choose: null,
 								},
 							]
 				}
@@ -68,6 +103,12 @@ function NotificationsPreview({ needsAccess }: { needsAccess: boolean }) {
 				onOpenAppInfo={noop}
 				onRetry={noop}
 				onDismiss={noop}
+				onChooseCard={noop}
+				onForgetLink={noop}
+				onKeepOffer={noop}
+				links={
+					needsAccess ? [] : [{ app: "nubank", last4: "5678", cardId: "c1", cardName: "Nubank Mastercard" }]
+				}
 			/>
 		</SubScreen>
 	);

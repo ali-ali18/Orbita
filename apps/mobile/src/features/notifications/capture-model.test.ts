@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
 	ago,
 	captureView,
+	cardChoiceLabel,
 	deliveryLine,
+	hiddenOffersLabel,
 	inboxCaption,
+	inboxView,
 	isVerifiedApp,
 	type NativeStatus,
 	packagesFor,
@@ -94,5 +97,32 @@ describe("inboxCaption", () => {
 		expect(inboxCaption({ app: "inter", reason: "format", postedAt: "ruim" }, now)).toBe(
 			"Inter · Não entendi o formato",
 		);
+	});
+});
+
+describe("cardChoiceLabel", () => {
+	it("nome e final; sem final, só o nome", () => {
+		expect(cardChoiceLabel({ name: "Santander Free", last4: "9999" })).toBe("Santander Free ••9999");
+		expect(cardChoiceLabel({ name: "Nubank", last4: null })).toBe("Nubank");
+	});
+});
+
+describe("hiddenOffersLabel", () => {
+	it("singular e plural", () => {
+		expect(hiddenOffersLabel(1)).toBe("1 oferta oculta");
+		expect(hiddenOffersLabel(3)).toBe("3 ofertas ocultas");
+	});
+});
+
+describe("inboxView", () => {
+	const item = (reason: "format" | "target" | "promo" | "cancelled") => ({ reason });
+	it("aviso de cancelamento aparece na lista, mas não conta nem pede tentar de novo", () => {
+		const onlyNotice = inboxView([item("cancelled")]);
+		expect(onlyNotice).toMatchObject({ pending: 0, title: "Avisos", canRetry: false });
+		expect(onlyNotice.listed).toHaveLength(1);
+		const mixed = inboxView([item("format"), item("cancelled"), item("promo"), item("target")]);
+		expect(mixed).toMatchObject({ pending: 2, title: "Não consegui lançar (2)", canRetry: true });
+		expect(mixed.listed).toHaveLength(3);
+		expect(mixed.offers).toHaveLength(1);
 	});
 });

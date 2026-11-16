@@ -3,19 +3,23 @@ import {
 	NOTIFICATION_APPS,
 	NOTIFICATION_APPS_DEFAULT,
 	type NotificationApp,
+	type NotificationCardLinkDto,
 	type NotificationInboxItemDto,
 	type NotificationSettingsDto,
 	type NotificationSettingsPatchBody,
 } from "@orbita/shared";
 import { colors, radius, spacing } from "@orbita/tokens";
 import { useCallback, useEffect, useState } from "react";
-import { AppState, View } from "react-native";
+import { AppState, Pressable, View } from "react-native";
 import { errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { BankLogo, Button, ErrorState, IconButton, Skeleton, Text } from "../../ui/index.ts";
 import {
 	captureView,
+	cardChoiceLabel,
 	deliveryLine,
+	hiddenOffersLabel,
 	inboxCaption,
+	inboxView,
 	isVerifiedApp,
 	type NativeStatus,
 	RESTRICTED_SETTINGS_HELP,
@@ -27,7 +31,11 @@ import {
 	readCaptureStatus,
 } from "../notifications/native.ts";
 import {
+	useChooseNotificationCard,
 	useDismissNotification,
+	useForgetCardLink,
+	useKeepOfferAsPurchase,
+	useNotificationCardLinks,
 	useNotificationInbox,
 	useRetryNotificationInbox,
 } from "../notifications/queries.ts";
@@ -61,6 +69,10 @@ export function NotificationsScreen() {
 	const inboxQ = useNotificationInbox();
 	const retry = useRetryNotificationInbox();
 	const dismiss = useDismissNotification();
+	const choose = useChooseNotificationCard();
+	const linksQ = useNotificationCardLinks();
+	const forget = useForgetCardLink();
+	const keep = useKeepOfferAsPurchase();
 	const { status, refresh } = useCaptureStatus();
 	const [message, setMessage] = useState<string | null>(null);
 	const [retryResult, setRetryResult] = useState<string | null>(null);
@@ -94,6 +106,9 @@ export function NotificationsScreen() {
 					supported={captureSupported}
 					status={status}
 					inbox={inboxQ.data ?? []}
+					links={linksQ.data ?? []}
+					onForgetLink={(link) => forget.mutate(link)}
+					onKeepOffer={(id) => keep.mutate(id)}
 					busy={update.isPending}
 					message={message}
 					retryMessage={retryResult}
@@ -127,6 +142,10 @@ export function NotificationsScreen() {
 						});
 					}}
 					onDismiss={(id) => dismiss.mutate(id)}
+					choosing={choose.isPending ? (choose.variables?.id ?? null) : null}
+					onChooseCard={(id, cardId) =>
+						choose.mutate({ id, cardId }, { onError: (error) => setRetryResult(errorMessage(error)) })
+					}
 				/>
 			)}
 		</SubScreen>
@@ -139,6 +158,7 @@ export function NotificationsView({
 	supported,
 	status,
 	inbox,
+	links = [],
 	busy = false,
 	message = null,
 	retryMessage = null,
@@ -152,11 +172,17 @@ export function NotificationsView({
 	onOpenAppInfo,
 	onRetry,
 	onDismiss,
+	choosing = null,
+	onChooseCard,
+	onForgetLink,
+	onKeepOffer,
 }: {
 	settings: NotificationSettingsDto;
 	supported: boolean;
 	status: NativeStatus | null;
 	inbox: readonly NotificationInboxItemDto[];
+	/** Finais ligados a um cartão (cartão virtual). */
+	links?: readonly NotificationCardLinkDto[];
 	busy?: boolean;
 	message?: string | null;
 	retryMessage?: string | null;
@@ -170,7 +196,15 @@ export function NotificationsView({
 	onOpenAppInfo: () => void;
 	onRetry: () => void;
 	onDismiss: (id: string) => void;
+	/** Id da notificação cujo cartão está sendo gravado. */
+	choosing?: string | null;
+	onChooseCard: (id: string, cardId: string) => void;
+	onForgetLink: (link: { app: NotificationApp; last4: string }) => void;
+	/** "É compra": devolve a oferta oculta à lista. */
+	onKeepOffer: (id: string) => void;
 }) {
+	const [offersOpen, setOffersOpen] = useState(false);
+	const { listed: failures, offers, title: inboxTitle, canRetry } = inboxView(inbox);
 	const view = captureView({ supported, capture: settings.capture, apps: settings.apps, status });
 	const delivery = supported && settings.capture ? deliveryLine(status, now) : null;
 	return (
@@ -258,10 +292,32 @@ export function NotificationsView({
 				/>
 			</SettingsSection>
 
-			{inbox.length > 0 ? (
-				<SettingsSection title={`Não consegui lançar (${inbox.length})`}>
+			{links.length > 0 ? (
+				<SettingsSection title="Finais ligados">
+					<View style={{ padding: spacing.lg, gap: spacing.sm }}>
+						{links.map((link) => (
+							<View
+								key={`${link.app}-${link.last4}`}
+								style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}
+							>
+								<Text variant="caption" style={{ flex: 1 }}>
+									{`${NOTIFICATION_APP_LABELS[link.app]} ••${link.last4} → ${link.cardName}`}
+								</Text>
+								<IconButton
+									icon="fechar"
+									label={`Esquecer final ${link.last4}`}
+									onPress={() => onForgetLink({ app: link.app, last4: link.last4 })}
+								/>
+							</View>
+						))}
+					</View>
+				</SettingsSection>
+			) : null}
+
+			{failures.length > 0 ? (
+				<SettingsSection title={inboxTitle}>
 					<View style={{ padding: spacing.lg, gap: spacing.md }}>
-						{inbox.map((item) => (
+						{failures.map((item) => (
 							<View
 								key={item.id}
 								style={{
@@ -278,11 +334,38 @@ export function NotificationsView({
 										{inboxCaption(item, now)}
 									</Text>
 									<Text variant="caption">{item.title ? `${item.title}: ${item.text}` : item.text}</Text>
+									{item.choose ? (
+										<View style={{ gap: spacing.xs, paddingTop: spacing.xs }}>
+											<Text variant="micro" tone="secondary">
+												{`Final ${item.choose.last4}: qual cartão?`}
+											</Text>
+											<View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+												{item.choose.cards.map((card) => (
+													<Button
+														key={card.id}
+														variant="primary"
+														compact
+														label={cardChoiceLabel(card)}
+														loading={choosing === item.id}
+														onPress={() => onChooseCard(item.id, card.id)}
+													/>
+												))}
+											</View>
+										</View>
+									) : null}
 								</View>
 								<IconButton icon="fechar" label="Descartar notificação" onPress={() => onDismiss(item.id)} />
 							</View>
 						))}
-						<Button variant="secondary" compact label="Tentar de novo" loading={retrying} onPress={onRetry} />
+						{canRetry ? (
+							<Button
+								variant="secondary"
+								compact
+								label="Tentar de novo"
+								loading={retrying}
+								onPress={onRetry}
+							/>
+						) : null}
 						{retryMessage ? (
 							<Text variant="caption" tone="secondary" accessibilityLiveRegion="polite">
 								{retryMessage}
@@ -290,6 +373,56 @@ export function NotificationsView({
 						) : null}
 					</View>
 				</SettingsSection>
+			) : null}
+
+			{offers.length > 0 ? (
+				<View style={{ gap: spacing.sm }}>
+					<Pressable
+						accessibilityRole="button"
+						accessibilityState={{ expanded: offersOpen }}
+						onPress={() => setOffersOpen((open) => !open)}
+						style={{ paddingVertical: spacing.sm }}
+					>
+						<Text variant="caption" tone="tertiary">
+							{hiddenOffersLabel(offers.length)}
+						</Text>
+					</Pressable>
+					{offersOpen
+						? offers.map((item) => (
+								<View
+									key={item.id}
+									style={{
+										flexDirection: "row",
+										alignItems: "flex-start",
+										gap: spacing.md,
+										backgroundColor: colors.surface2,
+										borderRadius: radius.inner,
+										padding: spacing.md,
+									}}
+								>
+									<View style={{ flex: 1, gap: spacing.sm }}>
+										<Text variant="micro" tone="secondary">
+											{inboxCaption(item, now)}
+										</Text>
+										<Text variant="caption">{item.title ? `${item.title}: ${item.text}` : item.text}</Text>
+										<View style={{ flexDirection: "row" }}>
+											<Button
+												variant="secondary"
+												compact
+												label="É compra"
+												onPress={() => onKeepOffer(item.id)}
+											/>
+										</View>
+									</View>
+									<IconButton
+										icon="fechar"
+										label="Descartar notificação"
+										onPress={() => onDismiss(item.id)}
+									/>
+								</View>
+							))
+						: null}
+				</View>
 			) : null}
 
 			{message ? (
