@@ -14,6 +14,7 @@ import { errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { BankLogo, Button, ErrorState, IconButton, Skeleton, Text } from "../../ui/index.ts";
 import {
 	captureView,
+	cardChoiceLabel,
 	deliveryLine,
 	inboxCaption,
 	isVerifiedApp,
@@ -27,6 +28,7 @@ import {
 	readCaptureStatus,
 } from "../notifications/native.ts";
 import {
+	useChooseNotificationCard,
 	useDismissNotification,
 	useNotificationInbox,
 	useRetryNotificationInbox,
@@ -61,6 +63,7 @@ export function NotificationsScreen() {
 	const inboxQ = useNotificationInbox();
 	const retry = useRetryNotificationInbox();
 	const dismiss = useDismissNotification();
+	const choose = useChooseNotificationCard();
 	const { status, refresh } = useCaptureStatus();
 	const [message, setMessage] = useState<string | null>(null);
 	const [retryResult, setRetryResult] = useState<string | null>(null);
@@ -127,6 +130,10 @@ export function NotificationsScreen() {
 						});
 					}}
 					onDismiss={(id) => dismiss.mutate(id)}
+					choosing={choose.isPending ? (choose.variables?.id ?? null) : null}
+					onChooseCard={(id, cardId) =>
+						choose.mutate({ id, cardId }, { onError: (error) => setRetryResult(errorMessage(error)) })
+					}
 				/>
 			)}
 		</SubScreen>
@@ -152,6 +159,8 @@ export function NotificationsView({
 	onOpenAppInfo,
 	onRetry,
 	onDismiss,
+	choosing = null,
+	onChooseCard,
 }: {
 	settings: NotificationSettingsDto;
 	supported: boolean;
@@ -170,6 +179,9 @@ export function NotificationsView({
 	onOpenAppInfo: () => void;
 	onRetry: () => void;
 	onDismiss: (id: string) => void;
+	/** Id da notificação cujo cartão está sendo gravado. */
+	choosing?: string | null;
+	onChooseCard: (id: string, cardId: string) => void;
 }) {
 	const view = captureView({ supported, capture: settings.capture, apps: settings.apps, status });
 	const delivery = supported && settings.capture ? deliveryLine(status, now) : null;
@@ -278,6 +290,25 @@ export function NotificationsView({
 										{inboxCaption(item, now)}
 									</Text>
 									<Text variant="caption">{item.title ? `${item.title}: ${item.text}` : item.text}</Text>
+									{item.choose ? (
+										<View style={{ gap: spacing.xs, paddingTop: spacing.xs }}>
+											<Text variant="micro" tone="secondary">
+												{`Final ${item.choose.last4}: qual cartão?`}
+											</Text>
+											<View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+												{item.choose.cards.map((card) => (
+													<Button
+														key={card.id}
+														variant="primary"
+														compact
+														label={cardChoiceLabel(card)}
+														loading={choosing === item.id}
+														onPress={() => onChooseCard(item.id, card.id)}
+													/>
+												))}
+											</View>
+										</View>
+									) : null}
 								</View>
 								<IconButton icon="fechar" label="Descartar notificação" onPress={() => onDismiss(item.id)} />
 							</View>

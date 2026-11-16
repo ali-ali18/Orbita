@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	ago,
 	captureView,
+	cardChoiceLabel,
 	deliveryLine,
 	inboxCaption,
 	isVerifiedApp,
@@ -94,5 +95,12 @@ describe("inboxCaption", () => {
 		expect(inboxCaption({ app: "inter", reason: "format", postedAt: "ruim" }, now)).toBe(
 			"Inter · Não entendi o formato",
 		);
+	});
+});
+
+describe("cardChoiceLabel", () => {
+	it("nome e final; sem final, só o nome", () => {
+		expect(cardChoiceLabel({ name: "Santander Free", last4: "9999" })).toBe("Santander Free ••9999");
+		expect(cardChoiceLabel({ name: "Nubank", last4: null })).toBe("Nubank");
 	});
 });

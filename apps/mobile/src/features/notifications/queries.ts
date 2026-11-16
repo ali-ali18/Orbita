@@ -47,3 +47,19 @@ export function useDismissNotification() {
 		onSuccess: () => refresh(false),
 	});
 }
+
+/** O dono escolhe o cartão de uma compra da lista: lança e o app lembra o final. */
+export function useChooseNotificationCard() {
+	const { api } = useScoped();
+	const refresh = useRefreshAfter();
+	return useMutation({
+		mutationFn: async (input: { id: string; cardId: string }) =>
+			call(() =>
+				api.v1.notifications.inbox[":id"].card.$post({
+					param: { id: input.id },
+					json: { cardId: input.cardId },
+				}),
+			),
+		onSuccess: () => refresh(true),
+	});
+}

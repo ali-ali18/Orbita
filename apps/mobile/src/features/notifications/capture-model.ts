@@ -128,6 +128,11 @@ export const INBOX_REASON_LABEL: Record<NotificationInboxReason, string> = {
 	installment: "Compra parcelada: lance você mesmo",
 };
 
+/** Botão de escolha do cartão: nome e final ("Santander Free ••9999"). */
+export function cardChoiceLabel(card: { name: string; last4: string | null }): string {
+	return card.last4 ? `${card.name} ••${card.last4}` : card.name;
+}
+
 /** Legenda de uma notificação da lista: banco, motivo e horário. */
 export function inboxCaption(
 	item: { app: NotificationApp; reason: NotificationInboxReason; postedAt: string },
