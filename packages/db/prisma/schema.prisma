@@ -156,9 +156,10 @@ model Card {
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
 
-  transactions Transaction[]
-  recurrences  Recurrence[]
-  bills        CardBill[]
+  transactions      Transaction[]
+  recurrences       Recurrence[]
+  bills             CardBill[]
+  notificationLinks NotificationCardLink[]
 
   @@unique([source, externalId])
   @@map("cards")
@@ -529,6 +530,22 @@ model NotificationInbox {
 
   @@index([createdAt])
   @@map("notification_inbox")
+}
+
+/// Final de cartão que o app de um banco cita nas notificações e que o dono (ou o app, quando o banco só tem um cartão) ligou a um cartão. Cartão virtual/online tem final diferente do físico que o Pluggy traz. Um final por app de banco.
+model NotificationCardLink {
+  id        String   @id @default(cuid())
+  /// App de banco da notificação ("nubank", "santander"…).
+  app       String
+  last4     String
+  cardId    String   @map("card_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([app, last4])
+  @@index([cardId])
+  @@map("notification_card_links")
 }
 
 /// Conversa com a Órbita (o chat). O histórico mora no servidor: o app só mostra.
