@@ -29,7 +29,7 @@ export function createMemoryNotificationInboxStore(now: Clock): NotificationInbo
 				rows.delete(old.id);
 			return { created: true };
 		},
-		async list(limit = NOTIFICATION_INBOX_LIMIT) {
+		async list(limit = NOTIFICATION_INBOX_LIMIT + NOTIFICATION_PROMO_LIMIT) {
 			return newestFirst()
 				.slice(0, Math.max(0, limit))
 				.map((r) => ({ ...r }));
@@ -42,7 +42,8 @@ export function createMemoryNotificationInboxStore(now: Clock): NotificationInbo
 		},
 		async setReason(key, reason) {
 			const found = [...rows.values()].find((r) => r.key === key);
-			if (found) rows.set(found.id, { ...found, reason });
+			// O que o dono marcou "É compra" não volta a ser oculto.
+			if (found && !(found.ownerKept && reason === "promo")) rows.set(found.id, { ...found, reason });
 		},
 		async keepAsPurchase(id) {
 			const found = rows.get(id);

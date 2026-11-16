@@ -33,7 +33,7 @@ export type NotificationInboxInput = Pick<
 export interface NotificationInboxStore {
 	/** `created: false` se a mesma `key` já estava na lista (o motivo e o texto dela não mudam). */
 	add(input: NotificationInboxInput): Promise<{ created: boolean }>;
-	/** Mais novas primeiro. */
+	/** Mais novas primeiro. Sem `limit`, devolve TODAS (falhas até `NOTIFICATION_INBOX_LIMIT` e ofertas até `NOTIFICATION_PROMO_LIMIT`: os limites são separados). */
 	list(limit?: number): Promise<NotificationInboxRecord[]>;
 	/** Quantas esperam o dono ("Não consegui lançar"): NÃO conta as ofertas ocultas. */
 	count(): Promise<number>;

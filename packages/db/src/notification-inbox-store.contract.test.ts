@@ -107,4 +107,24 @@ describe.each(contractSuites())("NotificationInboxStore (%s)", (_name, make) => 
 		expect(await inbox.keepAsPurchase(id)).toBe(false);
 		expect(await inbox.keepAsPurchase("nao-existe")).toBe(false);
 	});
+
+	it("falhas e ofertas têm limites separados e list() devolve todas (100 falhas não somem sob 30 ofertas)", async () => {
+		for (let i = 0; i < NOTIFICATION_INBOX_LIMIT; i++) await inbox.add(item(`f${i}`, { reason: "format" }));
+		for (let i = 0; i < NOTIFICATION_PROMO_LIMIT; i++) await inbox.add(item(`p${i}`, { reason: "promo" }));
+		expect(await inbox.count()).toBe(NOTIFICATION_INBOX_LIMIT);
+		expect(await inbox.countHidden()).toBe(NOTIFICATION_PROMO_LIMIT);
+		const all = await inbox.list();
+		expect(all).toHaveLength(NOTIFICATION_INBOX_LIMIT + NOTIFICATION_PROMO_LIMIT);
+		expect(all.filter((r) => r.reason !== "promo")).toHaveLength(NOTIFICATION_INBOX_LIMIT);
+	});
+
+	it("setReason('promo') não reoculta o que o dono marcou 'é compra'", async () => {
+		await inbox.add(item("a", { reason: "promo" }));
+		const id = (await inbox.list())[0]?.id as string;
+		await inbox.keepAsPurchase(id);
+		await inbox.setReason("a", "promo");
+		expect((await inbox.list())[0]).toMatchObject({ reason: "format", ownerKept: true });
+		await inbox.setReason("a", "target");
+		expect((await inbox.list())[0]?.reason).toBe("target");
+	});
 });

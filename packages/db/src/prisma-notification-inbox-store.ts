@@ -57,7 +57,7 @@ export function createPrismaNotificationInboxStore(db: Db, now: () => Date): Not
 			}
 			return { created: true };
 		},
-		async list(limit = NOTIFICATION_INBOX_LIMIT) {
+		async list(limit = NOTIFICATION_INBOX_LIMIT + NOTIFICATION_PROMO_LIMIT) {
 			const rows = await db.notificationInbox.findMany({
 				orderBy: [{ createdAt: "desc" }, { id: "desc" }],
 				take: Math.max(0, limit),
@@ -71,7 +71,10 @@ export function createPrismaNotificationInboxStore(db: Db, now: () => Date): Not
 			return db.notificationInbox.count({ where: { reason: "promo" } });
 		},
 		async setReason(key, reason) {
-			await db.notificationInbox.updateMany({ where: { key }, data: { reason } });
+			await db.notificationInbox.updateMany({
+				where: reason === "promo" ? { key, ownerKept: false } : { key },
+				data: { reason },
+			});
 		},
 		async keepAsPurchase(id) {
 			const done = await db.notificationInbox.updateMany({
