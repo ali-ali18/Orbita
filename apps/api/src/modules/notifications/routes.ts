@@ -1,16 +1,18 @@
 import {
 	chooseInboxCard,
 	INBOX_MAX_AGE_DAYS,
-	inboxCardChoice,
+	inboxCardChoices,
 	ingestNotification,
 	retryNotificationInbox,
 } from "@orbita/ingest";
 import { createRateLimiter } from "@orbita/security";
 import {
 	idParam,
+	type NotificationCardLinksResponse,
 	type NotificationInboxResponse,
 	type NotificationResult,
 	notificationBatchBody,
+	notificationCardLinkParam,
 	notificationChooseCardBody,
 } from "@orbita/shared";
 import { Hono } from "hono";
@@ -59,18 +61,16 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 		.get("/v1/notifications/inbox", async (c) => {
 			await purge();
 			const rows = await stores.notificationInbox.list();
-			const items: NotificationInboxResponse["items"] = [];
-			for (const r of rows) {
-				items.push({
-					id: r.id,
-					app: r.app,
-					title: r.title,
-					text: r.text,
-					reason: r.reason,
-					postedAt: r.postedAt.toISOString(),
-					choose: await inboxCardChoice(deps, r),
-				});
-			}
+			const choices = await inboxCardChoices(deps, rows);
+			const items: NotificationInboxResponse["items"] = rows.map((r, i) => ({
+				id: r.id,
+				app: r.app,
+				title: r.title,
+				text: r.text,
+				reason: r.reason,
+				postedAt: r.postedAt.toISOString(),
+				choose: choices[i] ?? null,
+			}));
 			return c.json({ items } satisfies NotificationInboxResponse);
 		})
 		.post(
@@ -87,6 +87,28 @@ export function routes({ stores, now, requireDevice }: ModuleDeps) {
 			validate("param", idParam),
 			validate("json", notificationChooseCardBody),
 			async (c) => c.json(await chooseInboxCard(deps, c.req.valid("param").id, c.req.valid("json").cardId)),
+		)
+		.get("/v1/notifications/card-links", async (c) => {
+			const [links, cards] = await Promise.all([stores.notificationCardLinks.list(), stores.cards.list()]);
+			const names = new Map(cards.map((card) => [card.id, card.name]));
+			const body: NotificationCardLinksResponse = {
+				links: links.map((l) => ({
+					app: l.app,
+					last4: l.last4,
+					cardId: l.cardId,
+					cardName: names.get(l.cardId) ?? "Cartão",
+				})),
+			};
+			return c.json(body);
+		})
+		.delete(
+			"/v1/notifications/card-links/:app/:last4",
+			validate("param", notificationCardLinkParam),
+			async (c) => {
+				const { app, last4 } = c.req.valid("param");
+				orNotFound((await stores.notificationCardLinks.remove(app, last4)) ? true : null, "Ligação");
+				return c.json({ ok: true as const });
+			},
 		)
 		.delete("/v1/notifications/inbox/:id", validate("param", idParam), async (c) => {
 			orNotFound(

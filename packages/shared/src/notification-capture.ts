@@ -166,3 +166,19 @@ export const notificationChooseCardBody = z.object({ cardId: idSchema });
 export type NotificationChooseCardBody = z.infer<typeof notificationChooseCardBody>;
 export const notificationChooseCardResponse = z.object({ created: z.boolean() });
 export type NotificationChooseCardResponse = z.infer<typeof notificationChooseCardResponse>;
+
+/** `GET /v1/notifications/card-links`: finais de cartão (do cartão virtual) ligados a um cartão, para o dono esquecer. */
+export const notificationCardLinkSchema = z.object({
+	app: notificationAppSchema,
+	last4: z.string(),
+	cardId: idSchema,
+	cardName: z.string(),
+});
+export type NotificationCardLinkDto = z.infer<typeof notificationCardLinkSchema>;
+export const notificationCardLinksResponse = z.object({ links: z.array(notificationCardLinkSchema) });
+export type NotificationCardLinksResponse = z.infer<typeof notificationCardLinksResponse>;
+/** `DELETE /v1/notifications/card-links/:app/:last4`. */
+export const notificationCardLinkParam = z.object({
+	app: notificationAppSchema,
+	last4: z.string().regex(/^\d{4}$/, "Final inválido."),
+});

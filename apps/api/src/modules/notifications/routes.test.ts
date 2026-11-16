@@ -224,9 +224,25 @@ describe("lista 'Não entendi'", () => {
 		expect(after.find((t: { amountCents: number }) => t.amountCents === 300)?.cardId).toBe(second.id);
 	});
 
+	it("finais ligados: lista e esquece, e o próximo lançamento volta ao fluxo normal", async () => {
+		const { send, api, call, card } = await prepare();
+		const buy = (text: string, at: number) => ({ package: NU, title: "Compra aprovada", text, postedAt: at });
+		// Único cartão do banco e final diferente: lança nele e guarda o final.
+		const first = "Compra de R$ 9,90 APROVADA em LOJA ONLINE para o cartão com final 5678.";
+		expect((await send([buy(first, POSTED)])).body.results).toEqual(["created"]);
+		const { links } = (await api.get("/v1/notifications/card-links")).body;
+		expect(links).toEqual([{ app: "nubank", last4: "5678", cardId: card.id, cardName: "Nubank Mastercard" }]);
+		expect((await call("DELETE", "/v1/notifications/card-links/nubank/abcd")).status).toBe(400);
+		expect((await call("DELETE", "/v1/notifications/card-links/nubank/5678")).body).toEqual({ ok: true });
+		expect((await call("DELETE", "/v1/notifications/card-links/nubank/5678")).status).toBe(404);
+		expect((await api.get("/v1/notifications/card-links")).body.links).toEqual([]);
+	});
+
 	it("exige o token", async () => {
 		const { call } = await prepare();
 		for (const [method, path] of [
+			["GET", "/v1/notifications/card-links"],
+			["DELETE", "/v1/notifications/card-links/nubank/5678"],
 			["POST", "/v1/notifications/inbox/x/card"],
 			["GET", "/v1/notifications/inbox"],
 			["POST", "/v1/notifications/inbox/retry"],
