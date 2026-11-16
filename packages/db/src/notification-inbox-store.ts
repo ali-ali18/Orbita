@@ -2,8 +2,11 @@ import type { NotificationApp, NotificationInboxReason } from "@orbita/shared";
 
 /** Quantas notificações a lista guarda; ao passar, as mais antigas saem. */
 export const NOTIFICATION_INBOX_LIMIT = 100;
-/** Quantas ofertas ocultas (`reason` "promo") a caixa guarda: à parte, para uma enxurrada de propaganda não expulsar falhas de verdade. */
-export const NOTIFICATION_PROMO_LIMIT = 30;
+/**
+ * Quantas ofertas ocultas (`reason` "promo") a caixa guarda, à parte das falhas: ao estourar sai só a mais antiga, e uma
+ * enxurrada de propaganda nunca expulsa falha de verdade. Ofertas e falhas têm a mesma retenção por idade (30 dias).
+ */
+export const NOTIFICATION_PROMO_LIMIT = 100;
 
 export interface NotificationInboxRecord {
 	id: string;

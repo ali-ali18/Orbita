@@ -523,7 +523,7 @@ model NotificationInbox {
   app       String
   title     String
   text      String
-  /// "format" (não entendi), "target" (entendi, mas não achei o cartão ou a conta), "installment" ou "promo" (parece oferta: fica guardada, oculta da lista principal e da contagem).
+  /// "format" (não entendi), "target" (entendi, mas não achei o cartão ou a conta), "installment", "promo" (parece oferta: fica guardada, oculta da lista principal e da contagem) ou "cancelled" (o banco avisou o cancelamento: o dono dispensa; nunca é lançada).
   reason    String
   /// O dono disse "é compra" para uma oferta oculta: o classificador não a oculta de novo.
   ownerKept Boolean  @default(false) @map("owner_kept")

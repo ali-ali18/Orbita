@@ -72,7 +72,10 @@ export function createPrismaNotificationInboxStore(db: Db, now: () => Date): Not
 		},
 		async setReason(key, reason) {
 			await db.notificationInbox.updateMany({
-				where: reason === "promo" ? { key, ownerKept: false } : { key },
+				where:
+					reason === "promo"
+						? { key, ownerKept: false, reason: { not: "cancelled" } }
+						: { key, reason: { not: "cancelled" } },
 				data: { reason },
 			});
 		},

@@ -127,4 +127,23 @@ describe.each(contractSuites())("NotificationInboxStore (%s)", (_name, make) => 
 		await inbox.setReason("a", "target");
 		expect((await inbox.list())[0]?.reason).toBe("target");
 	});
+
+	it("compra marcada 'cancelled' não muda de motivo (repost, tentar de novo) e conta como pendência", async () => {
+		await inbox.add(item("a", { reason: "target" }));
+		await inbox.setReason("a", "cancelled");
+		await inbox.setReason("a", "target");
+		await inbox.setReason("a", "promo");
+		expect((await inbox.list())[0]?.reason).toBe("cancelled");
+		expect(await inbox.count()).toBe(1);
+		expect(await inbox.countHidden()).toBe(0);
+	});
+
+	it("ao estourar o teto das ofertas, sai só a mais antiga", async () => {
+		for (let i = 0; i < NOTIFICATION_PROMO_LIMIT + 1; i++)
+			await inbox.add(item(`p${i}`, { reason: "promo" }));
+		const keys = (await inbox.list()).map((r) => r.key);
+		expect(keys).toHaveLength(NOTIFICATION_PROMO_LIMIT);
+		expect(keys).not.toContain("p0");
+		expect(keys).toContain(`p${NOTIFICATION_PROMO_LIMIT}`);
+	});
 });
