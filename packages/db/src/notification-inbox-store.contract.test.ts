@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { contractSuites } from "./contract-harness.ts";
-import { NOTIFICATION_INBOX_LIMIT } from "./notification-inbox-store.ts";
+import { NOTIFICATION_INBOX_LIMIT, NOTIFICATION_PROMO_LIMIT } from "./notification-inbox-store.ts";
 import type { Stores } from "./stores.ts";
 
 const POSTED = new Date("2026-11-10T12:00:00Z");
@@ -79,5 +79,32 @@ describe.each(contractSuites())("NotificationInboxStore (%s)", (_name, make) => 
 		expect(keys).not.toContain("k0");
 		expect(keys).not.toContain("k2");
 		expect(keys).toContain("k3");
+	});
+
+	it("oferta oculta (promo) guarda, não entra na contagem e tem limite próprio", async () => {
+		await inbox.add(item("real", { reason: "format" }));
+		await inbox.add(item("oferta", { reason: "promo" }));
+		expect(await inbox.count()).toBe(1);
+		expect(await inbox.countHidden()).toBe(1);
+		expect((await inbox.list()).map((r) => r.key).sort()).toEqual(["oferta", "real"]);
+		for (let i = 0; i < NOTIFICATION_PROMO_LIMIT + 5; i++)
+			await inbox.add(item(`p${i}`, { reason: "promo" }));
+		expect(await inbox.countHidden()).toBe(NOTIFICATION_PROMO_LIMIT);
+		// A enxurrada de oferta não expulsa a falha de verdade.
+		expect(await inbox.count()).toBe(1);
+	});
+
+	it("setReason muda o motivo pela chave; keepAsPurchase devolve a oferta à lista e fixa", async () => {
+		await inbox.add(item("a", { reason: "format" }));
+		await inbox.setReason("a", "promo");
+		expect((await inbox.list())[0]).toMatchObject({ reason: "promo", ownerKept: false });
+		await inbox.setReason("nao-existe", "promo");
+		const id = (await inbox.list())[0]?.id as string;
+		expect(await inbox.keepAsPurchase(id)).toBe(true);
+		expect((await inbox.list())[0]).toMatchObject({ reason: "format", ownerKept: true });
+		expect(await inbox.count()).toBe(1);
+		// Só vale para oferta oculta.
+		expect(await inbox.keepAsPurchase(id)).toBe(false);
+		expect(await inbox.keepAsPurchase("nao-existe")).toBe(false);
 	});
 });

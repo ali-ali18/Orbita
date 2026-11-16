@@ -61,4 +61,12 @@ describe.each(contractSuites())("NotificationCardLinkStore (%s)", (_name, make) 
 		expect(await stores.notificationCardLinks.get("santander", "1234")).toBeNull();
 		expect(await stores.notificationCardLinks.list()).toHaveLength(1);
 	});
+
+	it("guarda a origem da ligação (palpite ou escolha) e a escolha troca o palpite", async () => {
+		const guess = await stores.notificationCardLinks.set("santander", "1234", cardId, "guess");
+		expect(guess.origin).toBe("guess");
+		const chosen = await stores.notificationCardLinks.set("santander", "1234", otherId);
+		expect(chosen).toMatchObject({ origin: "choice", cardId: otherId });
+		expect((await stores.notificationCardLinks.get("santander", "1234"))?.origin).toBe("choice");
+	});
 });

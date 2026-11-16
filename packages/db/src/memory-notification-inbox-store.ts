@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Clock } from "./memory-state.ts";
 import {
 	NOTIFICATION_INBOX_LIMIT,
+	NOTIFICATION_PROMO_LIMIT,
 	type NotificationInboxRecord,
 	type NotificationInboxStore,
 } from "./notification-inbox-store.ts";
@@ -17,8 +18,15 @@ export function createMemoryNotificationInboxStore(now: Clock): NotificationInbo
 		async add(input) {
 			if ([...rows.values()].some((r) => r.key === input.key)) return { created: false };
 			const id = randomUUID();
-			rows.set(id, { id, ...input, createdAt: now() });
-			for (const old of newestFirst().slice(NOTIFICATION_INBOX_LIMIT)) rows.delete(old.id);
+			rows.set(id, { id, ...input, ownerKept: false, createdAt: now() });
+			for (const old of newestFirst()
+				.filter((r) => r.reason !== "promo")
+				.slice(NOTIFICATION_INBOX_LIMIT))
+				rows.delete(old.id);
+			for (const old of newestFirst()
+				.filter((r) => r.reason === "promo")
+				.slice(NOTIFICATION_PROMO_LIMIT))
+				rows.delete(old.id);
 			return { created: true };
 		},
 		async list(limit = NOTIFICATION_INBOX_LIMIT) {
@@ -27,7 +35,20 @@ export function createMemoryNotificationInboxStore(now: Clock): NotificationInbo
 				.map((r) => ({ ...r }));
 		},
 		async count() {
-			return rows.size;
+			return [...rows.values()].filter((r) => r.reason !== "promo").length;
+		},
+		async countHidden() {
+			return [...rows.values()].filter((r) => r.reason === "promo").length;
+		},
+		async setReason(key, reason) {
+			const found = [...rows.values()].find((r) => r.key === key);
+			if (found) rows.set(found.id, { ...found, reason });
+		},
+		async keepAsPurchase(id) {
+			const found = rows.get(id);
+			if (found?.reason !== "promo") return false;
+			rows.set(id, { ...found, reason: "format", ownerKept: true });
+			return true;
 		},
 		async purgeOlderThan(before) {
 			let n = 0;

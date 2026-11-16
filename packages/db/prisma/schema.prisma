@@ -523,8 +523,10 @@ model NotificationInbox {
   app       String
   title     String
   text      String
-  /// "format" (não entendi) ou "target" (entendi, mas não achei o cartão ou a conta).
+  /// "format" (não entendi), "target" (entendi, mas não achei o cartão ou a conta), "installment" ou "promo" (parece oferta: fica guardada, oculta da lista principal e da contagem).
   reason    String
+  /// O dono disse "é compra" para uma oferta oculta: o classificador não a oculta de novo.
+  ownerKept Boolean  @default(false) @map("owner_kept")
   postedAt  DateTime @map("posted_at")
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -539,6 +541,8 @@ model NotificationCardLink {
   app       String
   last4     String
   cardId    String   @map("card_id")
+  /// "choice" (o dono escolheu) ou "guess" (o app ligou porque o banco só tinha um cartão: só vale enquanto for assim).
+  origin    String   @default("choice")
   createdAt DateTime @default(now()) @map("created_at")
 
   card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)

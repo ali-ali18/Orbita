@@ -14,11 +14,11 @@ export function createMemoryNotificationCardLinkStore(state: MemoryState): Notif
 			const found = rows.get(keyOf(app, last4));
 			return found ? { ...found } : null;
 		},
-		async set(app, last4, cardId) {
+		async set(app, last4, cardId, origin = "choice") {
 			if (!/^\d{4}$/.test(last4)) throw invalid("O final do cartão tem 4 dígitos.");
 			if (!state.cards.has(cardId)) throw notFound("Cartão", "o");
 			const key = keyOf(app, last4);
-			const record = { app, last4, cardId, createdAt: rows.get(key)?.createdAt ?? state.now() };
+			const record = { app, last4, cardId, origin, createdAt: rows.get(key)?.createdAt ?? state.now() };
 			rows.set(key, record);
 			return { ...record };
 		},

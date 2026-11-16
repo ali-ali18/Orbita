@@ -114,9 +114,11 @@ export type {
 export type {
 	NotificationCardLinkRecord,
 	NotificationCardLinkStore,
+	NotificationLinkOrigin,
 } from "./notification-card-link-store.ts";
 export {
 	NOTIFICATION_INBOX_LIMIT,
+	NOTIFICATION_PROMO_LIMIT,
 	type NotificationInboxInput,
 	type NotificationInboxRecord,
 	type NotificationInboxStore,

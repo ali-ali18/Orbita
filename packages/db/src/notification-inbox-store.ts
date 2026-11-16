@@ -2,6 +2,8 @@ import type { NotificationApp, NotificationInboxReason } from "@orbita/shared";
 
 /** Quantas notificações a lista guarda; ao passar, as mais antigas saem. */
 export const NOTIFICATION_INBOX_LIMIT = 100;
+/** Quantas ofertas ocultas (`reason` "promo") a caixa guarda: à parte, para uma enxurrada de propaganda não expulsar falhas de verdade. */
+export const NOTIFICATION_PROMO_LIMIT = 30;
 
 export interface NotificationInboxRecord {
 	id: string;
@@ -11,6 +13,8 @@ export interface NotificationInboxRecord {
 	title: string;
 	text: string;
 	reason: NotificationInboxReason;
+	/** O dono disse "é compra" a uma oferta oculta: não se oculta de novo. */
+	ownerKept: boolean;
 	/** Instante que o Android registrou a notificação. */
 	postedAt: Date;
 	createdAt: Date;
@@ -31,7 +35,14 @@ export interface NotificationInboxStore {
 	add(input: NotificationInboxInput): Promise<{ created: boolean }>;
 	/** Mais novas primeiro. */
 	list(limit?: number): Promise<NotificationInboxRecord[]>;
+	/** Quantas esperam o dono ("Não consegui lançar"): NÃO conta as ofertas ocultas. */
 	count(): Promise<number>;
+	/** Quantas ofertas ocultas. */
+	countHidden(): Promise<number>;
+	/** Muda o motivo da que tem esta chave (o classificador mudou de ideia). Sem efeito se não existe. */
+	setReason(key: string, reason: NotificationInboxReason): Promise<void>;
+	/** "É compra": a oferta oculta volta à lista como "format" e não é ocultada de novo. `false` se não existe ou não era oculta. */
+	keepAsPurchase(id: string): Promise<boolean>;
 	/** `false` se não existe. */
 	remove(id: string): Promise<boolean>;
 	/** Apaga as guardadas antes de `before` (prazo da lista). Devolve quantas saíram. */
