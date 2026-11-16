@@ -160,8 +160,12 @@ const DECLINED =
 	/\b(recusad[ao]|negad[ao]|nao aprovad[ao]|nao foi aprovad[ao]|nao autorizad[ao]|nao realizad[ao])\b/;
 /** Estorno, cancelamento e afins mudam um lançamento que já existe: o dono decide, o parser não adivinha. */
 const REVERSAL = /\b(estorn\w*|reembols\w*|cancelad[ao]|cancelamento|contestac\w*|devolvid[ao]|devolucao)\b/;
-/** Aviso que não é movimentação: fatura fechada, limite. Some sem ir para a lista. Oferta NÃO entra aqui (vira oculta). */
-const INFO = /\b(fatura (?:fechou|fechada|disponivel|vence|vencera|ja esta)|limite|vence (?:hoje|amanha))\b/;
+/** Aviso que não é movimentação: fatura fechada, limite, oferta. Igual a origin/main (o que ele descartava, continua). */
+const INFO =
+	/\b(fatura (?:fechou|fechada|disponivel|vence|vencera|ja esta)|limite|oferta|promocao|cashback|desconto|sorteio|convite|vence (?:hoje|amanha))\b/;
+/** Só os avisos de verdade. Texto com R$ que casou `INFO` apenas por palavra de oferta não é descartado: vira oferta oculta ou falha. */
+const NOTICE =
+	/\b(fatura (?:fechou|fechada|disponivel|vence|vencera|ja esta)|limite|vence (?:hoje|amanha))\b/;
 const DEBIT_WORD = /\bdebito\b/;
 const CREDIT_WORD = /\bcredito\b/;
 const LAST4 = /(?:final|finalizado em|terminad[oa] em|terminando em|\*{2,4}|\.{3})\s*(\d{4})\b/;
@@ -229,17 +233,10 @@ function tryParse(original: string): ParseResult {
 	if (hasAmount && INSTALLMENT.test(folded)) return unrecognized(true, "installment");
 	// Dois valores diferentes no mesmo texto (ou texto de terceiro com um valor falso dentro): não dá para saber qual vale.
 	if (distinctAmounts(folded).size > 1) return unrecognized(true);
-	let vetoed = false;
 	const hits: { data: ParsedNotification }[] = [];
 	for (const { kind, re: pattern, uncertainTarget } of PATTERNS) {
 		const m = pattern.exec(folded);
 		if (!m?.groups) continue;
-		// Propaganda nunca vira lançamento: qualquer padrão de compra com indício FORTE de oferta (um sem verbo de
-		// conclusão, ou dois) vai para a lista normal. Palavra fraca (OFF, %) é nome de loja e não conta aqui.
-		if (isOfferText(folded)) {
-			vetoed = true;
-			continue;
-		}
 		const amountCents = parseAmount(m.groups.amount ?? "");
 		if (amountCents === null || amountCents <= 0) continue;
 		const whoRange = m.indices?.groups?.who;
@@ -266,7 +263,6 @@ function tryParse(original: string): ParseResult {
 		if (hits.some((h) => h.data.kind !== first.data.kind)) return unrecognized(true);
 		return { outcome: "parsed", data: first.data };
 	}
-	if (vetoed) return unrecognized(true);
 	if (INFO.test(folded)) return { outcome: "skip", reason: "info" };
 	return unrecognized(hasAmount);
 }
@@ -277,7 +273,18 @@ function tryParse(original: string): ParseResult {
  * para o dono, porque o texto de um app de banco pode trazer conteúdo de terceiros. `app` hoje não muda o resultado.
  */
 export function parseNotification(input: { app: NotificationApp; title: string; text: string }): ParseResult {
-	const result = readNotification(input);
+	let result = readNotification(input);
+	const money = /r\$\s*\d/.test(foldPt(`${input.title} ${input.text}`));
+	// `INFO` de main descartava por "oferta", "cupom"…: com R$ isso perde movimentação (Pix de "OFERTAS SA"). Aqui o
+	// descarte só vale para aviso de verdade; o resto é tratado como o que nenhum padrão leu (oferta oculta ou lista).
+	if (
+		result.outcome === "skip" &&
+		result.reason === "info" &&
+		money &&
+		!NOTICE.test(foldPt(`${input.title} ${input.text}`))
+	) {
+		result = unrecognized(true);
+	}
 	// Oferta (`skip`/"promo") é só uma classificação: quem chama GUARDA o texto, oculto. Aqui o classificador é
 	// conservador: precisa de indício de oferta, nenhuma estrutura de movimentação e nenhum padrão de compra casado.
 	if (result.outcome === "unrecognized" && result.reason === "format" && result.hasAmount) {
@@ -289,21 +296,12 @@ export function parseNotification(input: { app: NotificationApp; title: string; 
 	return result;
 }
 
-/** Indício FORTE de oferta (só ele veta um lançamento): cupom, ganhe, aproveite, confira, desconto, cashback… */
-const STRONG_OFFER =
-	/\b(cupom|cupons|oferta|ofertas|promocao|promocoes|desconto|descontos|ganhe\w*|aproveit\w*|confira|resgat\w*|cashback|sorteio|indique|convid\w*|frete gratis|imperdiv\w*|black friday|acabando|ultimos dias|de volta|a partir de|acima de|ate \d+\s?x)\b/g;
-/** Qualquer indício de oferta, fraco ou forte (OFF, %, "assine", emoji): só serve para ocultar, nunca para vetar. */
+/** Indício de oferta (cupom, OFF, %, "assine", emoji…). Só serve para ocultar o que nenhum padrão leu; nunca decide lançamento. */
 const OFFER =
 	/\b(cupom|cupons|oferta\w*|promo\w*|desconto\w*|off|ganhe\w*|aproveit\w*|confira|resgat\w*|cashback|sorteio|indique|convid\w*|convite|assine|frete gratis|imperdiv\w*|black friday|acabando|ultimos dias|de volta|a partir de|acima de|ate \d+\s?x)\b|\d\s?%|%\s?(?:off|de desconto)|[\u{1F381}\u{1F389}\u{1F525}\u{1F440}\u{1F9E1}\u{1F4B8}]/u;
 /** Verbo de conclusão: a coisa já aconteceu. */
 const COMPLETED =
 	/\b(?:aprovad[ao]|realizad[ao]|efetuad[ao]|recebid[ao]|creditad[ao]|depositad[ao]|enviad[ao]|recebeu|enviou|pagou|pago|paga|debitad\w*|confirmad[ao]|transferid[ao])\b/;
-
-/** É texto de oferta (para vetar lançamento)? Indício forte sem verbo de conclusão, ou dois indícios fortes. */
-function isOfferText(folded: string): boolean {
-	const strong = new Set(folded.match(STRONG_OFFER) ?? []);
-	return strong.size >= 2 || (strong.size === 1 && !COMPLETED.test(folded));
-}
 
 /**
  * Estrutura de movimentação: o tipo de operação em palavra (Pix, TED, transferência, boleto, salário, cobrança,

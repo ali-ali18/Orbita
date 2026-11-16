@@ -434,7 +434,6 @@ describe("parseNotification: propaganda some só com indício positivo de oferta
 		["nubank", "Aviso", "Aconteceu algo com R$ 20,00 na sua conta", "unrecognized"],
 		// Oferta com palavra de movimentação mas sem verbo de conclusão: nunca vira lançamento; vai para a lista.
 		["inter", "Cashback", "Em compras acima de R$200 no cartão você ganha R$ 20 de volta.", "unrecognized"],
-		["nubank", "Oferta", "Compra acima de R$ 200 no cartão ganha cashback", "unrecognized"],
 	];
 	it.each(kept)("%s: %s | %s não é descartado (%s)", (app, title, text, expected) => {
 		const r = parse(app as NotificationApp, text, title);
@@ -480,20 +479,23 @@ describe("parseNotification: erro de classificação não perde nada", () => {
 		});
 	});
 
-	// Propaganda nunca vira lançamento: com padrão de compra e indício de oferta, vai para a lista normal.
-	const offersThatMatchPurchase = [
+	// Decisão: tudo que origin/main lia como compra continua lido, mesmo com palavra de oferta no texto (a oferta só é
+	// classificada sobre o que NENHUM padrão leu, e só oculta). Ver `regression/parse-regression.test.ts`.
+	const stillParsedLikeMain = [
+		"Compra de R$ 30,00 em PROMOCAO LTDA para o cartão com final 4821",
+		"Compra no débito de R$ 1.234,56 em CUPOM FISCAL LTDA",
+		"Compra aprovada R$ 85,00 em MAGAZINE LUIZA. Confira as ofertas",
 		"Na compra de R$ 100,00 em LOJA X ganhe frete grátis",
-		"Compra de R$ 100,00 em LOJA X com 20% de desconto. Aproveite",
-		"Sua compra de R$ 99,00 em LOJA X está com desconto especial",
-		"Compra aprovada em LOJA X por R$ 100,00! Ganhe 10% de volta na próxima. Confira",
-		"Compra no cartão final 1234, de R$ 24,99, em 15/11/26, às 21:58, em LOJA X, aprovada. Aproveite o cupom!",
 	];
-	it.each(offersThatMatchPurchase)("%s: nunca lança", (text) => {
-		expect(parse("nubank", text)).toMatchObject({
-			outcome: "unrecognized",
-			hasAmount: true,
-			reason: "format",
-		});
+	it.each(stillParsedLikeMain)("%s: lança como em main", (text) => {
+		expect(parse("nubank", text).outcome).toBe("parsed");
+	});
+
+	it("Pix com 'ganhe cashback' e fatura paga com oferta continuam lidos como em main", () => {
+		expect(parse("nubank", "Pix recebido: R$ 100,00 de ZE. Ganhe cashback em suas compras!").outcome).toBe(
+			"parsed",
+		);
+		expect(parse("nubank", "Fatura de R$ 99,90 paga! Ganhe cashback").outcome).toBe("parsed");
 	});
 
 	// Palavra fraca (OFF, %) no nome da loja não impede o lançamento.

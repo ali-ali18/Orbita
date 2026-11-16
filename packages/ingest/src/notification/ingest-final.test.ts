@@ -480,23 +480,26 @@ describe("cancelamento: idempotência, chegada antes da compra e notas", () => {
 		expect(after?.note).toBe(`Minha nota ${CANCELLED_NOTE}`);
 	});
 
-	it("final desconhecido exige o nome igual (não basta conter)", async () => {
+	const cancel5555 = (merchant: string, postedAt: number) =>
+		note(
+			SANTANDER,
+			"Compra cancelada!",
+			`Compra no cartão final 5555, no valor de R$ 24,99, em 16/11/26, às 14:08, em ${merchant}, cancelada.`,
+			postedAt,
+		);
+
+	it("final desconhecido: loja só contida não cancela, vai para revisão com a nota", async () => {
 		await ingestNotification(deps(), santanderBuy("1234"));
-		const longer = note(
-			SANTANDER,
-			"Compra cancelada!",
-			"Compra no cartão final 5555, no valor de R$ 24,99, em 16/11/26, às 14:08, em DL.LOJA EXEMPLO LTDA, cancelada.",
-			CANCELLED,
-		);
-		await ingestNotification(deps(), longer);
-		expect(await live()).toHaveLength(1);
-		const same = note(
-			SANTANDER,
-			"Compra cancelada!",
-			"Compra no cartão final 5555, no valor de R$ 24,99, em 16/11/26, às 14:08, em DL.LOJA EXEMPLO, cancelada.",
-			CANCELLED + 120_000,
-		);
-		await ingestNotification(deps(), same);
+		await ingestNotification(deps(), cancel5555("DL.LOJA EXEMPLO LTDA", CANCELLED));
+		const rows = await live();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({ status: "pending" });
+		expect(rows[0]?.note).toContain(CANCELLED_NOTE);
+	});
+
+	it("final desconhecido com o nome igual cancela", async () => {
+		await ingestNotification(deps(), santanderBuy("1234"));
+		await ingestNotification(deps(), cancel5555("DL.LOJA EXEMPLO", CANCELLED + 120_000));
 		expect(await live()).toEqual([]);
 	});
 });
@@ -731,13 +734,6 @@ describe("propaganda do banco", () => {
 		expect(await stores.notificationInbox.countHidden()).toBe(0);
 	});
 
-	it("propaganda que casa padrão de compra nunca lança: vai para a lista normal", async () => {
-		const text = "Na compra de R$ 100,00 em LOJA X ganhe frete grátis";
-		expect(await ingestNotification(deps(), note(INTER, "", text))).toBe("inbox");
-		expect(await stores.transactions.listRecent({ limit: 10 })).toEqual([]);
-		expect((await stores.notificationInbox.list())[0]).toMatchObject({ reason: "format" });
-	});
-
 	it("compra aprovada em formato novo continua indo para a lista", async () => {
 		const unknown = note(
 			INTER,
@@ -799,5 +795,86 @@ describe("propaganda do banco", () => {
 		await retryNotificationInbox(deps());
 		expect((await stores.notificationInbox.list())[0]).toMatchObject({ reason: "format", ownerKept: true });
 		expect(await stores.notificationInbox.countHidden()).toBe(0);
+	});
+});
+
+describe("terceira revisão: reposts, cancelamento único, oferta marcada pelo dono", () => {
+	let stores: Stores;
+	const deps = () => ({ stores, now: () => NOW });
+	const live = () => stores.transactions.listRecent({ limit: 100 });
+	const card = (name: string, last4: string) =>
+		stores.cards.create({ name, bankCode: SANTANDER_ISPB, last4, closingDay: 10, dueDay: 17 });
+
+	beforeEach(async () => {
+		stores = createMemoryStores({ now: () => NOW });
+		await stores.categories.ensureDefaults();
+		await stores.preferences.update({ notificationCapture: true, notificationApps: ["santander"] });
+	});
+
+	it("compra cancelada e reenviada em minuto vizinho não ressuscita", async () => {
+		await card("Santander Free", "1234");
+		await ingestNotification(deps(), santanderBuy("1234", BOUGHT));
+		await ingestNotification(deps(), santanderCancel());
+		expect(await live()).toEqual([]);
+		expect(await ingestNotification(deps(), santanderBuy("1234", BOUGHT + 60_000))).toBe("duplicate");
+		expect(await live()).toEqual([]);
+	});
+
+	it("cancelamento adiantado: a compra anulada e reenviada em minuto vizinho também não volta", async () => {
+		await card("Santander Free", "1234");
+		await ingestNotification(deps(), santanderCancel());
+		expect(await ingestNotification(deps(), santanderBuy("1234", BOUGHT))).toBe("ignored");
+		expect(await ingestNotification(deps(), santanderBuy("1234", BOUGHT + 60_000))).toBe("duplicate");
+		expect(await live()).toEqual([]);
+	});
+
+	it("um cancelamento anula no máximo uma compra: as iguais que esperam na caixa ficam", async () => {
+		await card("Santander Free", "9999");
+		await card("Santander Elite", "8888");
+		await ingestNotification(deps(), santanderBuy("5555", BOUGHT - 3_600_000));
+		await ingestNotification(deps(), santanderBuy("5555", BOUGHT));
+		expect(await stores.notificationInbox.count()).toBe(2);
+		await ingestNotification(deps(), santanderCancel("5555"));
+		const left = await stores.notificationInbox.list();
+		expect(left).toHaveLength(1);
+		// A mais recente saiu; a mais antiga continua esperando.
+		expect(left[0]?.postedAt.getTime()).toBe(BOUGHT - 3_600_000);
+	});
+
+	it("oferta que o dono marcou 'É compra' não é ocultada de novo por repost (mesmo minuto ou vizinho)", async () => {
+		await card("Santander Free", "1234");
+		const promo = note(SANTANDER, "Duo com R$177 OFF!", "Últimos dias! Assine o plano anual.");
+		await ingestNotification(deps(), promo);
+		const [row] = await stores.notificationInbox.list();
+		await stores.notificationInbox.keepAsPurchase(row?.id as string);
+		await ingestNotification(deps(), promo);
+		await ingestNotification(deps(), { ...promo, postedAt: promo.postedAt + 60_000 });
+		const rows = await stores.notificationInbox.list();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({ reason: "format", ownerKept: true });
+		expect(await stores.notificationInbox.countHidden()).toBe(0);
+	});
+
+	it("cancelamento com loja só parecida: a compra do mesmo cartão e valor vai para revisão com a nota", async () => {
+		await card("Santander Free", "1234");
+		const padaria = note(
+			SANTANDER,
+			"Compra aprovada!",
+			"Compra no cartão final 1234, de R$ 24,99, em 15/11/26, às 21:58, em PADARIA SOL, aprovada.",
+		);
+		await ingestNotification(deps(), padaria);
+		const other = note(
+			SANTANDER,
+			"Compra cancelada!",
+			"Compra no cartão final 1234, no valor de R$ 24,99, em 16/11/26, às 14:08, em MERCADO LUA, cancelada.",
+			CANCELLED,
+		);
+		await ingestNotification(deps(), other);
+		const [after] = await live();
+		expect(after).toMatchObject({ status: "pending" });
+		expect(after?.note).toContain(CANCELLED_NOTE);
+		// Nada foi apagado e repetir não acrescenta a nota de novo.
+		await ingestNotification(deps(), other);
+		expect((await live())[0]?.note).toBe(after?.note);
 	});
 });

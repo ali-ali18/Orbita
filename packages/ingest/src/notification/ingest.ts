@@ -93,7 +93,8 @@ async function repostedRecently(
 	const minute = Number(m[2]);
 	for (let d = -REPOST_WINDOW_MINUTES; d <= REPOST_WINDOW_MINUTES; d++) {
 		if (d === 0) continue;
-		if (await transactions.findByExternal(NOTIFICATION_SOURCE, `n:${m[1]}:${minute + d}`)) return true;
+		// Também o apagado (cancelado pelo banco ou pelo dono): o repost não ressuscita o lançamento.
+		if (await transactions.existsByExternal(NOTIFICATION_SOURCE, `n:${m[1]}:${minute + d}`)) return true;
 	}
 	return false;
 }
@@ -377,6 +378,8 @@ async function cancelPurchase(deps: NotificationDeps, n: Resolved, cancel: Cance
 	const candidates = known ? [known.card] : all.filter(isActive).filter(bankMatcher(n.app));
 	const minSimilarity = known ? 1 : 2;
 	const found: { t: TransactionRecord; score: number }[] = [];
+	/** Mesmo cartão e valor, loja só parecida (ou diferente): última chance, vai para revisão. */
+	const similar: { t: TransactionRecord; score: number }[] = [];
 	for (const card of candidates) {
 		const rows = await transactions.listByTarget(
 			{ cardId: card.id },
@@ -387,23 +390,24 @@ async function cancelPurchase(deps: NotificationDeps, n: Resolved, cancel: Cance
 				t.kind !== "expense" ||
 				t.amountCents !== cancel.amountCents ||
 				t.installmentNumber !== null ||
-				cancel.merchant === null ||
-				t.note?.includes(CANCELLED_NOTE)
+				cancel.merchant === null
 			) {
 				continue;
 			}
 			const score = nameSimilarity(t.merchantName ?? t.description, cancel.merchant);
 			if (score >= minSimilarity) found.push({ t, score });
+			// O que já leva o aviso de cancelamento não é sinalizado de novo por uma loja só parecida.
+			else if (!t.note?.includes(CANCELLED_NOTE)) similar.push({ t, score });
 		}
 	}
 	// A loja mais parecida primeiro; depois a data mais recente (a compra cancelada costuma ser a última igual); depois
 	// a criada por último.
-	found.sort(
-		(a, b) =>
-			b.score - a.score ||
-			(a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : 0) ||
-			b.t.createdAt.getTime() - a.t.createdAt.getTime(),
-	);
+	const byBest = (a: { t: TransactionRecord; score: number }, b: { t: TransactionRecord; score: number }) =>
+		b.score - a.score ||
+		(a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : 0) ||
+		b.t.createdAt.getTime() - a.t.createdAt.getTime();
+	found.sort(byBest);
+	similar.sort(byBest);
 	const target = found[0]?.t;
 	let used = false;
 	if (target) {
@@ -423,20 +427,35 @@ async function cancelPurchase(deps: NotificationDeps, n: Resolved, cancel: Cance
 			await transactions.update(target.id, { status: "pending", note: withCancelNote(target.note) });
 		}
 	} else {
+		// Um cancelamento anula no máximo UMA compra (lançamentos e caixa somados): na caixa, a mais parecida e, depois, a
+		// mais recente.
+		let best: { id: string; score: number; at: number } | null = null;
 		for (const row of await notificationInbox.list()) {
 			if (row.app !== n.app || row.postedAt.getTime() > n.postedAt.getTime()) continue;
 			const parsed = parseNotification({ app: row.app, title: row.title, text: row.text });
 			if (
-				parsed.outcome === "parsed" &&
-				parsed.data.kind === "credit_purchase" &&
-				parsed.data.amountCents === cancel.amountCents &&
-				parsed.data.last4 === cancel.last4 &&
-				cancel.merchant !== null &&
-				nameSimilarity(parsed.data.merchant ?? "", cancel.merchant) >= 1
+				parsed.outcome !== "parsed" ||
+				parsed.data.kind !== "credit_purchase" ||
+				parsed.data.amountCents !== cancel.amountCents ||
+				parsed.data.last4 !== cancel.last4 ||
+				cancel.merchant === null
 			) {
-				await notificationInbox.remove(row.id);
-				used = true;
+				continue;
 			}
+			const score = nameSimilarity(parsed.data.merchant ?? "", cancel.merchant);
+			const at = row.postedAt.getTime();
+			if (score >= 1 && (best === null || score > best.score || (score === best.score && at > best.at))) {
+				best = { id: row.id, score, at };
+			}
+		}
+		if (best) {
+			await notificationInbox.remove(best.id);
+			used = true;
+		} else if (similar[0]) {
+			// Nada casou com a loja, mas há compra do mesmo cartão e valor: não se apaga nem se ignora, o dono confere. O
+			// cancelamento continua guardado (pode ser de outra compra que ainda vai chegar).
+			const t = similar[0].t;
+			await transactions.update(t.id, { status: "pending", note: withCancelNote(t.note) });
 		}
 	}
 	await notificationCancellations.register({ ...base, consumed: used });
@@ -482,6 +501,11 @@ async function process(deps: NotificationDeps, prefs: PreferencesRecord, n: Reso
 	const result = parseNotification({ app: n.app, title: n.title, text: n.text });
 	const toInbox = async (reason: NotificationInboxReason) => {
 		await notificationInbox.purgeOlderThan(new Date(deps.now().getTime() - INBOX_MAX_AGE_DAYS * 86_400_000));
+		// A mesma notificação repostada em minuto vizinho já está na caixa: não entra de novo (nem reoculta o que o dono
+		// marcou "É compra").
+		const near = neighborKeys(n.key);
+		if ((await notificationInbox.list()).some((r) => r.key !== n.key && near.includes(r.key)))
+			return "inbox" as const;
 		const { created } = await notificationInbox.add({
 			key: n.key,
 			app: n.app,
