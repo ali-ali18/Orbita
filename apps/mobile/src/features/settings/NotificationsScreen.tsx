@@ -3,6 +3,7 @@ import {
 	NOTIFICATION_APPS,
 	NOTIFICATION_APPS_DEFAULT,
 	type NotificationApp,
+	type NotificationCardLinkDto,
 	type NotificationInboxItemDto,
 	type NotificationSettingsDto,
 	type NotificationSettingsPatchBody,
@@ -30,6 +31,8 @@ import {
 import {
 	useChooseNotificationCard,
 	useDismissNotification,
+	useForgetCardLink,
+	useNotificationCardLinks,
 	useNotificationInbox,
 	useRetryNotificationInbox,
 } from "../notifications/queries.ts";
@@ -64,6 +67,8 @@ export function NotificationsScreen() {
 	const retry = useRetryNotificationInbox();
 	const dismiss = useDismissNotification();
 	const choose = useChooseNotificationCard();
+	const linksQ = useNotificationCardLinks();
+	const forget = useForgetCardLink();
 	const { status, refresh } = useCaptureStatus();
 	const [message, setMessage] = useState<string | null>(null);
 	const [retryResult, setRetryResult] = useState<string | null>(null);
@@ -97,6 +102,8 @@ export function NotificationsScreen() {
 					supported={captureSupported}
 					status={status}
 					inbox={inboxQ.data ?? []}
+					links={linksQ.data ?? []}
+					onForgetLink={(link) => forget.mutate(link)}
 					busy={update.isPending}
 					message={message}
 					retryMessage={retryResult}
@@ -146,6 +153,7 @@ export function NotificationsView({
 	supported,
 	status,
 	inbox,
+	links = [],
 	busy = false,
 	message = null,
 	retryMessage = null,
@@ -161,11 +169,14 @@ export function NotificationsView({
 	onDismiss,
 	choosing = null,
 	onChooseCard,
+	onForgetLink,
 }: {
 	settings: NotificationSettingsDto;
 	supported: boolean;
 	status: NativeStatus | null;
 	inbox: readonly NotificationInboxItemDto[];
+	/** Finais ligados a um cartão (cartão virtual). */
+	links?: readonly NotificationCardLinkDto[];
 	busy?: boolean;
 	message?: string | null;
 	retryMessage?: string | null;
@@ -182,6 +193,7 @@ export function NotificationsView({
 	/** Id da notificação cujo cartão está sendo gravado. */
 	choosing?: string | null;
 	onChooseCard: (id: string, cardId: string) => void;
+	onForgetLink: (link: { app: NotificationApp; last4: string }) => void;
 }) {
 	const view = captureView({ supported, capture: settings.capture, apps: settings.apps, status });
 	const delivery = supported && settings.capture ? deliveryLine(status, now) : null;
@@ -269,6 +281,28 @@ export function NotificationsView({
 					trailing={<StaticSwitch on={settings.toReview} />}
 				/>
 			</SettingsSection>
+
+			{links.length > 0 ? (
+				<SettingsSection title="Finais ligados">
+					<View style={{ padding: spacing.lg, gap: spacing.sm }}>
+						{links.map((link) => (
+							<View
+								key={`${link.app}-${link.last4}`}
+								style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}
+							>
+								<Text variant="caption" style={{ flex: 1 }}>
+									{`${NOTIFICATION_APP_LABELS[link.app]} ••${link.last4} → ${link.cardName}`}
+								</Text>
+								<IconButton
+									icon="fechar"
+									label={`Esquecer final ${link.last4}`}
+									onPress={() => onForgetLink({ app: link.app, last4: link.last4 })}
+								/>
+							</View>
+						))}
+					</View>
+				</SettingsSection>
+			) : null}
 
 			{inbox.length > 0 ? (
 				<SettingsSection title={`Não consegui lançar (${inbox.length})`}>

@@ -77,6 +77,10 @@ function NotificationsPreview({ needsAccess }: { needsAccess: boolean }) {
 				onRetry={noop}
 				onDismiss={noop}
 				onChooseCard={noop}
+				onForgetLink={noop}
+				links={
+					needsAccess ? [] : [{ app: "nubank", last4: "5678", cardId: "c1", cardName: "Nubank Mastercard" }]
+				}
 			/>
 		</SubScreen>
 	);

@@ -1,3 +1,4 @@
+import type { NotificationApp } from "@orbita/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { call } from "../../lib/api.ts";
 import { useSession } from "../../lib/session.tsx";
@@ -61,5 +62,27 @@ export function useChooseNotificationCard() {
 				}),
 			),
 		onSuccess: () => refresh(true),
+	});
+}
+
+/** Finais de cartão virtual ligados a um cartão (o app lembra; o dono pode esquecer). */
+export function useNotificationCardLinks() {
+	const { api, baseUrl } = useScoped();
+	return useQuery({
+		queryKey: [baseUrl, "notification-card-links"],
+		queryFn: async () => (await call(() => api.v1.notifications["card-links"].$get())).links,
+	});
+}
+
+export function useForgetCardLink() {
+	const { api, baseUrl } = useScoped();
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async (link: { app: NotificationApp; last4: string }) => {
+			await call(() => api.v1.notifications["card-links"][":app"][":last4"].$delete({ param: link }));
+		},
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: [baseUrl, "notification-card-links"] });
+		},
 	});
 }
