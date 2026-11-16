@@ -5,6 +5,7 @@ import {
 	captureView,
 	cardChoiceLabel,
 	deliveryLine,
+	hiddenOffersLabel,
 	inboxCaption,
 	isVerifiedApp,
 	type NativeStatus,
@@ -102,5 +103,12 @@ describe("cardChoiceLabel", () => {
 	it("nome e final; sem final, só o nome", () => {
 		expect(cardChoiceLabel({ name: "Santander Free", last4: "9999" })).toBe("Santander Free ••9999");
 		expect(cardChoiceLabel({ name: "Nubank", last4: null })).toBe("Nubank");
+	});
+});
+
+describe("hiddenOffersLabel", () => {
+	it("singular e plural", () => {
+		expect(hiddenOffersLabel(1)).toBe("1 oferta oculta");
+		expect(hiddenOffersLabel(3)).toBe("3 ofertas ocultas");
 	});
 });

@@ -86,3 +86,15 @@ export function useForgetCardLink() {
 		},
 	});
 }
+
+/** "É compra": a oferta oculta volta à lista como "Não entendi o formato". */
+export function useKeepOfferAsPurchase() {
+	const { api } = useScoped();
+	const refresh = useRefreshAfter();
+	return useMutation({
+		mutationFn: async (id: string) => {
+			await call(() => api.v1.notifications.inbox[":id"].purchase.$post({ param: { id } }));
+		},
+		onSuccess: () => refresh(false),
+	});
+}

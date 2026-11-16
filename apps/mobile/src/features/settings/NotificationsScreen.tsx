@@ -10,13 +10,14 @@ import {
 } from "@orbita/shared";
 import { colors, radius, spacing } from "@orbita/tokens";
 import { useCallback, useEffect, useState } from "react";
-import { AppState, View } from "react-native";
+import { AppState, Pressable, View } from "react-native";
 import { errorMessage, toLoadable } from "../../lib/loadable.ts";
 import { BankLogo, Button, ErrorState, IconButton, Skeleton, Text } from "../../ui/index.ts";
 import {
 	captureView,
 	cardChoiceLabel,
 	deliveryLine,
+	hiddenOffersLabel,
 	inboxCaption,
 	isVerifiedApp,
 	type NativeStatus,
@@ -32,6 +33,7 @@ import {
 	useChooseNotificationCard,
 	useDismissNotification,
 	useForgetCardLink,
+	useKeepOfferAsPurchase,
 	useNotificationCardLinks,
 	useNotificationInbox,
 	useRetryNotificationInbox,
@@ -69,6 +71,7 @@ export function NotificationsScreen() {
 	const choose = useChooseNotificationCard();
 	const linksQ = useNotificationCardLinks();
 	const forget = useForgetCardLink();
+	const keep = useKeepOfferAsPurchase();
 	const { status, refresh } = useCaptureStatus();
 	const [message, setMessage] = useState<string | null>(null);
 	const [retryResult, setRetryResult] = useState<string | null>(null);
@@ -104,6 +107,7 @@ export function NotificationsScreen() {
 					inbox={inboxQ.data ?? []}
 					links={linksQ.data ?? []}
 					onForgetLink={(link) => forget.mutate(link)}
+					onKeepOffer={(id) => keep.mutate(id)}
 					busy={update.isPending}
 					message={message}
 					retryMessage={retryResult}
@@ -170,6 +174,7 @@ export function NotificationsView({
 	choosing = null,
 	onChooseCard,
 	onForgetLink,
+	onKeepOffer,
 }: {
 	settings: NotificationSettingsDto;
 	supported: boolean;
@@ -194,7 +199,12 @@ export function NotificationsView({
 	choosing?: string | null;
 	onChooseCard: (id: string, cardId: string) => void;
 	onForgetLink: (link: { app: NotificationApp; last4: string }) => void;
+	/** "É compra": devolve a oferta oculta à lista. */
+	onKeepOffer: (id: string) => void;
 }) {
+	const [offersOpen, setOffersOpen] = useState(false);
+	const failures = inbox.filter((item) => item.reason !== "promo");
+	const offers = inbox.filter((item) => item.reason === "promo");
 	const view = captureView({ supported, capture: settings.capture, apps: settings.apps, status });
 	const delivery = supported && settings.capture ? deliveryLine(status, now) : null;
 	return (
@@ -304,10 +314,10 @@ export function NotificationsView({
 				</SettingsSection>
 			) : null}
 
-			{inbox.length > 0 ? (
-				<SettingsSection title={`Não consegui lançar (${inbox.length})`}>
+			{failures.length > 0 ? (
+				<SettingsSection title={`Não consegui lançar (${failures.length})`}>
 					<View style={{ padding: spacing.lg, gap: spacing.md }}>
-						{inbox.map((item) => (
+						{failures.map((item) => (
 							<View
 								key={item.id}
 								style={{
@@ -355,6 +365,56 @@ export function NotificationsView({
 						) : null}
 					</View>
 				</SettingsSection>
+			) : null}
+
+			{offers.length > 0 ? (
+				<View style={{ gap: spacing.sm }}>
+					<Pressable
+						accessibilityRole="button"
+						accessibilityState={{ expanded: offersOpen }}
+						onPress={() => setOffersOpen((open) => !open)}
+						style={{ paddingVertical: spacing.sm }}
+					>
+						<Text variant="caption" tone="tertiary">
+							{hiddenOffersLabel(offers.length)}
+						</Text>
+					</Pressable>
+					{offersOpen
+						? offers.map((item) => (
+								<View
+									key={item.id}
+									style={{
+										flexDirection: "row",
+										alignItems: "flex-start",
+										gap: spacing.md,
+										backgroundColor: colors.surface2,
+										borderRadius: radius.inner,
+										padding: spacing.md,
+									}}
+								>
+									<View style={{ flex: 1, gap: spacing.sm }}>
+										<Text variant="micro" tone="secondary">
+											{inboxCaption(item, now)}
+										</Text>
+										<Text variant="caption">{item.title ? `${item.title}: ${item.text}` : item.text}</Text>
+										<View style={{ flexDirection: "row" }}>
+											<Button
+												variant="secondary"
+												compact
+												label="É compra"
+												onPress={() => onKeepOffer(item.id)}
+											/>
+										</View>
+									</View>
+									<IconButton
+										icon="fechar"
+										label="Descartar notificação"
+										onPress={() => onDismiss(item.id)}
+									/>
+								</View>
+							))
+						: null}
+				</View>
 			) : null}
 
 			{message ? (

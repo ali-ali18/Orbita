@@ -126,7 +126,13 @@ export const INBOX_REASON_LABEL: Record<NotificationInboxReason, string> = {
 	format: "Não entendi o formato",
 	target: "Não achei o cartão ou a conta",
 	installment: "Compra parcelada: lance você mesmo",
+	promo: "Oferta",
 };
+
+/** Linha discreta no fim da lista: "3 ofertas ocultas". */
+export function hiddenOffersLabel(count: number): string {
+	return count === 1 ? "1 oferta oculta" : `${count} ofertas ocultas`;
+}
 
 /** Botão de escolha do cartão: nome e final ("Santander Free ••9999"). */
 export function cardChoiceLabel(card: { name: string; last4: string | null }): string {

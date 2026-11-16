@@ -57,6 +57,24 @@ function NotificationsPreview({ needsAccess }: { needsAccess: boolean }) {
 									},
 								},
 								{
+									id: "n3",
+									app: "inter",
+									title: "Duo com R$177 OFF!",
+									text: "Últimos dias! Assine o plano anual.",
+									reason: "promo",
+									postedAt: "2026-11-15T08:00:00Z",
+									choose: null,
+								},
+								{
+									id: "n4",
+									app: "inter",
+									title: "R$177OFF + de R$100 em vinhos",
+									text: "no plano anual com o cupom X.",
+									reason: "promo",
+									postedAt: "2026-11-15T07:00:00Z",
+									choose: null,
+								},
+								{
 									id: "n2",
 									app: "inter",
 									title: "Compra aprovada",
@@ -78,6 +96,7 @@ function NotificationsPreview({ needsAccess }: { needsAccess: boolean }) {
 				onDismiss={noop}
 				onChooseCard={noop}
 				onForgetLink={noop}
+				onKeepOffer={noop}
 				links={
 					needsAccess ? [] : [{ app: "nubank", last4: "5678", cardId: "c1", cardName: "Nubank Mastercard" }]
 				}
