@@ -127,6 +127,7 @@ export const INBOX_REASON_LABEL: Record<NotificationInboxReason, string> = {
 	target: "Não achei o cartão ou a conta",
 	installment: "Compra parcelada: lance você mesmo",
 	promo: "Oferta",
+	cancelled: "Cancelada",
 };
 
 /** Linha discreta no fim da lista: "3 ofertas ocultas". */

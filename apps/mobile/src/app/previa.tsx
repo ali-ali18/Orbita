@@ -75,6 +75,15 @@ function NotificationsPreview({ needsAccess }: { needsAccess: boolean }) {
 									choose: null,
 								},
 								{
+									id: "n5",
+									app: "santander",
+									title: "Compra aprovada!",
+									text: "Compra no cartão final 1234, de R$ 24,99, em 15/11/26, às 21:58, em LOJA EXEMPLO, aprovada.",
+									reason: "cancelled",
+									postedAt: "2026-11-15T12:00:00Z",
+									choose: null,
+								},
+								{
 									id: "n2",
 									app: "inter",
 									title: "Compra aprovada",
