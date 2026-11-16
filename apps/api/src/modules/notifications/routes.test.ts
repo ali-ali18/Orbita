@@ -224,6 +224,59 @@ describe("lista 'Não entendi'", () => {
 		expect(after.find((t: { amountCents: number }) => t.amountCents === 300)?.cardId).toBe(second.id);
 	});
 
+	it("oferta fica oculta (fora da contagem), 'é compra' a devolve à lista e só o cartão oferecido é aceito", async () => {
+		const { send, api, call } = await prepare();
+		const promo = {
+			package: NU,
+			title: "R$177OFF + de R$100 em vinhos",
+			text: "no plano anual com o cupom X. Está acabando!",
+			postedAt: POSTED,
+		};
+		expect((await send([promo])).body.results).toEqual(["ignored"]);
+		expect((await api.get("/v1/notification-settings")).body.notifications.inbox).toBe(0);
+		const [item] = (await api.get("/v1/notifications/inbox")).body.items;
+		expect(item).toMatchObject({ reason: "promo", choose: null });
+		expect((await api.post("/v1/notifications/inbox/retry")).body).toEqual({ created: 0, remaining: 0 });
+		expect((await api.get("/v1/notifications/inbox")).body.items).toHaveLength(1);
+
+		expect((await call("POST", `/v1/notifications/inbox/${item.id}/purchase`)).body).toEqual({ ok: true });
+		expect((await call("POST", `/v1/notifications/inbox/${item.id}/purchase`)).status).toBe(404);
+		expect((await api.get("/v1/notification-settings")).body.notifications.inbox).toBe(1);
+		expect((await api.get("/v1/notifications/inbox")).body.items[0].reason).toBe("format");
+
+		// Cartão que a lista não ofereceu: recusado, em pt-BR.
+		await api.post("/v1/cards", {
+			name: "Nubank Gold",
+			bankCode: "18236120",
+			last4: "1111",
+			closingDay: 10,
+			dueDay: 17,
+		});
+		const outsider = (
+			await api.post("/v1/cards", {
+				name: "Inter",
+				bankCode: "00416968",
+				last4: "2222",
+				closingDay: 10,
+				dueDay: 17,
+			})
+		).body.card;
+		await send([
+			{
+				package: NU,
+				title: "Compra aprovada",
+				text: "Compra de R$ 9,90 APROVADA em LOJA para o cartão com final 5678.",
+				postedAt: POSTED + 60_000,
+			},
+		]);
+		const target = (await api.get("/v1/notifications/inbox")).body.items.find(
+			(i: { reason: string }) => i.reason === "target",
+		);
+		const res = await call("POST", `/v1/notifications/inbox/${target.id}/card`, { cardId: outsider.id });
+		expect(res.status).toBe(400);
+		expect(res.body.error.message).toContain("oferecidos");
+	});
+
 	it("finais ligados: lista e esquece, e o próximo lançamento volta ao fluxo normal", async () => {
 		const { send, api, call, card } = await prepare();
 		const buy = (text: string, at: number) => ({ package: NU, title: "Compra aprovada", text, postedAt: at });
@@ -244,6 +297,7 @@ describe("lista 'Não entendi'", () => {
 			["GET", "/v1/notifications/card-links"],
 			["DELETE", "/v1/notifications/card-links/nubank/5678"],
 			["POST", "/v1/notifications/inbox/x/card"],
+			["POST", "/v1/notifications/inbox/x/purchase"],
 			["GET", "/v1/notifications/inbox"],
 			["POST", "/v1/notifications/inbox/retry"],
 			["DELETE", "/v1/notifications/inbox/x"],
